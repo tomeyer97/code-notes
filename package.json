@@ -1,0 +1,1302 @@
+{
+  "name": "code-notes",
+  "displayName": "Code Notes",
+  "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
+  "version": "0.23.0",
+  "publisher": "tomeyer97",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1b4b",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tomeyer97/code-notes.git"
+  },
+  "homepage": "https://github.com/tomeyer97/code-notes#readme",
+  "bugs": {
+    "url": "https://github.com/tomeyer97/code-notes/issues"
+  },
+  "keywords": [
+    "notes",
+    "code review",
+    "comments",
+    "ai",
+    "claude",
+    "agent",
+    "code tour",
+    "walkthrough",
+    "onboarding",
+    "architecture"
+  ],
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other",
+    "Education",
+    "Visualization"
+  ],
+  "main": "./out/src/extension.js",
+  "files": [
+    "out/src/**/*.js",
+    "out/vendor/**",
+    "media/**",
+    "skills/code-journey/SKILL.md",
+    "skills/code-journey/scripts/journey.py",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:codeNotes.journey",
+    "onUri"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeNotes",
+          "title": "Code Notes",
+          "icon": "media/notes.svg"
+        }
+      ]
+    },
+    "views": {
+      "codeNotes": [
+        {
+          "id": "codeNotes.notes",
+          "name": "Code Notes"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "codeNotes.notes",
+        "contents": "Select code and press Ctrl+' C to leave a note.\n[Add a Note](command:codeNotes.add)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "codeNotes.add",
+        "title": "Add Note",
+        "category": "Code Notes",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "codeNotes.addQuick",
+        "title": "Add One-Line Note",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.reply",
+        "title": "Reply",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.createFromThread",
+        "title": "Add Note",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.reveal",
+        "title": "Open Thread",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.resolve",
+        "title": "Resolve",
+        "category": "Code Notes",
+        "icon": "$(check)"
+      },
+      {
+        "command": "codeNotes.reopen",
+        "title": "Reopen",
+        "category": "Code Notes",
+        "icon": "$(issue-reopened)"
+      },
+      {
+        "command": "codeNotes.delete",
+        "title": "Delete Note",
+        "category": "Code Notes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "codeNotes.acceptCode",
+        "title": "Keep Note Here",
+        "category": "Code Notes",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "codeNotes.moveToSelection",
+        "title": "Move Note…",
+        "category": "Code Notes",
+        "icon": "$(move)"
+      },
+      {
+        "command": "codeNotes.completeMove",
+        "title": "Move Note Here",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.cancelMove",
+        "title": "Cancel Moving Note",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.openNoteFile",
+        "title": "Open Note File (JSON)",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.copyNotePrompt",
+        "title": "Copy Prompt for This Note",
+        "category": "Code Notes",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "codeNotes.resolveChecked",
+        "title": "Resolve Selected Notes",
+        "category": "Code Notes",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "codeNotes.resolveAll",
+        "title": "Resolve All Open Notes…",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.deleteResolved",
+        "title": "Purge Resolved Notes…",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.markAllRead",
+        "title": "Mark All Read",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.showResolved",
+        "title": "Show Resolved Notes",
+        "category": "Code Notes",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "codeNotes.hideResolved",
+        "title": "Hide Resolved Notes",
+        "category": "Code Notes",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "codeNotes.nextUnread",
+        "title": "Next Unread Reply",
+        "category": "Code Notes",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "codeNotes.previousUnread",
+        "title": "Previous Unread Reply",
+        "category": "Code Notes",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "codeNotes.filter",
+        "title": "Filter Notes…",
+        "category": "Code Notes",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "codeNotes.find",
+        "title": "Find Note…",
+        "category": "Code Notes",
+        "icon": "$(search)"
+      },
+      {
+        "command": "codeNotes.refresh",
+        "title": "Reload Notes",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.copyAgentPrompt",
+        "title": "Copy Prompt for Agent",
+        "category": "Code Notes",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "codeNotes.replyResolve",
+        "title": "Reply & Resolve",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.hideSession",
+        "title": "Hide Session in Editor",
+        "category": "Code Notes",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "codeNotes.showSession",
+        "title": "Show Session in Editor",
+        "category": "Code Notes",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "codeNotes.showOnlySession",
+        "title": "Show Only This Session",
+        "category": "Code Notes",
+        "icon": "$(target)"
+      },
+      {
+        "command": "codeNotes.showAllSessions",
+        "title": "Show All Sessions",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.resolveSession",
+        "title": "Resolve Session…",
+        "category": "Code Notes",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "codeNotes.deleteSession",
+        "title": "Delete Session…",
+        "category": "Code Notes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "codeNotes.openAt",
+        "title": "Open Code Reference",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.expandThread",
+        "title": "Show Whole Thread",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.markUnread",
+        "title": "Mark as Unread",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.askClaude",
+        "title": "Ask Claude",
+        "category": "Code Notes",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "codeNotes.cancelClaude",
+        "title": "Stop Claude",
+        "category": "Code Notes",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "codeNotes.replyReopen",
+        "title": "Reply & Reopen",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.filterActive",
+        "title": "Filter Notes (filtered)…",
+        "category": "Code Notes",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "codeNotes.undo",
+        "title": "Undo",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.openBroken",
+        "title": "Open Note File at the Problem",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.restoreBroken",
+        "title": "Restore Last Good Version",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.collapseThread",
+        "title": "Show Fewer Replies",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.openJourney",
+        "title": "Open Journey…",
+        "category": "Code Notes",
+        "icon": "$(map)"
+      },
+      {
+        "command": "codeNotes.askQuestion",
+        "title": "Ask a Question About the Code…",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.startJourney",
+        "title": "Start Journey",
+        "category": "Code Notes",
+        "icon": "$(play)"
+      },
+      {
+        "command": "codeNotes.nextStep",
+        "title": "Next Step",
+        "category": "Code Notes",
+        "icon": "$(chevron-right)"
+      },
+      {
+        "command": "codeNotes.previousStep",
+        "title": "Previous Step",
+        "category": "Code Notes",
+        "icon": "$(chevron-left)"
+      },
+      {
+        "command": "codeNotes.endJourney",
+        "title": "End Journey",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.next",
+        "title": "Next Step or Unread Reply",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.previous",
+        "title": "Previous Step or Unread Reply",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.resolveNext",
+        "title": "Resolve and Go to Next Unread",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.groupByFile",
+        "title": "Group by File",
+        "category": "Code Notes",
+        "icon": "$(files)"
+      },
+      {
+        "command": "codeNotes.groupBySession",
+        "title": "Group by Session",
+        "category": "Code Notes",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "codeNotes.addPathNote",
+        "title": "Add Code Note…",
+        "category": "Code Notes",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "codeNotes.applySuggestion",
+        "title": "Apply Suggestion",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.showMap",
+        "title": "Show Journey Map",
+        "category": "Code Notes",
+        "icon": "$(map)"
+      },
+      {
+        "command": "codeNotes.askStep",
+        "title": "Ask About This Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.stepDetails",
+        "title": "Show Step Details",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.tutorial",
+        "title": "Journey Tutorial",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.backToStep",
+        "title": "Back to the Journey Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.askFromThread",
+        "title": "Ask",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.toggleAuthorMode",
+        "title": "Turn Off Journey Author Mode",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.toggleAnimation",
+        "title": "Play or Stop the Step's Animation",
+        "category": "Code Notes"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "codeNotes.add",
+        "key": "ctrl+[IntlBackslash] ctrl+c",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.add",
+        "key": "ctrl+[IntlBackslash] c",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.resolveNext",
+        "key": "ctrl+[IntlBackslash] ctrl+r",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.resolveNext",
+        "key": "ctrl+[IntlBackslash] r",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.next",
+        "key": "ctrl+[IntlBackslash] ctrl+d",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.next",
+        "key": "ctrl+[IntlBackslash] d",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.previous",
+        "key": "ctrl+[IntlBackslash] ctrl+a",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.previous",
+        "key": "ctrl+[IntlBackslash] a",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.showMap",
+        "key": "ctrl+[IntlBackslash] ctrl+v",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.showMap",
+        "key": "ctrl+[IntlBackslash] v",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.toggleAnimation",
+        "key": "ctrl+[IntlBackslash] ctrl+p",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.toggleAnimation",
+        "key": "ctrl+[IntlBackslash] p",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.add",
+        "key": "ctrl+' ctrl+c",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.add",
+        "key": "ctrl+' c",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.resolveNext",
+        "key": "ctrl+' ctrl+r",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.resolveNext",
+        "key": "ctrl+' r",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.next",
+        "key": "ctrl+' ctrl+d",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.next",
+        "key": "ctrl+' d",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.previous",
+        "key": "ctrl+' ctrl+a",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.previous",
+        "key": "ctrl+' a",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.showMap",
+        "key": "ctrl+' ctrl+v",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.showMap",
+        "key": "ctrl+' v",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.toggleAnimation",
+        "key": "ctrl+' ctrl+p",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.toggleAnimation",
+        "key": "ctrl+' p",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.cancelMove",
+        "key": "escape",
+        "when": "codeNotes.moving && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeNotes.add",
+          "group": "z_codeNotes@1"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "codeNotes.askFromThread",
+          "group": "inline@0",
+          "when": "commentController == codeNotes && commentThread == stepAsk"
+        },
+        {
+          "command": "codeNotes.createFromThread",
+          "group": "inline",
+          "when": "commentController == codeNotes && commentThreadIsEmpty && commentThread != stepAsk"
+        },
+        {
+          "command": "codeNotes.reply",
+          "group": "inline@1",
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && !(commentThread =~ /resolved/)"
+        },
+        {
+          "command": "codeNotes.replyReopen",
+          "group": "inline@1",
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /resolved/"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "codeNotes.cancelClaude",
+          "group": "navigation@0",
+          "when": "commentController == codeNotes && commentThread =~ /asking/"
+        },
+        {
+          "command": "codeNotes.askClaude",
+          "group": "navigation@0",
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /asking/) && codeNotes.claudeFound"
+        },
+        {
+          "command": "codeNotes.resolve",
+          "group": "navigation@4",
+          "when": "commentController == codeNotes && commentThread =~ /open/"
+        },
+        {
+          "command": "codeNotes.reopen",
+          "group": "navigation@4",
+          "when": "commentController == codeNotes && commentThread =~ /resolved/"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "codeNotes.nextUnread",
+          "group": "navigation@1",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.filter",
+          "group": "0_find@2",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes && !codeNotes.filtered"
+        },
+        {
+          "command": "codeNotes.filterActive",
+          "group": "navigation@3",
+          "when": "view == codeNotes.notes && codeNotes.filtered"
+        },
+        {
+          "command": "codeNotes.resolveChecked",
+          "group": "navigation@4",
+          "when": "view == codeNotes.notes && codeNotes.hasChecked"
+        },
+        {
+          "command": "codeNotes.showResolved",
+          "group": "1_view@1",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes && !codeNotes.showResolved"
+        },
+        {
+          "command": "codeNotes.hideResolved",
+          "group": "1_view@1",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes && codeNotes.showResolved"
+        },
+        {
+          "command": "codeNotes.resolveAll",
+          "group": "2_bulk@2",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.showAllSessions",
+          "group": "1_view@2",
+          "when": "view == codeNotes.notes && codeNotes.hasHiddenSessions"
+        },
+        {
+          "command": "codeNotes.groupBySession",
+          "group": "1_view@0",
+          "when": "view == codeNotes.notes && codeNotes.groupBy == 'file' && codeNotes.hasSessions"
+        },
+        {
+          "command": "codeNotes.groupByFile",
+          "group": "1_view@0",
+          "when": "view == codeNotes.notes && codeNotes.groupBy == 'session' && codeNotes.hasSessions"
+        },
+        {
+          "command": "codeNotes.markAllRead",
+          "group": "2_bulk@3",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.deleteResolved",
+          "group": "2_bulk@4",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.copyAgentPrompt",
+          "group": "2_bulk@5",
+          "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "codeNotes.acceptCode",
+          "group": "inline@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /stale/"
+        },
+        {
+          "command": "codeNotes.resolve",
+          "group": "inline@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+        },
+        {
+          "command": "codeNotes.reopen",
+          "group": "inline@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /resolved/"
+        },
+        {
+          "command": "codeNotes.resolve",
+          "group": "1_note@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+        },
+        {
+          "command": "codeNotes.reopen",
+          "group": "1_note@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /resolved/"
+        },
+        {
+          "command": "codeNotes.copyNotePrompt",
+          "group": "1_note@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/"
+        },
+        {
+          "command": "codeNotes.moveToSelection",
+          "group": "1_note@3",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /stale/"
+        },
+        {
+          "command": "codeNotes.acceptCode",
+          "group": "1_note@4",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /stale/"
+        },
+        {
+          "command": "codeNotes.openNoteFile",
+          "group": "2_file@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/"
+        },
+        {
+          "command": "codeNotes.delete",
+          "group": "3_danger@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/"
+        },
+        {
+          "command": "codeNotes.hideSession",
+          "group": "inline@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/ && viewItem =~ /shown/"
+        },
+        {
+          "command": "codeNotes.showSession",
+          "group": "inline@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/ && viewItem =~ /hidden/"
+        },
+        {
+          "command": "codeNotes.showOnlySession",
+          "group": "inline@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/"
+        },
+        {
+          "command": "codeNotes.showOnlySession",
+          "group": "1_session@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/"
+        },
+        {
+          "command": "codeNotes.showAllSessions",
+          "group": "1_session@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/ && codeNotes.hasHiddenSessions"
+        },
+        {
+          "command": "codeNotes.resolveSession",
+          "group": "2_session@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/ && viewItem =~ /named/"
+        },
+        {
+          "command": "codeNotes.deleteSession",
+          "group": "3_danger@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^session/ && viewItem =~ /named/"
+        },
+        {
+          "command": "codeNotes.reveal",
+          "group": "0_open@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/"
+        },
+        {
+          "command": "codeNotes.markUnread",
+          "group": "1_note@5",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /replied/ && !(viewItem =~ /unread/)"
+        },
+        {
+          "command": "codeNotes.askClaude",
+          "group": "0_open@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && !(viewItem =~ /resolved/) && !(viewItem =~ /asking/) && config.codeNotes.claude.mode != 'off' && codeNotes.claudeFound"
+        },
+        {
+          "command": "codeNotes.cancelClaude",
+          "group": "0_open@3",
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /asking/"
+        },
+        {
+          "command": "codeNotes.restoreBroken",
+          "group": "1_broken@1",
+          "when": "view == codeNotes.notes && viewItem =~ /^broken;known/"
+        },
+        {
+          "command": "codeNotes.openBroken",
+          "group": "1_broken@2",
+          "when": "view == codeNotes.notes && viewItem =~ /^broken/"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeNotes.reply",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.createFromThread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.reveal",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.resolveChecked",
+          "when": "codeNotes.hasChecked"
+        },
+        {
+          "command": "codeNotes.completeMove",
+          "when": "codeNotes.moving"
+        },
+        {
+          "command": "codeNotes.cancelMove",
+          "when": "codeNotes.moving"
+        },
+        {
+          "command": "codeNotes.showResolved",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.hideResolved",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.resolve",
+          "when": "codeNotes.cursorOnNote"
+        },
+        {
+          "command": "codeNotes.reopen",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.delete",
+          "when": "codeNotes.cursorOnNote"
+        },
+        {
+          "command": "codeNotes.acceptCode",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.moveToSelection",
+          "when": "codeNotes.cursorOnNote"
+        },
+        {
+          "command": "codeNotes.openNoteFile",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.copyNotePrompt",
+          "when": "codeNotes.cursorOnNote"
+        },
+        {
+          "command": "codeNotes.replyResolve",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.openAt",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.expandThread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.markUnread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.askClaude",
+          "when": "codeNotes.cursorOnNote && config.codeNotes.claude.mode != 'off' && codeNotes.claudeFound"
+        },
+        {
+          "command": "codeNotes.cancelClaude",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.replyReopen",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.filterActive",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.openBroken",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.restoreBroken",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.collapseThread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.undo",
+          "when": "codeNotes.canUndo"
+        },
+        {
+          "command": "codeNotes.showAllSessions",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.applySuggestion",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.groupByFile",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.groupBySession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.openJourney",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.showMap",
+          "when": "codeNotes.journeyActive"
+        },
+        {
+          "command": "codeNotes.startJourney",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.nextStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.previousStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.endJourney",
+          "when": "codeNotes.journeyActive"
+        },
+        {
+          "command": "codeNotes.askStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.stepDetails",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.next",
+          "when": "codeNotes.hasJourneys || codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.previous",
+          "when": "codeNotes.hasJourneys || codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.tutorial",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.addQuick",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.addPathNote",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.hideSession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.showSession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.showOnlySession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.resolveSession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.deleteSession",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.markAllRead",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.resolveAll",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.deleteResolved",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.nextUnread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.previousUnread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.filter",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.find",
+          "when": "codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.copyAgentPrompt",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.resolveNext",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.backToStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.askFromThread",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.refresh",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.toggleAuthorMode",
+          "when": "config.codeNotes.journeys.authorMode"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "codeNotes.addPathNote",
+          "group": "z_codeNotes@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "codeNotes.addPathNote",
+          "group": "z_codeNotes@1",
+          "when": "resourceScheme != code-notes-folder && resourceScheme != code-notes-note && resourceScheme != untitled"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Notes",
+      "properties": {
+        "codeNotes.author": {
+          "type": "string",
+          "default": "",
+          "description": "Your name on notes and replies. Empty: your git user.name. Messages from anyone else (e.g. an agent) show as unread until you open them."
+        },
+        "codeNotes.folder": {
+          "type": "string",
+          "default": ".code-notes",
+          "description": "Folder (relative to the workspace folder) holding one JSON file per note. Changing it offers to move the notes. Must be a sub-folder of its own (not \".\" or outside the workspace)."
+        },
+        "codeNotes.ignoreInGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep notes out of git (a .gitignore in the notes folder). Off: notes can be committed; the trash stays out of git."
+        },
+        "codeNotes.highlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tint lines that have an open note."
+        },
+        "codeNotes.showResolvedInEditor": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep resolved notes' threads in the editor (collapsed)."
+        },
+        "codeNotes.claude.mode": {
+          "type": "string",
+          "enum": [
+            "button",
+            "always",
+            "off"
+          ],
+          "default": "button",
+          "enumDescriptions": [
+            "An \"Ask Claude\" button on the note box, threads and the list.",
+            "Every new note and reply goes to Claude right away.",
+            "No Claude."
+          ],
+          "description": "Answer notes with Claude Code (the newest `claude` CLI found, your existing login). Claude can read the code but not change it (and can use the skills in Code Notes › Claude: Skills). Ask Claude shows only when the `claude` CLI is found (install Claude Code, or set Code Notes › Claude: Path)."
+        },
+        "codeNotes.claude.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model for answers (e.g. \"sonnet\" for cheaper, faster answers). Empty: Claude Code's default."
+        },
+        "codeNotes.claude.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the `claude` CLI. Empty: found on PATH or in the usual install places."
+        },
+        "codeNotes.claude.skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Names of Claude Code skills (folders in ~/.claude/skills) that Ask Claude may use. Claude may run only those skills' own scripts; editing files and other commands stay blocked."
+        },
+        "codeNotes.journeys.folder": {
+          "type": "string",
+          "default": "journeys",
+          "description": "Folder (relative to the workspace folder) holding the repository's journeys, committed and shared with the team. Journeys in the notes folder's journeys/ are read too (personal ones, the old place); with the same id, the one here wins."
+        },
+        "codeNotes.journeys.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Outside a journey walk, one quiet line above code a journey step is about (\"◇ Step 3 of Place an order\"); click it to open that journey at that step."
+        },
+        "codeNotes.journeys.authorMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "For journey authors: the map shows how many of the format's rules a journey breaks (the list in the Output panel)."
+        },
+        "codeNotes.journeys.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model Claude Code uses to write a journey from the journey picker (\"Ask the agent to write a journey…\"). Empty: Code Notes › Claude: Model, else Claude Code's default."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "codeNotes.stepBackground",
+        "description": "Background of the journey step's lines while you walk it (a faint tint of the step bar).",
+        "defaults": {
+          "dark": "#3794ff1c",
+          "light": "#006ab114",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "codeNotes.noteBackground",
+        "description": "Background of lines with an open note.",
+        "defaults": {
+          "dark": "#a371f726",
+          "light": "#8250df12",
+          "highContrast": "#a371f726"
+        }
+      },
+      {
+        "id": "codeNotes.noteBorder",
+        "description": "Left bar of lines with an open note.",
+        "defaults": {
+          "dark": "#a371f7aa",
+          "light": "#8250dfcc",
+          "highContrast": "#d2a8ff"
+        }
+      },
+      {
+        "id": "codeNotes.noteRuler",
+        "description": "Scrollbar mark of an open note.",
+        "defaults": {
+          "dark": "#a371f7",
+          "light": "#8250df",
+          "highContrast": "#d2a8ff"
+        }
+      },
+      {
+        "id": "codeNotes.staleBackground",
+        "description": "Background of lines whose note is stale.",
+        "defaults": {
+          "dark": "#d4a01714",
+          "light": "#e8a20024",
+          "highContrast": "#d4a01733"
+        }
+      },
+      {
+        "id": "codeNotes.unreadForeground",
+        "description": "Unread marker in the Notes view and the scrollbar.",
+        "defaults": {
+          "dark": "#3794ff",
+          "light": "#1a73e8",
+          "highContrast": "#3794ff"
+        }
+      },
+      {
+        "id": "codeNotes.selectionBackground",
+        "description": "The exact text a note is about, when it was part of a line (under a dotted line).",
+        "defaults": {
+          "dark": "#a371f71f",
+          "light": "#8250df17",
+          "highContrast": "#00000000"
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "comments.openView": "never",
+      "comments.maxHeight": false,
+      "editor.smoothScrolling": true
+    }
+  },
+  "scripts": {
+    "build": "tsc -p . && npm run -s vendor",
+    "vendor": "node -e \"const f=require('fs');f.mkdirSync('out/vendor',{recursive:true});f.copyFileSync('node_modules/elkjs/lib/elk.bundled.js','out/vendor/elk.bundled.js');f.copyFileSync('node_modules/elkjs/LICENSE.md','out/vendor/elk-LICENSE.md')\"",
+    "test": "tsc -p . && node --test out/test/*.test.js",
+    "package": "vsce package --no-dependencies",
+    "test:integration": "npm run -s build && env -u ELECTRON_RUN_AS_NODE xvfb-run -a node out/test/integration/run.js",
+    "test:scenes": "node test/journey-scene/check.mjs test/journey-scene/sample.json",
+    "test:panel": "node test/journey-map/shoot.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.100.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.9.2",
+    "playwright": "^1.65.0",
+    "typescript": "^5.6.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode notes and journeys can be read and written, but Claude never runs (answering notes and steps, writing journeys): trust the folder for that.",
+      "restrictedConfigurations": [
+        "codeNotes.claude.path",
+        "codeNotes.claude.model",
+        "codeNotes.claude.mode",
+        "codeNotes.claude.skills",
+        "codeNotes.journeys.model"
+      ]
+    },
+    "virtualWorkspaces": false
+  },
+  "dependencies": {
+    "elkjs": "0.10.0"
+  }
+}

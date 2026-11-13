@@ -1,0 +1,9 @@
+{
+  "name": "lamp-and-co",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "node api/orders.js",
+    "worker": "node worker/worker.js"
+  }
+}

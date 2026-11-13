@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "code-notes: watch",
+      "type": "shell",
+      "command": "npm run -s vendor && npx tsc -w -p .",
+      "isBackground": true,
+      "problemMatcher": "$tsc-watch",
+      "presentation": { "reveal": "never" }
+    }
+  ]
+}

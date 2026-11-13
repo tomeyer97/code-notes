@@ -1,0 +1,691 @@
+{
+  "version": 2,
+  "id": "order-lifecycle",
+  "question": "Why does an order wait, when does it expire, and how is it cancelled?",
+  "title": "Order lifecycle",
+  "summary": "An order waits when its items are short or earlier orders wait for the same items; the worker admits it later, in order. It expires a day after it was placed at most; when it does, or the customer cancels, the order is marked cancelling and the worker voids the charge and releases the stock.",
+  "commit": "a1b2c3d",
+  "createdAt": "2026-11-11T18:03:01.177Z",
+  "nodes": [
+    {
+      "id": "web",
+      "kind": "system",
+      "label": "Web shop",
+      "blurb": "Place order: sends the order, may wait",
+      "path": "web/src",
+      "summary": "Where the customer starts: the checkout page in the browser."
+    },
+    {
+      "id": "backend",
+      "kind": "system",
+      "label": "Shop backend",
+      "blurb": "HTTP API + order worker loops in one binary",
+      "path": "cmd/shop",
+      "summary": "One Go binary: the API stores decisions about an order, the worker loops carry them out."
+    },
+    {
+      "id": "db",
+      "kind": "system",
+      "label": "Database",
+      "blurb": "Where the API and the worker meet",
+      "summary": "Postgres. The API and the worker never call each other; they hand over through order records here."
+    },
+    {
+      "id": "wh",
+      "kind": "system",
+      "label": "Warehouse system",
+      "blurb": "Real stock: counts and reservations per item",
+      "summary": "The warehouse keeps the stock count of each item and the reservations open orders hold."
+    },
+    {
+      "id": "checkout",
+      "kind": "module",
+      "label": "Checkout",
+      "blurb": "Dry run, then the order, then wait",
+      "path": "web/src/checkout",
+      "summary": "The logic behind the Place order button.",
+      "parent": "web"
+    },
+    {
+      "id": "orders",
+      "kind": "module",
+      "label": "Orders API",
+      "blurb": "Expiry, cancel: writes the order only",
+      "path": "api",
+      "summary": "Checks the order, sets its expiry and stores it; cancel only flips its status.",
+      "parent": "backend"
+    },
+    {
+      "id": "worker",
+      "kind": "module",
+      "label": "Order worker",
+      "blurb": "2 s loops: charge, expire, cancel, clean up",
+      "path": "worker",
+      "summary": "Two independent loops (orders, expire), each every 2 s.",
+      "parent": "backend"
+    },
+    {
+      "id": "stock",
+      "kind": "module",
+      "label": "Stock check",
+      "blurb": "Queue check, then stock check, before any charge",
+      "path": "worker/stock.go",
+      "summary": "Decides whether a pending order may be charged now: no earlier order waiting for the same items first, then enough stock.",
+      "parent": "backend"
+    },
+    {
+      "id": "records",
+      "kind": "store",
+      "label": "Order records",
+      "blurb": "status, reason, expiresAt, retries",
+      "summary": "One record per order. `status` pending + `reason` stock or provider means waiting; `expiresAt` is when an unpaid order is given up.",
+      "parent": "db"
+    },
+    {
+      "id": "stockapi",
+      "kind": "external",
+      "label": "Stock API",
+      "blurb": "Counts, reservations, releases",
+      "summary": "The warehouse's API: read for stock levels, written to reserve and release an order's items.",
+      "parent": "wh"
+    },
+    {
+      "id": "place",
+      "kind": "function",
+      "label": "placeOrder",
+      "summary": "The Place order button: dry run, real request, wait.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/placeOrder.ts",
+        "start": 21,
+        "end": 49,
+        "anchor": {
+          "text": "export async function placeOrder(cart: Cart, customer: string, o: PlaceOptions): Promise<Placed> {\n  if (!cart.lines.length) throw new Error('the cart is empty')\n  const started = Date.now()\n  // An order already sent from this cart (a double click, a reload): wait on that one instead of sending another.\n  const open = await api.get<{ id: string } | null>(`/api/carts/${cart.id}/open-order`)\n  if (open) {\n    o.progress('Your order is already on its way')\n    return { orderId: open.id, outcome: await waitForPayment(open.id, o.timeoutMs, o.progress) }\n  }\n  const req = buildOrder(cart, customer)\n  // Validate first: stock and prices are checked before the customer is sent to their bank.\n  try {\n    await api.post('/api/orders?dryRun=1', req)\n  } catch (e) {\n    if (e instanceof ApiError && e.status === 409) {\n      o.progress('Some items just sold out; the cart was updated')\n      throw e\n    }\n    throw e\n  }\n  o.progress('Sending your order')\n  const created = await api.post<{ id: string; status: string }>('/api/orders', req)\n  if (created.status === 'paid') {\n    return { orderId: created.id, outcome: { status: 'paid', message: '' } }\n  }\n  o.progress('Waiting for the payment')\n  const left = Math.max(o.timeoutMs - (Date.now() - started), 1000)\n  return { orderId: created.id, outcome: await waitForPayment(created.id, left, o.progress) }\n}",
+          "before": " * Nothing is charged here; the browser only asks and waits.\n */",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "create",
+      "kind": "function",
+      "label": "createOrder",
+      "summary": "POST /api/orders: checks, stock preview, expiry, insert.",
+      "parent": "orders",
+      "at": {
+        "file": "api/orders.go",
+        "start": 37,
+        "end": 115,
+        "anchor": {
+          "text": "func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {\n\tvar req OrderRequest\n\tif err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {\n\t\thttpError(w, http.StatusBadRequest, \"not a valid order: \"+err.Error())\n\t\treturn\n\t}\n\tif len(req.Lines) == 0 || len(req.Lines) > 50 {\n\t\thttpError(w, http.StatusBadRequest, \"an order has 1 to 50 lines\")\n\t\treturn\n\t}\n\tif strings.TrimSpace(req.IdempotencyKey) == \"\" {\n\t\thttpError(w, http.StatusBadRequest, \"idempotencyKey is required\")\n\t\treturn\n\t}\n\t// The same key twice (a double click, a retry): answer with the order that exists.\n\tif old, err := s.Store.Orders().ByKey(r.Context(), req.IdempotencyKey); err == nil {\n\t\twriteJSON(w, http.StatusOK, old)\n\t\treturn\n\t} else if !errors.Is(err, store.ErrNotFound) {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\tpriced, err := s.Catalog.Price(r.Context(), req.Lines, req.Coupon)\n\tif err != nil {\n\t\thttpError(w, http.StatusBadRequest, err.Error())\n\t\treturn\n\t}\n\tif priced.Total != req.Total {\n\t\thttpError(w, http.StatusConflict, \"prices changed; reload the cart\")\n\t\treturn\n\t}\n\tif short := s.Stock.Short(r.Context(), req.Lines); len(short) > 0 {\n\t\twriteJSON(w, http.StatusConflict, map[string]any{\"error\": \"sold out\", \"skus\": short})\n\t\treturn\n\t}\n\t// Back-ordered items do not refuse the order: the customer is told it will wait.\n\tpreview, err := s.Worker.Preview(r.Context(), &store.Order{Lines: priced.Lines, CreatedAt: time.Now()})\n\tif err != nil {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\tif r.URL.Query().Get(\"dryRun\") == \"1\" {\n\t\twriteJSON(w, http.StatusOK, map[string]any{\"total\": priced.Total, \"wait\": preview.Message})\n\t\treturn\n\t}\n\tnow := time.Now().UTC()\n\to := &store.Order{\n\t\tID:             store.NewID(),\n\t\tCartID:         req.CartID,\n\t\tCustomer:       req.Customer,\n\t\tLines:          priced.Lines,\n\t\tTotal:          priced.Total,\n\t\tCurrency:       s.Cfg.Currency,\n\t\tShipping:       store.Address(req.Shipping),\n\t\tGiftNote:       req.GiftNote,\n\t\tIdempotencyKey: req.IdempotencyKey,\n\t\tStatus:         store.OrderPending,\n\t\tMessage:        \"Order received\",\n\t\tCreatedAt:      now,\n\t\tUpdatedAt:      now,\n\t}\n\texp := s.expiry(now)\n\to.ExpiresAt = &exp\n\tif preview.Wait {\n\t\to.Reason, o.Message = store.ReasonStock, preview.Message\n\t}\n\t// The order's own reference for the payment provider, so a charge can be matched back to it.\n\to.PaymentRef = \"ord_\" + o.ID\n\tif err := s.Store.Orders().Create(r.Context(), o); err != nil {\n\t\tif errors.Is(err, store.ErrDuplicate) {\n\t\t\thttpError(w, http.StatusConflict, \"this order was just placed\")\n\t\t\treturn\n\t\t}\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\ts.Log.Info(\"order stored\", \"id\", o.ID, \"total\", o.Total, \"lines\", len(o.Lines))\n\twriteJSON(w, http.StatusCreated, o)\n}",
+          "before": "// createOrder handles POST /api/orders: it checks the request and stores one order with status pending.\n// It charges nothing and talks to no payment provider; the worker does that.",
+          "after": "\n// getOrder handles GET /api/orders/{id}: the checkout page and the order page poll it."
+        }
+      }
+    },
+    {
+      "id": "cancel",
+      "kind": "function",
+      "label": "cancelOrder",
+      "summary": "DELETE /api/orders/{id}: marks the order cancelling.",
+      "parent": "orders",
+      "at": {
+        "file": "api/cancel.go",
+        "start": 12,
+        "end": 32,
+        "anchor": {
+          "text": "func (s *Server) cancelOrder(w http.ResponseWriter, r *http.Request) {\n\to, err := s.Store.Orders().Get(r.Context(), r.PathValue(\"id\"))\n\tif err != nil {\n\t\thttpError(w, http.StatusNotFound, \"no such order\")\n\t\treturn\n\t}\n\tswitch o.Status {\n\tcase store.OrderPaid, store.OrderShipped:\n\t\thttpError(w, http.StatusConflict, \"a paid order is refunded, not cancelled\")\n\t\treturn\n\tcase store.OrderCancelled, store.OrderCancelling:\n\t\twriteJSON(w, http.StatusOK, o)\n\t\treturn\n\t}\n\to.Status, o.Message, o.UpdatedAt = store.OrderCancelling, \"Cancelling\", time.Now().UTC()\n\tif err := s.Store.Orders().Update(r.Context(), o); err != nil {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusAccepted, o)\n}",
+          "before": "// cancelOrder handles DELETE /api/orders/{id}: it only marks the order cancelling. The worker releases the stock\n// and voids the charge on its next pass.",
+          "after": "\n// expiry is how long an unpaid order holds its place: the shop's setting, capped at a day."
+        }
+      }
+    },
+    {
+      "id": "pass",
+      "kind": "function",
+      "label": "Worker.pass",
+      "summary": "One pass of a phase: lists open orders and handles them one after another.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 58,
+        "end": 79,
+        "anchor": {
+          "text": "func (w *Worker) pass(ctx context.Context, phase string) {\n\torders, err := w.Store.Orders().Open(ctx)\n\tif err != nil {\n\t\tw.Log.Error(\"list open orders\", \"err\", err)\n\t\treturn\n\t}\n\tw.open = orders\n\tfor i := range orders {\n\t\to := &orders[i]\n\t\tc, cancel := context.WithTimeout(ctx, 30*time.Second)\n\t\tvar err error\n\t\tif phase == \"orders\" {\n\t\t\terr = w.processOrder(c, o)\n\t\t} else {\n\t\t\terr = w.expire(c, o)\n\t\t}\n\t\tcancel()\n\t\tif err != nil {\n\t\t\tw.Log.Warn(\"order pass\", \"id\", o.ID, \"phase\", phase, \"err\", err)\n\t\t}\n\t}\n}",
+          "before": "\n// pass handles every open order once, each with its own timeout.",
+          "after": "\n// processOrder is the order's state machine: one step per pass."
+        }
+      }
+    },
+    {
+      "id": "process",
+      "kind": "function",
+      "label": "processOrder",
+      "summary": "The state machine for one order: pending, charging, cancelling.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 82,
+        "end": 157,
+        "anchor": {
+          "text": "func (w *Worker) processOrder(ctx context.Context, o *store.Order) error {\n\tnow := time.Now().UTC()\n\tswitch o.Status {\n\tcase store.OrderPending:\n\t\tif ok, err := w.admit(ctx, o, w.open); !ok || err != nil {\n\t\t\treturn err\n\t\t}\n\t\t// Stock first: a sold-out line fails the order before anyone is charged.\n\t\tif err := w.Store.Stock().Reserve(ctx, o.ID, o.Lines); err != nil {\n\t\t\tif errors.Is(err, store.ErrSoldOut) {\n\t\t\t\treturn w.fail(ctx, o, \"an item sold out before payment\")\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\treq, err := payments.BuildCharge(o)\n\t\tif err != nil {\n\t\t\treturn w.fail(ctx, o, err.Error())\n\t\t}\n\t\tch, err := w.Payments.Create(ctx, req)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn w.retryLater(ctx, o, err.Error())\n\t\t\t}\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the payment could not be started: \"+err.Error())\n\t\t}\n\t\to.ChargeID = ch.ID\n\t\to.Status = store.OrderCharging\n\t\to.Message = \"Confirm the payment with your bank\"\n\t\tdeadline := now.Add(w.Timeout)\n\t\to.Deadline = &deadline\n\t\treturn w.Store.Orders().Update(ctx, o)\n\n\tcase store.OrderCharging:\n\t\tif o.Deadline != nil && now.After(*o.Deadline) {\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the bank did not answer in time\")\n\t\t}\n\t\t// Is it paid? Asked of the provider, never taken from the browser's redirect.\n\t\tch, err := w.Payments.Get(ctx, o.ChargeID)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn nil\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\tissues := payments.ChargeIssues(ch, w.Payments.WebhookLog(ctx, o.ChargeID))\n\t\twaiting := []string{}\n\t\tif ch.Status != payments.Succeeded {\n\t\t\twaiting = append(waiting, \"payment\")\n\t\t}\n\t\tif !w.Store.Stock().Reserved(ctx, o.ID) {\n\t\t\twaiting = append(waiting, \"stock\")\n\t\t}\n\t\tstage := orderStage(ch, o)\n\t\treturn applyOutcome(ctx, w.Store, o, stage, waiting, issues)\n\n\tcase store.OrderCancelling:\n\t\t// Void the charge first, so the customer is never charged for an order that no longer exists.\n\t\tif o.ChargeID != \"\" {\n\t\t\tif err := w.Payments.Void(ctx, o.ChargeID); err != nil && !payments.AlreadySettled(err) {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif err := w.Store.Stock().Release(ctx, o.ID); err != nil {\n\t\t\treturn err\n\t\t}\n\t\to.Status, o.Message = store.OrderCancelled, \"Cancelled\"\n\t\to.UpdatedAt = now\n\t\treturn w.Store.Orders().Update(ctx, o)\n\n\tcase store.OrderPaid, store.OrderFailed, store.OrderCancelled:\n\t\treturn nil\n\t}\n\treturn fmt.Errorf(\"order %s: unknown status %q\", o.ID, o.Status)\n}",
+          "before": "\n// processOrder is the order's state machine: one step per pass.",
+          "after": "\nfunc (w *Worker) fail(ctx context.Context, o *store.Order, why string) error {"
+        }
+      }
+    },
+    {
+      "id": "retry",
+      "kind": "function",
+      "label": "retryLater",
+      "summary": "Puts back an order whose charge the provider refused for now; it keeps its place.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/retry.go",
+        "start": 12,
+        "end": 28,
+        "anchor": {
+          "text": "func (w *Worker) retryLater(ctx context.Context, o *store.Order, why string) error {\n\tif err := w.Store.Stock().Release(ctx, o.ID); err != nil {\n\t\treturn err\n\t}\n\to.Status = store.OrderPending\n\to.Reason = store.ReasonProvider\n\to.Message = \"Waiting for the payment provider: \" + why\n\to.ChargeID = \"\"\n\to.Deadline = nil\n\t// The original creation time keeps it first in line among the orders waiting for the same items.\n\to.Retries++\n\tif o.Retries > 5 {\n\t\to.Status, o.Message = store.OrderFailed, \"the payment provider kept refusing the charge\"\n\t}\n\to.UpdatedAt = time.Now().UTC()\n\treturn w.Store.Orders().Update(ctx, o)\n}",
+          "before": "// retryLater puts back an order whose charge the provider refused for a passing reason (rate limit, maintenance):\n// its stock is released, it goes back to pending and it keeps its place in the stock queue.",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "expire",
+      "kind": "function",
+      "label": "expire",
+      "summary": "The expire phase: database-only pass that marks orders past expiresAt as cancelling.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 166,
+        "end": 178,
+        "anchor": {
+          "text": "func (w *Worker) expire(ctx context.Context, o *store.Order) error {\n\tif o.ExpiresAt == nil || time.Now().Before(*o.ExpiresAt) {\n\t\treturn nil\n\t}\n\tif o.Status != store.OrderPending && o.Status != store.OrderCharging {\n\t\treturn nil\n\t}\n\to.Status, o.Message = store.OrderCancelling, \"Expired before it was paid\"\n\tif err := w.Store.Orders().Update(ctx, o); err != nil {\n\t\treturn err\n\t}\n\treturn w.releaseAbandoned(ctx)\n}",
+          "before": "// expire marks an unpaid order past its expiry as cancelling. It reads and writes the database only, so orders\n// still expire while the payment provider is down.",
+          "after": "\n// orderStage works out what the customer is waiting for, from what the provider says about the charge."
+        }
+      }
+    },
+    {
+      "id": "release",
+      "kind": "function",
+      "label": "releaseAbandoned",
+      "summary": "Frees reservations that no open order holds any more.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/cleanup.go",
+        "start": 10,
+        "end": 31,
+        "anchor": {
+          "text": "func (w *Worker) releaseAbandoned(ctx context.Context) error {\n\tif time.Since(w.lastCleanup) < 10*time.Minute {\n\t\treturn nil\n\t}\n\tw.lastCleanup = time.Now()\n\theld, err := w.Store.Stock().Reservations(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, r := range held {\n\t\tif _, err := w.Store.Orders().Get(ctx, r.OrderID); err == nil {\n\t\t\tcontinue\n\t\t}\n\t\tif time.Since(r.At) < time.Hour {\n\t\t\tcontinue\n\t\t}\n\t\tif err := w.Store.Stock().Release(ctx, r.OrderID); err != nil {\n\t\t\tw.Log.Warn(\"release abandoned stock\", \"order\", r.OrderID, \"err\", err)\n\t\t}\n\t}\n\treturn nil\n}",
+          "before": "// releaseAbandoned frees stock reservations that no open order holds any more (an order deleted by hand, a crash\n// between reserving and storing). It runs at most every 10 minutes, from the expire phase.",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "queue",
+      "kind": "function",
+      "label": "queuePosition",
+      "summary": "Counts the earlier orders waiting for the same items.",
+      "parent": "stock",
+      "at": {
+        "file": "worker/stock.go",
+        "start": 21,
+        "end": 37,
+        "anchor": {
+          "text": "func queuePosition(open []store.Order, o *store.Order) int {\n\tsort.Slice(open, func(i, j int) bool { return open[i].CreatedAt.Before(open[j].CreatedAt) })\n\tahead := 0\n\tfor i := range open {\n\t\tx := &open[i]\n\t\tif x.ID == o.ID {\n\t\t\tbreak\n\t\t}\n\t\tif x.Status != store.OrderPending || x.Reason != store.ReasonStock {\n\t\t\tcontinue\n\t\t}\n\t\tif sharesItem(x, o) {\n\t\t\tahead++\n\t\t}\n\t}\n\treturn ahead\n}",
+          "before": "// queuePosition counts the orders that wait for the same items and were placed earlier: stock goes out in the\n// order orders came in, and an order waiting for stock keeps its place.",
+          "after": "\nfunc sharesItem(a, b *store.Order) bool {"
+        }
+      }
+    },
+    {
+      "id": "admit",
+      "kind": "function",
+      "label": "admit",
+      "summary": "Stores the verdict when the order must wait or can never be filled; otherwise lets the caller charge it.",
+      "parent": "stock",
+      "at": {
+        "file": "worker/stock.go",
+        "start": 51,
+        "end": 66,
+        "anchor": {
+          "text": "func (w *Worker) admit(ctx context.Context, o *store.Order, open []store.Order) (bool, error) {\n\tv, err := w.stockCheck(ctx, o, open)\n\tif err != nil {\n\t\treturn false, err\n\t}\n\tswitch {\n\tcase v.Never:\n\t\to.Status, o.Message = store.OrderFailed, v.Message\n\t\treturn false, w.Store.Orders().Update(ctx, o)\n\tcase v.Wait:\n\t\to.Reason, o.Message = store.ReasonStock, v.Message\n\t\treturn false, w.Store.Orders().Update(ctx, o)\n\t}\n\to.Reason = \"\"\n\treturn true, nil\n}",
+          "before": "\n// admit stores the verdict when the order must wait or can never be filled; otherwise the caller goes on.",
+          "after": "\n// stockCheck gathers what the decision needs: what the order wants, what the warehouse holds, what earlier"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "kind": "function",
+      "label": "stockCheck",
+      "summary": "Gathers what the decision needs: what the order wants, what the warehouse holds, what is reserved, who is ahead.",
+      "parent": "stock",
+      "at": {
+        "file": "worker/stock.go",
+        "start": 70,
+        "end": 91,
+        "anchor": {
+          "text": "func (w *Worker) stockCheck(ctx context.Context, o *store.Order, open []store.Order) (Verdict, error) {\n\theld, err := w.Store.Stock().Levels(ctx, o.SKUs())\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\treserved, err := w.Store.Stock().ReservedBy(ctx, o.SKUs(), o.ID)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tfor _, l := range o.Lines {\n\t\tif held[l.SKU].Discontinued {\n\t\t\treturn Verdict{Never: true, Message: fmt.Sprintf(\"%s is no longer sold\", l.Name)}, nil\n\t\t}\n\t\tif held[l.SKU].Count-reserved[l.SKU] < l.Quantity {\n\t\t\treturn Verdict{Wait: true, Message: fmt.Sprintf(\"Waiting for %s to come back in stock\", l.Name)}, nil\n\t\t}\n\t}\n\tif ahead := queuePosition(open, o); ahead > 0 {\n\t\treturn Verdict{Wait: true, Ahead: ahead, Message: fmt.Sprintf(\"%d earlier orders are waiting for the same items\", ahead)}, nil\n\t}\n\treturn Verdict{}, nil\n}",
+          "before": "// stockCheck gathers what the decision needs: what the order wants, what the warehouse holds, what earlier\n// orders have reserved, and who is ahead.",
+          "after": "\n// Preview gives the same verdict for an order that is not stored yet; it stores nothing."
+        }
+      }
+    },
+    {
+      "id": "preview",
+      "kind": "function",
+      "label": "Preview",
+      "summary": "The same verdict for an order that is not stored yet; stores nothing.",
+      "parent": "stock",
+      "at": {
+        "file": "worker/stock.go",
+        "start": 94,
+        "end": 107,
+        "anchor": {
+          "text": "func (w *Worker) Preview(ctx context.Context, o *store.Order) (Verdict, error) {\n\topen, err := w.Store.Orders().Open(ctx)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tv, err := w.stockCheck(ctx, o, open)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tif v.Wait {\n\t\tv.Message = \"Some items are back-ordered: \" + v.Message\n\t}\n\treturn v, nil\n}",
+          "before": "\n// Preview gives the same verdict for an order that is not stored yet; it stores nothing.",
+          "after": ""
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "place",
+      "to": "create",
+      "label": "places the order",
+      "detail": "A dry run first (stock and prices), then for real; back-ordered items make it wait instead of refusing it."
+    },
+    {
+      "from": "create",
+      "to": "preview",
+      "label": "previews the stock check",
+      "detail": "The API calls the worker's Preview on an order that is not stored yet; it only reads."
+    },
+    {
+      "from": "create",
+      "to": "records",
+      "label": "inserts a pending order"
+    },
+    {
+      "from": "pass",
+      "to": "records",
+      "label": "polls every 2 s",
+      "async": true,
+      "detail": "Nothing notifies the worker; it lists open orders on a 2 s ticker."
+    },
+    {
+      "from": "pass",
+      "to": "process",
+      "label": "one order at a time"
+    },
+    {
+      "from": "check",
+      "to": "queue",
+      "label": "counts who is ahead"
+    },
+    {
+      "from": "process",
+      "to": "admit",
+      "label": "checks the stock"
+    },
+    {
+      "from": "admit",
+      "to": "check",
+      "label": "reads stock and holds"
+    },
+    {
+      "from": "preview",
+      "to": "check",
+      "label": "same check, read-only"
+    },
+    {
+      "from": "check",
+      "to": "stockapi",
+      "label": "reads stock levels"
+    },
+    {
+      "from": "process",
+      "to": "stockapi",
+      "label": "reserves / releases"
+    },
+    {
+      "from": "process",
+      "to": "records",
+      "label": "stores each transition"
+    },
+    {
+      "from": "process",
+      "to": "retry",
+      "label": "provider refused for now"
+    },
+    {
+      "from": "retry",
+      "to": "records",
+      "label": "back to pending, in place"
+    },
+    {
+      "from": "expire",
+      "to": "records",
+      "label": "polls every 2 s",
+      "async": true,
+      "detail": "Its own loop, database only, so orders still expire while the payment provider is down."
+    },
+    {
+      "from": "cancel",
+      "to": "records",
+      "label": "marks it cancelling"
+    },
+    {
+      "from": "release",
+      "to": "stockapi",
+      "label": "lists reservations",
+      "async": true,
+      "detail": "At most every 10 minutes, from the expire phase."
+    }
+  ],
+  "steps": [
+    {
+      "id": "dryrun",
+      "title": "The page sends a dry run before the real order",
+      "node": "place",
+      "file": "web/src/checkout/placeOrder.ts",
+      "range": {
+        "start": 32,
+        "end": 40
+      },
+      "anchor": {
+        "text": "  try {\n    await api.post('/api/orders?dryRun=1', req)\n  } catch (e) {\n    if (e instanceof ApiError && e.status === 409) {\n      o.progress('Some items just sold out; the cart was updated')\n      throw e\n    }\n    throw e\n  }",
+        "before": "  const req = buildOrder(cart, customer)\n  // Validate first: stock and prices are checked before the customer is sent to their bank.",
+        "after": "  o.progress('Sending your order')\n  const created = await api.post<{ id: string; status: string }>('/api/orders', req)"
+      },
+      "lead": "Before the customer is sent to their bank, the page sends the order as a dry run. Stock and prices are checked; a back-ordered item is reported, not refused.",
+      "details": "The real POST follows in the same function. The page waits at most 10 minutes for the payment (`timeoutMs` in `web/src/checkout/Checkout.vue`), the order itself waits longer.",
+      "refs": [
+        "web/src/checkout/placeOrder.ts:32-40",
+        "web/src/checkout/Checkout.vue:17"
+      ]
+    },
+    {
+      "id": "backorder",
+      "title": "Back-ordered items make the order wait instead of failing",
+      "node": "create",
+      "file": "api/orders.go",
+      "range": {
+        "start": 72,
+        "end": 81
+      },
+      "anchor": {
+        "text": "\t// Back-ordered items do not refuse the order: the customer is told it will wait.\n\tpreview, err := s.Worker.Preview(r.Context(), &store.Order{Lines: priced.Lines, CreatedAt: time.Now()})\n\tif err != nil {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\tif r.URL.Query().Get(\"dryRun\") == \"1\" {\n\t\twriteJSON(w, http.StatusOK, map[string]any{\"total\": priced.Total, \"wait\": preview.Message})\n\t\treturn\n\t}",
+        "before": "\t\treturn\n\t}",
+        "after": "\tnow := time.Now().UTC()\n\to := &store.Order{"
+      },
+      "lead": "The API runs the stock check on the order before storing it. If an item is back-ordered, the order is still stored, with a reason and a message saying it waits.",
+      "details": "The dry run answers with the same message, so the page can say \"back-ordered\" before the customer pays anything. Nothing is reserved here: the worker reserves later.",
+      "refs": [
+        "api/orders.go:72-81",
+        "worker/stock.go:94-107"
+      ]
+    },
+    {
+      "id": "preview",
+      "title": "The API previews the stock check, so a waiting order says so",
+      "node": "preview",
+      "file": "worker/stock.go",
+      "range": {
+        "start": 94,
+        "end": 107
+      },
+      "anchor": {
+        "text": "func (w *Worker) Preview(ctx context.Context, o *store.Order) (Verdict, error) {\n\topen, err := w.Store.Orders().Open(ctx)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tv, err := w.stockCheck(ctx, o, open)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tif v.Wait {\n\t\tv.Message = \"Some items are back-ordered: \" + v.Message\n\t}\n\treturn v, nil\n}",
+        "before": "\n// Preview gives the same verdict for an order that is not stored yet; it stores nothing.",
+        "after": ""
+      },
+      "lead": "`Preview` is the worker's stock check on an order that is not stored yet. It reads the open orders and the stock levels and stores nothing.",
+      "details": "The message gets a \"Some items are back-ordered\" prefix so the customer reads it as a delay, not an error. The worker repeats the same check for real on its next pass.",
+      "refs": [
+        "worker/stock.go:94-107",
+        "api/orders.go:72-81"
+      ]
+    },
+    {
+      "id": "expiry",
+      "title": "The expiry is set at creation, capped at a day",
+      "node": "create",
+      "file": "api/orders.go",
+      "range": {
+        "start": 98,
+        "end": 102
+      },
+      "anchor": {
+        "text": "\texp := s.expiry(now)\n\to.ExpiresAt = &exp\n\tif preview.Wait {\n\t\to.Reason, o.Message = store.ReasonStock, preview.Message\n\t}",
+        "before": "\t\tUpdatedAt:      now,\n\t}",
+        "after": "\t// The order's own reference for the payment provider, so a charge can be matched back to it.\n\to.PaymentRef = \"ord_\" + o.ID"
+      },
+      "lead": "Every order gets an `expiresAt` when it is stored: the shop's order TTL, never more than 24 hours. A back-ordered order also gets its stock reason here.",
+      "details": "The cap lives in `expiry`; an order waiting for stock still expires, so a customer is never charged days later for an order they forgot.",
+      "refs": [
+        "api/orders.go:98-102",
+        "api/cancel.go:35-41"
+      ]
+    },
+    {
+      "id": "passes",
+      "title": "The worker lists open orders every 2 s, one at a time",
+      "node": "pass",
+      "file": "worker/worker.go",
+      "range": {
+        "start": 58,
+        "end": 79
+      },
+      "anchor": {
+        "text": "func (w *Worker) pass(ctx context.Context, phase string) {\n\torders, err := w.Store.Orders().Open(ctx)\n\tif err != nil {\n\t\tw.Log.Error(\"list open orders\", \"err\", err)\n\t\treturn\n\t}\n\tw.open = orders\n\tfor i := range orders {\n\t\to := &orders[i]\n\t\tc, cancel := context.WithTimeout(ctx, 30*time.Second)\n\t\tvar err error\n\t\tif phase == \"orders\" {\n\t\t\terr = w.processOrder(c, o)\n\t\t} else {\n\t\t\terr = w.expire(c, o)\n\t\t}\n\t\tcancel()\n\t\tif err != nil {\n\t\t\tw.Log.Warn(\"order pass\", \"id\", o.ID, \"phase\", phase, \"err\", err)\n\t\t}\n\t}\n}",
+        "before": "\n// pass handles every open order once, each with its own timeout.",
+        "after": "\n// processOrder is the order's state machine: one step per pass."
+      },
+      "lead": "Nothing notifies the worker: every 2 s each phase lists the open orders and handles them one after another, each with its own 30 s timeout.",
+      "details": "`Run` starts one loop per phase (orders, expire). The interval is set in `cmd/shop/main.go`. A slow provider call holds up only the orders behind it in this pass.",
+      "refs": [
+        "worker/worker.go:58-79",
+        "worker/worker.go:28",
+        "cmd/shop/main.go:31"
+      ]
+    },
+    {
+      "id": "queue",
+      "title": "Stock goes out in order; a waiting order keeps its place",
+      "node": "queue",
+      "file": "worker/stock.go",
+      "range": {
+        "start": 21,
+        "end": 37
+      },
+      "anchor": {
+        "text": "func queuePosition(open []store.Order, o *store.Order) int {\n\tsort.Slice(open, func(i, j int) bool { return open[i].CreatedAt.Before(open[j].CreatedAt) })\n\tahead := 0\n\tfor i := range open {\n\t\tx := &open[i]\n\t\tif x.ID == o.ID {\n\t\t\tbreak\n\t\t}\n\t\tif x.Status != store.OrderPending || x.Reason != store.ReasonStock {\n\t\t\tcontinue\n\t\t}\n\t\tif sharesItem(x, o) {\n\t\t\tahead++\n\t\t}\n\t}\n\treturn ahead\n}",
+        "before": "// queuePosition counts the orders that wait for the same items and were placed earlier: stock goes out in the\n// order orders came in, and an order waiting for stock keeps its place.",
+        "after": "\nfunc sharesItem(a, b *store.Order) bool {"
+      },
+      "lead": "Orders are sorted by creation time; only earlier orders that wait for stock and share an item count as ahead. Waiting never moves an order back.",
+      "details": "The order keeps its `CreatedAt` while it waits, so it stays ahead of orders placed after it.",
+      "refs": [
+        "worker/stock.go:21-37",
+        "worker/stock.go:29"
+      ]
+    },
+    {
+      "id": "stockcheck",
+      "title": "The stock check reads counts and earlier reservations",
+      "node": "check",
+      "file": "worker/stock.go",
+      "range": {
+        "start": 70,
+        "end": 91
+      },
+      "anchor": {
+        "text": "func (w *Worker) stockCheck(ctx context.Context, o *store.Order, open []store.Order) (Verdict, error) {\n\theld, err := w.Store.Stock().Levels(ctx, o.SKUs())\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\treserved, err := w.Store.Stock().ReservedBy(ctx, o.SKUs(), o.ID)\n\tif err != nil {\n\t\treturn Verdict{}, err\n\t}\n\tfor _, l := range o.Lines {\n\t\tif held[l.SKU].Discontinued {\n\t\t\treturn Verdict{Never: true, Message: fmt.Sprintf(\"%s is no longer sold\", l.Name)}, nil\n\t\t}\n\t\tif held[l.SKU].Count-reserved[l.SKU] < l.Quantity {\n\t\t\treturn Verdict{Wait: true, Message: fmt.Sprintf(\"Waiting for %s to come back in stock\", l.Name)}, nil\n\t\t}\n\t}\n\tif ahead := queuePosition(open, o); ahead > 0 {\n\t\treturn Verdict{Wait: true, Ahead: ahead, Message: fmt.Sprintf(\"%d earlier orders are waiting for the same items\", ahead)}, nil\n\t}\n\treturn Verdict{}, nil\n}",
+        "before": "// stockCheck gathers what the decision needs: what the order wants, what the warehouse holds, what earlier\n// orders have reserved, and who is ahead.",
+        "after": "\n// Preview gives the same verdict for an order that is not stored yet; it stores nothing."
+      },
+      "lead": "For each line the check compares the warehouse's count minus what other open orders reserved with the quantity ordered, then asks who is ahead.",
+      "details": "A discontinued item can never be filled; a short count only means waiting. The levels and reservations come from the warehouse in two reads.",
+      "refs": [
+        "worker/stock.go:71",
+        "worker/stock.go:75",
+        "worker/stock.go:21"
+      ]
+    },
+    {
+      "id": "verdict",
+      "title": "Never available: it fails at once. Short or queued: it waits",
+      "node": "admit",
+      "file": "worker/stock.go",
+      "range": {
+        "start": 51,
+        "end": 66
+      },
+      "anchor": {
+        "text": "func (w *Worker) admit(ctx context.Context, o *store.Order, open []store.Order) (bool, error) {\n\tv, err := w.stockCheck(ctx, o, open)\n\tif err != nil {\n\t\treturn false, err\n\t}\n\tswitch {\n\tcase v.Never:\n\t\to.Status, o.Message = store.OrderFailed, v.Message\n\t\treturn false, w.Store.Orders().Update(ctx, o)\n\tcase v.Wait:\n\t\to.Reason, o.Message = store.ReasonStock, v.Message\n\t\treturn false, w.Store.Orders().Update(ctx, o)\n\t}\n\to.Reason = \"\"\n\treturn true, nil\n}",
+        "before": "\n// admit stores the verdict when the order must wait or can never be filled; otherwise the caller goes on.",
+        "after": "\n// stockCheck gathers what the decision needs: what the order wants, what the warehouse holds, what earlier"
+      },
+      "lead": "`admit` turns the verdict into a stored decision: failed for an item that is no longer sold, a stock reason and message for an order that must wait.",
+      "details": "Only an order with nothing in its way goes on to be charged, with its reason cleared. A waiting order is checked again on every pass.",
+      "refs": [
+        "worker/stock.go:51-66",
+        "worker/worker.go:86"
+      ]
+    },
+    {
+      "id": "reserve",
+      "title": "Once admitted, the stock is reserved and the charge created",
+      "node": "process",
+      "file": "worker/worker.go",
+      "range": {
+        "start": 85,
+        "end": 113
+      },
+      "anchor": {
+        "text": "\tcase store.OrderPending:\n\t\tif ok, err := w.admit(ctx, o, w.open); !ok || err != nil {\n\t\t\treturn err\n\t\t}\n\t\t// Stock first: a sold-out line fails the order before anyone is charged.\n\t\tif err := w.Store.Stock().Reserve(ctx, o.ID, o.Lines); err != nil {\n\t\t\tif errors.Is(err, store.ErrSoldOut) {\n\t\t\t\treturn w.fail(ctx, o, \"an item sold out before payment\")\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\treq, err := payments.BuildCharge(o)\n\t\tif err != nil {\n\t\t\treturn w.fail(ctx, o, err.Error())\n\t\t}\n\t\tch, err := w.Payments.Create(ctx, req)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn w.retryLater(ctx, o, err.Error())\n\t\t\t}\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the payment could not be started: \"+err.Error())\n\t\t}\n\t\to.ChargeID = ch.ID\n\t\to.Status = store.OrderCharging\n\t\to.Message = \"Confirm the payment with your bank\"\n\t\tdeadline := now.Add(w.Timeout)\n\t\to.Deadline = &deadline\n\t\treturn w.Store.Orders().Update(ctx, o)",
+        "before": "\tnow := time.Now().UTC()\n\tswitch o.Status {",
+        "after": "\n\tcase store.OrderCharging:"
+      },
+      "lead": "A pending order that passes `admit` reserves its items, gets its charge and becomes `charging`; its payment deadline starts now, not at creation.",
+      "details": "A sold-out item at reservation time fails the order before anyone is charged. A passing provider error sends it to `retryLater` instead of failing it.",
+      "refs": [
+        "worker/worker.go:90",
+        "worker/worker.go:111",
+        "worker/worker.go:103"
+      ]
+    },
+    {
+      "id": "retry",
+      "title": "A charge refused for now goes back to pending, keeping its place",
+      "node": "retry",
+      "file": "worker/retry.go",
+      "range": {
+        "start": 12,
+        "end": 28
+      },
+      "anchor": {
+        "text": "func (w *Worker) retryLater(ctx context.Context, o *store.Order, why string) error {\n\tif err := w.Store.Stock().Release(ctx, o.ID); err != nil {\n\t\treturn err\n\t}\n\to.Status = store.OrderPending\n\to.Reason = store.ReasonProvider\n\to.Message = \"Waiting for the payment provider: \" + why\n\to.ChargeID = \"\"\n\to.Deadline = nil\n\t// The original creation time keeps it first in line among the orders waiting for the same items.\n\to.Retries++\n\tif o.Retries > 5 {\n\t\to.Status, o.Message = store.OrderFailed, \"the payment provider kept refusing the charge\"\n\t}\n\to.UpdatedAt = time.Now().UTC()\n\treturn w.Store.Orders().Update(ctx, o)\n}",
+        "before": "// retryLater puts back an order whose charge the provider refused for a passing reason (rate limit, maintenance):\n// its stock is released, it goes back to pending and it keeps its place in the stock queue.",
+        "after": ""
+      },
+      "lead": "When the provider refuses a charge for a passing reason, the reservation is released and the order goes back to pending with a provider reason.",
+      "details": "It keeps its creation time, so it is first in line again among orders for the same items. After five retries it fails for good.",
+      "refs": [
+        "worker/retry.go:12-28",
+        "worker/retry.go:21",
+        "worker/stock.go:29"
+      ]
+    },
+    {
+      "id": "expire",
+      "title": "A database-only loop marks expired orders as cancelling",
+      "node": "expire",
+      "file": "worker/worker.go",
+      "range": {
+        "start": 166,
+        "end": 178
+      },
+      "anchor": {
+        "text": "func (w *Worker) expire(ctx context.Context, o *store.Order) error {\n\tif o.ExpiresAt == nil || time.Now().Before(*o.ExpiresAt) {\n\t\treturn nil\n\t}\n\tif o.Status != store.OrderPending && o.Status != store.OrderCharging {\n\t\treturn nil\n\t}\n\to.Status, o.Message = store.OrderCancelling, \"Expired before it was paid\"\n\tif err := w.Store.Orders().Update(ctx, o); err != nil {\n\t\treturn err\n\t}\n\treturn w.releaseAbandoned(ctx)\n}",
+        "before": "// expire marks an unpaid order past its expiry as cancelling. It reads and writes the database only, so orders\n// still expire while the payment provider is down.",
+        "after": "\n// orderStage works out what the customer is waiting for, from what the provider says about the charge."
+      },
+      "lead": "The expire phase reads and writes the database only: an unpaid order past its `expiresAt` is marked cancelling, whatever the payment provider is doing.",
+      "details": "The worker carries out the cancel on its next orders pass, the same way as a cancel from the customer. It also triggers the clean-up of abandoned reservations.",
+      "refs": [
+        "worker/worker.go:166-178",
+        "worker/worker.go:30",
+        "worker/worker.go:177"
+      ]
+    },
+    {
+      "id": "cancel",
+      "title": "Cancel only sets the same cancelling status on the order",
+      "node": "cancel",
+      "file": "api/cancel.go",
+      "range": {
+        "start": 26,
+        "end": 31
+      },
+      "anchor": {
+        "text": "\to.Status, o.Message, o.UpdatedAt = store.OrderCancelling, \"Cancelling\", time.Now().UTC()\n\tif err := s.Store.Orders().Update(r.Context(), o); err != nil {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusAccepted, o)",
+        "before": "\t\treturn\n\t}",
+        "after": "}\n"
+      },
+      "lead": "The cancel endpoint changes no stock and calls no provider: it marks the order cancelling and answers 202. A paid order is refunded instead.",
+      "refs": [
+        "api/cancel.go:19"
+      ]
+    },
+    {
+      "id": "cancel-voids",
+      "title": "Cancelling voids the charge, then releases the stock",
+      "node": "process",
+      "file": "worker/worker.go",
+      "range": {
+        "start": 139,
+        "end": 151
+      },
+      "anchor": {
+        "text": "\tcase store.OrderCancelling:\n\t\t// Void the charge first, so the customer is never charged for an order that no longer exists.\n\t\tif o.ChargeID != \"\" {\n\t\t\tif err := w.Payments.Void(ctx, o.ChargeID); err != nil && !payments.AlreadySettled(err) {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif err := w.Store.Stock().Release(ctx, o.ID); err != nil {\n\t\t\treturn err\n\t\t}\n\t\to.Status, o.Message = store.OrderCancelled, \"Cancelled\"\n\t\to.UpdatedAt = now\n\t\treturn w.Store.Orders().Update(ctx, o)",
+        "before": "\t\treturn applyOutcome(ctx, w.Store, o, stage, waiting, issues)\n",
+        "after": "\n\tcase store.OrderPaid, store.OrderFailed, store.OrderCancelled:"
+      },
+      "lead": "For a cancelling order the worker voids the charge first, so the customer is never charged for an order that no longer exists, then releases the stock.",
+      "details": "A charge that already settled is not an error here; the refund flow handles it. Only when both are done does the order become cancelled.",
+      "refs": [
+        "worker/worker.go:142",
+        "worker/worker.go:139-151"
+      ]
+    },
+    {
+      "id": "abandoned",
+      "title": "Every 10 min, reservations without an open order are released",
+      "node": "release",
+      "file": "worker/cleanup.go",
+      "range": {
+        "start": 10,
+        "end": 31
+      },
+      "anchor": {
+        "text": "func (w *Worker) releaseAbandoned(ctx context.Context) error {\n\tif time.Since(w.lastCleanup) < 10*time.Minute {\n\t\treturn nil\n\t}\n\tw.lastCleanup = time.Now()\n\theld, err := w.Store.Stock().Reservations(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, r := range held {\n\t\tif _, err := w.Store.Orders().Get(ctx, r.OrderID); err == nil {\n\t\t\tcontinue\n\t\t}\n\t\tif time.Since(r.At) < time.Hour {\n\t\t\tcontinue\n\t\t}\n\t\tif err := w.Store.Stock().Release(ctx, r.OrderID); err != nil {\n\t\t\tw.Log.Warn(\"release abandoned stock\", \"order\", r.OrderID, \"err\", err)\n\t\t}\n\t}\n\treturn nil\n}",
+        "before": "// releaseAbandoned frees stock reservations that no open order holds any more (an order deleted by hand, a crash\n// between reserving and storing). It runs at most every 10 minutes, from the expire phase.",
+        "after": ""
+      },
+      "lead": "Reservations whose order no longer exists (deleted by hand, a crash between reserving and storing) are released, at most every 10 minutes.",
+      "details": "A reservation younger than an hour is left alone, so an order being stored right now is not robbed of its stock.",
+      "refs": [
+        "worker/cleanup.go:10-31",
+        "worker/cleanup.go:23"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "version": 2,
+  "id": "place-order",
+  "question": "What happens when a shopper places an order?",
+  "title": "Placing an order",
+  "summary": "The web app posts the cart to the API, which stores a pending order and queues it. A worker picks the order up, charges the card and writes the receipt; the order page follows it live.",
+  "nodes": [
+    { "id": "web", "kind": "system", "label": "Web app", "blurb": "The shop's pages in the shopper's browser", "path": "web", "summary": "" },
+    { "id": "api", "kind": "system", "label": "API", "blurb": "Takes requests from the web app", "path": "api", "summary": "" },
+    { "id": "db", "kind": "system", "label": "Database", "blurb": "Orders, carts and sessions", "summary": "" },
+    { "id": "worker", "kind": "system", "label": "Worker", "blurb": "Runs queued jobs one at a time", "path": "worker", "summary": "" },
+    { "id": "cartpage", "kind": "function", "label": "addToCart", "parent": "web", "summary": "" },
+    { "id": "checkout", "kind": "function", "label": "placeOrder", "parent": "api", "summary": "" },
+    { "id": "orders", "kind": "store", "label": "Orders", "parent": "db", "blurb": "One record per order", "summary": "" },
+    { "id": "job", "kind": "function", "label": "processOrder", "parent": "worker", "summary": "" },
+    { "id": "signin", "kind": "function", "label": "requireSession", "parent": "api", "summary": "" }
+  ],
+  "edges": [
+    { "from": "cartpage", "to": "checkout", "label": "place order" },
+    { "from": "checkout", "to": "orders", "label": "store pending" },
+    { "from": "job", "to": "orders", "label": "polls", "async": true }
+  ],
+  "steps": [
+    {
+      "id": "add",
+      "title": "The shopper adds a lamp to the cart",
+      "node": "cartpage", "file": "web/cart.ts", "range": { "start": 12, "end": 20 },
+      "lead": "The button posts the product id; the API keeps the cart in the database.",
+      "scene": {
+        "actors": [
+          { "id": "page", "type": "browser", "col": 0, "url": "https://shop.example/lamps", "title": "Lamp & Co", "products": ["Desk lamp", "Floor lamp"], "button": "Add to cart", "cart": "Cart 0", "markLabel": "Cart not updated", "lock": "ok" },
+          { "id": "api", "type": "service", "col": 1, "label": "API", "sub": "carts", "fn": "addToCart()", "checks": ["read the session", "add the item", "save the cart"] },
+          { "id": "carts", "type": "table", "col": 2, "label": "carts", "sub": "database", "rows": [{ "id": "c-ana", "chips": ["1 item"], "old": true }, { "id": "c-ana v2", "chips": ["2 items"] }] }
+        ],
+        "wires": [["page", "api"], ["api", "carts"]],
+        "beats": [
+          { "focus": "page", "caption": "Ana presses Add to cart on the desk lamp.", "click": "page", "set": { "page": { "click": true } } },
+          { "focus": "api", "caption": "The API adds the lamp to her cart.", "packet": { "from": "page", "to": "api", "label": "POST /cart" }, "set": { "api": { "done": 2 } } },
+          { "focus": "carts", "caption": "The cart is saved with two items.", "packet": { "from": "api", "to": "carts", "label": "update" }, "set": { "api": { "done": 3 }, "carts": { "show": 1, "hi": 1 } } },
+          { "focus": "page", "caption": "The page takes a screenshot of the cart.", "flash": "page", "set": { "page": { "mark": true } } }
+        ]
+      }
+    },
+    {
+      "id": "confirm",
+      "title": "The shopper confirms the order in a dialog",
+      "node": "checkout", "file": "api/orders.ts", "range": { "start": 30, "end": 41 },
+      "lead": "The API stores the order as pending and answers at once.",
+      "scene": {
+        "actors": [
+          { "id": "shop", "type": "app", "col": 0, "brand": "Lamp & Co", "logo": "L", "tabs": ["Shop", "Orders", "Account"],
+            "dialog": { "tab": "Shop", "title": "Place order", "item": "Order for 2 lamps", "lines": [["Ship to", "12 Pier Road"], ["Pay with", "Card ending 4242"]], "button": "Place order" },
+            "detail": { "tab": "Orders", "title": "Order 1042", "status": "Pending", "empty": "No updates yet",
+                        "cards": [{ "sev": "medium", "title": "Floor lamp ships in 5 days" }],
+                        "timeline": ["Order placed", "Payment authorised", "Sent to the warehouse"] } },
+          { "id": "api", "type": "service", "col": 1, "label": "API", "sub": "orders", "fn": "placeOrder()", "checks": ["check the stock", "store the order", "queue the job"] }
+        ],
+        "wires": [["shop", "api"]],
+        "beats": [
+          { "focus": "shop", "caption": "Ana checks the address and presses Place order.", "click": true, "set": { "shop": { "screen": "dialog" } } },
+          { "focus": "api", "caption": "The API stores the order as pending.", "packet": { "from": "shop", "to": "api", "label": "POST /orders" }, "set": { "shop": { "busy": true }, "api": { "done": 3 } } },
+          { "focus": "shop", "caption": "The order page opens; nothing has happened yet.", "set": { "shop": { "screen": "detail", "busy": false } } },
+          { "focus": "shop", "caption": "Updates arrive as the order moves on.", "set": { "shop": { "status": "Paid", "tone": "active", "events": 2, "newEvent": 1 } } },
+          { "focus": "shop", "caption": "A note appears: one lamp ships later.", "set": { "shop": { "cards": 1, "newCard": 0, "events": 3, "newEvent": 2, "status": "Shipped", "tone": "good" } } }
+        ]
+      }
+    },
+    {
+      "id": "live",
+      "title": "The order page shows the packing live",
+      "node": "checkout", "file": "web/order.ts", "range": { "start": 50, "end": 58 },
+      "lead": "The page streams a camera picture and a support chat.",
+      "scene": {
+        "actors": [
+          { "id": "shop", "type": "app", "col": 0, "brand": "Lamp & Co", "tabs": ["Shop", "Orders", "Account"],
+            "detail": { "tab": "Orders", "title": "Order 1042", "status": "Packing", "tone": "active", "picture": "packing desk camera", "placeholder": "Ask support…",
+                        "chat": [{ "from": "me", "text": "Can it ship before Friday?" }, { "from": "them", "text": "Yes, it leaves on Thursday." }] } }
+        ],
+        "wires": [],
+        "beats": [
+          { "focus": "shop", "caption": "Ana opens the live picture of the packing desk.", "set": { "shop": { "screen": "detail", "pane": "picture", "picture": "connecting…" } } },
+          { "focus": "shop", "caption": "The picture is live.", "set": { "shop": { "picture": "live" } } },
+          { "focus": "shop", "caption": "She writes to support.", "set": { "shop": { "pane": "chat", "typing": "Can it ship before Friday?" } } },
+          { "focus": "shop", "caption": "Support answers in the same pane.", "set": { "shop": { "typing": "", "chat": 2, "newChat": 1 } } }
+        ]
+      }
+    },
+    {
+      "id": "queue",
+      "title": "A worker takes the order from the queue",
+      "node": "job", "file": "worker/queue.ts", "range": { "start": 8, "end": 19 },
+      "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
+      "scene": {
+        "actors": [
+          { "id": "q", "type": "queue", "col": 0, "label": "Order queue", "sub": "in memory", "slots": 6, "cap": "64 jobs at most" },
+          { "id": "w", "type": "service", "col": 1, "label": "Worker", "fn": "processOrder()", "checks": ["take the next job", "charge the card", "mark it paid"] },
+          { "id": "mem", "type": "gauge", "col": 2, "label": "Worker memory", "max": 2, "unit": "GiB", "used": 1.2 }
+        ],
+        "wires": [["q", "w"], ["w", "mem"]],
+        "beats": [
+          { "focus": "q", "caption": "Orders fill the queue.", "set": { "q": { "fill": 5 } } },
+          { "focus": "q", "caption": "The queue is full; one more is dropped.", "set": { "q": { "fill": 6, "drop": true, "note": "full: the newest job is dropped" } } },
+          { "focus": "w", "caption": "The worker takes order 1042.", "packet": { "from": "q", "to": "w", "label": "order 1042" }, "set": { "q": { "fill": 5, "drop": false, "note": "" }, "w": { "done": 1 } } },
+          { "focus": "mem", "caption": "A big order would not fit in its memory.", "set": { "w": { "done": 2 }, "mem": { "want": 1.5 } } }
+        ]
+      }
+    },
+    {
+      "id": "deploy",
+      "title": "Each worker runs in its own namespace",
+      "node": "job", "file": "deploy/worker.yaml", "range": { "start": 1, "end": 12 },
+      "lead": "A deploy script starts a fresh worker; the old one stops.",
+      "scene": {
+        "actors": [
+          { "id": "sh", "type": "terminal", "col": 0, "lines": ["$ ./deploy.sh worker", "building image worker:42", "pushed worker:42", "worker-2 ready"] },
+          { "id": "k", "type": "cluster", "col": 1, "label": "Cluster", "sub": "shop namespace",
+            "pods": [{ "label": "api" }, { "label": "worker-1", "goneNote": "stopped" }],
+            "inner": { "label": "Sandbox", "sub": "workers", "ghost": true, "pods": [{ "label": "worker-2", "note": "pending", "madeNote": "running", "ghost": true }] } }
+        ],
+        "wires": [["sh", "k"]],
+        "beats": [
+          { "focus": "sh", "caption": "The deploy script builds a new image.", "set": { "sh": { "show": 3, "hi": 2 } } },
+          { "focus": "k", "caption": "A sandbox appears in the namespace.", "packet": { "from": "sh", "to": "k", "label": "apply" }, "set": { "k": { "inner": true } } },
+          { "focus": "k", "caption": "The new worker runs; the old one stops.", "set": { "k": { "innerMade": [0], "gone": [1] }, "sh": { "show": 4, "hi": 3 } } }
+        ]
+      }
+    },
+    {
+      "id": "receipt",
+      "title": "The worker writes the receipt and tells the shopper",
+      "node": "job", "file": "worker/receipt.ts", "range": { "start": 22, "end": 30 },
+      "lead": "The receipt is a text file; an assistant answers questions about it.",
+      "scene": {
+        "actors": [
+          { "id": "f", "type": "file", "col": 0, "label": "receipt-1042.txt", "from": 1, "lines": ["Order 1042", "Desk lamp      1 x 39.00", "Floor lamp     1 x 89.00", "Total            128.00", "Status: paid"] },
+          { "id": "c", "type": "chat", "col": 1, "label": "Assistant", "messages": [{ "from": "me", "text": "Where is my receipt?" }, { "from": "them", "text": "read_receipt(1042)", "tool": true }, { "from": "them", "text": "It totals 128.00, paid." }] }
+        ],
+        "wires": [["f", "c"]],
+        "beats": [
+          { "focus": "f", "caption": "The worker writes the receipt.", "set": { "f": { "hi": [1, 3] } } },
+          { "focus": "f", "caption": "The status line changes once paid.", "set": { "f": { "hi": 4, "text": { "4": "Status: shipped" } } } },
+          { "focus": "c", "caption": "Ana asks where her receipt is.", "set": { "c": { "show": 1, "hi": 0 } } },
+          { "focus": "c", "caption": "The assistant reads it and answers.", "set": { "c": { "show": 3, "hi": 2 } } }
+        ]
+      }
+    },
+    {
+      "id": "session",
+      "title": "An expired session sends the shopper to sign in",
+      "node": "signin", "file": "api/session.ts", "range": { "start": 5, "end": 14 },
+      "lead": "The API answers 401; the web app shows the sign-in page.",
+      "scene": {
+        "actors": [
+          { "id": "shop", "type": "app", "col": 0, "brand": "Lamp & Co", "logo": "LC", "tabs": ["Shop", "Orders", "Account"],
+            "signin": { "title": "Sign in to Lamp & Co", "notice": "Your session ended", "provider": "Example ID" },
+            "pages": { "account": { "tab": "Account", "title": "Account", "chip": "Active", "tone": "good", "banner": "Address changed", "rows": [["Name", "Ana"], ["Address", "12 Pier Road"]], "button": "Save" } } }
+        ],
+        "wires": [],
+        "beats": [
+          { "focus": "shop", "caption": "Her session ended, so the sign-in page shows.", "set": { "shop": { "screen": "signin", "notice": true } } },
+          { "focus": "shop", "caption": "She signs in with her provider.", "click": true, "set": { "shop": { "redirecting": true } } },
+          { "focus": "shop", "caption": "Back on her account page.", "set": { "shop": { "screen": "account", "rows": 1 } } },
+          { "focus": "shop", "caption": "She adds her address and saves.", "click": true, "set": { "shop": { "rows": 2, "hiRow": 1, "banner": true } } }
+        ]
+      }
+    }
+  ]
+}

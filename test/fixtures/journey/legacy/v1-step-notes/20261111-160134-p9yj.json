@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-p9yj",
+  "file": "worker/worker.go",
+  "range": {
+    "start": 115,
+    "end": 137
+  },
+  "anchor": {
+    "text": "\tcase store.OrderCharging:\n\t\tif o.Deadline != nil && now.After(*o.Deadline) {\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the bank did not answer in time\")\n\t\t}\n\t\t// Is it paid? Asked of the provider, never taken from the browser's redirect.\n\t\tch, err := w.Payments.Get(ctx, o.ChargeID)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn nil\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\tissues := payments.ChargeIssues(ch, w.Payments.WebhookLog(ctx, o.ChargeID))\n\t\twaiting := []string{}\n\t\tif ch.Status != payments.Succeeded {\n\t\t\twaiting = append(waiting, \"payment\")\n\t\t}\n\t\tif !w.Store.Stock().Reserved(ctx, o.ID) {\n\t\t\twaiting = append(waiting, \"stock\")\n\t\t}\n\t\tstage := orderStage(ch, o)\n\t\treturn applyOutcome(ctx, w.Store, o, stage, waiting, issues)",
+    "before": "\t\treturn w.Store.Orders().Update(ctx, o)\n",
+    "after": "\n\tcase store.OrderCancelling:"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.450Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**10. Every 2 s: is it paid? Answered by the provider only**\n\nFor a charging order each pass asks the provider for the charge (`Payments.Get`, worker/worker.go:121) and reads the webhook log the shop keeps. The browser coming back from the bank proves nothing: the status is asked of the provider (:120). Two extra gates: the stock must still be reserved (:133-135), and a passed deadline releases the stock and fails the order (:116-119).",
+      "at": "2026-11-11T16:01:34.450Z"
+    }
+  ]
+}

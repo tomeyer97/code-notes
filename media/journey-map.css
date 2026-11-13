@@ -1,0 +1,261 @@
+:root {
+  --fg: var(--vscode-foreground, #333);
+  --muted: var(--vscode-descriptionForeground, #717171);
+  --bg: var(--vscode-editor-background, #fff);
+  --border: var(--vscode-widget-border, var(--vscode-panel-border, #8884));
+  --accent: var(--vscode-codeNotes-noteBorder, var(--vscode-focusBorder, #8250df));
+  --accent-bg: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --stale: var(--vscode-editorWarning-foreground, #bf8803);
+  --edge: var(--muted); /* lines (dashed too) ≥ 3:1 in dark themes */
+  --hover: var(--vscode-list-hoverBackground, #8881);
+  --raised: var(--vscode-editorWidget-background, var(--bg));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg); position: relative;
+  font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: var(--vscode-font-size, 13px);
+}
+#app { padding: 12px 16px 20px; max-width: 1400px; }
+#app.deleted .body { opacity: 0.45; pointer-events: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+/* Keyboard focus always visible: inset, so a row's clipping container never hides it. */
+button:focus-visible, .gmap:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--accent)); outline-offset: -2px; }
+.link { color: var(--vscode-textLink-foreground, var(--accent)); }
+.link:hover { text-decoration: underline; }
+code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; }
+.btn {
+  background: var(--vscode-button-background, var(--accent)); color: var(--vscode-button-foreground, #fff);
+  border-radius: 3px; padding: 3px 10px; white-space: nowrap;
+}
+.btn:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+.icon { font-size: 1.3em; line-height: 1; width: 24px; height: 24px; border-radius: 3px; flex: none; }
+.icon:hover:not(:disabled) { background: var(--hover); }
+.icon:disabled { opacity: 0.35; cursor: default; }
+
+/* ---------- header: sticky, so "where am I" never scrolls away (R7) ---------- */
+.head { position: sticky; top: 0; z-index: 6; background: var(--bg); margin: -12px -16px 0; padding: 12px 16px 8px; }
+.tbtn { font-size: 0.92em; padding: 2px 8px; margin-left: 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--fg); }
+.tbtn:hover { background: var(--hover); }
+header .top { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+h1.q {
+  font-size: 1.2em; font-weight: 600; margin: 0; line-height: 1.35; min-width: 0; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+@media (max-width: 420px) { h1.q { font-size: 1.05em; } }
+.tour { display: flex; align-items: center; gap: 2px; flex: none; }
+.tour .pos { font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: center; }
+.gone { margin: 6px 0 0; color: var(--stale); }
+.problems { margin-top: 6px; font-size: 0.92em; }
+.problems .plink { color: var(--stale); }
+.problems ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+
+/* ---------- storyline + map (0.20): the storyline gets the width; the map beside it is the interactive one ---------- */
+.body { margin-top: 12px; }
+.body.wide { display: grid; grid-template-columns: minmax(0, 1fr) 13px var(--mapw, clamp(260px, 54%, 820px)); gap: 0 4px; align-items: stretch; }
+.body.wide > .story { align-self: start; }
+/* The splitter (0.21.1): invisible until hovered or focused, then a thin line; col-resize. */
+.splitter { position: relative; cursor: col-resize; touch-action: none; outline: none; }
+.splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 6px; width: 1px; background: transparent; transition: background 120ms; }
+.splitter:hover::after, .splitter:focus-visible::after, body.resizing .splitter::after { background: var(--vscode-focusBorder, var(--accent)); width: 2px; left: 5px; }
+body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
+.prov { margin: 4px 0 0; font-size: 0.88em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prov .changed { color: var(--stale); }
+/* Room for the current box's ring (outline-offset) inside a box that clips. */
+.mapwrap { min-width: 0; }
+.body.wide .mapwrap { align-self: start; position: sticky; top: calc(var(--headH, 0px) + 4px); height: calc(100vh - var(--headH, 0px) - 16px); display: flex; flex-direction: column; }
+.body.wide .gmap { flex: 1; }
+.body:not(.wide) .mapwrap { margin: 0 0 10px; }
+.body:not(.wide) .gmap { height: clamp(220px, 46vh, 420px); }
+.story { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; counter-reset: none; }
+.st { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 4px 6px; border-radius: 4px; line-height: 1.35; }
+.st:hover { background: var(--hover); }
+.st .n { flex: none; min-width: 1.6em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st .t { min-width: 0; overflow-wrap: anywhere; }
+.st.away .t { color: var(--muted); }
+.st.cur { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
+.st.cur .n { color: var(--accent); font-weight: 600; }
+.st.cur .t { color: var(--fg); }
+.st.stale .n { color: var(--stale); font-weight: 600; } /* one quiet mark; the card says the rest */
+/* After End: where you stopped, one quiet mark: the accent bar, no words. */
+
+/* ---------- the step card in the panel ---------- */
+.scard { margin: 2px 0 8px 8px; padding: 6px 10px 8px; border-left: 2px solid var(--accent); line-height: 1.45; overflow-wrap: anywhere; }
+.scard p, .scard ul { margin: 0 0 6px; }
+.scard ul { padding-left: 18px; }
+.scard hr { border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
+.scard .sstale { color: var(--stale); }
+.scard .srefs { font-size: 0.92em; margin-top: 4px; }
+.scard .squestion.unread { color: var(--vscode-textLink-activeForeground, var(--accent)); font-weight: 600; }
+.scard .ref { text-align: left; }
+.scard .ref:hover { text-decoration: underline; }
+.snav { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* ---------- tutorial ---------- */
+.tbar {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: -4px 0 10px; padding: 5px 10px; border-radius: 4px;
+  background: var(--accent-bg); border-left: 3px solid var(--accent); font-size: 0.95em;
+}
+.tbar .tq { font-weight: 600; }
+.tbar .sep { color: var(--muted); }
+.spot {
+  position: absolute; z-index: 10; pointer-events: none; border-radius: 6px;
+  outline: 2px solid var(--accent); outline-offset: 0;
+}
+.tdim { position: absolute; z-index: 9; left: 0; top: 0; background: #00000061; } /* clicks outside the hole stop here */
+/* On a dark theme the light dim barely shows: darker there. */
+body.vscode-dark .tdim, body.vscode-high-contrast .tdim { background: #000000b3; }
+.spot::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 8px; border: 2px solid var(--accent);
+  animation: pulse 1.1s ease-out 3; opacity: 0;
+}
+@keyframes pulse { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06); } }
+.tcard {
+  position: absolute; z-index: 11; padding: 10px 12px 9px; border-radius: 6px; line-height: 1.45;
+  background: var(--raised); color: var(--fg); border: 1px solid var(--accent); box-shadow: 0 4px 16px #0004;
+}
+.tcard .ttext { margin: 0 0 8px; overflow-wrap: anywhere; }
+.tkt { border-collapse: collapse; margin-top: 6px; font-size: 0.95em; }
+.tkt td { padding: 1px 6px 1px 0; }
+.tkt .tkk { font-weight: 600; }
+.tk2 { margin-top: 4px; }
+.tkl { margin-top: 6px; color: var(--muted); font-size: 0.92em; }
+.tkl kbd, .tkt kbd { font-family: inherit; font-size: 0.9em; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+.tfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tfoot .dots { color: var(--accent); letter-spacing: 1px; font-size: 0.75em; }
+.tfoot .tnav { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.tfoot .twait { color: var(--muted); font-style: italic; font-size: 0.9em; }
+@media (prefers-reduced-motion: reduce) {
+  .spot::after { animation: none; }
+}
+.note .authors { color: var(--muted); font-size: 0.92em; }
+.scard pre.code { margin: 4px 0 6px; padding: 4px 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--hover); border-radius: 3px; }
+.scard pre .del { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
+.scard pre .ins { color: var(--vscode-gitDecoration-addedResourceForeground, #587c0c); }
+.scard .sstale p { margin-bottom: 4px; }
+#app.deleted .head .gone { pointer-events: auto; }
+.gone .sep, .note.idle .sep { color: var(--muted); }
+.tkt .tthen { color: var(--muted); }
+.maptoggle { display: block; margin: 0 0 4px 6px; font-size: 0.92em; }
+.maptoggle::before { content: '▸\00a0'; display: inline-block; width: 1em; }
+.maptoggle[aria-expanded="true"]::before { content: '▾\00a0'; }
+.snotice { font-size: 0.92em; color: var(--muted); margin-bottom: 4px; }
+p.loading { color: var(--muted); }
+
+/* ---------- the whole map (0.21): pan + zoom; journey-graph.js ---------- */
+.gmap {
+  position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; cursor: grab; touch-action: none;
+  user-select: none; -webkit-user-select: none; min-height: 160px; display: flex; flex-direction: column;
+}
+/* The drawing; the controls are a row under it (nothing is drawn under them). */
+.gstage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.gmap.dragging { cursor: grabbing; }
+.gworld { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.gwait { margin: 12px; color: var(--muted); }
+.gmeasure { position: absolute; left: -10000px; top: 0; visibility: hidden; }
+.gmeasure > * { position: static !important; display: inline-flex; }
+.gbox { position: absolute; border-radius: 6px; }
+.gbox.group { border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 2.5%, var(--bg)); cursor: zoom-in; }
+.gbox.group.d1 { background: color-mix(in srgb, var(--fg) 5%, var(--bg)); }
+.gbox.group.d2 { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+.gtitle {
+  position: absolute; left: 10px; right: 8px; top: 5px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Over the arrows that enter its box (a line through a title reads as struck out): on the box's own background. */
+.gbox.group > .gtitle { z-index: 1; right: auto; max-width: calc(100% - 12px); margin-left: -3px; padding: 0 3px; border-radius: 3px; background: inherit; }
+.gmeasure .gtitle { right: auto; }
+.gtitle.system { font-size: 1.05em; }
+.gtitle.module { font-size: 0.95em; color: var(--muted); }
+.gbox.leaf {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; white-space: nowrap; border: 1px solid var(--border);
+  background: var(--bg); cursor: pointer; line-height: 1.3;
+}
+.gbox.leaf.inert { cursor: default; }
+.gbox.leaf:not(.inert):hover { border-color: var(--muted); }
+.gbox.function .glbl { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+.gbox.store { border-style: dashed; }
+.gbox.external .glbl { color: var(--muted); }
+.gbox.current { outline: 2px solid var(--accent); outline-offset: 2px; background: var(--accent-bg); }
+.gbox.group.current { outline-offset: -1px; }
+.gnums { display: inline-flex; gap: 3px; margin-left: auto; }
+.gnum {
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; font-size: 0.8em; line-height: 18px; text-align: center;
+  color: var(--muted); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
+}
+.gnum:hover { color: var(--fg); border-color: var(--muted); }
+.gnum.cur { background: var(--accent); border-color: var(--accent); color: var(--vscode-button-foreground, #fff); font-weight: 600; }
+.gedges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.gedge { fill: none; stroke: var(--edge); stroke-width: 1.3; }
+.gedge.async { stroke-dasharray: 6 3; }
+.gedge.on { stroke: var(--accent); stroke-width: 1.8; }
+.gedge.faint { opacity: 0.3; }
+.gah { fill: var(--edge); }
+.gah.on { fill: var(--accent); }
+.glabel {
+  position: absolute; font-size: 0.8em; line-height: 15px; padding: 0 2px; color: var(--muted); white-space: nowrap; text-align: center;
+  background: color-mix(in srgb, var(--bg) 92%, transparent); border-radius: 3px;
+}
+.glabel.faint { opacity: 0.45; }
+/* Far out: the text too small to read goes; boxes of leaves become blocks; names are drawn at a readable size (.gnames). */
+.gmap.far .glbl, .gmap.far .gnums, .gmap.far .glabel, .gmap.far .gtitle { visibility: hidden; }
+/* Far out only the current step's arrows are drawn (the rest is a tangle at that size). */
+.gmap.far .gedge.faint { display: none; }
+.gcover { position: absolute; display: none; border-radius: 6px; border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 8%, var(--bg)); }
+.gmap.far .gcover { display: block; }
+.gmap.far .gbox.leaf.current { background: var(--accent-bg); }
+/* The step's own box is ringed (.gring): its block only tinted. */
+.gcover.current { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.gnames { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.gnames[hidden] { display: none; }
+/* Far names (journey-graph.js farNames): placed in screen space where they overlap nothing; whole, on two lines, past
+   the block's edges on a chip, or cut after a word with "…". Each block's step numbers under its name (click: go). */
+.gname { position: absolute; font-weight: 600; line-height: 1.2; padding: 1px 4px; border-radius: 3px; color: var(--fg); white-space: pre; }
+.gname .gnt { display: block; }
+.gname.inner { font-size: 0.85em; text-align: center; }
+.gname.outer { font-size: 0.95em; background: color-mix(in srgb, var(--bg) 85%, transparent); }
+.gname.leaf { font-weight: 400; font-size: 0.8em; }
+.gname.wide { background: color-mix(in srgb, var(--bg) 88%, transparent); }
+.gfnums { display: flex; gap: 3px; margin-top: 2px; }
+.gname.row { display: flex; align-items: center; gap: 4px; }
+.gname.row .gfnums { margin-top: 0; }
+.gname.inner .gfnums { justify-content: center; }
+.gfn {
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 0.75em; font-weight: 400; line-height: 14px; text-align: center;
+  color: var(--fg); border: 1px solid var(--border); background: var(--bg); font-variant-numeric: tabular-nums; pointer-events: auto;
+}
+.gfn.cur { background: var(--accent); border-color: var(--accent); color: var(--vscode-button-foreground, #fff); font-weight: 600; }
+.gring { position: absolute; border: 2px solid var(--accent); border-radius: 4px; pointer-events: none; }
+.gctl { flex: none; display: flex; justify-content: flex-end; gap: 2px; padding: 2px 6px 5px; cursor: default; }
+.gbtn {
+  min-width: 24px; height: 22px; padding: 0 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--raised);
+  color: var(--muted); font-size: 0.9em; line-height: 20px;
+}
+.gbtn:hover, .gbtn.on { color: var(--fg); }
+.glegend {
+  position: absolute; right: 6px; bottom: 34px; z-index: 2; padding: 6px 9px; border-radius: 4px; font-size: 0.85em; color: var(--muted);
+  background: var(--raised); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px;
+}
+.glegend[hidden] { display: none; }
+.gkey { display: flex; align-items: center; gap: 6px; }
+.gsample { display: inline-block; width: 24px; height: 12px; border: 1px dashed var(--muted); border-radius: 3px; }
+.gsample.cur { border: 2px solid var(--accent); background: var(--accent-bg); }
+.glegend .gnum { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .gbox { transition: none; } }
+
+/* ---------- home (0.21) ---------- */
+.homeb { display: block; font-size: 0.9em; margin: 0 0 4px; }
+.home h1.q { margin: 0 0 10px; }
+.jlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-width: 560px; }
+.jrow { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; padding: 5px 6px; border-radius: 4px; line-height: 1.35; }
+.jrow .jtop { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.jrow .jq { color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
+.jrow .jstart { flex: none; color: var(--vscode-textLink-foreground, var(--accent)); font-size: 0.88em; font-weight: 600; }
+.jrow:hover { background: var(--hover); }
+.jrow .t { min-width: 0; overflow-wrap: anywhere; }
+.jrow .jat { flex: none; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; }
+.jrow.here { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* ---------- the walk finished ---------- */
+.done { margin: 8px 0 12px; padding: 8px 10px; border-radius: 4px; background: var(--accent-bg); }
+.done p { margin: 0 0 4px; }
+.done .dtitle { font-weight: 600; }

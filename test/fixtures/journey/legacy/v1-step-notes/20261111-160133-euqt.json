@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160133-euqt",
+  "file": "api/orders.go",
+  "range": {
+    "start": 82,
+    "end": 114
+  },
+  "anchor": {
+    "text": "\tnow := time.Now().UTC()\n\to := &store.Order{\n\t\tID:             store.NewID(),\n\t\tCartID:         req.CartID,\n\t\tCustomer:       req.Customer,\n\t\tLines:          priced.Lines,\n\t\tTotal:          priced.Total,\n\t\tCurrency:       s.Cfg.Currency,\n\t\tShipping:       store.Address(req.Shipping),\n\t\tGiftNote:       req.GiftNote,\n\t\tIdempotencyKey: req.IdempotencyKey,\n\t\tStatus:         store.OrderPending,\n\t\tMessage:        \"Order received\",\n\t\tCreatedAt:      now,\n\t\tUpdatedAt:      now,\n\t}\n\texp := s.expiry(now)\n\to.ExpiresAt = &exp\n\tif preview.Wait {\n\t\to.Reason, o.Message = store.ReasonStock, preview.Message\n\t}\n\t// The order's own reference for the payment provider, so a charge can be matched back to it.\n\to.PaymentRef = \"ord_\" + o.ID\n\tif err := s.Store.Orders().Create(r.Context(), o); err != nil {\n\t\tif errors.Is(err, store.ErrDuplicate) {\n\t\t\thttpError(w, http.StatusConflict, \"this order was just placed\")\n\t\t\treturn\n\t\t}\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\ts.Log.Info(\"order stored\", \"id\", o.ID, \"total\", o.Total, \"lines\", len(o.Lines))\n\twriteJSON(w, http.StatusCreated, o)",
+    "before": "\t\treturn\n\t}",
+    "after": "}\n"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:33.200Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**3. The API only writes a pending order**\n\nAfter validation (JSON decode and line count at api/orders.go:39-43, prices, stock), the handler builds a `store.Order` with `Status: OrderPending`, the payment reference `ord_<id>` (:104), and… It returns 201 immediately. **No payment call happens in this request.** If the same idempotency key was sent before, the path forks earlier to the existing order (:52), which this journey does not follow.",
+      "at": "2026-11-11T16:01:33.200Z"
+    }
+  ]
+}

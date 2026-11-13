@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160135-udxt",
+  "file": "web/src/checkout/waitForPayment.ts",
+  "range": {
+    "start": 18,
+    "end": 36
+  },
+  "anchor": {
+    "text": "  for (;;) {\n    const order = await api.get<{ status: string; message: string }>(`/api/orders/${id}`)\n    if (order.message && order.message !== last) {\n      progress(order.message)\n      last = order.message\n    }\n    switch (order.status) {\n      case 'paid':\n        return { status: 'paid', message: '' }\n      case 'failed':\n        return { status: 'failed', message: order.message || 'the payment failed' }\n      case 'cancelled':\n        return { status: 'cancelled', message: 'the order was cancelled' }\n    }\n    if (Date.now() > deadline) {\n      // The order is not cancelled: the worker keeps going and the receipt still arrives by email.\n      return { status: 'timeout', message: 'still waiting for your bank; we will email you when it is paid' }\n    }\n    await new Promise((r) => setTimeout(r, POLL_MS))",
+    "before": "  const deadline = Date.now() + timeoutMs\n  let last = ''",
+    "after": "  }\n}"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:35.086Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**13. Asynchronous hop 4: the page (and the order page) poll the order**\n\nThe checkout learns about the payment by polling `GET /api/orders/{id}` every 3 s (web/src/checkout/waitForPayment.ts:8), showing the server's message when it changes, and returns on paid, failed or cancelled. The order page does the same with a 3 s refetch (web/src/api/orders.ts:6). Watch out: the page gives up after 10 minutes (web/src/checkout/Checkout.vue:17) while the worker allows a charge 20 (step 7). When the page gives up first, the order keeps going on the server; the message says so (:34).",
+      "at": "2026-11-11T16:01:35.086Z"
+    }
+  ]
+}

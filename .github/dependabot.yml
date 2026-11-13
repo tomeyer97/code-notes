@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      dev:
+        dependency-type: development
+    ignore:
+      # the VS Code API version the extension is written against: raised by hand, with engines.vscode
+      - dependency-name: "@types/vscode"

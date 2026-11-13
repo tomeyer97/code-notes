@@ -1,0 +1,440 @@
+{
+  "version": 1,
+  "id": "place-order",
+  "question": "How does an order get placed and paid?",
+  "title": "Placing an order",
+  "summary": "The Place order button checks the cart with a dry-run create, then POSTs the order to the API. The API only stores a `pending` order. A separate polling loop, the order worker, reserves the stock, creates one charge at the payment provider and flips the order to `charging`. The provider sends the customer to their bank; the worker polls the provider every 2 s until the charge succeeded, then marks the order paid. The page polls the order every 3 s.",
+  "session": "Journey · Placing an order",
+  "commit": "a1b2c3d",
+  "createdAt": "2026-11-11T16:01:30.464Z",
+  "nodes": [
+    {
+      "id": "web",
+      "kind": "system",
+      "label": "Web shop",
+      "summary": "Where the customer starts: the checkout page in the browser. Builds the order, sends it, waits for the payment.",
+      "blurb": "Builds the order, sends it, waits"
+    },
+    {
+      "id": "backend",
+      "kind": "system",
+      "label": "Shop backend",
+      "summary": "One Go binary holding both the HTTP API and the worker loop that does the actual payment work.",
+      "blurb": "HTTP API plus the order worker loop",
+      "path": "cmd/shop"
+    },
+    {
+      "id": "psp",
+      "kind": "system",
+      "label": "Payment provider",
+      "summary": "The card payment company. It holds each charge, sends the customer to their bank when the bank asks for it, and calls the shop's webhook. Third-party code.",
+      "blurb": "Holds the charge; calls the shop back"
+    },
+    {
+      "id": "bank",
+      "kind": "system",
+      "label": "Customer's bank",
+      "summary": "The bank behind the customer's card. Its 3-D Secure page asks the customer to confirm the payment. Third-party code.",
+      "blurb": "Where the customer confirms the payment"
+    },
+    {
+      "id": "checkout",
+      "kind": "module",
+      "label": "Checkout",
+      "summary": "The logic behind the Place order button: check, send, wait.",
+      "parent": "web",
+      "blurb": "Check, send the order, wait until paid",
+      "path": "web/src/checkout"
+    },
+    {
+      "id": "orders",
+      "kind": "module",
+      "label": "Orders API",
+      "summary": "Validates the request and stores the order. Charges nothing.",
+      "parent": "backend",
+      "blurb": "Validates and stores the order; no payment",
+      "path": "api"
+    },
+    {
+      "id": "worker",
+      "kind": "module",
+      "label": "Order worker",
+      "summary": "Polling loop that moves each stored order forward: pending -> charging -> paid.",
+      "parent": "backend",
+      "blurb": "Polls every 2 s; moves orders to paid",
+      "path": "worker"
+    },
+    {
+      "id": "payclient",
+      "kind": "module",
+      "label": "Payment client",
+      "summary": "Turns an order into the provider's charge request and reads the charge's state back.",
+      "parent": "backend",
+      "blurb": "Order to charge; reads the charge back",
+      "path": "payments"
+    },
+    {
+      "id": "charges",
+      "kind": "module",
+      "label": "Charges API",
+      "summary": "The provider's side of a charge, as the shop configures it: when to ask the bank, which events to send back.",
+      "parent": "psp",
+      "blurb": "Turns a charge into a bank check",
+      "path": "config"
+    },
+    {
+      "id": "threeds",
+      "kind": "module",
+      "label": "3-D Secure check",
+      "summary": "Inside the bank: asks the customer to confirm the payment and reports the answer to the provider.",
+      "parent": "bank",
+      "blurb": "Asks the customer; answers the provider"
+    },
+    {
+      "id": "place",
+      "kind": "function",
+      "label": "placeOrder",
+      "summary": "Check the cart, send the order (or wait on the one already sent), wait until paid.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/placeOrder.ts",
+        "start": 21,
+        "end": 49,
+        "anchor": {
+          "text": "export async function placeOrder(cart: Cart, customer: string, o: PlaceOptions): Promise<Placed> {\n  if (!cart.lines.length) throw new Error('the cart is empty')\n  const started = Date.now()\n  // An order already sent from this cart (a double click, a reload): wait on that one instead of sending another.\n  const open = await api.get<{ id: string } | null>(`/api/carts/${cart.id}/open-order`)\n  if (open) {\n    o.progress('Your order is already on its way')\n    return { orderId: open.id, outcome: await waitForPayment(open.id, o.timeoutMs, o.progress) }\n  }\n  const req = buildOrder(cart, customer)\n  // Validate first: stock and prices are checked before the customer is sent to their bank.\n  try {\n    await api.post('/api/orders?dryRun=1', req)\n  } catch (e) {\n    if (e instanceof ApiError && e.status === 409) {\n      o.progress('Some items just sold out; the cart was updated')\n      throw e\n    }\n    throw e\n  }\n  o.progress('Sending your order')\n  const created = await api.post<{ id: string; status: string }>('/api/orders', req)\n  if (created.status === 'paid') {\n    return { orderId: created.id, outcome: { status: 'paid', message: '' } }\n  }\n  o.progress('Waiting for the payment')\n  const left = Math.max(o.timeoutMs - (Date.now() - started), 1000)\n  return { orderId: created.id, outcome: await waitForPayment(created.id, left, o.progress) }\n}",
+          "before": " * Nothing is charged here; the browser only asks and waits.\n */",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "build",
+      "kind": "function",
+      "label": "buildOrder",
+      "summary": "Assembles the order request: the lines as shown, the address, one idempotency key.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/buildOrder.ts",
+        "start": 29,
+        "end": 55,
+        "anchor": {
+          "text": "export function buildOrder(cart: Cart, customer: string, giftNote?: string): OrderRequest {\n  const lines = cart.lines\n    .filter((l) => l.quantity > 0)\n    .map((l) => ({ sku: l.sku, quantity: Math.min(l.quantity, 99), shownPrice: l.shownPrice }))\n  if (!lines.length) throw new Error('nothing to order')\n  const total = lines.reduce((sum, l) => sum + l.quantity * l.shownPrice, 0)\n  // One key per cart: a retried request is the same order, never a second one.\n  const idempotencyKey = `cart-${cart.id}-${lines.map((l) => `${l.sku}x${l.quantity}`).join('.')}`\n  const req: OrderRequest = {\n    cartId: cart.id,\n    customer,\n    lines,\n    shipping: { ...cart.shipping, country: cart.shipping.country.toUpperCase() },\n    total,\n    idempotencyKey,\n  }\n  if (cart.coupon) req.coupon = cart.coupon.trim().toUpperCase()\n  // A gift note travels as text; the server never renders it as HTML.\n  if (giftNote) {\n    const note = giftNote.trim().slice(0, 500)\n    if (note) req.giftNote = note\n  }\n  if (total > 1_000_000) {\n    throw new Error(`orders over ${money(1_000_000)} go through sales`)\n  }\n  return req\n}",
+          "before": "\n/** What the order request carries: the cart's lines as the page showed them, the address and one idempotency key. */",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "waitpaid",
+      "kind": "function",
+      "label": "waitForPayment",
+      "summary": "Polls GET /api/orders/{id} every 3 s until paid, failed or timeout.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/waitForPayment.ts",
+        "start": 14,
+        "end": 38,
+        "anchor": {
+          "text": "export async function waitForPayment(id: string, timeoutMs: number, progress: (line: string) => void): Promise<PaymentOutcome> {\n  if (timeoutMs <= 0) timeoutMs = 10 * 60 * 1000\n  const deadline = Date.now() + timeoutMs\n  let last = ''\n  for (;;) {\n    const order = await api.get<{ status: string; message: string }>(`/api/orders/${id}`)\n    if (order.message && order.message !== last) {\n      progress(order.message)\n      last = order.message\n    }\n    switch (order.status) {\n      case 'paid':\n        return { status: 'paid', message: '' }\n      case 'failed':\n        return { status: 'failed', message: order.message || 'the payment failed' }\n      case 'cancelled':\n        return { status: 'cancelled', message: 'the order was cancelled' }\n    }\n    if (Date.now() > deadline) {\n      // The order is not cancelled: the worker keeps going and the receipt still arrives by email.\n      return { status: 'timeout', message: 'still waiting for your bank; we will email you when it is paid' }\n    }\n    await new Promise((r) => setTimeout(r, POLL_MS))\n  }\n}",
+          "before": " * shows the server's message whenever it changes.\n */",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "create",
+      "kind": "function",
+      "label": "createOrder",
+      "summary": "Handler of POST /api/orders: checks, then one database insert with status pending.",
+      "parent": "orders",
+      "at": {
+        "file": "api/orders.go",
+        "start": 37,
+        "end": 115,
+        "anchor": {
+          "text": "func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {\n\tvar req OrderRequest\n\tif err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {\n\t\thttpError(w, http.StatusBadRequest, \"not a valid order: \"+err.Error())\n\t\treturn\n\t}\n\tif len(req.Lines) == 0 || len(req.Lines) > 50 {\n\t\thttpError(w, http.StatusBadRequest, \"an order has 1 to 50 lines\")\n\t\treturn\n\t}\n\tif strings.TrimSpace(req.IdempotencyKey) == \"\" {\n\t\thttpError(w, http.StatusBadRequest, \"idempotencyKey is required\")\n\t\treturn\n\t}\n\t// The same key twice (a double click, a retry): answer with the order that exists.\n\tif old, err := s.Store.Orders().ByKey(r.Context(), req.IdempotencyKey); err == nil {\n\t\twriteJSON(w, http.StatusOK, old)\n\t\treturn\n\t} else if !errors.Is(err, store.ErrNotFound) {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\tpriced, err := s.Catalog.Price(r.Context(), req.Lines, req.Coupon)\n\tif err != nil {\n\t\thttpError(w, http.StatusBadRequest, err.Error())\n\t\treturn\n\t}\n\tif priced.Total != req.Total {\n\t\thttpError(w, http.StatusConflict, \"prices changed; reload the cart\")\n\t\treturn\n\t}\n\tif short := s.Stock.Short(r.Context(), req.Lines); len(short) > 0 {\n\t\twriteJSON(w, http.StatusConflict, map[string]any{\"error\": \"sold out\", \"skus\": short})\n\t\treturn\n\t}\n\t// Back-ordered items do not refuse the order: the customer is told it will wait.\n\tpreview, err := s.Worker.Preview(r.Context(), &store.Order{Lines: priced.Lines, CreatedAt: time.Now()})\n\tif err != nil {\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\tif r.URL.Query().Get(\"dryRun\") == \"1\" {\n\t\twriteJSON(w, http.StatusOK, map[string]any{\"total\": priced.Total, \"wait\": preview.Message})\n\t\treturn\n\t}\n\tnow := time.Now().UTC()\n\to := &store.Order{\n\t\tID:             store.NewID(),\n\t\tCartID:         req.CartID,\n\t\tCustomer:       req.Customer,\n\t\tLines:          priced.Lines,\n\t\tTotal:          priced.Total,\n\t\tCurrency:       s.Cfg.Currency,\n\t\tShipping:       store.Address(req.Shipping),\n\t\tGiftNote:       req.GiftNote,\n\t\tIdempotencyKey: req.IdempotencyKey,\n\t\tStatus:         store.OrderPending,\n\t\tMessage:        \"Order received\",\n\t\tCreatedAt:      now,\n\t\tUpdatedAt:      now,\n\t}\n\texp := s.expiry(now)\n\to.ExpiresAt = &exp\n\tif preview.Wait {\n\t\to.Reason, o.Message = store.ReasonStock, preview.Message\n\t}\n\t// The order's own reference for the payment provider, so a charge can be matched back to it.\n\to.PaymentRef = \"ord_\" + o.ID\n\tif err := s.Store.Orders().Create(r.Context(), o); err != nil {\n\t\tif errors.Is(err, store.ErrDuplicate) {\n\t\t\thttpError(w, http.StatusConflict, \"this order was just placed\")\n\t\t\treturn\n\t\t}\n\t\thttpError(w, http.StatusInternalServerError, err.Error())\n\t\treturn\n\t}\n\ts.Log.Info(\"order stored\", \"id\", o.ID, \"total\", o.Total, \"lines\", len(o.Lines))\n\twriteJSON(w, http.StatusCreated, o)\n}",
+          "before": "// createOrder handles POST /api/orders: it checks the request and stores one order with status pending.\n// It charges nothing and talks to no payment provider; the worker does that.",
+          "after": "\n// getOrder handles GET /api/orders/{id}: the checkout page and the order page poll it."
+        }
+      }
+    },
+    {
+      "id": "poll",
+      "kind": "function",
+      "label": "Worker.loop",
+      "summary": "One ticker loop per phase; the \"orders\" phase lists open orders and calls processOrder on each.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 40,
+        "end": 55,
+        "anchor": {
+          "text": "func (w *Worker) loop(ctx context.Context, phase string) {\n\tinterval := w.Interval\n\tif interval <= 0 {\n\t\tinterval = 2 * time.Second\n\t}\n\tt := time.NewTicker(interval)\n\tdefer t.Stop()\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\tcase <-t.C:\n\t\t}\n\t\tw.pass(ctx, phase)\n\t}\n}",
+          "before": "}\n",
+          "after": "\n// pass handles every open order once, each with its own timeout."
+        }
+      }
+    },
+    {
+      "id": "process",
+      "kind": "function",
+      "label": "processOrder",
+      "summary": "The order state machine: one switch on status, run once per pass per order.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 82,
+        "end": 157,
+        "anchor": {
+          "text": "func (w *Worker) processOrder(ctx context.Context, o *store.Order) error {\n\tnow := time.Now().UTC()\n\tswitch o.Status {\n\tcase store.OrderPending:\n\t\tif ok, err := w.admit(ctx, o, w.open); !ok || err != nil {\n\t\t\treturn err\n\t\t}\n\t\t// Stock first: a sold-out line fails the order before anyone is charged.\n\t\tif err := w.Store.Stock().Reserve(ctx, o.ID, o.Lines); err != nil {\n\t\t\tif errors.Is(err, store.ErrSoldOut) {\n\t\t\t\treturn w.fail(ctx, o, \"an item sold out before payment\")\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\treq, err := payments.BuildCharge(o)\n\t\tif err != nil {\n\t\t\treturn w.fail(ctx, o, err.Error())\n\t\t}\n\t\tch, err := w.Payments.Create(ctx, req)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn w.retryLater(ctx, o, err.Error())\n\t\t\t}\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the payment could not be started: \"+err.Error())\n\t\t}\n\t\to.ChargeID = ch.ID\n\t\to.Status = store.OrderCharging\n\t\to.Message = \"Confirm the payment with your bank\"\n\t\tdeadline := now.Add(w.Timeout)\n\t\to.Deadline = &deadline\n\t\treturn w.Store.Orders().Update(ctx, o)\n\n\tcase store.OrderCharging:\n\t\tif o.Deadline != nil && now.After(*o.Deadline) {\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the bank did not answer in time\")\n\t\t}\n\t\t// Is it paid? Asked of the provider, never taken from the browser's redirect.\n\t\tch, err := w.Payments.Get(ctx, o.ChargeID)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn nil\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\tissues := payments.ChargeIssues(ch, w.Payments.WebhookLog(ctx, o.ChargeID))\n\t\twaiting := []string{}\n\t\tif ch.Status != payments.Succeeded {\n\t\t\twaiting = append(waiting, \"payment\")\n\t\t}\n\t\tif !w.Store.Stock().Reserved(ctx, o.ID) {\n\t\t\twaiting = append(waiting, \"stock\")\n\t\t}\n\t\tstage := orderStage(ch, o)\n\t\treturn applyOutcome(ctx, w.Store, o, stage, waiting, issues)\n\n\tcase store.OrderCancelling:\n\t\t// Void the charge first, so the customer is never charged for an order that no longer exists.\n\t\tif o.ChargeID != \"\" {\n\t\t\tif err := w.Payments.Void(ctx, o.ChargeID); err != nil && !payments.AlreadySettled(err) {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif err := w.Store.Stock().Release(ctx, o.ID); err != nil {\n\t\t\treturn err\n\t\t}\n\t\to.Status, o.Message = store.OrderCancelled, \"Cancelled\"\n\t\to.UpdatedAt = now\n\t\treturn w.Store.Orders().Update(ctx, o)\n\n\tcase store.OrderPaid, store.OrderFailed, store.OrderCancelled:\n\t\treturn nil\n\t}\n\treturn fmt.Errorf(\"order %s: unknown status %q\", o.ID, o.Status)\n}",
+          "before": "\n// processOrder is the order's state machine: one step per pass.",
+          "after": "\nfunc (w *Worker) fail(ctx context.Context, o *store.Order, why string) error {"
+        }
+      }
+    },
+    {
+      "id": "stage",
+      "kind": "function",
+      "label": "orderStage",
+      "summary": "Works out what a charging order is waiting for (the bank, the provider, packing).",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 181,
+        "end": 194,
+        "anchor": {
+          "text": "func orderStage(ch *payments.Charge, o *store.Order) string {\n\tswitch {\n\tcase ch.Status == payments.Succeeded:\n\t\treturn \"packing\"\n\tcase ch.NextAction == \"redirect_to_bank\":\n\t\treturn \"bank\"\n\tcase ch.Status == payments.Processing:\n\t\treturn \"processing\"\n\t}\n\tif o.Message == \"\" {\n\t\treturn \"waiting\"\n\t}\n\treturn \"charging\"\n}",
+          "before": "\n// orderStage works out what the customer is waiting for, from what the provider says about the charge.",
+          "after": "\n// applyOutcome writes the result of one pass onto the order: paid, still waiting (with a message), or failed."
+        }
+      }
+    },
+    {
+      "id": "finish",
+      "kind": "function",
+      "label": "applyOutcome",
+      "summary": "Writes the outcome of a pass onto the order: paid, still waiting (with message), or failed.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.go",
+        "start": 197,
+        "end": 220,
+        "anchor": {
+          "text": "func applyOutcome(ctx context.Context, st store.Store, o *store.Order, stage string, waiting []string, issues []payments.Issue) error {\n\tfor _, is := range issues {\n\t\tif is.Fatal {\n\t\t\to.Status, o.Message = store.OrderFailed, is.Message\n\t\t\treturn st.Orders().Update(ctx, o)\n\t\t}\n\t}\n\tswitch {\n\tcase len(waiting) == 0:\n\t\tif o.Status != store.OrderPaid {\n\t\t\tt := time.Now().UTC()\n\t\t\to.PaidAt = &t\n\t\t}\n\t\to.Status, o.Message = store.OrderPaid, \"\"\n\tcase stage == \"bank\":\n\t\to.Message = \"Confirm the payment with your bank\"\n\tcase stage == \"processing\":\n\t\to.Message = \"Your bank is processing the payment\"\n\tdefault:\n\t\to.Message = \"Waiting for the payment\"\n\t}\n\to.UpdatedAt = time.Now().UTC()\n\treturn st.Orders().Update(ctx, o)\n}",
+          "before": "\n// applyOutcome writes the result of one pass onto the order: paid, still waiting (with a message), or failed.",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "charge",
+      "kind": "function",
+      "label": "BuildCharge",
+      "summary": "Order -> the provider's charge request: the lines, the order's reference and its idempotency key.",
+      "parent": "payclient",
+      "at": {
+        "file": "payments/charge.go",
+        "start": 34,
+        "end": 77,
+        "anchor": {
+          "text": "func BuildCharge(o *store.Order) (*ChargeRequest, error) {\n\tif o.Total <= 0 {\n\t\treturn nil, fmt.Errorf(\"order %s: nothing to charge\", o.ID)\n\t}\n\tif o.Currency == \"\" {\n\t\treturn nil, fmt.Errorf(\"order %s: no currency\", o.ID)\n\t}\n\titems := make([]ChargeItem, 0, len(o.Lines))\n\tvar sum int64\n\tfor _, l := range o.Lines {\n\t\titems = append(items, ChargeItem{Name: l.Name, Quantity: l.Quantity, Amount: l.Price})\n\t\tsum += int64(l.Quantity) * l.Price\n\t}\n\t// The lines must add up to what the order says; a coupon is one negative line.\n\tif o.Discount > 0 {\n\t\titems = append(items, ChargeItem{Name: \"Discount\", Quantity: 1, Amount: -o.Discount})\n\t\tsum -= o.Discount\n\t}\n\tif sum != o.Total {\n\t\treturn nil, fmt.Errorf(\"order %s: lines add up to %d, total is %d\", o.ID, sum, o.Total)\n\t}\n\tdesc := fmt.Sprintf(\"Order %s\", strings.ToUpper(o.ID[:8]))\n\tmeta := map[string]string{\"order\": o.ID, \"cart\": o.CartID}\n\tif o.GiftNote != \"\" {\n\t\tmeta[\"gift\"] = \"yes\"\n\t}\n\n\treq := &ChargeRequest{\n\t\tAmount:         o.Total,\n\t\tCurrency:       strings.ToLower(o.Currency),\n\t\tReference:      o.PaymentRef,\n\t\tDescription:    desc,\n\t\tReturnURL:      returnPath + \"?order=\" + o.ID,\n\t\tIdempotencyKey: \"charge-\" + o.IdempotencyKey,\n\t\tMetadata:       meta,\n\t\tItems:          items,\n\t\tThreeDSecure:   \"auto\",\n\t}\n\t// Large orders always go through the bank's check, whatever the provider would decide.\n\tif o.Total >= 50_000 {\n\t\treq.ThreeDSecure = \"always\"\n\t}\n\treturn req, nil\n}",
+          "before": "// BuildCharge turns a stored order into the provider's charge request. The order's own reference and key go\n// with it, so a retried create is the same charge and a webhook can be matched back to the order.",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "chargestatus",
+      "kind": "function",
+      "label": "ChargeIssues",
+      "summary": "How the shop sees the two third-party steps: the charge's own status, and the webhook log it keeps.",
+      "parent": "payclient",
+      "at": {
+        "file": "payments/status.go",
+        "start": 31,
+        "end": 65,
+        "anchor": {
+          "text": "// The provider's webhook payloads carry the bank's own decline text; these are the ones worth a clear message.\nvar declines = []struct {\n\tre  *regexp.Regexp\n\tmsg string\n}{\n\t{regexp.MustCompile(`(?i)insufficient funds`), \"the card was declined: insufficient funds\"},\n\t{regexp.MustCompile(`(?i)authentication (failed|rejected)`), \"the bank could not confirm it was you\"},\n\t{regexp.MustCompile(`(?i)card (expired|not supported)`), \"this card cannot be used; try another\"},\n}\n\n// ChargeIssues says what went wrong with a charge, from the charge itself and the webhook log the shop keeps.\n// The bank's 3-D Secure page is not ours: all the shop sees of it is what the provider reports afterwards.\nfunc ChargeIssues(ch *Charge, webhookLog []string) []Issue {\n\tvar out []Issue\n\tswitch ch.Status {\n\tcase Failed:\n\t\tmsg := \"the payment failed\"\n\t\tfor _, d := range declines {\n\t\t\tif d.re.MatchString(ch.FailureMsg) {\n\t\t\t\tmsg = d.msg\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t\tout = append(out, Issue{Fatal: true, Message: msg})\n\tcase Expired:\n\t\tout = append(out, Issue{Fatal: true, Message: \"the payment expired at the bank\"})\n\t}\n\tfor _, line := range webhookLog {\n\t\tif strings.Contains(line, \"signature mismatch\") {\n\t\t\tout = append(out, Issue{Message: \"a payment notice was rejected; checking with the provider\"})\n\t\t\tbreak\n\t\t}\n\t}\n\treturn out\n}",
+          "before": "}\n",
+          "after": ""
+        }
+      }
+    },
+    {
+      "id": "pspconf",
+      "kind": "function",
+      "label": "payment settings",
+      "summary": "The provider settings the shop ships: when 3-D Secure is asked for, which events come back, when a charge expires.",
+      "parent": "charges",
+      "at": {
+        "file": "config/payments.yaml",
+        "start": 1,
+        "end": 14,
+        "anchor": {
+          "text": "# The payment provider, as the shop talks to it. Charges are created by the worker (payments/charge.go);\n# the provider then sends the customer to their bank for 3-D Secure and calls the webhook below when it knows.\nprovider:\n  name: examplepay\n  apiBase: https://api.examplepay.test/v1\n  # auto: 3-D Secure only when the bank asks for it; always: every charge.\n  threeDSecure: auto\n  webhook:\n    path: /api/payments/webhook\n    events: [charge.succeeded, charge.failed, charge.expired]\n  # A charge the bank has not answered in this time expires on the provider's side.\n  chargeTimeout: 15m\n  retries: 3\n",
+          "before": "",
+          "after": "currency: EUR\nstatementDescriptor: ACME SHOP"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "place",
+      "to": "build",
+      "label": "calls"
+    },
+    {
+      "from": "place",
+      "to": "create",
+      "label": "POST /orders",
+      "detail": "validate first, then for real: POST /api/orders"
+    },
+    {
+      "from": "create",
+      "to": "poll",
+      "label": "stored, then polled",
+      "async": true,
+      "detail": "stored order, status pending; picked up by the 2 s poll (no direct call)"
+    },
+    {
+      "from": "poll",
+      "to": "process",
+      "label": "per order, per pass",
+      "detail": "calls processOrder once per open order per pass"
+    },
+    {
+      "from": "process",
+      "to": "charge",
+      "label": "BuildCharge"
+    },
+    {
+      "from": "process",
+      "to": "pspconf",
+      "label": "creates the charge",
+      "detail": "one create-charge call with the idempotency key charge-<key>"
+    },
+    {
+      "from": "pspconf",
+      "to": "threeds",
+      "label": "asks the bank",
+      "async": true,
+      "detail": "the provider sends the customer to their bank's 3-D Secure page"
+    },
+    {
+      "from": "threeds",
+      "to": "psp",
+      "label": "answers the provider",
+      "async": true,
+      "detail": "the bank confirms or declines; the provider marks the charge"
+    },
+    {
+      "from": "process",
+      "to": "chargestatus",
+      "label": "reads charge + log",
+      "detail": "reads the charge and the webhook log when not paid"
+    },
+    {
+      "from": "process",
+      "to": "stage",
+      "label": "calls"
+    },
+    {
+      "from": "process",
+      "to": "finish",
+      "label": "calls"
+    },
+    {
+      "from": "waitpaid",
+      "to": "create",
+      "label": "GET every 3 s",
+      "async": true,
+      "detail": "GET /api/orders/{id} every 3 s (same API module)"
+    },
+    {
+      "from": "place",
+      "to": "waitpaid",
+      "label": "calls"
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "title": "The page checks the cart first, then sends the order",
+      "node": "place",
+      "note": "20261111-160133-y913"
+    },
+    {
+      "n": 2,
+      "title": "What the order request carries",
+      "node": "build",
+      "note": "20261111-160133-muz9"
+    },
+    {
+      "n": 3,
+      "title": "The API only writes a pending order",
+      "node": "create",
+      "note": "20261111-160133-euqt"
+    },
+    {
+      "n": 4,
+      "title": "Asynchronous hop 1: the worker polls the database",
+      "node": "poll",
+      "note": "20261111-160134-ip7u"
+    },
+    {
+      "n": 5,
+      "title": "The order is not sent as is: it becomes the provider's charge",
+      "node": "charge",
+      "note": "20261111-160134-y9rl"
+    },
+    {
+      "n": 6,
+      "title": "Everything goes into one charge request with the order's key",
+      "node": "charge",
+      "note": "20261111-160134-780i"
+    },
+    {
+      "n": 7,
+      "title": "Create the charge, flip to charging",
+      "node": "process",
+      "note": "20261111-160134-h4dj"
+    },
+    {
+      "n": 8,
+      "title": "Asynchronous hop 2: the provider asks the bank (not our code)",
+      "node": "pspconf",
+      "note": "20261111-160134-art8"
+    },
+    {
+      "n": 9,
+      "title": "Asynchronous hop 3: the bank answers the provider (not our code)",
+      "node": "chargestatus",
+      "note": "20261111-160134-vja9"
+    },
+    {
+      "n": 10,
+      "title": "Every 2 s: is it paid? Answered by the provider only",
+      "node": "process",
+      "note": "20261111-160134-p9yj"
+    },
+    {
+      "n": 11,
+      "title": "The progress message is inferred, not reported",
+      "node": "stage",
+      "note": "20261111-160134-3rdo"
+    },
+    {
+      "n": 12,
+      "title": "Paid",
+      "node": "finish",
+      "note": "20261111-160135-g6no"
+    },
+    {
+      "n": 13,
+      "title": "Asynchronous hop 4: the page (and the order page) poll the order",
+      "node": "waitpaid",
+      "note": "20261111-160135-udxt"
+    }
+  ]
+}

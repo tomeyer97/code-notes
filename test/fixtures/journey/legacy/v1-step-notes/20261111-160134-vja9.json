@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-vja9",
+  "file": "payments/status.go",
+  "range": {
+    "start": 31,
+    "end": 39
+  },
+  "anchor": {
+    "text": "// The provider's webhook payloads carry the bank's own decline text; these are the ones worth a clear message.\nvar declines = []struct {\n\tre  *regexp.Regexp\n\tmsg string\n}{\n\t{regexp.MustCompile(`(?i)insufficient funds`), \"the card was declined: insufficient funds\"},\n\t{regexp.MustCompile(`(?i)authentication (failed|rejected)`), \"the bank could not confirm it was you\"},\n\t{regexp.MustCompile(`(?i)card (expired|not supported)`), \"this card cannot be used; try another\"},\n}",
+    "before": "}\n",
+    "after": "\n// ChargeIssues says what went wrong with a charge, from the charge itself and the webhook log the shop keeps."
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.400Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**9. Asynchronous hop 3: the bank answers the provider (not our code)**\n\nOnce the customer confirms (or does not), the bank answers the provider, which marks the charge succeeded, failed or expired and posts a webhook to the shop. The shop has no handle on that exchange: per the comment at payments/status.go:41-42 all it sees is what the provider reports, so it reads the charge's failure text and matches the bank's decline wording with regexes (:36-38). These are called from `processOrder` (worker/worker.go:128).",
+      "at": "2026-11-11T16:01:34.400Z"
+    }
+  ]
+}

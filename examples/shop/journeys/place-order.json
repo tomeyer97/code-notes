@@ -1,0 +1,2324 @@
+{
+  "version": 2,
+  "id": "place-order",
+  "question": "How does an order get placed and paid?",
+  "title": "Order and payment",
+  "summary": "The shop page posts the order to the API, which stores it as pending and queues a charge job. A worker takes the job, charges the card through the payment provider and reports back; the order page asks the API until the order is paid.",
+  "commit": "",
+  "createdAt": "2026-11-13T10:40:16.081Z",
+  "nodes": [
+    {
+      "id": "web",
+      "kind": "system",
+      "label": "Web app",
+      "blurb": "The shop's pages in the shopper's browser",
+      "path": "web",
+      "summary": "The shop page and the order page, running in the shopper's browser."
+    },
+    {
+      "id": "api",
+      "kind": "system",
+      "label": "API",
+      "blurb": "Takes requests from the web app and the worker",
+      "path": "api",
+      "summary": "The HTTP server that checks and stores orders and holds the job queue."
+    },
+    {
+      "id": "worker",
+      "kind": "system",
+      "label": "Worker",
+      "blurb": "Background loop that charges queued orders",
+      "path": "worker",
+      "summary": "A separate process that takes charge jobs from the API one at a time."
+    },
+    {
+      "id": "provider",
+      "kind": "external",
+      "label": "Card charges",
+      "blurb": "Where the payment client sends each charge",
+      "summary": "The provider's service for charging a card, reached over the internet.",
+      "parent": "pay"
+    },
+    {
+      "id": "checkout",
+      "kind": "module",
+      "label": "Checkout",
+      "blurb": "The Buy now buttons and the order page",
+      "path": "web/src/checkout",
+      "summary": "The code behind the Buy now buttons and the order page.",
+      "parent": "web"
+    },
+    {
+      "id": "place",
+      "kind": "function",
+      "label": "placeOrder",
+      "summary": "Posts one order to the API and opens the order page.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/placeOrder.ts",
+        "start": 28,
+        "end": 42,
+        "anchor": {
+          "v": 3,
+          "head": "export async function placeOrder(request: OrderRequest): Promise<void> {\n  const res = await fetch(`${API}/orders`, {\n    method: 'POST',",
+          "tail": "  watchOrder(body.order.id)\n}",
+          "lines": 15,
+          "hash": "ecc1bd745564",
+          "before": "}",
+          "after": "function showNotice(text: string): void {"
+        }
+      }
+    },
+    {
+      "id": "watch",
+      "kind": "function",
+      "label": "watchOrder",
+      "summary": "Asks the API for the order every second until it is settled.",
+      "parent": "checkout",
+      "at": {
+        "file": "web/src/checkout/OrderStatus.ts",
+        "start": 32,
+        "end": 47,
+        "anchor": {
+          "v": 3,
+          "head": "export function watchOrder(id: number): void {\n  const started = Date.now()\n  const timer = setInterval(async () => {",
+          "tail": "  }, POLL_MS)\n}",
+          "lines": 16,
+          "hash": "94a6dc6aaa80",
+          "before": "}",
+          "after": "function addHistory(text: string): void {"
+        }
+      }
+    },
+    {
+      "id": "create",
+      "kind": "function",
+      "label": "createOrder",
+      "summary": "The handler for a new order: check, store, queue, answer.",
+      "parent": "api",
+      "at": {
+        "file": "api/orders.js",
+        "start": 8,
+        "end": 18,
+        "anchor": {
+          "v": 3,
+          "head": "export async function createOrder(req, res) {\n  const checked = validateOrder(await readJson(req))\n  if (!checked.ok) return send(res, 400, { error: checked.error })",
+          "tail": "  send(res, 201, { order })\n}",
+          "lines": 11,
+          "hash": "b170a34db236",
+          "before": "import { jobs } from './queue.js'",
+          "after": "export function readOrder(req, res, id) {"
+        }
+      }
+    },
+    {
+      "id": "validate",
+      "kind": "function",
+      "label": "validateOrder",
+      "summary": "Checks an order request and prices it from the catalog.",
+      "parent": "api",
+      "at": {
+        "file": "api/validate.js",
+        "start": 12,
+        "end": 31,
+        "anchor": {
+          "v": 3,
+          "head": "export function validateOrder(body) {\n  if (!body) return fail('The order could not be read')\n  if (typeof body.customer !== 'string' || !body.customer.trim()) return fail('Sign in to order')",
+          "tail": "  return { ok: true, order: { customer: body.customer.trim(), items, total, cardToken: body.cardToken } }\n}",
+          "lines": 20,
+          "hash": "42fef587593a",
+          "before": "}",
+          "after": "function fail(error) {"
+        }
+      }
+    },
+    {
+      "id": "insert",
+      "kind": "function",
+      "label": "insertOrder",
+      "summary": "Adds the order row with the next order number.",
+      "parent": "api",
+      "at": {
+        "file": "api/store.js",
+        "start": 18,
+        "end": 25,
+        "anchor": {
+          "v": 3,
+          "head": "export function insertOrder({ customer, items, total }) {\n  const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id\n  const id = last ? last + 1 : config.orders.firstNumber",
+          "tail": "  return getOrder(id)\n}",
+          "lines": 8,
+          "hash": "5d2f5ac73c3f",
+          "before": ")`)",
+          "after": "export function getOrder(id) {"
+        }
+      }
+    },
+    {
+      "id": "settle",
+      "kind": "function",
+      "label": "settleOrder",
+      "summary": "The handler for the worker's report on a charge.",
+      "parent": "api",
+      "at": {
+        "file": "api/orders.js",
+        "start": 34,
+        "end": 38,
+        "anchor": {
+          "v": 3,
+          "head": "export async function settleOrder(req, res, id) {\n  const result = await readJson(req)\n  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+          "tail": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}",
+          "lines": 5,
+          "hash": "884d3c50af34",
+          "before": "// The worker reports how the charge went: 409 when the order was settled before.",
+          "after": "const routes = ["
+        }
+      }
+    },
+    {
+      "id": "orders",
+      "kind": "store",
+      "label": "Orders table",
+      "blurb": "One row per order, with its status",
+      "path": "api/store.js",
+      "summary": "The database table the API writes and the order page is answered from.",
+      "parent": "api"
+    },
+    {
+      "id": "queue",
+      "kind": "store",
+      "label": "Job queue",
+      "blurb": "Charge jobs waiting in memory, 8 at most",
+      "path": "api/queue.js",
+      "summary": "The in-memory list of charge jobs the worker takes from.",
+      "parent": "api"
+    },
+    {
+      "id": "run",
+      "kind": "function",
+      "label": "run",
+      "summary": "The worker's endless loop: take a job, charge, report, pause when idle.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/worker.js",
+        "start": 35,
+        "end": 46,
+        "anchor": {
+          "v": 3,
+          "head": "async function run() {\n  console.log(`worker: polling every ${config.worker.pollMs} ms`)\n  for (;;) {",
+          "tail": "  }\n}",
+          "lines": 12,
+          "hash": "1722a37e5bf3",
+          "before": "}",
+          "after": "function sleep(ms) {"
+        }
+      }
+    },
+    {
+      "id": "charge",
+      "kind": "function",
+      "label": "chargeOrder",
+      "summary": "Charges one order, trying again when the provider cannot be reached.",
+      "parent": "worker",
+      "at": {
+        "file": "worker/charge.js",
+        "start": 6,
+        "end": 26,
+        "anchor": {
+          "v": 3,
+          "head": "export async function chargeOrder(job) {\n  const idempotencyKey = `order-${job.orderId}`\n  const { maxAttempts, retryMs } = config.worker",
+          "tail": "  return { paid: false, error: 'the payment service could not be reached' }\n}",
+          "lines": 21,
+          "hash": "f5b6e2469cc6",
+          "before": "import { createCharge, PaymentDeclined } from '../payments/client.js'",
+          "after": "function sleep(ms) {"
+        }
+      }
+    },
+    {
+      "id": "pay",
+      "kind": "system",
+      "label": "Payment provider",
+      "blurb": "Charges cards for the shop",
+      "summary": "The outside service that charges the shopper's card."
+    }
+  ],
+  "edges": [
+    {
+      "from": "place",
+      "to": "create",
+      "label": "place order"
+    },
+    {
+      "from": "create",
+      "to": "validate",
+      "label": "check the order"
+    },
+    {
+      "from": "create",
+      "to": "insert",
+      "label": "store the order"
+    },
+    {
+      "from": "insert",
+      "to": "orders",
+      "label": "insert as pending"
+    },
+    {
+      "from": "create",
+      "to": "queue",
+      "label": "add charge job"
+    },
+    {
+      "from": "run",
+      "to": "queue",
+      "label": "polls every 2 s",
+      "async": true,
+      "detail": "Through the API's next-job route"
+    },
+    {
+      "from": "run",
+      "to": "charge",
+      "label": "charge the job"
+    },
+    {
+      "from": "run",
+      "to": "settle",
+      "label": "report the result"
+    },
+    {
+      "from": "settle",
+      "to": "orders",
+      "label": "mark paid or failed"
+    },
+    {
+      "from": "place",
+      "to": "watch",
+      "label": "watch the order"
+    },
+    {
+      "from": "watch",
+      "to": "orders",
+      "label": "polls every second",
+      "async": true,
+      "detail": "Through the API's read-order route"
+    },
+    {
+      "from": "charge",
+      "to": "provider",
+      "label": "charge the card",
+      "detail": "Through the payment client, with one key per order"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s2xple",
+      "title": "The Buy now button posts the order to the API",
+      "node": "place",
+      "file": "web/src/checkout/placeOrder.ts",
+      "range": {
+        "start": 29,
+        "end": 33
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const res = await fetch(`${API}/orders`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },",
+        "tail": "    body: JSON.stringify(request),\n  })",
+        "lines": 5,
+        "hash": "517b98e7ecbb",
+        "before": "export async function placeOrder(request: OrderRequest): Promise<void> {",
+        "after": "  const body = await res.json()"
+      },
+      "lead": "The request carries who orders, one product code and the token of the saved card, never a price.",
+      "details": "- Each Buy now button orders one of its product.\n- The API routes the request to its order handler.\n- When the API refuses, the page shows a notice and stays on the shop page.\n- On success the page opens the order page and starts to watch the order.",
+      "refs": [
+        "The two Buy now buttons of the shop page are in web/index.html:12-21."
+      ],
+      "links": [
+        {
+          "phrase": "one product code",
+          "file": "web/src/checkout/placeOrder.ts",
+          "start": 20,
+          "end": 20,
+          "text": "await placeOrder({ customer, items: [{ sku: button.dataset.sku!, qty: 1 }], cardToken: card })"
+        },
+        {
+          "phrase": "the token of the saved card",
+          "file": "web/src/checkout/placeOrder.ts",
+          "start": 13,
+          "end": 13,
+          "text": "const { customer = '', card = '' } = doc.body.dataset"
+        },
+        {
+          "phrase": "routes the request",
+          "file": "api/orders.js",
+          "start": 41,
+          "end": 41,
+          "text": "['POST', /^\\/api\\/orders$/, createOrder],"
+        },
+        {
+          "phrase": "shows a notice",
+          "file": "web/src/checkout/placeOrder.ts",
+          "start": 36,
+          "end": 37,
+          "text": "if (res.status === 503) return showNotice('The shop is busy. Please try again in a minute.')"
+        },
+        {
+          "phrase": "opens the order page",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "start": 19,
+          "end": 23,
+          "text": "export function openOrderPage(order: Order): void {"
+        }
+      ],
+      "values": [
+        {
+          "name": "customer",
+          "value": "\"Ana\"",
+          "note": "the signed-in shopper",
+          "file": "web/src/checkout/placeOrder.ts",
+          "line": 13,
+          "text": "const { customer = '', card = '' } = doc.body.dataset"
+        },
+        {
+          "name": "sku",
+          "value": "lamp-desk",
+          "note": "the desk lamp's product code",
+          "file": "web/src/checkout/placeOrder.ts",
+          "line": 20,
+          "text": "await placeOrder({ customer, items: [{ sku: button.dataset.sku!, qty: 1 }], cardToken: card })"
+        },
+        {
+          "name": "request",
+          "value": "Ana, 1 × lamp-desk, tok_9f2c…",
+          "note": "the whole order request",
+          "file": "web/src/checkout/placeOrder.ts",
+          "line": 32,
+          "text": "body: JSON.stringify(request),"
+        },
+        {
+          "name": "body",
+          "value": "{order: {id: 1042, status: \"pending\"}}",
+          "note": "the API's answer",
+          "file": "web/src/checkout/placeOrder.ts",
+          "line": 34,
+          "text": "const body = await res.json()"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "page",
+            "type": "browser",
+            "col": 0,
+            "label": "Web app",
+            "url": "https://lampandco.example",
+            "title": "Lamp & Co",
+            "cart": "Ana",
+            "products": [
+              "Desk lamp",
+              "Floor lamp"
+            ],
+            "button": "Buy now",
+            "lock": "ok"
+          },
+          {
+            "id": "api",
+            "type": "service",
+            "col": 1,
+            "label": "API",
+            "sub": "orders",
+            "fn": "createOrder()",
+            "checks": [
+              "check the order",
+              "store the order",
+              "queue a charge job",
+              "answer the page"
+            ]
+          }
+        ],
+        "wires": [
+          [
+            "page",
+            "api"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "page",
+            "caption": "Ana presses Buy now on the desk lamp.",
+            "click": "page",
+            "set": {
+              "page": {
+                "click": true
+              }
+            },
+            "code": {
+              "file": "web/src/checkout/placeOrder.ts",
+              "line": 20,
+              "text": "await placeOrder({ customer, items: [{ sku: button.dataset.sku!, qty: 1 }], cardToken: card })"
+            }
+          },
+          {
+            "focus": "page",
+            "caption": "The page posts the order to the API.",
+            "muted": "A product code, never a price.",
+            "packet": {
+              "from": "page",
+              "to": "api",
+              "label": "order"
+            },
+            "code": {
+              "file": "web/src/checkout/placeOrder.ts",
+              "line": 29,
+              "text": "const res = await fetch(`${API}/orders`, {"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The API routes the request to its order handler.",
+            "code": {
+              "file": "api/orders.js",
+              "line": 41,
+              "text": "['POST', /^\\/api\\/orders$/, createOrder],"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ahutu9",
+      "title": "The API takes names and prices from its own catalog",
+      "node": "validate",
+      "file": "api/validate.js",
+      "range": {
+        "start": 21,
+        "end": 28
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  for (const item of body.items) {\n    const product = CATALOG[item.sku]\n    if (!product) return fail(`Unknown product ${item.sku}`)",
+        "tail": "    total += product.price * item.qty\n  }",
+        "lines": 8,
+        "hash": "2e5271529999",
+        "before": "  let total = 0",
+        "after": "  return { ok: true, order: { customer: body.customer.trim(), items, total, cardToken: body.cardToken } }"
+      },
+      "lead": "The total is added up here from catalog prices, so the browser cannot set what a lamp costs.",
+      "details": "- A request without a customer, with an empty cart or without a card token is refused before the catalog is read.\n- An unknown product code refuses the whole order.\n- For a refused request the handler sends the error back and stores nothing.",
+      "refs": [
+        "The limit of 20 products per order is set in config/shop.yaml:11."
+      ],
+      "links": [
+        {
+          "phrase": "catalog prices",
+          "file": "api/validate.js",
+          "start": 6,
+          "end": 10,
+          "text": "export const CATALOG = {"
+        },
+        {
+          "phrase": "is refused",
+          "file": "api/validate.js",
+          "start": 13,
+          "end": 17,
+          "text": "if (!body) return fail('The order could not be read')"
+        },
+        {
+          "phrase": "sends the error back",
+          "file": "api/orders.js",
+          "start": 10,
+          "end": 10,
+          "text": "if (!checked.ok) return send(res, 400, { error: checked.error })"
+        }
+      ],
+      "values": [
+        {
+          "name": "item",
+          "value": "{sku: \"lamp-desk\", qty: 1}",
+          "note": "what the browser sent",
+          "file": "api/validate.js",
+          "line": 21,
+          "text": "for (const item of body.items) {"
+        },
+        {
+          "name": "product",
+          "value": "{name: \"Desk lamp\", price: 4900}",
+          "note": "the catalog entry, price in cents",
+          "file": "api/validate.js",
+          "line": 22,
+          "text": "const product = CATALOG[item.sku]"
+        },
+        {
+          "name": "total",
+          "value": "4900",
+          "note": "49.00 EUR for one desk lamp",
+          "file": "api/validate.js",
+          "line": 27,
+          "text": "total += product.price * item.qty"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "api",
+            "type": "service",
+            "col": 0,
+            "label": "API",
+            "sub": "orders",
+            "fn": "validateOrder()",
+            "checks": [
+              "a customer",
+              "a cart that is not empty",
+              "a card token",
+              "products from the catalog",
+              "total from catalog prices"
+            ]
+          }
+        ],
+        "wires": [],
+        "beats": [
+          {
+            "focus": "api",
+            "caption": "The request has a customer, a cart and a card token.",
+            "set": {
+              "api": {
+                "done": 3
+              }
+            },
+            "code": {
+              "file": "api/validate.js",
+              "line": 17,
+              "text": "if (typeof body.cardToken !== 'string' || !body.cardToken.startsWith('tok_')) return fail('Add a card to pay')"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The desk lamp is found in the catalog.",
+            "muted": "An unknown product code refuses the order.",
+            "set": {
+              "api": {
+                "done": 4
+              }
+            },
+            "code": {
+              "file": "api/validate.js",
+              "line": 22,
+              "text": "const product = CATALOG[item.sku]"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The total is added up from catalog prices.",
+            "muted": "49.00 EUR for one desk lamp.",
+            "set": {
+              "api": {
+                "done": 5
+              }
+            },
+            "code": {
+              "file": "api/validate.js",
+              "line": 27,
+              "text": "total += product.price * item.qty"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "qwo88u",
+      "title": "The API stores the order as pending",
+      "node": "insert",
+      "file": "api/store.js",
+      "range": {
+        "start": 19,
+        "end": 24
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id\n  const id = last ? last + 1 : config.orders.firstNumber\n  db.prepare('INSERT INTO orders (id, customer, items, total, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')",
+        "tail": "    .run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())\n  return getOrder(id)",
+        "lines": 6,
+        "hash": "33e1748b652f",
+        "before": "export function insertOrder({ customer, items, total }) {",
+        "after": "}"
+      },
+      "lead": "The new row gets the next order number, 1042 for Ana, and holds no card data.",
+      "details": "- The handler takes the card token out before it stores the order.\n- The status column starts as pending.\n- The first order of a new shop gets the number set in the configuration.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "takes the card token out",
+          "file": "api/orders.js",
+          "start": 14,
+          "end": 14,
+          "text": "const { cardToken, ...details } = checked.order"
+        },
+        {
+          "phrase": "The status column",
+          "file": "api/store.js",
+          "start": 12,
+          "end": 12,
+          "text": "status      TEXT    NOT NULL DEFAULT 'pending',"
+        },
+        {
+          "phrase": "the number set in the configuration",
+          "file": "config/shop.yaml",
+          "start": 10,
+          "end": 10,
+          "text": "firstNumber: 1001"
+        }
+      ],
+      "values": [
+        {
+          "name": "last",
+          "value": "1041",
+          "note": "the newest order before Ana's",
+          "file": "api/store.js",
+          "line": 19,
+          "text": "const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id"
+        },
+        {
+          "name": "id",
+          "value": "1042",
+          "note": "Ana's order number",
+          "file": "api/store.js",
+          "line": 20,
+          "text": "const id = last ? last + 1 : config.orders.firstNumber"
+        },
+        {
+          "name": "items",
+          "value": "[{sku: \"lamp-desk\", qty: 1, …}]",
+          "note": "saved as text",
+          "file": "api/store.js",
+          "line": 23,
+          "text": ".run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "api",
+            "type": "service",
+            "col": 0,
+            "label": "API",
+            "sub": "orders",
+            "fn": "createOrder()",
+            "checks": [
+              "check the order",
+              "take the card token out",
+              "store the order"
+            ]
+          },
+          {
+            "id": "orders",
+            "type": "table",
+            "col": 1,
+            "label": "orders",
+            "sub": "database",
+            "rows": [
+              {
+                "id": "1041",
+                "chips": [
+                  "paid"
+                ],
+                "old": true
+              },
+              {
+                "id": "1042",
+                "chips": [
+                  "Ana",
+                  "pending"
+                ]
+              }
+            ]
+          }
+        ],
+        "wires": [
+          [
+            "api",
+            "orders"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "api",
+            "caption": "The handler takes the card token out.",
+            "muted": "The row holds no card data.",
+            "set": {
+              "api": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 14,
+              "text": "const { cardToken, ...details } = checked.order"
+            }
+          },
+          {
+            "focus": "orders",
+            "caption": "The newest order so far is 1041.",
+            "muted": "The next order number is 1042.",
+            "set": {
+              "orders": {
+                "hi": 0
+              }
+            },
+            "code": {
+              "file": "api/store.js",
+              "line": 20,
+              "text": "const id = last ? last + 1 : config.orders.firstNumber"
+            }
+          },
+          {
+            "focus": "orders",
+            "caption": "The order is stored as pending.",
+            "packet": {
+              "from": "api",
+              "to": "orders",
+              "label": "insert"
+            },
+            "set": {
+              "api": {
+                "done": 3
+              },
+              "orders": {
+                "show": 1,
+                "hi": 1
+              }
+            },
+            "code": {
+              "file": "api/store.js",
+              "line": 22,
+              "text": "db.prepare('INSERT INTO orders (id, customer, items, total, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "tlctsa",
+      "title": "The API queues a charge job and answers at once",
+      "node": "create",
+      "file": "api/orders.js",
+      "range": {
+        "start": 14,
+        "end": 17
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const { cardToken, ...details } = checked.order\n  const order = insertOrder(details)\n  jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })",
+        "tail": "  jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })\n  send(res, 201, { order })",
+        "lines": 4,
+        "hash": "adc2034a1ab2",
+        "before": "  // The card token goes into the job only: the orders table never holds it.",
+        "after": "}"
+      },
+      "lead": "The answer is the pending order, so nothing has been charged when the page gets it.",
+      "details": "- The job carries the order number, the amount, the currency of the shop and the card token.\n- A new job is put last in line.\n- The queue lives in the API's memory, so a restart of the API drops the jobs still waiting and their orders stay pending.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "the page gets it",
+          "file": "web/src/checkout/placeOrder.ts",
+          "start": 40,
+          "end": 41,
+          "text": "openOrderPage(body.order)"
+        },
+        {
+          "phrase": "the currency of the shop",
+          "file": "config/shop.yaml",
+          "start": 4,
+          "end": 4,
+          "text": "currency: EUR"
+        },
+        {
+          "phrase": "put last in line",
+          "file": "api/queue.js",
+          "start": 20,
+          "end": 24,
+          "text": "push(job) {"
+        },
+        {
+          "phrase": "lives in the API's memory",
+          "file": "api/queue.js",
+          "start": 6,
+          "end": 9,
+          "text": "constructor(maxJobs) {"
+        }
+      ],
+      "values": [
+        {
+          "name": "cardToken",
+          "value": "tok_9f2c…",
+          "note": "stands for Ana's saved card",
+          "file": "api/orders.js",
+          "line": 14,
+          "text": "const { cardToken, ...details } = checked.order"
+        },
+        {
+          "name": "order",
+          "value": "{id: 1042, status: \"pending\", …}",
+          "note": "the stored row",
+          "file": "api/orders.js",
+          "line": 15,
+          "text": "const order = insertOrder(details)"
+        },
+        {
+          "name": "jobs",
+          "value": "[{orderId: 1042, amount: 4900, …}]",
+          "note": "Ana's job, alone in the queue",
+          "file": "api/orders.js",
+          "line": 16,
+          "text": "jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })"
+        },
+        {
+          "name": "res",
+          "value": "201",
+          "note": "sent before any charge",
+          "file": "api/orders.js",
+          "line": 17,
+          "text": "send(res, 201, { order })"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "page",
+            "type": "browser",
+            "col": 0,
+            "label": "Web app",
+            "url": "https://lampandco.example",
+            "title": "Lamp & Co",
+            "cart": "Ana",
+            "products": [
+              "Desk lamp",
+              "Floor lamp"
+            ],
+            "button": "Buy now",
+            "lock": "ok"
+          },
+          {
+            "id": "api",
+            "type": "service",
+            "col": 1,
+            "label": "API",
+            "sub": "orders",
+            "fn": "createOrder()",
+            "checks": [
+              "check the order",
+              "store the order",
+              "queue a charge job",
+              "answer the page"
+            ]
+          },
+          {
+            "id": "q",
+            "type": "queue",
+            "col": 2,
+            "label": "Job queue",
+            "sub": "in memory",
+            "slots": 8,
+            "cap": "8 jobs at most"
+          }
+        ],
+        "wires": [
+          [
+            "page",
+            "api"
+          ],
+          [
+            "api",
+            "q"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "api",
+            "caption": "The job carries the amount and the card token.",
+            "set": {
+              "page": {
+                "click": true
+              },
+              "api": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 16,
+              "text": "jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })"
+            }
+          },
+          {
+            "focus": "q",
+            "caption": "The new job is put last in line.",
+            "packet": {
+              "from": "api",
+              "to": "q",
+              "label": "job 1042"
+            },
+            "set": {
+              "api": {
+                "done": 3
+              },
+              "q": {
+                "fill": 1
+              }
+            },
+            "code": {
+              "file": "api/queue.js",
+              "line": 22,
+              "text": "this.waiting.push(job)"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The API answers at once with the pending order.",
+            "muted": "Nothing has been charged.",
+            "packet": {
+              "from": "api",
+              "to": "page",
+              "label": "order 1042"
+            },
+            "set": {
+              "api": {
+                "done": 4
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 17,
+              "text": "send(res, 201, { order })"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "1fvq0z",
+      "title": "An idle worker asks the API for a job every 2 s",
+      "node": "run",
+      "file": "worker/worker.js",
+      "range": {
+        "start": 37,
+        "end": 45
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  for (;;) {\n    try {\n      const worked = await pollOnce()",
+        "tail": "    await sleep(config.worker.pollMs)\n  }",
+        "lines": 9,
+        "hash": "77b1c330d6df",
+        "before": "  console.log(`worker: polling every ${config.worker.pollMs} ms`)",
+        "after": "}"
+      },
+      "lead": "The API hands out the oldest waiting job and removes it from the queue.",
+      "details": "- The 2 s pause comes from the configuration.\n- After a job the worker asks again at once, without the pause.\n- With no job waiting the API answers with nothing and the worker pauses.\n- The worker's requests carry a key, and the API refuses the job routes without it.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "hands out the oldest waiting job",
+          "file": "api/orders.js",
+          "start": 28,
+          "end": 30,
+          "text": "const job = jobs.take()"
+        },
+        {
+          "phrase": "removes it from the queue",
+          "file": "api/queue.js",
+          "start": 27,
+          "end": 29,
+          "text": "take() {"
+        },
+        {
+          "phrase": "comes from the configuration",
+          "file": "config/shop.yaml",
+          "start": 17,
+          "end": 17,
+          "text": "pollMs: 2000          # how often an idle worker asks for a job"
+        },
+        {
+          "phrase": "carry a key",
+          "file": "worker/worker.js",
+          "start": 6,
+          "end": 6,
+          "text": "const headers = { 'Content-Type': 'application/json', 'X-Worker-Key': process.env.WORKER_KEY ?? '' }"
+        },
+        {
+          "phrase": "refuses the job routes without it",
+          "file": "api/orders.js",
+          "start": 48,
+          "end": 49,
+          "text": "const internal = req.url.startsWith('/internal/')"
+        }
+      ],
+      "values": [
+        {
+          "name": "pollMs",
+          "value": "2000",
+          "note": "2 s, from shop.yaml",
+          "file": "worker/worker.js",
+          "line": 44,
+          "text": "await sleep(config.worker.pollMs)"
+        },
+        {
+          "name": "job",
+          "value": "{orderId: 1042, amount: 4900, …}",
+          "note": "Ana's charge job",
+          "file": "worker/worker.js",
+          "line": 26,
+          "text": "const job = await takeJob()"
+        },
+        {
+          "name": "worked",
+          "value": "true",
+          "note": "a job was done, so no pause",
+          "file": "worker/worker.js",
+          "line": 39,
+          "text": "const worked = await pollOnce()"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "cfg",
+            "type": "file",
+            "col": 0,
+            "label": "config/shop.yaml",
+            "from": 16,
+            "lines": [
+              "worker:",
+              "  pollMs: 2000",
+              "  maxAttempts: 3",
+              "  retryMs: 1000"
+            ]
+          },
+          {
+            "id": "sh",
+            "type": "terminal",
+            "col": 1,
+            "label": "Worker",
+            "sub": "its output",
+            "lines": [
+              "$ npm run worker",
+              "worker: polling every 2000 ms",
+              "order 1042: paid pay_8c21f0"
+            ]
+          },
+          {
+            "id": "worker",
+            "type": "service",
+            "col": 2,
+            "label": "Worker",
+            "sub": "loop",
+            "fn": "run()",
+            "checks": [
+              "ask the API for a job",
+              "charge the card",
+              "report the result",
+              "pause 2 s when idle"
+            ]
+          },
+          {
+            "id": "q",
+            "type": "queue",
+            "col": 3,
+            "label": "Job queue",
+            "sub": "in memory",
+            "slots": 8,
+            "cap": "8 jobs at most"
+          }
+        ],
+        "wires": [
+          [
+            "worker",
+            "q"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "sh",
+            "caption": "The worker runs as a process of its own.",
+            "set": {
+              "sh": {
+                "show": 2,
+                "hi": 1
+              },
+              "q": {
+                "fill": 1
+              }
+            },
+            "code": {
+              "file": "worker/worker.js",
+              "line": 36,
+              "text": "console.log(`worker: polling every ${config.worker.pollMs} ms`)"
+            }
+          },
+          {
+            "focus": "cfg",
+            "caption": "The 2 s pause comes from the configuration.",
+            "set": {
+              "cfg": {
+                "hi": 1
+              }
+            },
+            "code": {
+              "file": "worker/worker.js",
+              "line": 44,
+              "text": "await sleep(config.worker.pollMs)"
+            }
+          },
+          {
+            "focus": "worker",
+            "caption": "The idle worker asks the API for a job.",
+            "packet": {
+              "from": "worker",
+              "to": "q",
+              "label": "next job?"
+            },
+            "set": {
+              "worker": {
+                "done": 1
+              }
+            },
+            "code": {
+              "file": "worker/worker.js",
+              "line": 9,
+              "text": "const res = await fetch(`${API}/internal/jobs/next`, { method: 'POST', headers })"
+            }
+          },
+          {
+            "focus": "q",
+            "caption": "The API hands out the oldest waiting job.",
+            "muted": "It is removed from the queue.",
+            "packet": {
+              "from": "q",
+              "to": "worker",
+              "label": "job 1042"
+            },
+            "set": {
+              "q": {
+                "fill": 0
+              },
+              "worker": {
+                "done": 1
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 28,
+              "text": "const job = jobs.take()"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "x7ebuw",
+      "title": "The worker charges the card with one key per order",
+      "node": "charge",
+      "file": "worker/charge.js",
+      "range": {
+        "start": 7,
+        "end": 18
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const idempotencyKey = `order-${job.orderId}`\n  const { maxAttempts, retryMs } = config.worker\n  for (let attempt = 1; attempt <= maxAttempts; attempt++) {",
+        "tail": "      })\n      return { paid: true, paymentId: payment.id }",
+        "lines": 12,
+        "hash": "ff2083cd1960",
+        "before": "export async function chargeOrder(job) {",
+        "after": "    } catch (err) {"
+      },
+      "lead": "The key is order-1042 on every try, which lets the payment provider recognise a repeated charge.",
+      "details": "- The payment client sends the amount, the currency and the card token, with the key as a header.\n- When the provider cannot be reached the worker tries up to 3 times, waiting 1 s, then 2 s.\n- A request to the provider is given up after 5 s.\n- Not verified: how the provider treats a repeated key.",
+      "refs": [
+        "The provider's address and the 5 s limit are in config/shop.yaml:21-23."
+      ],
+      "links": [
+        {
+          "phrase": "The payment client",
+          "file": "payments/client.js",
+          "start": 13,
+          "end": 14,
+          "text": "export async function createCharge({ amount, currency, source, idempotencyKey }) {"
+        },
+        {
+          "phrase": "the key as a header",
+          "file": "payments/client.js",
+          "start": 19,
+          "end": 19,
+          "text": "'Idempotency-Key': idempotencyKey,"
+        },
+        {
+          "phrase": "tries up to 3 times",
+          "file": "config/shop.yaml",
+          "start": 18,
+          "end": 19,
+          "text": "maxAttempts: 3        # tries per charge when the provider is unreachable"
+        },
+        {
+          "phrase": "waiting 1 s, then 2 s",
+          "file": "worker/charge.js",
+          "start": 21,
+          "end": 22,
+          "text": "if (attempt === maxAttempts) break"
+        },
+        {
+          "phrase": "given up after 5 s",
+          "file": "payments/client.js",
+          "start": 22,
+          "end": 22,
+          "text": "signal: AbortSignal.timeout(config.payments.timeoutMs),"
+        }
+      ],
+      "values": [
+        {
+          "name": "idempotencyKey",
+          "value": "order-1042",
+          "note": "the same on every try",
+          "file": "worker/charge.js",
+          "line": 7,
+          "text": "const idempotencyKey = `order-${job.orderId}`"
+        },
+        {
+          "name": "maxAttempts",
+          "value": "3",
+          "note": "tries when the provider is unreachable",
+          "file": "worker/charge.js",
+          "line": 8,
+          "text": "const { maxAttempts, retryMs } = config.worker"
+        },
+        {
+          "name": "payment",
+          "value": "{id: \"pay_8c21f0\", status: \"succeeded\"}",
+          "note": "the provider's answer",
+          "file": "worker/charge.js",
+          "line": 12,
+          "text": "const payment = await createCharge({"
+        },
+        {
+          "name": "amount",
+          "value": "4900",
+          "note": "49.00 EUR in cents",
+          "file": "worker/charge.js",
+          "line": 13,
+          "text": "amount: job.amount,"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "worker",
+            "type": "service",
+            "col": 0,
+            "label": "Worker",
+            "sub": "charge",
+            "fn": "chargeOrder()",
+            "checks": [
+              "make the key order-1042",
+              "charge the card",
+              "return the payment id"
+            ]
+          },
+          {
+            "id": "pay",
+            "type": "service",
+            "col": 1,
+            "label": "Payment client",
+            "sub": "in the worker",
+            "fn": "createCharge()",
+            "checks": [
+              "amount and card token",
+              "the key as a header",
+              "give up after 5 s"
+            ]
+          },
+          {
+            "id": "provider",
+            "type": "service",
+            "col": 2,
+            "label": "Payment provider",
+            "sub": "pay.example",
+            "checks": [
+              "charge 49.00 EUR"
+            ]
+          }
+        ],
+        "wires": [
+          [
+            "worker",
+            "pay"
+          ],
+          [
+            "pay",
+            "provider"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "worker",
+            "caption": "The key is order-1042 on every try.",
+            "set": {
+              "worker": {
+                "done": 1
+              }
+            },
+            "code": {
+              "file": "worker/charge.js",
+              "line": 7,
+              "text": "const idempotencyKey = `order-${job.orderId}`"
+            }
+          },
+          {
+            "focus": "pay",
+            "caption": "The payment client sends the amount and the card token.",
+            "muted": "The key is a header.",
+            "packet": {
+              "from": "worker",
+              "to": "pay",
+              "label": "4900 EUR cents"
+            },
+            "set": {
+              "pay": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "payments/client.js",
+              "line": 14,
+              "text": "const res = await fetch(`${config.payments.url}/charges`, {"
+            }
+          },
+          {
+            "focus": "provider",
+            "caption": "The payment provider charges the card.",
+            "packet": {
+              "from": "pay",
+              "to": "provider",
+              "label": "charge"
+            },
+            "set": {
+              "provider": {
+                "done": 1
+              }
+            }
+          },
+          {
+            "focus": "worker",
+            "caption": "The worker gets the payment id.",
+            "packet": {
+              "from": "pay",
+              "to": "worker",
+              "label": "pay_8c21f0"
+            },
+            "set": {
+              "worker": {
+                "done": 3
+              },
+              "pay": {
+                "done": 3
+              }
+            },
+            "code": {
+              "file": "worker/charge.js",
+              "line": 18,
+              "text": "return { paid: true, paymentId: payment.id }"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "yyp0d9",
+      "title": "The API marks the order paid when the worker reports",
+      "node": "settle",
+      "file": "api/orders.js",
+      "range": {
+        "start": 35,
+        "end": 37
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const result = await readJson(req)\n  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)\n  send(res, changed ? 200 : 409, { order: getOrder(id) })",
+        "tail": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)\n  send(res, changed ? 200 : 409, { order: getOrder(id) })",
+        "lines": 3,
+        "hash": "86b9c55a06b0",
+        "before": "export async function settleOrder(req, res, id) {",
+        "after": "}"
+      },
+      "lead": "The update only touches a pending order, so a second report for order 1042 changes nothing.",
+      "details": "- The worker sends the result to the API and logs one line.\n- The payment id is stored with the order.\n- A report for an order settled before gets a conflict answer, which the worker logs as a warning.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "only touches a pending order",
+          "file": "api/store.js",
+          "start": 42,
+          "end": 45,
+          "text": "const done = db"
+        },
+        {
+          "phrase": "sends the result",
+          "file": "worker/worker.js",
+          "start": 16,
+          "end": 20,
+          "text": "const res = await fetch(`${API}/internal/orders/${orderId}/result`, {"
+        },
+        {
+          "phrase": "logs one line",
+          "file": "worker/worker.js",
+          "start": 31,
+          "end": 31,
+          "text": "console.log(`order ${job.orderId}: ${result.paid ? `paid ${result.paymentId}` : `failed, ${result.error}`}`)"
+        },
+        {
+          "phrase": "The payment id is stored",
+          "file": "api/store.js",
+          "start": 32,
+          "end": 34,
+          "text": "export function markPaid(id, paymentId) {"
+        },
+        {
+          "phrase": "logs as a warning",
+          "file": "worker/worker.js",
+          "start": 21,
+          "end": 21,
+          "text": "if (res.status === 409) console.warn(`order ${orderId}: already settled`)"
+        }
+      ],
+      "values": [
+        {
+          "name": "result",
+          "value": "{paid: true, paymentId: \"pay_8c21f0\"}",
+          "note": "what the worker reported",
+          "file": "api/orders.js",
+          "line": 35,
+          "text": "const result = await readJson(req)"
+        },
+        {
+          "name": "changed",
+          "value": "true",
+          "note": "order 1042 was still pending",
+          "file": "api/orders.js",
+          "line": 36,
+          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+        },
+        {
+          "name": "status",
+          "value": "paid",
+          "note": "the new status of order 1042",
+          "file": "api/store.js",
+          "line": 44,
+          "text": ".run(status, paymentId, error, id)"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "sh",
+            "type": "terminal",
+            "col": 0,
+            "label": "Worker",
+            "sub": "its output",
+            "lines": [
+              "$ npm run worker",
+              "worker: polling every 2000 ms",
+              "order 1042: paid pay_8c21f0"
+            ]
+          },
+          {
+            "id": "api",
+            "type": "service",
+            "col": 1,
+            "label": "API",
+            "sub": "orders",
+            "fn": "settleOrder()",
+            "checks": [
+              "read the worker's report",
+              "mark the order paid",
+              "answer the worker"
+            ]
+          },
+          {
+            "id": "orders",
+            "type": "table",
+            "col": 2,
+            "label": "orders",
+            "sub": "database",
+            "rows": [
+              {
+                "id": "1041",
+                "chips": [
+                  "paid"
+                ],
+                "old": true
+              },
+              {
+                "id": "1042",
+                "chips": [
+                  "Ana",
+                  "pending"
+                ],
+                "old": true
+              }
+            ]
+          }
+        ],
+        "wires": [
+          [
+            "sh",
+            "api"
+          ],
+          [
+            "api",
+            "orders"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "api",
+            "caption": "The worker's result reaches the API.",
+            "packet": {
+              "from": "sh",
+              "to": "api",
+              "label": "paid"
+            },
+            "set": {
+              "sh": {
+                "show": 2
+              },
+              "api": {
+                "done": 1
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 35,
+              "text": "const result = await readJson(req)"
+            }
+          },
+          {
+            "focus": "orders",
+            "caption": "The API marks order 1042 paid.",
+            "muted": "The payment id is stored with it.",
+            "packet": {
+              "from": "api",
+              "to": "orders",
+              "label": "update"
+            },
+            "set": {
+              "api": {
+                "done": 2
+              },
+              "orders": {
+                "hi": 1,
+                "chips": {
+                  "1": [
+                    "Ana",
+                    "paid",
+                    "pay_8c21f0"
+                  ]
+                }
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 36,
+              "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+            }
+          },
+          {
+            "focus": "orders",
+            "caption": "A second report changes nothing.",
+            "muted": "Only a pending order is touched.",
+            "set": {
+              "api": {
+                "done": 3
+              }
+            },
+            "code": {
+              "file": "api/store.js",
+              "line": 43,
+              "text": ".prepare(\"UPDATE orders SET status = ?, payment_id = ?, error = ? WHERE id = ? AND status = 'pending'\")"
+            }
+          },
+          {
+            "focus": "sh",
+            "caption": "The worker logs one line.",
+            "set": {
+              "sh": {
+                "show": 3,
+                "hi": 2
+              }
+            },
+            "code": {
+              "file": "worker/worker.js",
+              "line": 31,
+              "text": "console.log(`order ${job.orderId}: ${result.paid ? `paid ${result.paymentId}` : `failed, ${result.error}`}`)"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "5ngsrh",
+      "title": "The order page asks the API every second until the order is settled",
+      "node": "watch",
+      "file": "web/src/checkout/OrderStatus.ts",
+      "range": {
+        "start": 40,
+        "end": 45
+      },
+      "anchor": {
+        "v": 3,
+        "head": "    const res = await fetch(`${API}/orders/${id}`)\n    const { order } = await res.json()\n    if (order.status === 'pending') return",
+        "tail": "    clearInterval(timer)\n    showStatus(order)",
+        "lines": 6,
+        "hash": "feecab46ad21",
+        "before": "    }",
+        "after": "  }, POLL_MS)"
+      },
+      "lead": "Ana sees the status change from pending to paid without reloading the page.",
+      "details": "- The API answers each question from the orders table.\n- A settled order changes the status chip and adds a line to the history.\n- After 30 s without a result the page stops asking and adds a line that says to reload later.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "answers each question",
+          "file": "api/orders.js",
+          "start": 20,
+          "end": 24,
+          "text": "export function readOrder(req, res, id) {"
+        },
+        {
+          "phrase": "changes the status chip",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "start": 26,
+          "end": 29,
+          "text": "const chip = document.querySelector<HTMLElement>('#status')!"
+        },
+        {
+          "phrase": "After 30 s",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "start": 35,
+          "end": 39,
+          "text": "if (Date.now() - started > GIVE_UP_MS) {"
+        }
+      ],
+      "values": [
+        {
+          "name": "id",
+          "value": "1042",
+          "note": "Ana's order",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "line": 40,
+          "text": "const res = await fetch(`${API}/orders/${id}`)"
+        },
+        {
+          "name": "order",
+          "value": "{id: 1042, status: \"paid\", …}",
+          "note": "the answer after the worker reported",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "line": 41,
+          "text": "const { order } = await res.json()"
+        },
+        {
+          "name": "POLL_MS",
+          "value": "1000",
+          "note": "one question a second",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "line": 46,
+          "text": "}, POLL_MS)"
+        },
+        {
+          "name": "GIVE_UP_MS",
+          "value": "30000",
+          "note": "30 s",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "line": 35,
+          "text": "if (Date.now() - started > GIVE_UP_MS) {"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "page",
+            "type": "app",
+            "col": 0,
+            "label": "Web app",
+            "brand": "Lamp & Co",
+            "logo": "L",
+            "screen": "detail",
+            "detail": {
+              "title": "Order 1042",
+              "status": "pending",
+              "tone": "active",
+              "empty": "History",
+              "timeline": [
+                "Order placed",
+                "Payment received"
+              ]
+            }
+          },
+          {
+            "id": "api",
+            "type": "service",
+            "col": 1,
+            "label": "API",
+            "sub": "orders",
+            "fn": "readOrder()",
+            "checks": [
+              "read the orders table",
+              "answer with the order"
+            ]
+          }
+        ],
+        "wires": [
+          [
+            "page",
+            "api"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "page",
+            "caption": "The order page opens with the status pending.",
+            "set": {
+              "page": {
+                "events": 1,
+                "newEvent": 0
+              }
+            },
+            "code": {
+              "file": "web/src/checkout/OrderStatus.ts",
+              "line": 22,
+              "text": "showStatus(order)"
+            }
+          },
+          {
+            "focus": "page",
+            "caption": "The page asks the API every second.",
+            "packet": {
+              "from": "page",
+              "to": "api",
+              "label": "order 1042?"
+            },
+            "code": {
+              "file": "web/src/checkout/OrderStatus.ts",
+              "line": 40,
+              "text": "const res = await fetch(`${API}/orders/${id}`)"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The API answers from the orders table.",
+            "muted": "Still pending: the page asks again.",
+            "packet": {
+              "from": "api",
+              "to": "page",
+              "label": "pending"
+            },
+            "set": {
+              "api": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 21,
+              "text": "const order = getOrder(id)"
+            }
+          },
+          {
+            "focus": "page",
+            "caption": "The order is settled: Ana sees paid.",
+            "muted": "The page stops asking.",
+            "packet": {
+              "from": "api",
+              "to": "page",
+              "label": "paid"
+            },
+            "set": {
+              "page": {
+                "status": "paid",
+                "tone": "good",
+                "events": 2,
+                "newEvent": 1
+              }
+            },
+            "code": {
+              "file": "web/src/checkout/OrderStatus.ts",
+              "line": 45,
+              "text": "showStatus(order)"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "zmkr2s",
+      "title": "If the card is declined, the API marks the order failed",
+      "node": "settle",
+      "file": "api/orders.js",
+      "range": {
+        "start": 36,
+        "end": 36
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+        "tail": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+        "lines": 1,
+        "hash": "a60edb392ba0",
+        "before": "  const result = await readJson(req)",
+        "after": "  send(res, changed ? 200 : 409, { order: getOrder(id) })"
+      },
+      "lead": "The worker does not try a declined card again, and the provider's reason is shown on the order page.",
+      "details": "- The payment client turns the provider's refusal into an error of its own.\n- The reason, such as insufficient funds, is stored with the order.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "does not try a declined card again",
+          "file": "worker/charge.js",
+          "start": 20,
+          "end": 20,
+          "text": "if (err instanceof PaymentDeclined) return { paid: false, error: err.reason }"
+        },
+        {
+          "phrase": "turns the provider's refusal",
+          "file": "payments/client.js",
+          "start": 25,
+          "end": 28,
+          "text": "if (res.status === 402) {"
+        },
+        {
+          "phrase": "an error of its own",
+          "file": "payments/client.js",
+          "start": 4,
+          "end": 9,
+          "text": "export class PaymentDeclined extends Error {"
+        },
+        {
+          "phrase": "stored with the order",
+          "file": "api/store.js",
+          "start": 36,
+          "end": 38,
+          "text": "export function markFailed(id, error) {"
+        },
+        {
+          "phrase": "shown on the order page",
+          "file": "web/src/checkout/OrderStatus.ts",
+          "start": 16,
+          "end": 16,
+          "text": "failed: (order) => `Payment failed: ${order.error}`,"
+        }
+      ],
+      "values": [
+        {
+          "name": "result",
+          "value": "paid: false, error: insufficient funds",
+          "note": "the worker's report",
+          "file": "api/orders.js",
+          "line": 36,
+          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+        },
+        {
+          "name": "reason",
+          "value": "insufficient funds",
+          "note": "the provider's reason",
+          "file": "payments/client.js",
+          "line": 26,
+          "text": "const { reason } = await res.json()"
+        },
+        {
+          "name": "err",
+          "value": "card declined: insufficient funds",
+          "note": "the payment client's error",
+          "file": "worker/charge.js",
+          "line": 20,
+          "text": "if (err instanceof PaymentDeclined) return { paid: false, error: err.reason }"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "pay",
+            "type": "service",
+            "col": 0,
+            "label": "Payment client",
+            "sub": "in the worker",
+            "fn": "createCharge()",
+            "checks": [
+              "send the charge",
+              "a refusal becomes an error"
+            ]
+          },
+          {
+            "id": "worker",
+            "type": "service",
+            "col": 1,
+            "label": "Worker",
+            "sub": "charge",
+            "fn": "chargeOrder()",
+            "checks": [
+              "charge the card",
+              "declined: do not try again",
+              "report the failure"
+            ]
+          },
+          {
+            "id": "orders",
+            "type": "table",
+            "col": 2,
+            "label": "orders",
+            "sub": "database",
+            "rows": [
+              {
+                "id": "1041",
+                "chips": [
+                  "paid"
+                ],
+                "old": true
+              },
+              {
+                "id": "1042",
+                "chips": [
+                  "Ana",
+                  "pending"
+                ],
+                "old": true
+              }
+            ]
+          },
+          {
+            "id": "page",
+            "type": "app",
+            "col": 3,
+            "label": "Web app",
+            "brand": "Lamp & Co",
+            "logo": "L",
+            "screen": "detail",
+            "detail": {
+              "title": "Order 1042",
+              "status": "pending",
+              "tone": "active",
+              "empty": "History",
+              "timeline": [
+                "Order placed",
+                "Payment failed: insufficient funds"
+              ]
+            }
+          }
+        ],
+        "wires": [
+          [
+            "pay",
+            "worker"
+          ],
+          [
+            "worker",
+            "orders"
+          ],
+          [
+            "orders",
+            "page"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "pay",
+            "caption": "The provider's refusal becomes an error.",
+            "set": {
+              "pay": {
+                "done": 2
+              },
+              "page": {
+                "events": 1
+              }
+            },
+            "code": {
+              "file": "payments/client.js",
+              "line": 27,
+              "text": "throw new PaymentDeclined(reason)"
+            }
+          },
+          {
+            "focus": "worker",
+            "caption": "The worker does not try a declined card again.",
+            "packet": {
+              "from": "pay",
+              "to": "worker",
+              "label": "declined"
+            },
+            "set": {
+              "worker": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "worker/charge.js",
+              "line": 20,
+              "text": "if (err instanceof PaymentDeclined) return { paid: false, error: err.reason }"
+            }
+          },
+          {
+            "focus": "orders",
+            "caption": "The API marks the order failed.",
+            "muted": "The reason is stored with the order.",
+            "packet": {
+              "from": "worker",
+              "to": "orders",
+              "label": "failed"
+            },
+            "set": {
+              "worker": {
+                "done": 3
+              },
+              "orders": {
+                "hi": 1,
+                "chips": {
+                  "1": [
+                    "Ana",
+                    "failed"
+                  ]
+                }
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 36,
+              "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+            }
+          },
+          {
+            "focus": "page",
+            "caption": "The reason is shown on the order page.",
+            "set": {
+              "page": {
+                "status": "failed",
+                "tone": "bad",
+                "events": 2,
+                "newEvent": 1
+              }
+            },
+            "code": {
+              "file": "web/src/checkout/OrderStatus.ts",
+              "line": 16,
+              "text": "failed: (order) => `Payment failed: ${order.error}`,"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "u1j4h0",
+      "title": "If 8 jobs are waiting, the API refuses the order",
+      "node": "create",
+      "file": "api/orders.js",
+      "range": {
+        "start": 11,
+        "end": 11
+      },
+      "anchor": {
+        "v": 3,
+        "head": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
+        "tail": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
+        "lines": 1,
+        "hash": "ec049abf31f0",
+        "before": "  if (!checked.ok) return send(res, 400, { error: checked.error })",
+        "after": "  // The card token goes into the job only: the orders table never holds it."
+      },
+      "lead": "The check runs before the order is stored, so a refused order leaves no pending row behind.",
+      "details": "- The limit of 8 comes from the configuration.\n- The queue is full when as many jobs wait as the limit allows.\n- The page shows a notice that asks to try again in a minute.",
+      "refs": [],
+      "links": [
+        {
+          "phrase": "The limit of 8",
+          "file": "api/queue.js",
+          "start": 32,
+          "end": 32,
+          "text": "export const jobs = new JobQueue(config.queue.maxJobs)"
+        },
+        {
+          "phrase": "comes from the configuration",
+          "file": "config/shop.yaml",
+          "start": 14,
+          "end": 14,
+          "text": "maxJobs: 8            # charge jobs waiting; a full queue refuses new orders"
+        },
+        {
+          "phrase": "is full",
+          "file": "api/queue.js",
+          "start": 15,
+          "end": 17,
+          "text": "isFull() {"
+        },
+        {
+          "phrase": "shows a notice",
+          "file": "web/src/checkout/placeOrder.ts",
+          "start": 36,
+          "end": 36,
+          "text": "if (res.status === 503) return showNotice('The shop is busy. Please try again in a minute.')"
+        },
+        {
+          "phrase": "before the order is stored",
+          "file": "api/orders.js",
+          "start": 15,
+          "end": 15,
+          "text": "const order = insertOrder(details)"
+        }
+      ],
+      "values": [
+        {
+          "name": "jobs",
+          "value": "8 waiting",
+          "note": "the queue is full",
+          "file": "api/orders.js",
+          "line": 11,
+          "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })"
+        },
+        {
+          "name": "maxJobs",
+          "value": "8",
+          "note": "the limit from shop.yaml",
+          "file": "api/queue.js",
+          "line": 16,
+          "text": "return this.waiting.length >= this.maxJobs"
+        },
+        {
+          "name": "res",
+          "value": "503",
+          "note": "the API's refusal",
+          "file": "web/src/checkout/placeOrder.ts",
+          "line": 36,
+          "text": "if (res.status === 503) return showNotice('The shop is busy. Please try again in a minute.')"
+        }
+      ],
+      "scene": {
+        "actors": [
+          {
+            "id": "cfg",
+            "type": "file",
+            "col": 0,
+            "label": "config/shop.yaml",
+            "from": 13,
+            "lines": [
+              "queue:",
+              "  maxJobs: 8"
+            ]
+          },
+          {
+            "id": "api",
+            "type": "service",
+            "col": 1,
+            "label": "API",
+            "sub": "orders",
+            "fn": "createOrder()",
+            "checks": [
+              "check the order",
+              "refuse when queue is full",
+              "store the order"
+            ]
+          },
+          {
+            "id": "q",
+            "type": "queue",
+            "col": 2,
+            "label": "Job queue",
+            "sub": "in memory",
+            "slots": 8,
+            "cap": "8 jobs at most"
+          },
+          {
+            "id": "limit",
+            "type": "gauge",
+            "col": 2,
+            "label": "Queue limit",
+            "max": 8,
+            "unit": "jobs",
+            "used": 7
+          }
+        ],
+        "wires": [
+          [
+            "api",
+            "q"
+          ]
+        ],
+        "beats": [
+          {
+            "focus": "cfg",
+            "caption": "The limit of 8 comes from the configuration.",
+            "set": {
+              "cfg": {
+                "hi": 1
+              },
+              "q": {
+                "fill": 7
+              }
+            },
+            "code": {
+              "file": "api/queue.js",
+              "line": 32,
+              "text": "export const jobs = new JobQueue(config.queue.maxJobs)"
+            }
+          },
+          {
+            "focus": "q",
+            "caption": "8 jobs are waiting.",
+            "set": {
+              "q": {
+                "fill": 8,
+                "note": "8 of 8: the queue is full"
+              },
+              "limit": {
+                "used": 8
+              },
+              "api": {
+                "done": 1
+              }
+            },
+            "code": {
+              "file": "api/queue.js",
+              "line": 16,
+              "text": "return this.waiting.length >= this.maxJobs"
+            }
+          },
+          {
+            "focus": "limit",
+            "caption": "One more job does not fit.",
+            "set": {
+              "limit": {
+                "used": 8,
+                "want": 1
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 11,
+              "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })"
+            }
+          },
+          {
+            "focus": "api",
+            "caption": "The API refuses the order before it is stored.",
+            "muted": "No pending row is left behind.",
+            "set": {
+              "api": {
+                "done": 2
+              }
+            },
+            "code": {
+              "file": "api/orders.js",
+              "line": 11,
+              "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "start": true
+}

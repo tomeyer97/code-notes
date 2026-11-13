@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-ip7u",
+  "file": "worker/worker.go",
+  "range": {
+    "start": 40,
+    "end": 55
+  },
+  "anchor": {
+    "text": "func (w *Worker) loop(ctx context.Context, phase string) {\n\tinterval := w.Interval\n\tif interval <= 0 {\n\t\tinterval = 2 * time.Second\n\t}\n\tt := time.NewTicker(interval)\n\tdefer t.Stop()\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\tcase <-t.C:\n\t\t}\n\t\tw.pass(ctx, phase)\n\t}\n}",
+    "before": "}\n",
+    "after": "\n// pass handles every open order once, each with its own timeout."
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.150Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**4. Asynchronous hop 1: the worker polls the database**\n\nNothing notifies the worker; it finds the new order on its next pass. `Run` starts one such loop per phase (worker/worker.go:28-38); the interval is set to 2 s in cmd/shop/main.go:31. The orders phase lists every open order and calls `processOrder` on each with its own timeout (:58-79). Each pass handles one state transition, so everything below is spread over many passes.",
+      "at": "2026-11-11T16:01:34.150Z"
+    }
+  ]
+}

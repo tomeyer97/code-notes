@@ -1,0 +1,23 @@
+# Lamp & Co: settings read by the API and the worker (config/load.js).
+shop:
+  name: Lamp & Co
+  currency: EUR
+
+api:
+  port: 8080
+
+orders:
+  firstNumber: 1001
+  maxItems: 20
+
+queue:
+  maxJobs: 8            # charge jobs waiting; a full queue refuses new orders
+
+worker:
+  pollMs: 2000          # how often an idle worker asks for a job
+  maxAttempts: 3        # tries per charge when the provider is unreachable
+  retryMs: 1000
+
+payments:
+  url: https://pay.example/v1
+  timeoutMs: 5000

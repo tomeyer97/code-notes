@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Lamp &amp; Co</title>
+  <link rel="stylesheet" href="shop.css">
+</head>
+<!-- The server fills in who is signed in and the token of their saved card. -->
+<body data-customer="" data-card="">
+  <header><b>Lamp &amp; Co</b> <span id="who"></span></header>
+  <main id="main">
+    <article class="product">
+      <img src="img/lamp-desk.jpg" alt="">
+      <h2>Desk lamp</h2>
+      <button class="buy" data-sku="lamp-desk">Buy now</button>
+    </article>
+    <article class="product">
+      <img src="img/lamp-floor.jpg" alt="">
+      <h2>Floor lamp</h2>
+      <button class="buy" data-sku="lamp-floor">Buy now</button>
+    </article>
+    <p id="notice" hidden></p>
+  </main>
+  <script type="module">
+    import { wireShop } from './src/checkout/placeOrder.js'
+    wireShop(document)
+  </script>
+</body>
+</html>

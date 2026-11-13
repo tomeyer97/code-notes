@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-art8",
+  "file": "config/payments.yaml",
+  "range": {
+    "start": 1,
+    "end": 14
+  },
+  "anchor": {
+    "text": "# The payment provider, as the shop talks to it. Charges are created by the worker (payments/charge.go);\n# the provider then sends the customer to their bank for 3-D Secure and calls the webhook below when it knows.\nprovider:\n  name: examplepay\n  apiBase: https://api.examplepay.test/v1\n  # auto: 3-D Secure only when the bank asks for it; always: every charge.\n  threeDSecure: auto\n  webhook:\n    path: /api/payments/webhook\n    events: [charge.succeeded, charge.failed, charge.expired]\n  # A charge the bank has not answered in this time expires on the provider's side.\n  chargeTimeout: 15m\n  retries: 3\n",
+    "before": "",
+    "after": "currency: EUR\nstatementDescriptor: ACME SHOP"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.350Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**8. Asynchronous hop 2: the provider asks the bank (not our code)**\n\nNo code in this repo talks to the bank. The provider sends the customer to their bank's 3-D Secure page and calls the shop's webhook when it knows the answer. How often that happens is set here: `threeDSecure: auto` (line 7: only when the bank asks for it). Note the charge expires on the provider's side after 15 minutes (line 12). I did not read the provider's code; the events are what `ChargeIssues` expects (payments/status.go:43).",
+      "at": "2026-11-11T16:01:34.350Z"
+    }
+  ]
+}

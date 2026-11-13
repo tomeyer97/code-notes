@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-y9rl",
+  "file": "payments/charge.go",
+  "range": {
+    "start": 41,
+    "end": 54
+  },
+  "anchor": {
+    "text": "\titems := make([]ChargeItem, 0, len(o.Lines))\n\tvar sum int64\n\tfor _, l := range o.Lines {\n\t\titems = append(items, ChargeItem{Name: l.Name, Quantity: l.Quantity, Amount: l.Price})\n\t\tsum += int64(l.Quantity) * l.Price\n\t}\n\t// The lines must add up to what the order says; a coupon is one negative line.\n\tif o.Discount > 0 {\n\t\titems = append(items, ChargeItem{Name: \"Discount\", Quantity: 1, Amount: -o.Discount})\n\t\tsum -= o.Discount\n\t}\n\tif sum != o.Total {\n\t\treturn nil, fmt.Errorf(\"order %s: lines add up to %d, total is %d\", o.ID, sum, o.Total)\n\t}",
+    "before": "\t\treturn nil, fmt.Errorf(\"order %s: no currency\", o.ID)\n\t}",
+    "after": "\tdesc := fmt.Sprintf(\"Order %s\", strings.ToUpper(o.ID[:8]))\n\tmeta := map[string]string{\"order\": o.ID, \"cart\": o.CartID}"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.200Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**5. The order is not sent as is: it becomes the provider's charge**\n\nFirst pass on a pending order: `processOrder` calls `BuildCharge` (worker/worker.go:96). The order's lines become charge items that must add up to its total (payments/charge.go:41-54). A coupon becomes one negative line (:48); lines that do not add up fail the order before anything is charged. The customer's address never goes to the provider: only amounts, names and the order's reference.",
+      "at": "2026-11-11T16:01:34.200Z"
+    }
+  ]
+}

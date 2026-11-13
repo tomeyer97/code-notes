@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160133-y913",
+  "file": "web/src/checkout/placeOrder.ts",
+  "range": {
+    "start": 24,
+    "end": 42
+  },
+  "anchor": {
+    "text": "  // An order already sent from this cart (a double click, a reload): wait on that one instead of sending another.\n  const open = await api.get<{ id: string } | null>(`/api/carts/${cart.id}/open-order`)\n  if (open) {\n    o.progress('Your order is already on its way')\n    return { orderId: open.id, outcome: await waitForPayment(open.id, o.timeoutMs, o.progress) }\n  }\n  const req = buildOrder(cart, customer)\n  // Validate first: stock and prices are checked before the customer is sent to their bank.\n  try {\n    await api.post('/api/orders?dryRun=1', req)\n  } catch (e) {\n    if (e instanceof ApiError && e.status === 409) {\n      o.progress('Some items just sold out; the cart was updated')\n      throw e\n    }\n    throw e\n  }\n  o.progress('Sending your order')\n  const created = await api.post<{ id: string; status: string }>('/api/orders', req)",
+    "before": "  if (!cart.lines.length) throw new Error('the cart is empty')\n  const started = Date.now()",
+    "after": "  if (created.status === 'paid') {\n    return { orderId: created.id, outcome: { status: 'paid', message: '' } }"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:33.100Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**1. The page checks the cart first, then sends the order**\n\nThe Place order button (web/src/checkout/Checkout.vue:30) lands here; nothing is charged in the browser. Order matters: a **dry-run** create at web/src/checkout/placeOrder.ts:33 checks stock and prices before the customer is sent to their bank; only then the real create at :42. At the top of this range (:24-29) it first looks for an order already sent from this cart and just waits on that one.",
+      "at": "2026-11-11T16:01:33.100Z"
+    }
+  ]
+}

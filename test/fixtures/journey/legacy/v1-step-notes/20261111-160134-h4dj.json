@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-h4dj",
+  "file": "worker/worker.go",
+  "range": {
+    "start": 100,
+    "end": 113
+  },
+  "anchor": {
+    "text": "\t\tch, err := w.Payments.Create(ctx, req)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {\n\t\t\t\treturn w.retryLater(ctx, o, err.Error())\n\t\t\t}\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)\n\t\t\treturn w.fail(ctx, o, \"the payment could not be started: \"+err.Error())\n\t\t}\n\t\to.ChargeID = ch.ID\n\t\to.Status = store.OrderCharging\n\t\to.Message = \"Confirm the payment with your bank\"\n\t\tdeadline := now.Add(w.Timeout)\n\t\to.Deadline = &deadline\n\t\treturn w.Store.Orders().Update(ctx, o)",
+    "before": "\t\t\treturn w.fail(ctx, o, err.Error())\n\t\t}",
+    "after": "\n\tcase store.OrderCharging:"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.300Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**7. Create the charge, flip to charging**\n\nBefore this, `Reserve` (worker/worker.go:90) holds the stock; a sold-out line fails the order before anyone is charged. Then the charge is created at the provider (`Payments.Create`). A passing error puts it back to pending and retries later (:102-104); any other error releases the stock and fails it. On success the order becomes `charging`, message \"Confirm the payment with your bank\", and a deadline is set: the worker's `Timeout` is 20 min (cmd/shop/main.go:32).",
+      "at": "2026-11-11T16:01:34.300Z"
+    }
+  ]
+}

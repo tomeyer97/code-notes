@@ -1,0 +1,276 @@
+/* A step's animation (journey-scene.js). The frame follows the editor theme (variables from journey-map.css); the
+   app window keeps its own dark colours, so it reads as an app (not as the editor) in any theme. */
+.scn { display: flex; flex-direction: column; min-width: 0; outline: none; }
+.scn-bar { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
+.scn-pos { min-width: 3.4em; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scn-space { flex: 1; }
+.scn-file { min-width: 0; margin-left: 6px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scn-file[hidden], .scn-next[hidden] { display: none; }
+.scn-next.step { padding: 0 6px; height: 24px; white-space: nowrap; flex: none; }
+.scn-close { flex: none; margin-left: 8px; }
+.scn-view { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; height: 320px; }
+/* The scene takes the focus when it starts (its keys work at once): the frame says so, not a ring over the bar. */
+.scn:focus-visible { outline: none; }
+.scn:focus-visible .scn-view { border-color: var(--vscode-focusBorder, var(--accent)); }
+.scn-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; transition: transform 700ms cubic-bezier(0.45, 0, 0.2, 1); font-size: 14px; }
+.scn-cap { margin: 10px 2px 0; font-size: 1.15em; line-height: 1.4; min-height: 2.8em; color: var(--fg); }
+.scn-muted { color: var(--muted); }
+
+/* ---------- actors ---------- (class names never shared with journey-map.css: its `.done` is the walk-finished box) */
+.scn-actor { position: absolute; border: 1px solid var(--border); border-radius: 6px; transition: opacity 500ms; color: var(--fg); }
+.scn-actor.dim { opacity: 0.3; }
+.scn-label { position: absolute; left: 14px; top: 9px; color: var(--muted); white-space: nowrap; }
+.scn-label b { color: var(--fg); font-weight: 500; }
+.scn-wires { position: absolute; left: 0; top: 0; overflow: visible; }
+.scn-wires line { stroke: var(--border); stroke-width: 1.5; }
+.scn-wires line.lit { stroke: var(--accent); }
+.scn-packet {
+  position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; padding: 3px 9px; border-radius: 4px;
+  background: var(--accent); color: var(--bg); font-family: var(--vscode-editor-font-family, monospace); font-size: 13px; font-weight: 600; z-index: 2;
+}
+.scn-packet.go { transition: transform 750ms cubic-bezier(0.3, 0, 0.2, 1) 150ms; animation: scn-fly 1250ms forwards; }
+@keyframes scn-fly { 0% { opacity: 0; } 10%, 80% { opacity: 1; } 100% { opacity: 0; } }
+
+.scn-body { position: absolute; left: 18px; right: 12px; top: 48px; }
+.scn-fn { display: block; line-height: 20px; margin-bottom: 12px; font-family: var(--vscode-editor-font-family, monospace); font-size: 15px; color: var(--fg); }
+.scn-check { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; line-height: 17px; white-space: nowrap; font-size: 13px; opacity: 0.55; transition: opacity 350ms; }
+.scn-check i { width: 13px; font-style: normal; color: var(--muted); }
+.scn-check i::before { content: '·'; }
+.scn-check.ticked { opacity: 1; }
+.scn-check.ticked i { color: var(--vscode-testing-iconPassed, #73c991); }
+.scn-check.ticked i::before { content: '✓'; }
+
+.scn-rows { position: absolute; left: 12px; right: 12px; top: 44px; }
+.scn-row { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 11px; border: 1px solid transparent; border-radius: 4px; opacity: 0; transform: translateY(-8px); transition: opacity 350ms, transform 350ms, background 350ms, border-color 350ms; }
+.scn-row.on { opacity: 1; transform: none; }
+.scn-row.old.on { opacity: 0.6; }
+.scn-row.old.on.hi { opacity: 1; } /* the row looked at is never faded */
+.scn-row.hi { background: var(--accent-bg); border-color: var(--accent); }
+.scn-row code { min-width: 70px; white-space: nowrap; font-family: var(--vscode-editor-font-family, monospace); font-size: 13px; }
+.scn-pill { border: 1px solid var(--muted); color: var(--muted); border-radius: 10px; padding: 0 8px; font-size: 12px; line-height: 1.5; white-space: nowrap; }
+.scn-pill.warn { border-color: var(--stale); color: var(--stale); }
+.scn-pill.live { border-color: var(--accent); color: var(--fg); }
+
+.scn-pods { position: absolute; left: 14px; right: 14px; top: 50px; display: flex; gap: 12px; }
+.scn-pod { height: 62px; padding: 0 16px; border: 1px solid var(--border); border-radius: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; }
+.scn-pod.ghost { flex: 1; border-style: dashed; color: var(--muted); opacity: 0.6; transition: opacity 300ms, border-color 300ms, color 300ms; }
+.scn-pod em { font-style: normal; font-size: 12px; color: var(--muted); }
+.scn-pod.ghost.made { border-style: solid; border-color: var(--accent); color: var(--fg); opacity: 1; background: var(--accent-bg); }
+.scn-pod.ghost.mark { border-color: var(--stale); color: var(--stale); opacity: 1; animation: scn-pulse 1.5s ease-in-out infinite; }
+@keyframes scn-pulse { 50% { opacity: 0.55; } }
+
+/* ---------- the app window (a dark web app) ----------
+   Every text rule here is ≥ 11.5 px: the window is drawn at about scale 1 in a 400 px scene. */
+.ap-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; border: 1px solid #232329; border-radius: 7px; background: #09090b; color: #ededf0; overflow: hidden; opacity: 0; transition: opacity 350ms; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
+.ap-win.on { opacity: 1; }
+.ap-top { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid #232329; font-size: 12.5px; }
+.ap-logo { flex: none; min-width: 20px; height: 20px; padding: 0 3px; box-sizing: border-box; border-radius: 5px; background: #3f3f46; color: #ededf0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.ap-top > b { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-tabs { margin-left: auto; align-self: stretch; display: flex; gap: 12px; font-size: 12px; color: #a1a1aa; flex: none; }
+.ap-tabs span { display: flex; align-items: center; border-bottom: 2px solid transparent; white-space: nowrap; }
+.ap-tabs span.on { color: #ededf0; font-weight: 500; border-bottom-color: #818cf8; }
+.ap-pad { padding: 12px; }
+.ap-table { border: 1px solid #232329; border-radius: 6px; background: #111114; font-weight: 500; }
+.ap-tr { padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); }
+.ap-dialog { position: absolute; left: 20px; right: 20px; top: 26px; border: 1px solid #232329; border-radius: 9px; background: #111114; padding: 12px 14px; }
+.ap-dh { font-size: 14px; font-weight: 600; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-radio { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; background: #18181c; font-weight: 500; white-space: nowrap; }
+.ap-radio span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ap-radio i { width: 12px; height: 12px; border-radius: 6px; border: 1.5px solid #ededf0; background: #ededf0; box-shadow: inset 0 0 0 2.5px #18181c; flex: none; }
+.ap-line { display: flex; align-items: center; margin-top: 8px; white-space: nowrap; }
+.ap-line b { width: 92px; flex: none; font-weight: 500; }
+.ap-line span { min-width: 0; color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; }
+.ap-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+.ap-startwrap { position: relative; display: inline-block; }
+.ap-start { display: inline-block; background: #818cf8; color: #09090b; font-weight: 600; border-radius: 5px; padding: 5px 12px; white-space: pre; }
+.ap-start.busy { opacity: 0.65; }
+.scn-cursor { position: absolute; left: 22px; top: 12px; width: 15px; height: 18px; opacity: 0; transform: translate(-70px, 46px); pointer-events: none; }
+.scn-app.clicked .scn-cursor { opacity: 1; transform: none; transition: transform 800ms cubic-bezier(0.3, 0, 0.2, 1) 500ms, opacity 200ms 400ms; }
+.scn-app.clicked .ap-start { animation: scn-press 300ms 1400ms; }
+@keyframes scn-press { 50% { transform: scale(0.92); opacity: 0.7; } }
+.scn-app.clicked .ap-signin { animation: scn-press 300ms 1400ms; }
+/* the sign-in page */
+.ap-signinpage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 34px; text-align: center; }
+.ap-signinpage .ap-logo { min-width: 30px; height: 30px; border-radius: 7px; font-size: 15px; }
+.ap-stitle { max-width: 100%; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-notice { display: none; align-self: stretch; border: 1px solid #ef44444d; border-radius: 6px; background: #ef44440d; padding: 6px 10px; color: #fca5a5; font-weight: 500; }
+.ap-notice.on { display: block; }
+.ap-signwrap { position: relative; align-self: stretch; }
+.ap-signin { display: block; border: 1px solid #33333b; border-radius: 6px; background: #111114; padding: 7px 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-signin.busy { opacity: 0.7; }
+.ap-signwrap .scn-cursor { left: 50%; top: 14px; }
+/* the detail page: title + status, cards, the last timeline rows */
+.ap-title { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #232329; font-size: 14px; white-space: nowrap; }
+.ap-title > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ap-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; border-radius: 10px; padding: 1px 8px; font-size: 11.5px; font-weight: 500; color: #a1a1aa; background: #a1a1aa18; box-shadow: inset 0 0 0 1px #a1a1aa55; }
+.ap-chip i { width: 6px; height: 6px; border-radius: 3px; background: #a1a1aa; }
+.ap-chip.active { color: #818cf8; background: #818cf818; box-shadow: inset 0 0 0 1px #818cf855; }
+.ap-chip.active i { background: #818cf8; }
+.ap-chip.good { color: #4ade80; background: #4ade8018; box-shadow: inset 0 0 0 1px #4ade8055; }
+.ap-chip.good i { background: #4ade80; }
+.ap-chip.bad { color: #f87171; background: #f8717118; box-shadow: inset 0 0 0 1px #f8717155; }
+.ap-chip.bad i { background: #f87171; }
+.ap-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ap-none { color: #86868f; }
+.ap-none.off { display: none; }
+.ap-card { display: none; align-items: baseline; gap: 8px; border: 1px solid #232329; border-radius: 5px; background: #111114; padding: 6px 9px; transition: border-color 350ms; }
+.ap-card.on { display: flex; animation: scn-in 350ms; }
+.ap-card.new { border-color: #818cf8; }
+@keyframes scn-in { from { opacity: 0; transform: translateY(-6px); } }
+/* severity as a coloured dot (its name on hover), not a word too small to read */
+.ap-sev { flex: none; width: 8px; height: 8px; border-radius: 4px; background: #a1a1aa; }
+.ap-sev.medium { background: #facc15; }
+.ap-sev.high { background: #fb923c; }
+.ap-sev.critical { background: #f87171; }
+.ap-ctitle { min-width: 0; font-weight: 500; line-height: 1.3; }
+.ap-tl { display: flex; flex-direction: column; gap: 5px; }
+.ap-ev { display: none; align-items: center; gap: 7px; color: #a1a1aa; white-space: nowrap; transition: color 300ms; }
+.ap-ev span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ap-ev.on { display: flex; animation: scn-in 300ms; }
+.ap-ev i { width: 5px; height: 5px; border-radius: 3px; background: #52525b; flex: none; }
+.ap-ev.new { color: #ededf0; }
+.ap-ev.new i { background: #818cf8; }
+
+/* ---------- a web page in a browser (a light page: it is another app) ---------- */
+.br-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: #18181b; overflow: hidden; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
+.br-bar { height: 28px; display: flex; align-items: center; padding: 0 8px; background: #e4e4e7; }
+.br-url { flex: 1; background: #fff; border-radius: 4px; padding: 2px 8px; font-size: 11.5px; color: #52525b; white-space: nowrap; }
+.br-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e4e4e7; font-size: 13px; }
+.br-top > b { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-cartw { flex: none; }
+.br-cartw { position: relative; }
+.br-cart { border: 1px solid #d4d4d8; border-radius: 4px; padding: 2px 8px; font-size: 11.5px; white-space: nowrap; }
+.br-grid { display: flex; gap: 10px; padding: 10px 12px; }
+.br-card { flex: 1; min-width: 0; border: 1px solid #e4e4e7; border-radius: 6px; padding: 8px; }
+.br-img { height: 44px; border-radius: 4px; background: #e0e7ff; margin-bottom: 6px; }
+.br-card:nth-child(2) .br-img { background: #fce7f3; }
+.br-name { font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-btnw { position: relative; display: inline-block; }
+.br-btn { display: inline-block; background: #0f766e; color: #fff; border-radius: 4px; padding: 3px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.br-btn.pressed { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #6366f1; }
+.br-cursor { position: absolute; left: 50%; top: 10px; width: 15px; height: 18px; opacity: 0; transform: translate(110px, 40px); pointer-events: none; }
+.br-cursor.at { opacity: 1; transform: none; }
+.scn-browser.clicking .br-cursor { transition: transform 800ms cubic-bezier(0.3, 0, 0.2, 1) 300ms, opacity 200ms 200ms; }
+.scn-browser.clicking .br-btn.pressed { animation: scn-press 300ms 1100ms; }
+.br-mark { position: absolute; inset: -5px; border: 2px solid #ef4444; border-radius: 6px; opacity: 0; transition: opacity 300ms; pointer-events: none; }
+.br-mark.on { opacity: 1; }
+.br-mark span { position: absolute; right: -2px; top: 100%; background: #ef4444; color: #fff; font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 0 0 4px 4px; white-space: nowrap; }
+.br-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; box-shadow: inset 0 0 0 3px #6366f1; }
+.br-flash.go { animation: br-shot 600ms; }
+@keyframes br-shot { 0% { opacity: 0.75; } 100% { opacity: 0; } }
+
+/* ---------- the toggle on the current storyline row: words, not a ▶ (that read as "run"); one row only ---------- */
+.animbtn { display: block; margin: 0 0 3px calc(6px + 1.6em + 8px); padding: 0 3px 1px; border-radius: 3px; font-size: 0.88em; color: var(--muted); }
+.animbtn:hover { color: var(--vscode-textLink-foreground, var(--accent)); text-decoration: underline; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scn-world, .scn-actor, .scn-row, .scn-check, .ap-win, .ap-card, .ap-ev, .br-mark, .scn-packet.go, .scn-app.clicked .scn-cursor, .scn-browser.clicking .br-cursor { transition: none; }
+  .br-flash.go, .scn-browser.clicking .br-btn.pressed, .ap-card.on, .ap-ev.on { animation: none; }
+  .scn-packet.go { animation: none; }
+  .scn-pod.ghost.mark, .scn-app.clicked .ap-start, .scn-app.clicked .ap-signin { animation: none; }
+}
+
+/* The beat's code, under the caption: its line and three each side. Only where the panel is tall enough to hold it. */
+.scn-code { margin: 12px 2px 0; padding: 6px 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; line-height: 18px; }
+.scn-code[hidden] { display: none; }
+.scn-code-file { padding: 0 10px 4px; color: var(--muted); font-family: var(--vscode-font-family, sans-serif); font-size: 11px; }
+.scn-code-line { display: flex; white-space: pre; color: var(--fg); border-left: 3px solid transparent; }
+.scn-code-line:not(.on) .scn-code-t { opacity: 0.6; }
+.scn-code-line.on { border-left-color: var(--vscode-editorCursor-foreground, var(--accent)); background: var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.12)); }
+.scn-code-n { flex: none; width: 4ch; margin-right: 12px; text-align: right; opacity: 0.6; }
+.scn-code-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-height: 640px) { .scn-code { display: none; } }
+.scn-tk-c { color: var(--muted); font-style: italic; }
+.scn-tk-s { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.scn-tk-n { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.scn-tk-k { color: var(--vscode-debugTokenExpression-name, #c586c0); }
+.scn-tk-f { color: var(--vscode-debugTokenExpression-type, #4a90e2); }
+
+/* A cluster inside a cluster (a virtual cluster in a namespace): below the outer cluster's own pods. */
+.scn-inner { position: absolute; left: 14px; right: 14px; bottom: 14px; height: 108px; border: 1px dashed var(--border); border-radius: 5px; opacity: 0.45; transition: opacity 300ms, border-color 300ms; }
+.scn-inner.there { border-style: solid; border-color: var(--accent); opacity: 1; }
+.scn-inner-label { position: absolute; left: 12px; top: 7px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.scn-inner-label b { color: var(--fg); font-weight: 500; }
+.scn-inner-pods { position: absolute; left: 12px; right: 12px; top: 34px; display: flex; gap: 10px; }
+.scn-inner-pods .scn-pod { height: 60px; padding: 0 12px; }
+/* A terminal: dark in every theme. Commands bright behind a green "$", what they print quieter. */
+.tm-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; padding: 8px 12px; border: 1px solid #232329; border-radius: 7px; background: #0c0c0e; color: #a1a1aa; overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 12.5px; line-height: 22px; }
+.tm-line { display: none; margin: 0 -6px; padding: 0 6px; border-radius: 3px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.tm-line.on { display: block; }
+.tm-line.cmd { color: #f4f4f5; }
+.tm-line.cmd i { margin-right: 8px; font-style: normal; color: #4ade80; }
+.tm-line.hi { background: rgba(255, 255, 255, 0.09); color: #f4f4f5; }
+
+/* An existing pod pointed at, or gone (stopped, evicted, replaced). */
+.scn-pod { transition: opacity 300ms, border-color 300ms, color 300ms; }
+.scn-pod.mark { border-color: var(--stale); color: var(--stale); opacity: 1; animation: scn-pulse 1.5s ease-in-out infinite; }
+.scn-pod.gone { border-style: dashed; color: var(--muted); opacity: 0.45; background: none; }
+.scn-pod.gone > span { text-decoration: line-through; }
+/* A file: the editor's own colours, so it reads as "a file in the repo". */
+.fl-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; padding: 6px 0; border: 1px solid var(--border); border-radius: 5px; background: var(--vscode-editor-background, var(--bg)); overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 12.5px; line-height: 20px; }
+.fl-line { display: none; padding: 0 10px; border-left: 3px solid transparent; white-space: pre; overflow: hidden; text-overflow: ellipsis; color: var(--fg); transition: background 300ms; }
+.fl-line.on { display: block; }
+.fl-line i { display: inline-block; width: 3ch; margin-right: 10px; text-align: right; font-style: normal; color: var(--muted); opacity: 0.7; }
+.fl-line.hi { border-left-color: var(--accent); background: var(--accent-bg); }
+.fl-line.changed span { color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--accent)); }
+/* A conversation: mine on the right, theirs on the left; a tool call or result in the code font. */
+.ch-win { position: absolute; left: 10px; right: 10px; top: 40px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.ch-msg { display: none; align-self: flex-start; max-width: 92%; height: 30px; line-height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 12px 12px 12px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.ch-msg.on { display: block; animation: scn-in 300ms; }
+.ch-msg.me { align-self: flex-end; border-radius: 12px 12px 3px 12px; border-color: transparent; background: var(--accent-bg); }
+.ch-msg.tool { border-radius: 5px; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; color: var(--muted); }
+.ch-msg.hi { border-color: var(--accent); color: var(--fg); }
+/* A queue: places that fill; one that did not fit. */
+.qu-row { position: absolute; left: 14px; top: 50px; display: flex; gap: 6px; }
+.qu-row i { width: 30px; height: 34px; border: 1px dashed var(--border); border-radius: 4px; transition: background 300ms, border-color 300ms; }
+.qu-row i.on { border-style: solid; border-color: var(--accent); background: var(--accent-bg); }
+.qu-row i.new { background: var(--accent); }
+.qu-drop { position: absolute; right: 12px; top: 96px; display: none; padding: 1px 8px; border-radius: 10px; font-size: 12px; color: var(--stale); box-shadow: inset 0 0 0 1px var(--stale); }
+.qu-drop.on { display: inline-block; animation: scn-in 300ms; }
+.qu-note { position: absolute; left: 14px; top: 96px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+/* The detail page's panes: the live picture and the chat (a beat's `pane`); any other page of the app. */
+.ap-pic, .ap-chat { display: none; position: absolute; left: 12px; right: 12px; top: 80px; bottom: 10px; }
+.ap-win[data-pane="picture"] .ap-pic { display: block; }
+.ap-win[data-pane="chat"] .ap-chat { display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; }
+.ap-win[data-pane="picture"] .ap-body, .ap-win[data-pane="chat"] .ap-body { display: none; }
+.ap-picwin { position: absolute; left: 0; right: 0; top: 0; bottom: 22px; border: 1px solid #232329; border-radius: 5px; background: #18181c; overflow: hidden; }
+.ap-picwin i { position: absolute; left: 18%; right: 18%; top: 14%; height: 12px; border-radius: 3px 3px 0 0; background: #d4d4d8; }
+.ap-picwin b { position: absolute; left: 18%; right: 18%; top: calc(14% + 12px); bottom: 12%; background: #fafafa; }
+.ap-picwin b + b { left: 26%; right: 50%; top: 46%; bottom: 26%; border-radius: 3px; background: #c7d2fe; }
+.ap-picnote { position: absolute; left: 2px; bottom: 0; color: #a1a1aa; font-size: 11.5px; white-space: nowrap; }
+.ap-msg { display: none; align-self: flex-start; max-width: 92%; padding: 3px 9px; border-radius: 10px 10px 10px 3px; background: #18181c; color: #d4d4d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-msg.on { display: block; animation: scn-in 300ms; }
+.ap-msg.me { align-self: flex-end; border-radius: 10px 10px 3px 10px; background: #818cf833; color: #ededf0; }
+.ap-msg.new { box-shadow: inset 0 0 0 1px #818cf8; }
+.ap-box { border: 1px solid #33333b; border-radius: 6px; padding: 5px 9px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-box.typed { color: #ededf0; border-color: #818cf8; }
+.ap-pagebody { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+.ap-banner { display: none; border: 1px solid #f8717155; border-radius: 6px; background: #f8717112; padding: 5px 9px; color: #fca5a5; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-banner.on { display: block; animation: scn-in 300ms; }
+.ap-row { display: none; align-items: baseline; gap: 8px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; transition: background 300ms; }
+.ap-row.on { display: flex; }
+.ap-row b { width: 96px; flex: none; font-weight: 500; }
+.ap-row span { color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; }
+.ap-row.hi { background: #818cf822; }
+.ap-row.hi span { color: #ededf0; }
+.ap-page .ap-foot { margin-top: 2px; }
+/* The browser's address bar: a padlock, or "Not secure". */
+.br-url { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.br-addr { overflow: hidden; text-overflow: ellipsis; }
+.br-lock { flex: none; font-size: 11.5px; }
+.br-lock.ok { color: #16a34a; }
+.br-lock.warn { color: #dc2626; font-weight: 600; }
+
+/* A limit and how much of it is taken; what is asked for on top (red when it does not fit). */
+.ga-bar { position: absolute; left: 14px; right: 14px; top: 52px; height: 30px; display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.ga-used { background: var(--accent); opacity: 0.75; transition: width 500ms; }
+.ga-want { display: none; background: repeating-linear-gradient(135deg, var(--accent-bg), var(--accent-bg) 5px, transparent 5px, transparent 9px); box-shadow: inset 0 0 0 1px var(--accent); transition: width 500ms; }
+.ga-want.on { display: block; }
+.ga-want.over { background: none; box-shadow: inset 0 0 0 2px var(--stale); min-width: 14px; }
+.ga-note { position: absolute; left: 14px; right: 10px; top: 94px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-lockico { display: block; width: 11px; height: 13px; }

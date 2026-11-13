@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-780i",
+  "file": "payments/charge.go",
+  "range": {
+    "start": 61,
+    "end": 76
+  },
+  "anchor": {
+    "text": "\treq := &ChargeRequest{\n\t\tAmount:         o.Total,\n\t\tCurrency:       strings.ToLower(o.Currency),\n\t\tReference:      o.PaymentRef,\n\t\tDescription:    desc,\n\t\tReturnURL:      returnPath + \"?order=\" + o.ID,\n\t\tIdempotencyKey: \"charge-\" + o.IdempotencyKey,\n\t\tMetadata:       meta,\n\t\tItems:          items,\n\t\tThreeDSecure:   \"auto\",\n\t}\n\t// Large orders always go through the bank's check, whatever the provider would decide.\n\tif o.Total >= 50_000 {\n\t\treq.ThreeDSecure = \"always\"\n\t}\n\treturn req, nil",
+    "before": "\t}\n",
+    "after": "}\n"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.250Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**6. Everything goes into one charge request with the order's key**\n\nThe amount, the order's reference and the return address go into one `ChargeRequest`, with the idempotency key `charge-<key>` (payments/charge.go:67). Watch the key: it is made from the order's own key, so a create retried after a timeout is the same charge at the provider, never a second one. Orders of 500.00 or more always ask for 3-D Secure (:73-75).",
+      "at": "2026-11-11T16:01:34.250Z"
+    }
+  ]
+}

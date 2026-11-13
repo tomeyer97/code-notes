@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160135-g6no",
+  "file": "worker/worker.go",
+  "range": {
+    "start": 205,
+    "end": 210
+  },
+  "anchor": {
+    "text": "\tcase len(waiting) == 0:\n\t\tif o.Status != store.OrderPaid {\n\t\t\tt := time.Now().UTC()\n\t\t\to.PaidAt = &t\n\t\t}\n\t\to.Status, o.Message = store.OrderPaid, \"\"",
+    "before": "\t}\n\tswitch {",
+    "after": "\tcase stage == \"bank\":\n\t\to.Message = \"Confirm the payment with your bank\""
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:35.036Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**12. Paid**\n\nWhen nothing is left in `waiting`, the order flips to `OrderPaid` with `PaidAt` set (worker/worker.go:208-210). The same function handles the other outcomes: a fatal issue fails it (:198-203), a passed deadline is handled earlier in `processOrder` (:116), and a charge still at the bank only changes the message. The receipt email is sent later, from the paid order, not from this pass.",
+      "at": "2026-11-11T16:01:35.036Z"
+    }
+  ]
+}

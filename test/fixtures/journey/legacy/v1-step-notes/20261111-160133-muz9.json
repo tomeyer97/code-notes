@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160133-muz9",
+  "file": "web/src/checkout/buildOrder.ts",
+  "range": {
+    "start": 30,
+    "end": 51
+  },
+  "anchor": {
+    "text": "  const lines = cart.lines\n    .filter((l) => l.quantity > 0)\n    .map((l) => ({ sku: l.sku, quantity: Math.min(l.quantity, 99), shownPrice: l.shownPrice }))\n  if (!lines.length) throw new Error('nothing to order')\n  const total = lines.reduce((sum, l) => sum + l.quantity * l.shownPrice, 0)\n  // One key per cart: a retried request is the same order, never a second one.\n  const idempotencyKey = `cart-${cart.id}-${lines.map((l) => `${l.sku}x${l.quantity}`).join('.')}`\n  const req: OrderRequest = {\n    cartId: cart.id,\n    customer,\n    lines,\n    shipping: { ...cart.shipping, country: cart.shipping.country.toUpperCase() },\n    total,\n    idempotencyKey,\n  }\n  if (cart.coupon) req.coupon = cart.coupon.trim().toUpperCase()\n  // A gift note travels as text; the server never renders it as HTML.\n  if (giftNote) {\n    const note = giftNote.trim().slice(0, 500)\n    if (note) req.giftNote = note\n  }\n  if (total > 1_000_000) {",
+    "before": "/** What the order request carries: the cart's lines as the page showed them, the address and one idempotency key. */\nexport function buildOrder(cart: Cart, customer: string, giftNote?: string): OrderRequest {",
+    "after": "    throw new Error(`orders over ${money(1_000_000)} go through sales`)\n  }"
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:33.150Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**2. What the order request carries**\n\nThe request is the cart's lines as the page showed them plus the shipping address: `buildOrder` (web/src/checkout/buildOrder.ts:29) adds one idempotency key per cart. A gift note is trimmed to 500 characters and sent as text (:47-50): the server never renders it. So \"the price I saw\" is nothing more than `shownPrice` on each line, checked again by the server.",
+      "at": "2026-11-11T16:01:33.150Z"
+    }
+  ]
+}

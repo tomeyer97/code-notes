@@ -1,0 +1,25 @@
+{
+  "id": "20261111-160134-3rdo",
+  "file": "worker/worker.go",
+  "range": {
+    "start": 181,
+    "end": 194
+  },
+  "anchor": {
+    "text": "func orderStage(ch *payments.Charge, o *store.Order) string {\n\tswitch {\n\tcase ch.Status == payments.Succeeded:\n\t\treturn \"packing\"\n\tcase ch.NextAction == \"redirect_to_bank\":\n\t\treturn \"bank\"\n\tcase ch.Status == payments.Processing:\n\t\treturn \"processing\"\n\t}\n\tif o.Message == \"\" {\n\t\treturn \"waiting\"\n\t}\n\treturn \"charging\"\n}",
+    "before": "\n// orderStage works out what the customer is waiting for, from what the provider says about the charge.",
+    "after": "\n// applyOutcome writes the result of one pass onto the order: paid, still waiting (with a message), or failed."
+  },
+  "status": "open",
+  "stale": false,
+  "session": "Journey · Placing an order",
+  "createdAt": "2026-11-11T16:01:34.500Z",
+  "messages": [
+    {
+      "author": "Claude",
+      "role": "agent",
+      "body": "**11. The progress message is inferred, not reported**\n\nThe stages a customer sees are deduced from the charge: a succeeded charge means \"packing\" (worker/worker.go:184); a charge whose next action is a bank redirect means \"bank\"… So \"Confirm the payment with your bank\" really means \"the provider says the next action is a redirect to the bank\".",
+      "at": "2026-11-11T16:01:34.500Z"
+    }
+  ]
+}

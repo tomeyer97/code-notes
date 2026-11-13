@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- The journey map outside VS Code: stubs acquireVsCodeApi (posted messages land in window.__posted) and sets VS Code's
+     theme variables (?theme=dark|light). Driven by shoot.mjs; also opens fine in a browser for a quick look. -->
+<html>
+<head>
+<meta charset="utf-8">
+<!-- As strict as the webview's: scripts from files (+ this stub), no inline styles. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src file:; script-src file: 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../media/journey-map.css">
+<link rel="stylesheet" href="../../media/journey-scene.css">
+<script>
+  window.__posted = []
+  window.__errors = []
+  window.acquireVsCodeApi = () => ({ postMessage: (m) => { window.__posted.push(m); if (m.type === 'error') window.__errors.push(m) }, getState: () => window.__state, setState: (s) => { window.__state = s } })
+  const themes = {
+    dark: { 'editor-background': '#1f1f1f', foreground: '#cccccc', descriptionForeground: '#9d9d9d', 'widget-border': '#454545', focusBorder: '#007fd4',
+      'textLink-foreground': '#3794ff', 'button-background': '#0e639c', 'button-foreground': '#ffffff', 'button-hoverBackground': '#1177bb',
+      'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'editorWarning-foreground': '#cca700', 'list-hoverBackground': '#2a2d2e',
+      'codeNotes-noteBorder': '#a371f7aa', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px', 'editor-font-family': 'monospace' },
+    light: { 'editor-background': '#ffffff', foreground: '#3b3b3b', descriptionForeground: '#717171', 'widget-border': '#c8c8c8', focusBorder: '#0090f1',
+      'textLink-foreground': '#006ab1', 'button-background': '#007acc', 'button-foreground': '#ffffff', 'button-hoverBackground': '#0062a3',
+      'badge-background': '#c4c4c4', 'badge-foreground': '#333333', 'editorWarning-foreground': '#bf8803', 'list-hoverBackground': '#e8e8e8',
+      'codeNotes-noteBorder': '#8250dfcc', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px', 'editor-font-family': 'monospace' },
+  }
+  const t = themes[new URLSearchParams(location.search).get('theme') || 'dark']
+  for (const k in t) document.documentElement.style.setProperty(`--vscode-${k}`, t[k])
+  var exports = {}
+</script>
+</head>
+<body>
+<script>document.body.className = 'vscode-' + (new URLSearchParams(location.search).get('theme') || 'dark')</script>
+<div id="app"></div>
+<!-- The scripts after the body, as in the webview (the body exists while ELK loads). -->
+<script src="../../out/src/journeyModel.js"></script>
+<script src="../../out/vendor/elk.bundled.js"></script>
+<script src="../../media/journey-graph.js"></script>
+<script src="../../media/journey-scene.js"></script>
+<script src="../../media/journey-map.js"></script>
+</body>
+</html>
