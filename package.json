@@ -1297,6 +1297,6 @@
     "virtualWorkspaces": false
   },
   "dependencies": {
-    "elkjs": "0.10.0"
+    "elkjs": "0.12.1"
   }
 }
