@@ -57,6 +57,12 @@ export function defaultBase(repo) {
   const cur = gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
   return cands.find((c) => c !== cur && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]))
 }
+/** The repository's default branch: origin's HEAD, else main or master (whichever exists). */
+export function isDefaultBranch(repo, branch) {
+  const sym = gitOk(repo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+  if (sym) return branch === sym.replace(/^origin\//, '')
+  return ['main', 'master'].includes(branch)
+}
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
 const isAncestor = (repo, a, b) => { try { git(repo, ['merge-base', '--is-ancestor', a, b]); return true } catch { return false } }
 
@@ -646,7 +652,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const mb = stack?.base ?? mb0
   // Code lines, committed and uncommitted.
   const change = mb ? codeStat(repo, mb, undefined, cfg.exempt) : { files: 0, added: 0, removed: 0, exempt: [], exemptOnly: false }
-  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}) }
+  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}), ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}) }
   const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
   if (!st.exists) return done(st)
   let check
@@ -693,7 +699,9 @@ export function stateWords(state, st = {}) {
   const rule = state.total ? ruleText(state) : ''
   const branch = st.branch ?? 'this branch'
   switch (state.phase) {
-    case 'nothing': return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
+    // The default branch: one line, no change to speak of.
+    case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
+      return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
     case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: !state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')}).` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,

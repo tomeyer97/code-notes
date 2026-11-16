@@ -1303,3 +1303,10 @@ test('a renamed branch (or the same work pushed under a new name) keeps its chec
   const r = await ci(d, {})
   assert.equal(r.code, 0); assert.equal(r.lines[0], "✓ No check needed: covered by feat/x's check (no code changed since).")
 })
+
+test('the default branch: one line, no check here', () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  const st = U.localStatus(d)
+  assert.deepEqual(U.stateWords(st.state, st), { tone: 'ok', bar: '', title: 'main: no check here', line: '', rule: '' })
+})
