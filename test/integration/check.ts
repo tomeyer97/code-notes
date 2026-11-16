@@ -83,6 +83,8 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, path.join(ws, 'api/limits.js'))
   await until('q1 open on its lines', () => api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded && inLines(3, 6))
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
+  // One list of the questions: the Check view; the Code Notes tree doesn't repeat them.
+  assert.ok(!(api.snapshot().tree() as string[]).some((l) => /What does allow\(\)|per customer rather|API process restarts/.test(l)), 'no check rows in the Code Notes tree')
   if (cdp) {
     // The keyboard is in q1's thread, not in the code (typing there would edit limits.js).
     const page = await ui()
@@ -236,6 +238,7 @@ export async function run(): Promise<void> {
   const asked = await until('a separate note', () => (api.snapshot().notes as any[]).find((n) => n.messages[0]?.body === 'What does counts hold?'))
   assert.equal(asked.extra?.checkAsk, read().questions[0].text); assert.equal(asked.session, undefined)
   assert.equal(noteOf('q1').messages.length, before)
+  assert.ok((api.snapshot().tree() as string[]).some((l) => l.includes('What does counts hold?')), 'a note asked from a question is listed')
   ok('Ask Claude on a check question: a separate note on the same lines, the check thread unchanged')
 
   // 9. Drift: 45 new lines (uncommitted) → amber "Needs top-up" before any push.

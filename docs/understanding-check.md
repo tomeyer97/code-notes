@@ -43,7 +43,8 @@ will find a way around it, so every design choice below favours little friction.
    Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
    checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
-   with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar: where the check stands,
+   with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar (the only list of them: the
+   Code Notes tree doesn't repeat them): where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
    journey lenses step aside in a file with an open question; another branch's check threads are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
