@@ -149,6 +149,7 @@ One chord: **Ctrl+'** (or **Ctrl+<** on ISO keyboards), then a letter.
 | **D** / **A** | Next / previous: the journey step while walking one, else the unread note |
 | **V** | The journey map |
 | **P** | The current step's animation, on or off |
+| **J** | Search journeys |
 
 ## Requirements
 

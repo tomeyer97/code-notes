@@ -573,7 +573,7 @@ export async function run(): Promise<void> {
   await shotX('sidebar')
   await vscode.commands.executeCommand('codeNotes.nextStep') // resumes
   await until('resumed at 3', () => t().touring && t().step === 3)
-  assert.ok((api as any).journeysTree().some((l: string) => /journey:Demo( · [^[]*)? \[play-circle\]/.test(l) && !/3\/4/.test(l)), `the sidebar marks the running journey; the position is on the card and status bar:\n${(api as any).journeysTree().join('\n')}`)
+  assert.ok((api as any).journeysTree().some((l: string) => /journey:Demo · step 3\/4( · [^[]*)? \[play-circle\]/.test(l)), `the sidebar marks the running journey and shows its step:\n${(api as any).journeysTree().join('\n')}`)
   await vscode.commands.executeCommand('codeNotes.endJourney')
   ok('End keeps a resumable place; Next resumes; the sidebar marks the running tour')
   fs.writeFileSync(demoPath, JSON.stringify(demo(demoSteps), null, 2))
@@ -667,8 +667,8 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await vscode.commands.executeCommand('codeNotes.endJourney')
   ok('tutorial: offered once, Skip persists, replay command, its cards (one boxes the step in the editor), Done finishes and walks the steps')
 
-  // 32b'. The whole map: a step number walks there; a function box opens its code. Home: "‹ Journeys" ends the
-  // walk (its place kept) and lists the journeys; a row walks that one.
+  // 32b'. The whole map: a step number walks there; a function box opens its code. Home: "‹ Journeys" lists the
+  // journeys over the walk (it keeps its place, card and status item); a row walks that one.
   await vscode.commands.executeCommand('codeNotes.startJourney', 'demo')
   await until('touring demo', () => tr().touring && tr().step === 1 && tr().mapFocus === 'fa', 8000)
   api.mapSend({ type: 'test', click: '.gnum[data-n="3"]' })
@@ -679,13 +679,15 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   api.mapSend({ type: 'test', click: '.gbox.leaf[data-id="fb"]' })
   await until('a function box opens its code', () => /^src\/flow\.ts:/.test(j.at() ?? ''), 8000)
   api.mapSend({ type: 'test', click: '.homeb' })
-  await until('home ends the walk, its place kept', () => !tr().touring && snap().journeys.find((x: any) => x.id === 'demo').resume === 3, 8000)
+  await until('the list opens over the map', () => tr().mapTitle === 'Journeys', 8000)
+  await sleep(300)
+  assert.ok(tr().touring && tr().step === 3, 'the walk keeps its place under the list')
   // 0.24: a click selects (and previews); Enter walks.
   api.mapSend({ type: 'test', click: '.jrow' })
   await sleep(300)
-  assert.ok(!tr().touring, 'a click on a row only selects it')
+  assert.ok(tr().mapTitle === 'Journeys' && tr().step === 3, 'a click on a row only selects it')
   api.mapSend({ type: 'test', key: 'Enter' })
-  await until('a journey from home walks again where it was left', () => tr().touring && tr().journey === 'demo' && tr().step === 3, 8000)
+  await until('a journey from home walks again where it was left', () => tr().touring && tr().journey === 'demo' && tr().step === 3 && tr().mapTitle !== 'Journeys', 8000)
   await vscode.commands.executeCommand('codeNotes.endJourney')
   ok('whole map: step numbers walk, boxes open code; home lists journeys and walks one')
 

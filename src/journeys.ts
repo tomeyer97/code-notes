@@ -316,7 +316,7 @@ export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } 
   | { type: 'error'; message?: string; text?: string } | { type: 'legend'; hidden: boolean } | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
   | { type: 'ref'; i: number } | { type: 'ask'; update?: boolean } | { type: 'details'; open: boolean } | { type: 'authors' }
   | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string }
-  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
+  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]
