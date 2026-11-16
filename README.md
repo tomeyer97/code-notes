@@ -36,12 +36,14 @@ write one.
   paths), chips by kind and area, and a preview of the selected journey; Enter walks it.
 
 - **The panel** shows the storyline (the numbered steps) beside a map of the systems, modules and functions involved.
+  It never leaves the code under 80 columns: in a narrower window the walk uses the step card alone (Ctrl+' V: the map).
 - **In the editor**, a card above the step's lines says what happens there, with **Next**, **Ask** and **More**.
 - **Code links:** tinted phrases in the card jump to the exact lines that do that part.
 - **Value hints:** faint text above a line shows what a variable holds in an example run.
 - **Show animation** plays the step beat by beat in place of the map. Each beat shows one thing happening, highlights
   the line of code that does it, and shows that line with a few around it under the caption.
-- **Steps follow the code** like notes do: moved code is followed, changed code is flagged.
+- **Steps follow the code** like notes do: moved code is followed, changed code is flagged. Your own edits to a
+  step's lines (typing, an applied fix) are followed, not flagged.
 
 ![What a step's animation can draw](docs/images/objects.png)
 
