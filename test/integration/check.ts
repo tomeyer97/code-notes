@@ -55,6 +55,8 @@ export async function run(): Promise<void> {
   const shot = (name: string) => { const d = process.env.CODE_NOTES_SHOTS; if (d) execFileSync('import', ['-window', 'root', path.join(d, `${name}.png`)]) }
 
   await vscode.workspace.getConfiguration('codeNotes').update('claude.path', path.join(__dirname, '../../../test/fixtures/fake-grader.js'), vscode.ConfigurationTarget.Workspace)
+  // No tour until section 13 (the fake Claude gives up on it): the sections before are about the questions alone.
+  fs.writeFileSync(path.join(ws, '.git', 'fake-no-tour'), '')
   const git = (...a: string[]) => execFileSync('git', a, { cwd: ws, encoding: 'utf8' }).trim()
   const cdp = !!process.env.CODE_NOTES_CDP
   /** A whole-window screenshot over DevTools (CODE_NOTES_SHOTS=dir). */
@@ -397,7 +399,75 @@ export async function run(): Promise<void> {
   await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
   ok('pushed without a check: questions written in the background, "3 questions ready", nothing opens; a click opens question 1')
 
-  // 13. Finding journeys (journeyList.ts): "In this file" follows the editor; search reads step text.
+  // 13. The tour of the change: written right after the questions, walked in the journey panel with the questions as
+  // stops between the steps; a pass stays, Next walks on; rows of the Check view and of the storyline go to their step and question.
+  fs.rmSync(path.join(ws, '.git', 'fake-no-tour'), { force: true })
+  git('checkout', '-q', '-b', 'feat/tour', 'main')
+  git('checkout', 'feat/limits', '--', 'api/limits.js')
+  git('commit', '-qm', 'limits for the tour')
+  api.checkRefresh()
+  await until('no check yet on feat/tour', () => chk().view?.title === 'No check yet for feat/tour')
+  const tf = path.join(ws, 'understanding/feat-tour.json')
+  const readT = () => JSON.parse(fs.readFileSync(tf, 'utf8'))
+  const tourNote = (q: string) => (api.snapshot().notes as any[]).find((n) => n.session === 'Check · feat/tour' && n.extra?.check?.q === q)
+  const tour = () => api.snapshot().tour
+  const t0 = Date.now()
+  await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('q1 opens before the tour is there', () => tourNote('q1')?.threadExpanded)
+  await until('the tour, right after the questions', () => fs.existsSync(tf) && readT().journey?.steps.length === 6, 30000)
+  assert.deepEqual(readT().questions.map((q: any) => q.step), [2, 4, 4])
+  await until('rows say their step; the tour link', () => chk().view?.tour?.label === 'Walk the tour · 6 steps' && chk().view.rows.map((r: any) => r.step).join() === '2,4,4')
+  assert.ok(!(api.snapshot().journeys as any[]).some((x) => /^check-/.test(x.id)), 'a check\'s tour is not one of the journeys')
+  assert.ok(!(api.journeysTree() as string[]).some((l) => /Order limits/.test(l)), 'nor in the Journeys view')
+  await shoot('tour-0-check-view')
+  ok(`the tour is written right after the questions (${((Date.now() - t0) / 1000).toFixed(1)} s with the fake): each question after a step; rows say "step n"; not listed as a journey`)
+
+  if (cdp) await clickToast(/The tour of your change is ready/, 'Walk it')
+  else api.checkPanelSend({ type: 'test', click: 'button.tour' })
+  await until('walking: step 1, the map, 6 steps with the questions between them', () => { const t = tour(); return t.journey === 'check-feat-tour' && t.step === 1 && t.map === 'check-feat-tour' && t.story?.steps === 6 && t.story.stops.join() === 'q1,q2,q3' && !t.story.cur }, 15000)
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('step 2: its card\'s Next is "Question ›"', () => tour().step === 2 && /\[Question ›\]\(command:codeNotes\.nextStep\)/.test(tour().card?.body ?? ''))
+  await shoot('tour-1-step')
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('at q1: its thread open, its row the current one', () => { const t = tour(); return t.step === 2 && t.cp === 'q1' && t.story?.cur === 'q1' && tourNote('q1')?.threadExpanded && inLines(3, 7) })
+  if (cdp) await until('the keyboard in q1\'s answer box', async () => (await boxFocused()) === 'q1')
+  await shoot('tour-2-question')
+  await vscode.commands.executeCommand('codeNotes.answerCheck', { thread: api.thread(tourNote('q1').id), text: 'GOOD: after an hour the count starts again at one.' })
+  // A pass keeps the editor on the question (its feedback is the lesson); Next walks on.
+  await until('a pass stays on q1', () => tour().step === 2 && tour().cp === 'q1' && /^✓/.test(tourNote('q1').messages.at(-1).body))
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('Next walks on: step 3', () => tour().step === 3 && !tour().cp)
+  ok('Walk it: step 1 with the questions as rows between the steps; Next past step 2 opens q1 (keyboard in its answer box; card: "Question ›"); a pass stays, Next walks on to step 3')
+
+  api.checkPanelSend({ type: 'test', click: 'button.open[data-id="q3"]' })
+  await until('a Check view row: its step and its question', () => tour().step === 4 && tour().cp === 'q3' && tourNote('q3')?.threadExpanded)
+  api.mapSend({ type: 'test', click: '.story .cp[data-q="q2"]' })
+  await until('a storyline row: its question', () => tour().step === 4 && tour().cp === 'q2' && tour().story?.cur === 'q2' && tourNote('q2')?.threadExpanded)
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('Next: the other question after step 4', () => tour().cp === 'q3')
+  await vscode.commands.executeCommand('codeNotes.previousStep')
+  await until('Previous: back to q2', () => tour().cp === 'q2')
+  await vscode.commands.executeCommand('codeNotes.nextStep'); await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('then step 5', () => tour().step === 5 && !tour().cp)
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('the last step: See also the journey that walks the same code', () => tour().step === 6 && /See also: \[Order and payment, step 3\]\(command:codeNotes\.openStepLink/.test(tour().card?.body ?? ''))
+  await shoot('tour-3-last-step')
+  assert.deepEqual(tour().story.overflow, [], 'nothing in the storyline is cut or sticks out')
+  ok('rows of the Check view and of the storyline go to their step and question; Next/Previous move between the questions after a step; the last step says "See also: Order and payment, step 3"')
+
+  // Opening the check again walks the tour where it was left; the grader is given the tour.
+  await vscode.commands.executeCommand('codeNotes.endJourney')
+  await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('Check my understanding walks the tour', () => tour().journey === 'check-feat-tour' && tour().step === 6 && tour().touring)
+  await vscode.commands.executeCommand('codeNotes.endJourney')
+  // The first check on feat/tour wrote .gitattributes and .ignore (not committed there; feat/limits has them).
+  for (const f of ['.gitattributes', '.ignore']) fs.rmSync(path.join(ws, f), { force: true })
+  git('checkout', '-q', 'feat/limits')
+  api.checkRefresh()
+  await until('feat/limits: no tour of feat/tour shown', () => chk().item === '$(pass) Understanding' && !(api.snapshot().tour.journey ?? '').startsWith('check-feat-tour'))
+  ok('Check my understanding walks the tour from where it was left; another branch: that tour is gone')
+
+  // 14. Finding journeys (journeyList.ts): "In this file" follows the editor; search reads step text.
   const tree = () => api.journeysTree() as string[]
   const j = JSON.parse(fs.readFileSync(path.join(ws, 'journeys/place-order.json'), 'utf8'))
   const stepFile = j.steps[0].file as string
@@ -416,7 +486,7 @@ export async function run(): Promise<void> {
   shot('journeys-sidebar')
   ok(`Journeys view: "In this file" follows the editor; the search finds "${word}" in a step's title`)
 
-  // 14. The view never showed an error or anything wider than itself.
+  // 15. The view never showed an error or anything wider than itself.
   const p = chk().panel
   assert.deepEqual(p.errors, []); assert.deepEqual(p.overflow, [])
   ok('Check view: no errors, nothing cut or sticking out')

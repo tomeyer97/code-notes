@@ -67,6 +67,12 @@ miss gets the explanation, which you may say back in one sentence (a right one c
 the next open question. You can also answer in the Check view: the selected question has a box there (Ctrl+Enter
 sends, Esc goes back to the code).
 
+Right after the questions, Claude writes a **tour of the change**: a short journey through the changed code and the code
+it depends on, in the order things happen, with each question placed after the step that shows its answer. The questions
+can be answered while it is written (about 3 minutes). **Walk the tour** in the Check view (or Check my understanding)
+opens it in the journey panel: Next walks the steps and stops at each open question, with its thread on the code. The
+Check view's rows say which step a question belongs to and go straight there. Walking it is optional.
+
 Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
 questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and
 pushes. When the grader finds a problem in the code itself, the thread offers **Suggest a fix**, **Add TODO** and **Flag for

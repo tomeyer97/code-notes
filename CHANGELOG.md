@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
+  (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
+  its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the
+  questions are rows of the storyline, Next stops at each open one and opens its thread, a pass walks on. Rows of the
+  Check view say their step and go there. The tour is stored in the check file (`journey`); a top-up adds steps for
+  the new part. The grader may point at a step; the merge request comment gets one line about the tour. A question,
+  and the tour's last step, may say "See also" a journey of the repository that walks the same code.
+
 ## 0.24.0
 
 - **Understanding check:** **Check my understanding** has Claude Code ask a few questions about your branch's change,

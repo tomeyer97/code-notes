@@ -112,6 +112,8 @@
   let toTop = false
   /** Steps asked about: n -> { id, state 'q'|'a', unread }. */
   let asked = {}
+  /** A check's tour: its questions, each after the step that shows its answer ({ id, n, step, text, state, cur }). */
+  let stops = []
   function tour(m) {
     // Never past the last step (the step you were on was removed).
     const N = J ? J.steps.length : 0
@@ -131,6 +133,7 @@
     problems = m.problems || []
     card = m.card && cur ? m.card : undefined
     asked = m.asked || {}
+    stops = m.stops || []
     prov = m.prov
     if (m.key) KEY = m.key
     if (m.list) list = m.list
@@ -228,13 +231,15 @@
       const li = el('li')
       // It leads: every row is plain; only the current one and a stale one (its number amber:) stand out. No
       // mark where you stopped (after End nothing looks half on; the list says n/N).
-      const b = el('button', ['st', s.n === cur ? 'cur' : '', markOf(s.n)].filter(Boolean).join(' '))
+      // At a question after this step: the question's row is the current one.
+      const here = s.n === cur && !stops.some((q) => q.cur)
+      const b = el('button', ['st', here ? 'cur' : '', markOf(s.n)].filter(Boolean).join(' '))
       b.dataset.n = s.n
       // Number and title only: no "later", no question marks (they are in the step card), no "stopped
       // here" (the quiet mark says it).
       b.append(el('span', 'n', String(s.n)), el('span', 't', s.title))
       if (markOf(s.n)) b.title = 'The code changed since this step was written'
-      if (s.n === cur) b.setAttribute('aria-current', 'step')
+      if (here) b.setAttribute('aria-current', 'step')
       b.onclick = () => goStep(s.n)
       li.append(b)
       // The animation's toggle, on the current row only and in words (a ▶ on every row read as "run the test");
@@ -248,8 +253,29 @@
       // A step with no code to open (file or code gone:) shows its card here, in place of the editor jump.
       if (s.n === cur && card) li.append(stepCard())
       ol.append(li)
+      for (const q of stops.filter((x) => x.step === s.n)) ol.append(stopRow(q))
     }
     return ol
+  }
+
+  /** A check's question as a row of the storyline, after the step that shows its answer: "? Why …", its state. */
+  const STOP_ICON = { todo: '?', ungraded: '…', pass: '✓', restated: '✓', retry: '↻', explained: '·' }
+  const STOP_WORD = { ungraded: 'checking', retry: 'try again', explained: 'explained' }
+  function stopRow(q) {
+    const li = el('li', 'cpl')
+    const b = el('button', ['cp', q.state, q.cur ? 'cur' : ''].filter(Boolean).join(' '))
+    b.dataset.q = q.id
+    const icon = el('span', 'n', STOP_ICON[q.state] || '?')
+    icon.setAttribute('aria-hidden', 'true')
+    const t = el('span', 't', q.text)
+    b.append(icon, t)
+    if (STOP_WORD[q.state]) b.append(el('span', 'w', STOP_WORD[q.state]))
+    b.title = `Question ${q.n}: ${q.text}`
+    b.setAttribute('aria-label', `Question ${q.n}${q.state === 'pass' || q.state === 'restated' ? ', answered' : ''}: ${q.text}`)
+    if (q.cur) b.setAttribute('aria-current', 'step')
+    b.onclick = () => { if (!tcard && !deleted) post({ type: 'checkpoint', id: q.id }) }
+    li.append(b)
+    return li
   }
 
   /** The step card in the panel: lead, More, refs, ‹ ›, Ask. Links are posted back by index. */
@@ -261,8 +287,10 @@
     if (card.lead) { const d = el('div', 'slead'); d.innerHTML = mdBlock(card.lead); c.append(d) }
     const nav = el('div', 'snav')
     if (cur > 1) { const b = el('button', 'link sprev', '‹ Previous'); b.onclick = () => goStep(cur - 1); nav.append(b) }
-    if (cur < J.steps.length) { const b = el('button', 'link snext', 'Next ›'); b.onclick = () => goStep(cur + 1); nav.append(b) }
-    else { const b = el('button', 'link send', 'Finish'); b.onclick = () => post({ type: 'finish' }); nav.append(b) }
+    // A check's tour: Next goes through the extension, which stops at the questions between the steps.
+    if (stops.length) { const b = el('button', 'link snext', cur < J.steps.length ? 'Next ›' : 'Finish'); b.onclick = () => post({ type: 'nextStop' }); nav.append(b) }
+    else if (cur < J.steps.length) { const b = el('button', 'link snext', 'Next ›'); b.onclick = () => goStep(cur + 1); nav.append(b) }
+    else if (!stops.length) { const b = el('button', 'link send', 'Finish'); b.onclick = () => post({ type: 'finish' }); nav.append(b) }
     // The step's questions live here only: a count, the unread colour for a new reply.
     if (asked[cur]) { const a = asked[cur], k = a.count || 1; const q = el('button', `link squestion${a.unread ? ' unread' : ''}`, `${k} question${k === 1 ? '' : 's'} ›`); q.onclick = () => post({ type: 'question', id: a.id }); nav.append(q) }
     // One Ask in a stale card: the banner's, which opens the request prefilled.
@@ -680,8 +708,19 @@
     if (keepY) window.scrollTo(0, keepY)
     savedScroll = 0
     follow()
+    reportStory()
     saveState()
     placeTutorial()
+  }
+
+  /** What the storyline shows (for tests): its rows, the questions between them, anything cut or wider than the panel. */
+  function reportStory() {
+    requestAnimationFrame(() => {
+      const W = document.documentElement.clientWidth
+      const overflow = [...app.querySelectorAll('.story .st, .story .cp, .story .t')].filter((e) => e.getBoundingClientRect().right > W + 1).map((e) => e.textContent.slice(0, 40))
+      if (document.documentElement.scrollWidth > W + 1) overflow.push('the page scrolls sideways')
+      post({ type: 'story', steps: app.querySelectorAll('.story .st').length, stops: [...app.querySelectorAll('.story .cp')].map((b) => b.dataset.q), cur: (app.querySelector('.story .cp.cur') || {}).dataset?.q, overflow, width: W })
+    })
   }
 
   /** The walk finished: one line and the summary (two sentences at most). */
@@ -699,12 +738,13 @@
   /** Once per step change: the current storyline row in view under the sticky header (the map follows on its own). */
   function follow() {
     if (tcard) return
-    const k = `${cur}`
+    const at = stops.find((q) => q.cur)
+    const k = `${cur}|${at ? at.id : ''}`
     if (!cur || k === scrolled) return
     scrolled = k
     const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--headH')) || 0
     const into = (r) => { if (r.top < top + 4 || r.bottom > window.innerHeight - 4) window.scrollBy(0, r.top < top + 4 || r.height > window.innerHeight - top ? r.top - top - 12 : r.bottom - window.innerHeight + 16) }
-    const row = app.querySelector('.story .st.cur')
+    const row = app.querySelector('.story .st.cur, .story .cp.cur')
     if (row) into(row.getBoundingClientRect())
   }
 

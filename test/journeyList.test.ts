@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ageOf, areaOf, buildList, matchScore } from '../src/journeyList'
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchScore, seeAlso } from '../src/journeyList'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { items, NOW } = require('../../test/journey-list/fixture.js')
 
@@ -92,4 +92,19 @@ test('Stale: a chip with its count; rows say which steps', () => {
   const s = buildList(items(), { area: 'stale', now: NOW })
   assert.equal(s.count, 3)
   assert.ok(Object.values(s.rows).filter((r) => r.stale).every((r) => r.staleSteps!.length === 2))
+})
+
+test('See also: the journey step on those lines first, then the journey with most steps in the file, then the nearest step', () => {
+  const it = (key: string, steps: [string, number, number][]): ListItem => ({ key, kind: 'journey', title: key, question: '', summary: '', files: steps.map((x) => x[0]), stepTitles: steps.map(() => ''), ranges: steps.map((x) => ({ start: x[1], end: x[2] })), steps: steps.length, stale: 0, isNew: false, resume: 0 })
+  const a = it('a', [['web/x.ts', 1, 5], ['api/orders.js', 10, 20], ['api/orders.js', 40, 50]])
+  const b = it('b', [['api/orders.js', 60, 70]])
+  const c = it('c', [['api/store.js', 1, 9]])
+  assert.deepEqual(seeAlso([a, b, c], ['api/orders.js'], { start: 62, end: 64 }), { key: 'b', step: 1 })
+  assert.deepEqual(seeAlso([a, b, c], ['api/orders.js'], { start: 44, end: 45 }), { key: 'a', step: 3 })
+  // No step on those lines: the journey with more steps in the file, at its nearest step.
+  assert.deepEqual(seeAlso([a, b, c], ['api/orders.js'], { start: 25, end: 26 }), { key: 'a', step: 2 })
+  // Several files (a tour's): the journey with most steps in them, at its first one there.
+  assert.deepEqual(seeAlso([a, b, c], ['api/store.js', 'web/x.ts', 'api/orders.js']), { key: 'a', step: 1 })
+  assert.equal(seeAlso([a, b, c], ['worker/w.js']), undefined)
+  assert.equal(seeAlso([{ ...a, kind: 'check' }], ['web/x.ts']), undefined, 'checks are never "see also"')
 })

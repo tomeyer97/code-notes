@@ -20,10 +20,14 @@ export interface Question {
   id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'
   anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
   attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean; links?: Link[]
+  /** The step of the check's tour after which its answer is visible. */
+  step?: number
   /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
   concern?: { text: string; flagged?: boolean; at?: string; by?: Who }
 }
-export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
+/** The check's tour: a journey of the change (the journey file format), its steps walked in the journey panel. */
+export interface Tour { title: string; steps: { id?: string; title: string; file: string; range: { start: number; end: number } }[]; [k: string]: unknown }
+export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[]; journey?: Tour }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
 export type Phase = 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
 export interface State { phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
@@ -51,7 +55,9 @@ export interface Cli {
   gitIdentity(repo: string): Who | undefined
   attemptHash(q: Question, a: Attempt): string
   gradeMode(q: Question): { attempt: number; explanation?: string }
-  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean }): string
+  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean; tour?: string }): string
+  /** The tour as numbered lines (the grader's context): "3. The API refuses a used code (api/discounts.ts:40-52)". */
+  tourText(c: Check): string
   parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string; links?: Link[] }
   diffText(repo: string, from: string, to?: string): string
   diffForGrader(diff: string, file: string): string
@@ -83,13 +89,29 @@ export function checkPrompt(o: { skill: string; branch: string; baseRef: string;
   ].join('\n\n')
 }
 
-/** What Claude is doing while it writes the questions, in plain words, from its last tool call. */
+/**
+ * The prompt that writes the check's tour (a journey of the change, embedded in the check file), right after the
+ * questions: `resumed` when it goes on in the session that wrote them (the change is read already).
+ */
+export function tourPrompt(o: { skill: string; journeySkill: string; topUp: boolean; bundled: boolean; resumed: boolean }): string {
+  const how = o.bundled || !o.resumed ? `Follow the section "The tour" of ${o.skill}/SKILL.md` : 'Follow the section "The tour" of the understanding-check skill'
+  return [
+    `${o.resumed ? 'Now write' : 'Write'} the tour of this change, so the author can click their way to each answer. ${how}.`,
+    `Start with: ${o.skill}/scripts/questions.mjs tour${o.topUp ? ' --top-up' : ''}`,
+    `Run the scripts by their full path (${o.skill}/scripts/… and ${o.journeySkill}/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.`,
+    'When done, reply with the step titles, one per line.',
+  ].join('\n\n')
+}
+
+/** What Claude is doing while it writes the questions (or the tour), in plain words, from its last tool call. */
 export function checkPhase(tool: ToolCall | undefined, prev: string): string {
   if (!tool) return prev
-  if (tool.name !== 'Bash') return ['Read', 'Grep', 'Glob'].includes(tool.name) && prev !== 'writing questions' ? 'reading the code' : prev
-  const m = /questions\.mjs\s+([a-z-]+)/.exec(String(tool.input?.command ?? ''))
+  if (tool.name !== 'Bash') return ['Read', 'Grep', 'Glob'].includes(tool.name) && prev !== 'writing questions' && prev !== 'writing the tour' ? 'reading the code' : prev
+  const cmd = String(tool.input?.command ?? '')
+  if (/journey\.py/.test(cmd)) return 'writing the tour'
+  const m = /questions\.mjs\s+([a-z-]+)/.exec(cmd)
   if (!m) return prev
-  return m[1] === 'start' ? 'reading the change' : m[1] === 'add' || m[1] === 'remove' ? 'writing questions' : m[1] === 'finish' ? 'checking' : prev
+  return m[1] === 'start' ? 'reading the change' : m[1] === 'add' || m[1] === 'remove' ? 'writing questions' : m[1] === 'finish' || m[1] === 'tour-finish' ? 'checking' : m[1] === 'tour' ? 'writing the tour' : prev
 }
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
@@ -140,7 +162,7 @@ export const SUSPECT = 'May be a bug.'
 /** Its words in files written before (kept as a concern's text when flagged). */
 const SUSPECTS = [SUSPECT, 'May be a bug: fix it or explain.']
 
-export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; also: string[]; state: QState; word: string; flag?: string }
+export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; also: string[]; state: QState; word: string; flag?: string; step?: number }
 export interface CheckView {
   branch: string; file: string
   tone: Words['tone']; title: string; line: string
@@ -158,6 +180,8 @@ export interface CheckView {
   also?: { file: string; label: string; on: boolean }[]
   /** The answer box: only for the selected question (checkAnswer.ts / media/checkAnswer.js). */
   answer?: AnswerBox
+  /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
+  tour?: { label: string; action?: 'walk' | 'write' }
 }
 
 /** Words of a grade, with the code-link phrases marked (`link`: its index in the grade's links). */
@@ -214,14 +238,14 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
     const state: QState = grading ? 'ungraded' : s?.states[i] ?? 'todo'
     const c = concernOf(q)
     return { id: q.id, n: i + 1, kind: KIND_LABEL[q.kind] ?? q.kind, text: q.text, where: where(q), also: (q.also ?? []).map(range), state, word: grading ? 'checking…' : STATE_WORD[state],
-      ...(c ? { flag: c.suspect ? 'may be a bug' : c.flagged ? 'flagged for review' : 'concern' } : {}) }
+      ...(c ? { flag: c.suspect ? 'may be a bug' : c.flagged ? 'flagged for review' : 'concern' } : {}), ...(q.step && st.check?.journey ? { step: q.step } : {}) }
   })
   const p = st.state.phase
   let line = w.line
@@ -245,11 +269,15 @@ export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Se
   const si = o.selected ? qs.findIndex((x) => x.id === o.selected) : -1
   const open = (k: number) => ['todo', 'retry', 'ungraded'].includes(rows[k]?.state)
   const answer = si >= 0 ? answerBox(qs[si], si + 1, s?.states[si] ?? 'todo', { draft: o.draft, grading: !!o.grading?.has(qs[si].id), others: rows.some((_r, k) => k !== si && open(k)) }) : undefined
+  // The tour: walk it; an older check (or a run that failed) offers to write one. Nothing while one is being written.
+  const steps = st.check?.journey?.steps?.length ?? 0
+  const tour: CheckView['tour'] = !st.check || o.busy ? undefined : o.tourBusy ? { label: o.tourBusy } : steps ? { label: `Walk the tour · ${steps} steps`, action: 'walk' }
+    : p === 'answering' || p === 'short' || p === 'done' ? { label: o.tourFailed ? "Couldn't write the tour · Try again" : 'Write a tour', action: 'write' } : undefined
   const by = st.check?.answeredBy
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
-    ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
+    ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
     ...(answer ? { answer } : {}),
   }
