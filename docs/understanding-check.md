@@ -52,8 +52,10 @@ will find a way around it, so every design choice below favours little friction.
 4. Each reply is graded on submit: ✓ "Right." with at most one new fact, or "Not quite" (what is right, what to
    re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
    (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
-   (click: the lines light up; "← Back to question"). It may raise a `concern` about the code itself: Fix now (a
-   note of its own, asked to Claude), Add TODO, Flag for reviewer. After a grade the editor stays on the question and the
+   (click: the lines light up, nothing is selected and the keyboard stays in the thread; "← Back to question"). It may
+   raise a `concern` about the code itself: **Suggest a fix** (a note on the code the concern names, asked to Claude for
+   the smallest change: one sentence and a suggestion block with Apply; Undo takes it back), **Add TODO** (one line of
+   at most 80 characters; the thread says where it went), **Flag for reviewer** (independent of the TODO). After a grade the editor stays on the question and the
    reply box is empty; **Next question ›** under the grade (or Ctrl+' D) moves on.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.

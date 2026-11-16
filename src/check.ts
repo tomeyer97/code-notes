@@ -695,14 +695,15 @@ export class Understanding implements vscode.Disposable {
   /** The question behind a check thread (for Ask Claude about it). */
   questionOf(n: Note): Question | undefined { const l = linkOf(n); return l ? this.st?.check?.questions.find((x) => x.id === l.q) : undefined }
 
-  /** What to do about a concern: Fix now (Ask Claude, a new note), Add TODO (a comment above the lines), Flag for review. */
+  /** What to do about a concern: Suggest a fix (a new note, asked to Claude), Add TODO (a comment above the lines), Flag for review. */
   async concern(n: Note, action: 'fix' | 'todo' | 'flag'): Promise<void> {
     const q = this.questionOf(n)
     const c = q && concernOf(q)
     if (!q || !c || !this.repo) return
-    const start = n.data.range.start, end = n.data.range.end
     if (action === 'fix') {
-      await this.host.askAbout(n.data.file, start, end, c.suspect ? `Is this a bug? ${q.text} If it is, fix it.` : `Fix this: ${c.text}`, { checkFix: q.id })
+      // A note on the code the concern names, asked to Claude for a short fix that Apply puts in.
+      const at = await this.concernAt(q, n)
+      await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id })
       return
     }
     if (action === 'todo') {

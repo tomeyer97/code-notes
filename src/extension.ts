@@ -522,9 +522,17 @@ function skillAccess(): { tools: string[]; dirs: string[]; hint: string } {
   }
 }
 
-/** A question asked about the code of an understanding-check question: explain the code, never write that answer. */
+/**
+ * A question asked about the code of an understanding-check question: explain the code, never write that answer.
+ * "Suggest a fix" on a concern: the smallest change, as one suggestion block (Apply puts it in; Undo takes it back).
+ */
 function checkHint(n: Note): string {
-  const q = (n.data.extra as { checkAsk?: string } | undefined)?.checkAsk
+  const x = n.data.extra as { checkAsk?: string; checkFix?: string } | undefined
+  if (x?.checkFix && !n.data.target && !n.data.messages.some((m) => m.author === 'Claude')) {
+    const { start, end } = n.data.range
+    return `\n\nSuggest the smallest change that fixes it. Reply with one sentence, then one \`\`\`suggestion block holding the new text of lines ${start}-${end} (the lines of this note: the block replaces exactly those lines, so repeat the ones that stay as they are). Nothing more: no headings, no lists, no other code blocks, no tests. If the fix is not in these lines, say in one sentence where it is instead, without a block.`
+  }
+  const q = x?.checkAsk
   return q ? `\n\nThe person is answering an understanding check about this code. Its question: "${q}". Explain the code they ask about; never write, or hint at, the answer to that check question: they answer it themselves.` : ''
 }
 
@@ -748,7 +756,7 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
   if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
   if (chk?.concern) {
     const c = chk.concern
-    const acts = [cmdLink('Fix now', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
+    const acts = [cmdLink('Suggest a fix', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
     out.push({ body: systemMarkdown(`⚠ ${c.text}\n\n${acts.join(' · ')}`), mode: vscode.CommentMode.Preview, author: { name: c.suspect ? 'Understanding check' : 'Found while grading' }, contextValue: 'system' })
   }
   if (chk?.error) out.push({ body: systemMarkdown(`⚠ Couldn't check this answer: ${chk.error}\n\n${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })

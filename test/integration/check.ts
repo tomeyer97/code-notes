@@ -245,6 +245,25 @@ export async function run(): Promise<void> {
   assert.ok((api.snapshot().tree() as string[]).some((l) => l.includes('What does counts hold?')), 'a note asked from a question is listed')
   ok('Ask Claude on a check question: a separate note on the same lines, the check thread unchanged')
 
+  // 8b. Suggest a fix on a concern: a note asked to Claude; its reply is one sentence and a suggestion with Apply; Undo works.
+  const lim0 = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
+  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'fix')
+  const fixNote = await until('a fix note', () => (api.snapshot().notes as any[]).find((n) => n.extra?.checkFix === 'q3'))
+  assert.match(fixNote.messages[0].body, /^Suggest a fix: api\/limits\.js:2 keeps counts in memory/)
+  const reply = await until('Claude suggests', () => (api.snapshot().notes as any[]).find((n) => n.id === fixNote.id)?.messages.find((m: any) => m.author === 'Claude'))
+  assert.match(reply.body, /^Keep the counts somewhere that survives a restart\.\n\n```suggestion\n/)
+  const applyLink = await until('an Apply link', () => (api.thread(fixNote.id)?.comments as vscode.Comment[] | undefined)?.find((c) => /\[Apply suggestion\]\(command:codeNotes\.applySuggestion/.test((c.body as vscode.MarkdownString).value)))
+  await shoot('check-6-suggest-fix')
+  const args = JSON.parse(decodeURIComponent(/command:codeNotes\.applySuggestion\?([^ )]+)/.exec((applyLink.body as vscode.MarkdownString).value)![1]))
+  await vscode.commands.executeCommand('codeNotes.applySuggestion', ...args)
+  const limDoc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(ws, 'api/limits.js'))!
+  await until('applied', () => limDoc.getText().startsWith('// FIXED: counts survive a restart\n'))
+  await vscode.window.showTextDocument(limDoc)
+  await vscode.commands.executeCommand('undo')
+  await until('undone', () => limDoc.getText() === lim0)
+  if (limDoc.isDirty) await limDoc.save()
+  ok('Suggest a fix: a note asked to Claude; one sentence and a suggestion; Apply puts it in, Undo takes it back')
+
   // 9. Drift: 45 new lines (uncommitted) → amber "Needs top-up" before any push.
   const lim = path.join(ws, 'api/limits.js')
   const saved = fs.readFileSync(lim, 'utf8')

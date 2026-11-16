@@ -68,7 +68,7 @@ the next open question.
 
 Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
 questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and
-pushes. When the grader finds a problem in the code itself, the thread offers **Fix now**, **Add TODO** and **Flag for
+pushes. When the grader finds a problem in the code itself, the thread offers **Suggest a fix**, **Add TODO** and **Flag for
 reviewer** (flagged ones go on the merge request). When you push a branch that has no check yet, its questions are written in the background
 (the status bar says "3 questions ready"; setting `codeNotes.understanding.background`).
 

@@ -25,6 +25,14 @@ if (start) {
   say({ type: 'result', result: 'q1 failure\nq2 why\nq3 edge', session_id: 'write-1', is_error: false })
   process.exit(0)
 }
+// "Suggest a fix" on a concern: one sentence and a suggestion block for the note's lines (a comment added on top).
+const fix = /Suggest a fix:/.test(prompt) && /suggestion block holding the new text of lines/.test(prompt) && /left a note on [^\n]*:\n\n```\n([\s\S]*?)\n```/.exec(prompt)
+if (fix) {
+  const text = `Keep the counts somewhere that survives a restart.\n\n\`\`\`suggestion\n// FIXED: counts survive a restart\n${fix[1]}\n\`\`\``
+  process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\n')
+  process.stdout.write(JSON.stringify({ type: 'result', result: text, session_id: 'fix-1', is_error: false }) + '\n')
+  process.exit(0)
+}
 const answer = (/<answer>\n([\s\S]*?)\n<\/answer>/.exec(prompt) || [])[1] || ''
 const attempt = Number((/\(attempt (\d+)\)/.exec(prompt) || [])[1] || 1)
 // A restatement after an explanation: "restated" when it says GOOD.
