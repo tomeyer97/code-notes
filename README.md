@@ -90,14 +90,14 @@ make you look, not to police.
   about the new part only. Merging the target branch in doesn't count.
 - **Skip it:** label the merge request `skip-understanding`. Any approval by someone other than the author waives the
   check (re-run the job after the approval; on GitHub the review re-runs it).
-- **Settings** for a repository: `understanding/config.json`, e.g.
+- **Settings** for a repository (a merge request is judged by its target branch's): `understanding/config.json`, e.g.
   `{ "exempt": ["docs/**", "*.md", "package-lock.json"], "passRatio": 0.6, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
 
 Only the final answer to each question is kept in the file; earlier tries keep their verdict, not their text.
 
 To keep the files out of diffs and search, run `node cli/understanding.mjs init` once and commit the result (or use
 **Set up** in the Check view, which commits just those two files). It adds `understanding/*.json gitlab-generated linguist-generated` to `.gitattributes` (collapsed in GitLab and
-GitHub diffs) and `understanding/` to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
+GitHub diffs; `understanding/config.json` stays visible) and `understanding/` to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
 
 The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
 `grade` (local; Claude Code or `ANTHROPIC_API_KEY`), `init` and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).

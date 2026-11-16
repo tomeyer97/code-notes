@@ -135,7 +135,7 @@ export async function run(): Promise<void> {
   await until('the setup committed', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup)
   assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
   assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
-  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\n')
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
   assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
   ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
   if (cdp) {

@@ -50,6 +50,13 @@ const answerAll = (file, answers) => {
   U.writeCheck(file, c)
 }
 const commitAll = (d, msg = 'check') => { gitIn(d, 'add', '-A'); gitIn(d, 'commit', '-qm', msg) }
+/** The check's settings committed on main and merged into the branch: CI judges a merge request by its target's settings. */
+const configOnMain = (d, text) => {
+  const b = gitIn(d, 'rev-parse', '--abbrev-ref', 'HEAD').trim()
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.mkdirSync(path.join(d, 'understanding'), { recursive: true }); fs.writeFileSync(path.join(d, 'understanding/config.json'), text); commitAll(d, 'settings')
+  gitIn(d, 'checkout', '-q', b); gitIn(d, 'merge', '-q', '--no-edit', 'main')
+}
 
 test('slugs, counted paths, thresholds', () => {
   assert.equal(U.slugOf('feat/Discount codes!'), 'feat-discount-codes')
@@ -244,8 +251,8 @@ test('ci: unanswered, below the threshold, damaged hashes, drift, an invalid fil
   // Comments and blank lines never count as drift; exempt files neither; code does.
   fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 50 }, (_, i) => `// note ${i}: audited monthly\n`).join('') + '/*\n block\n*/\n\n')
   fs.writeFileSync(path.join(d, 'NOTES.md'), Array.from({ length: 80 }, () => 'x').join('\n'))
-  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "exempt": ["*.md"] }\n')
   commitAll(d)
+  configOnMain(d, '{ "exempt": ["*.md"] }\n')
   r = await ci(d, gitlabEnv(d))
   assert.equal(r.code, 0, r.lines.join('\n')); assert.doesNotMatch(r.lines[0], /since the check/)
   fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
@@ -654,9 +661,15 @@ test('a comment-only change: nothing to check, nothing to ask; exempt files only
   const e = smallRepo(['# Guide', '', 'Some words.'], 'docs/guide.md')
   r = await ci(e, gitlabEnv(e))
   assert.equal(r.code, 1, 'docs count unless the config exempts them')
+  // The branch's own settings don't apply to it: judged by main's.
   fs.mkdirSync(path.join(e, 'understanding'))
   fs.writeFileSync(path.join(e, 'understanding/config.json'), '{ "exempt": ["docs/**", "*.md", "package-lock.json"] }\n')
   commitAll(e, 'config')
+  r = await ci(e, gitlabEnv(e))
+  assert.equal(r.code, 1)
+  assert.match(r.lines[1], /^  This merge request changes the understanding check's settings: exempt \[\] → \["docs\/\*\*","\*\.md","package-lock\.json"\]\. It applies once merged\.$/)
+  gitIn(e, 'reset', '-q', '--hard', 'HEAD~1')
+  configOnMain(e, '{ "exempt": ["docs/**", "*.md", "package-lock.json"] }\n')
   r = await ci(e, gitlabEnv(e))
   assert.equal(r.code, 0); assert.equal(r.lines[0], '✓ No check needed: only exempt files changed (docs/guide.md).')
   assert.deepEqual([U.localStatus(e).state.phase, U.localStatus(e).state.exemptOnly], ['nothing', true])
@@ -811,9 +824,10 @@ test('init: .gitattributes and .ignore, idempotent, never duplicated, existing l
   const d = repo()
   fs.writeFileSync(path.join(d, '.gitattributes'), '*.png binary')
   let r = await run(d, ['init'])
-  assert.equal(r.out.split('\n')[0], 'Added: .gitattributes: understanding/*.json gitlab-generated linguist-generated; .ignore: understanding/.')
+  assert.equal(r.out.split('\n')[0], 'Added: .gitattributes: understanding/*.json gitlab-generated linguist-generated; .gitattributes: understanding/config.json -gitlab-generated -linguist-generated; .ignore: understanding/.')
   assert.match(r.out, /CI recipe: https:\/\/github\.com\/.*#in-ci/)
-  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\n')
+  // The settings file is not collapsed: a change to them stays in sight.
+  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
   assert.equal(fs.readFileSync(path.join(d, '.ignore'), 'utf8'), 'understanding/\n')
   r = await run(d, ['init'])
   assert.equal(r.out.split('\n')[0], 'Already set up.')
@@ -822,8 +836,8 @@ test('init: .gitattributes and .ignore, idempotent, never duplicated, existing l
   assert.equal(fs.readFileSync(path.join(d, '.ignore'), 'utf8'), 'dist/\n  understanding/  \n')
   // The line an earlier version wrote (GitLab ignores linguist-generated): replaced in place.
   fs.writeFileSync(path.join(d, '.gitattributes'), '*.png binary\nunderstanding/*.json linguist-generated=true\n*.pdf binary\n')
-  assert.deepEqual(U.initRepo(d), ['.gitattributes: understanding/*.json gitlab-generated linguist-generated'])
-  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\n*.pdf binary\n')
+  assert.deepEqual(U.initRepo(d), ['.gitattributes: understanding/*.json gitlab-generated linguist-generated', '.gitattributes: understanding/config.json -gitlab-generated -linguist-generated'])
+  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\n*.pdf binary\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
   // From a subfolder: the repository's root.
   fs.rmSync(path.join(d, '.ignore'))
   assert.equal((await U.main(['init'], { cwd: path.join(d, 'src'), print: () => {} })), 0)
@@ -1044,14 +1058,20 @@ test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a 
   // Required: no file → 1.
   let r = await ci(d, gitlabEnv(d))
   assert.deepEqual([r.code, r.mode], [1, 'required']); assert.match(r.lines[0], /^✗ No understanding check yet/)
-  // Advisory from the config: 3, the same message, the comment with one muted line.
+  // A merge request that switches its own check to advisory is judged by the target's settings: the change is the headline.
   fs.mkdirSync(path.join(d, 'understanding'))
   fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "mode": "advisory" }\n')
   commitAll(d, 'advisory')
   r = await ci(d, gitlabEnv(d))
+  assert.deepEqual([r.code, r.mode], [1, 'required'])
+  assert.match(r.comment, /^<!-- understanding-check -->\n\*\*⚠ This merge request changes the understanding check's settings: mode required → advisory\*\* \(from the merge on; this merge request follows the current settings\)\n\n\*\*Understanding check: not done yet\.\*\*/)
+  assert.doesNotMatch(r.comment, /Advisory: this check/)
+  // Advisory on the target branch: 3, the same message, the comment with one muted line, no skip instructions.
+  gitIn(d, 'reset', '-q', '--hard', 'HEAD~1')
+  configOnMain(d, '{ "mode": "advisory" }\n')
+  r = await ci(d, gitlabEnv(d))
   assert.deepEqual([r.code, r.mode], [3, 'advisory']); assert.match(r.lines[0], /^⚠ Advisory: No understanding check yet: a few questions/)
-  // Advisory first; no skip instructions (nothing to skip); the settings change is called out.
-  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: mode required → advisory\.\n\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, about 2 min\)/)
+  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\n\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, about 2 min\)/)
   assert.doesNotMatch(r.comment + r.lines.join('\n'), /skip-understanding/)
   // The env var wins over the file.
   r = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_MODE: 'required' })
@@ -1240,7 +1260,7 @@ test('setup: never written by itself; setupMissing names what is missing; ci giv
   const d = repo()
   const f = writeQuestions(d)
   assert.ok(!fs.existsSync(path.join(d, '.gitattributes')) && !fs.existsSync(path.join(d, '.ignore')), 'the skill writes no setup files')
-  assert.deepEqual(U.setupMissing(d), ['.gitattributes: understanding/*.json gitlab-generated linguist-generated', '.ignore: understanding/'])
+  assert.deepEqual(U.setupMissing(d), ['.gitattributes: understanding/*.json gitlab-generated linguist-generated', '.gitattributes: understanding/config.json -gitlab-generated -linguist-generated', '.ignore: understanding/'])
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
   commitAll(d)
   let r = await ci(d, {})
@@ -1414,8 +1434,12 @@ test('an MR that only changes the check\'s settings: no check needed, and the co
   fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "mode": "advisory", "maxDrift": 60 }\n'); commitAll(d, 'advisory')
   const r = await ci(d, { CI_MERGE_REQUEST_DIFF_BASE_SHA: gitIn(d, 'rev-parse', 'main').trim() })
   assert.equal(r.code, 0)
+  // Never "only comments or blank lines": the settings are what changed. Judged by main's settings (required).
+  assert.equal(r.lines[0], "✓ No check needed: only the check's settings changed.")
   assert.match(r.lines[1], /This merge request changes the understanding check's settings: (mode required → advisory, maxDrift 40 → 60|maxDrift 40 → 60, mode required → advisory)\./)
-  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: /)
+  assert.equal(r.mode, 'required')
+  assert.match(r.comment, /^<!-- understanding-check -->\n\*\*⚠ This merge request changes the understanding check's settings: /)
+  assert.doesNotMatch(r.comment, /Advisory/)
 })
 
 test('the grader is told the other open questions and never to answer them', () => {
@@ -1572,4 +1596,15 @@ test('GitLab: a thread whose line is outside the diff goes on the nearest change
     assert.equal(discussions.filter((x) => /understanding-concern:(discuss-)?q2/.test(x.notes[0].body)).length, 1)
     assert.match(discussions[0].notes[0].body, /^<!-- understanding-concern:discuss-q2 -->\n💬 \*\*Worth discussing\*\* \(understanding check\): steps one by one/)
   } finally { api.close() }
+})
+
+test('a key of the settings that is not a setting is said in the log (ignored), never silently believed', async () => {
+  const d = repo()
+  configOnMain(d, '{ "minChangedLines": 20, "passRatio": 0.6 }\n')
+  assert.deepEqual(U.unknownSettings(d), ['minChangedLines'])
+  const r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 1)
+  assert.equal(r.lines.at(-1), '  understanding/config.json: "minChangedLines" is not a setting (ignored).')
+  const st = await run(d, ['status'])
+  assert.match(st.out, /understanding\/config\.json: "minChangedLines" is not a setting \(ignored\)\./)
 })

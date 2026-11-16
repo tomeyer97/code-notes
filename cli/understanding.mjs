@@ -366,12 +366,25 @@ export function removalPoints(diff) {
 
 // ---------- config and the file ----------
 
-export function loadConfig(repo) {
+/**
+ * The check's settings: understanding/config.json in the working tree, or (`at`) as committed there (CI judges a merge
+ * request by its target branch's settings, never by the ones it brings). Missing or broken: the defaults.
+ */
+export function loadConfig(repo, { at } = {}) {
   let c = {}
-  try { c = JSON.parse(fs.readFileSync(path.join(repo, DIR, 'config.json'), 'utf8')) } catch { /* none: defaults */ }
+  try { c = JSON.parse(at ? git(repo, ['show', `${at}:${DIR}/config.json`]) : fs.readFileSync(path.join(repo, DIR, 'config.json'), 'utf8')) } catch { /* none: defaults */ }
+  if (!c || typeof c !== 'object' || Array.isArray(c)) c = {}
   const qs = typeof c.questions === 'number' ? { min: c.questions, max: c.questions } : c.questions ?? {}
   return { ...DEFAULTS, ...c, questions: { ...DEFAULTS.questions, ...qs }, exempt: Array.isArray(c.exempt) ? c.exempt.filter((g) => typeof g === 'string' && g) : [] }
 }
+
+/** Keys of understanding/config.json that are not settings (a typo, or one an older version had): ignored, and said. */
+export function unknownSettings(repo) {
+  let c
+  try { c = JSON.parse(fs.readFileSync(path.join(repo, DIR, 'config.json'), 'utf8')) } catch { return [] }
+  return c && typeof c === 'object' && !Array.isArray(c) ? Object.keys(c).filter((k) => !(k in DEFAULTS)) : []
+}
+const unknownLine = (keys) => `  ${DIR}/config.json: ${keys.map((k) => `"${k}"`).join(', ')} ${keys.length === 1 ? 'is not a setting' : 'are not settings'} (ignored).`
 
 export function readCheck(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -1376,13 +1389,15 @@ export const sizeWords = (n) => sizeText(n).replace('~', 'about ')
  * What this change does to the check's own settings (understanding/config.json at `base` vs `head`), as one sentence
  * for the merge request ("mode required → advisory"), or undefined.
  */
-export function settingsChange(repo, base, head) {
+export function settingsChange(repo, base, head, { plain = false } = {}) {
   const at = (c) => { try { return JSON.parse(git(repo, ['show', `${c}:${DIR}/config.json`])) } catch { return undefined } }
   const a = { ...DEFAULTS, ...(at(base) ?? {}) }, b = { ...DEFAULTS, ...(at(head) ?? {}) }
   const v = (x) => (x !== null && typeof x === 'object' ? JSON.stringify(x) : String(x))
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => v(a[k]) !== v(b[k]))
-  return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => inline(`${k} ${v(a[k])} → ${v(b[k])}`)).join(', ')}.` : undefined
+  return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => (plain ? (x) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`)).join(', ')}.` : undefined
 }
+/** The settings change as the comment's headline: it applies once merged; this merge request is judged by the target's. */
+const settingsHeadline = (line) => `**⚠ ${line.replace(/\.$/, '')}** (from the merge on; this merge request follows the current settings)`
 
 /** Why no check is needed: only exempt files changed, or no code lines (comments, blank lines). */
 export function noCheckLine(change) {
@@ -1403,8 +1418,8 @@ export function noCheckLine(change) {
  */
 export async function runCi(repo, opts = {}) {
   const env = opts.env ?? process.env
-  const mode = ciMode(loadConfig(repo), env)
-  const res = await ciJob(repo, { ...opts, env, advisory: mode === 'advisory' })
+  const res = await ciJob(repo, { ...opts, env })
+  const mode = res.mode ?? ciMode(loadConfig(repo), env)
   res.mode = mode
   if (mode !== 'advisory' || res.code !== 1) return res
   // Advisory: never blocks. GitLab shows exit 3 as "passed with warnings" (allow_failure: exit_codes: [3]); GitHub
@@ -1419,19 +1434,26 @@ export function ciMode(cfg = DEFAULTS, env = process.env) {
   return (env.UNDERSTANDING_MODE || cfg.mode) === 'advisory' ? 'advisory' : 'required'
 }
 
-async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, advisory = false } = {}) {
-  const cfg = loadConfig(repo)
+async function ciJob(repo, { env = process.env, comment = true, base: baseFlag } = {}) {
   const ctx = ciContext(env)
   const head = ctx.head || gitOk(repo, ['rev-parse', 'HEAD'])
   const branch = ctx.branch || currentBranch(repo, env)
   const rel = fileFor(branch)
   let base = baseFlag ?? ctx.base
   if (!base) { const ref = ctx.baseRef ?? defaultBase(repo); base = ref && head ? mergeBase(repo, ref, head) : undefined }
+  // The target branch's settings (its tip when the clone has it, else the merge base): a merge request that changes them
+  // (mode advisory, a bigger maxDrift, a new exempt glob) is still judged by the settings it would change.
+  const target = [ctx.baseRef, base].find((r) => r && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${r}^{commit}`]))
+  const cfg = target ? loadConfig(repo, { at: target }) : loadConfig(repo)
+  const mode = ciMode(cfg, env)
+  const advisory = mode === 'advisory'
+  const unknown = unknownSettings(repo)
+  const finish = (res) => Object.assign(res, { mode, lines: [...res.lines, ...(unknown.length ? [unknownLine(unknown)] : [])] })
   // Stacked on a branch whose check is committed here (or the same work under a new branch name): that code was checked.
   const stacked = base && hasCommit(repo, base) && head && hasCommit(repo, head) ? stackBase(repo, base, head, rel) : undefined
   if (stacked) base = stacked.base
   if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
-    return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
+    return finish({ code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] })
   }
   const change = codeStat(repo, base, head, cfg.exempt)
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
@@ -1441,19 +1463,19 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
   const settings = settingsChange(repo, base, head)
   const post = async (res, body) => {
     if (!comment || !cfg.mrComment || !body) return res
-    const top = [...(advisory ? ["Advisory: this check doesn't block merging."] : []), ...(settings ? [settings] : [])]
+    const top = [...(settings ? [settingsHeadline(settings)] : []), ...(advisory ? ["Advisory: this check doesn't block merging."] : [])]
     if (top.length) { const [m, ...rest] = body.split('\n'); body = [m, ...top, ...(rest.length ? [''] : []), ...rest].join('\n') }
     res.comment = body
     if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
     return res
   }
   if (!linesOf(change) && !change.renamed?.length) {
-    const line = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : noCheckLine(change)
+    const line = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : settings && !numstat(repo, base, head).some((f) => counted(f.file, cfg.exempt)) ? '✓ No check needed: only the check\'s settings changed.' : noCheckLine(change)
     // Only the settings changed: the comment says so (a policy change everyone should see), nothing else.
-    return settings ? post({ code: 0, lines: [line, `  ${settings}`] }, MARKER) : { code: 0, lines: [line] }
+    return finish(settings ? await post({ code: 0, lines: [line, `  ${settingsChange(repo, base, head, { plain: true })}`] }, MARKER) : { code: 0, lines: [line] })
   }
   let info = { labels: ctx.labels ?? [], author: ctx.author }
-  if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] } } }
+  if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return finish({ code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] }) } }
 
   // Skip: an approval by anyone but the author waives the check (good faith: no reason asked).
   let skip
@@ -1462,11 +1484,11 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
     if (!canApi) skip = { line: `✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === 'github' ? 'GITHUB_TOKEN' : 'GITLAB_TOKEN'}).` }
     else {
       let all = []
-      try { all = await approvers(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read approvals: ${e.message}`] } }
+      try { all = await approvers(ctx) } catch (e) { return finish({ code: 2, lines: [`! Understanding check: couldn't read approvals: ${e.message}`] }) }
       const others = all.filter((u) => u !== info.author)
       if (others.length) {
         const line = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(', ')})`
-        return post({ code: 0, lines: [line] }, `${MARKER}\n${line}`)
+        return finish(await post({ code: 0, lines: [line] }, `${MARKER}\n${line}`))
       }
       const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`
       const own = `Your own approval doesn't count: ask a reviewer to approve${rerun}.`
@@ -1483,13 +1505,14 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
     if (urls.size && res.remake) res.body = res.remake(urls)
   }
   const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
+  if (settings) done.lines.splice(1, 0, `  ${settingsChange(repo, base, head, { plain: true })} It applies once merged.`)
   done.lines.push(...synced)
   // The repository doesn't collapse check files in diffs yet: a tip in the log (never in the comment).
   if (res.check && setupMissing(repo).length) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     done.lines.push(`  tip: run "node ${me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
   }
-  return done
+  return finish(done)
 }
 
 // ---------- flagged concerns as diff threads ----------
@@ -1752,7 +1775,11 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
  * What `init` makes sure of: the check files collapsed in merge request diffs (GitLab reads `gitlab-generated`, GitHub
  * `linguist-generated`), and skipped by ripgrep, VS Code's search and similar.
  */
-export const INIT_LINES = { '.gitattributes': [`${DIR}/*.json gitlab-generated linguist-generated`], '.ignore': [`${DIR}/`] }
+export const INIT_LINES = {
+  // The settings stay in sight: a merge request that changes them shows the change.
+  '.gitattributes': [`${DIR}/*.json gitlab-generated linguist-generated`, `${DIR}/config.json -gitlab-generated -linguist-generated`],
+  '.ignore': [`${DIR}/`],
+}
 /** Lines an earlier `init` wrote, replaced by today's. */
 const OLD_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] }
 
@@ -1783,7 +1810,7 @@ export function initRepo(repo) {
     const missing = want.filter((l) => !have.has(l))
     if (!missing.length) continue
     const old = (OLD_LINES[name] ?? []).find((l) => have.has(l))
-    if (old && missing.length === 1) text = text.split(/(\r?\n)/).map((l) => (l.trim() === old ? missing.shift() : l)).join('')
+    if (old) text = text.split(/(\r?\n)/).map((l) => (l.trim() === old ? missing.shift() : l)).join('')
     if (missing.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`
     fs.writeFileSync(file, text)
     added.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`))
@@ -1834,6 +1861,8 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code lines changed`)
     if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
     if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
+    const unknown = unknownSettings(repo)
+    if (unknown.length) print(unknownLine(unknown))
     // A file that can't be read is an error for scripts and hooks too.
     return s.state.phase === 'invalid' ? 1 : 0
   }

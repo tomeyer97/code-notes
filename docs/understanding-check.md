@@ -200,7 +200,8 @@ also when a top-up is pending. Errors here never fail the job.
 
 - `.gitattributes`: `understanding/*.json gitlab-generated linguist-generated`. GitLab (`gitlab-generated`) and GitHub
   (`linguist-generated`) collapse the files in diffs. The line an earlier version wrote (`linguist-generated=true`
-  only, which GitLab ignores) is replaced.
+  only, which GitLab ignores) is replaced. And `understanding/config.json -gitlab-generated -linguist-generated`: the
+  settings are never collapsed, so a change to them stays in sight.
 - `.ignore`: `understanding/`. ripgrep and VS Code's search (`search.useIgnoreFiles`, on by default) skip the folder.
   `git grep` users can exclude it with `git grep … -- ':!understanding'`.
 
@@ -311,9 +312,13 @@ merge request comment and the CI log say "about 2 min" (GitLab would read "~2" a
 `questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
-**Settings changes are said.** A merge request that changes `understanding/config.json` gets a line at the top of the
-comment ("This merge request changes the understanding check's settings: mode required → advisory."), also when no code
-changed (then that line is the whole comment). After a self-approval the comment says "Your own approval doesn't count:
+**Settings are the target's.** CI reads `understanding/config.json` as the target branch has it (its tip when the clone
+has it, else the merge base), never as the merge request brings it: a feature branch that sets `"mode": "advisory"`, a
+bigger `maxDrift` or a new `exempt` glob is still judged by the settings it would change. Such a change is the
+comment's headline ("**⚠ This merge request changes the understanding check's settings: mode required → advisory**
+(from the merge on; this merge request follows the current settings)"), also when no code changed ("✓ No check
+needed: only the check's settings changed."; then the headline is the whole comment). A key that is not a setting (a
+typo, or one an older version had) is ignored, and `status` and the CI log say so. After a self-approval the comment says "Your own approval doesn't count:
 ask a reviewer to approve, then re-run this job." The size is honest: "3 questions, about 2 min" (by the question count).
 
 ## Skipping
