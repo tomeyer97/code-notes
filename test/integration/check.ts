@@ -114,10 +114,20 @@ export async function run(): Promise<void> {
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
-  // Quietly: .gitattributes and .ignore for check files; nothing in the workspace's settings.
-  await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json gitlab-generated linguist-generated\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
+  // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
+  // workspace's settings. The view offers the setup once, as a commit of its own.
+  assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
+  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
   await shoot('check-1-questions')
+  const headBefore = git('rev-parse', 'HEAD')
+  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
+  await until('the setup committed', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup)
+  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\n')
+  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
+  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
   if (cdp) {
     // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
     const probe = path.join(ws, 'api', 'search-probe.txt')
@@ -131,7 +141,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('codeNotes.check.focus')
     ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
   }
-  ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view; .gitattributes and .ignore set quietly')
+  ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view')
 
   const answer = async (q: string, text: string) => {
     const n = noteOf(q)
@@ -270,15 +280,15 @@ export async function run(): Promise<void> {
   await until('status bar done', () => chk().item === '$(pass) Understanding')
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
-  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json, .gitattributes, .ignore' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
+  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
   await shoot('check-3-done')
   api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore', 'understanding/feat-limits.json'])
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['understanding/feat-limits.json'])
   assert.deepEqual(git('status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? api/scratch.js', 'M api/limits.js'], 'the TODO and other work are left alone')
   fs.rmSync(path.join(ws, 'api', 'scratch.js')); git('checkout', '--', 'api/limits.js')
-  ok('done: "✓ Done", Commit & push names and commits exactly the check file, .gitattributes and .ignore (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
+  ok('done: "✓ Done", Commit & push names and commits exactly the check file (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
 
   // 7. The CLI agrees (no model): the committed file passes `ci`.
   const out = execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } })

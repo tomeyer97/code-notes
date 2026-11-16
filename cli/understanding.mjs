@@ -1253,6 +1253,11 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
   }
   const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
   done.lines.push(...synced)
+  // The repository doesn't collapse check files in diffs yet: a tip in the log (never in the comment).
+  if (res.check && setupMissing(repo).length) {
+    const me = path.relative(repo, fileURLToPath(import.meta.url))
+    done.lines.push(`  tip: run "node ${me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
+  }
   return done
 }
 
@@ -1455,6 +1460,18 @@ const OLD_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] 
  * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
  * version wrote is replaced in place. Returns what it added, as "file: line".
  */
+/** The `init` lines the repository doesn't have yet (in its working tree), as "file: line". */
+export function setupMissing(repo) {
+  const out = []
+  for (const [name, want] of Object.entries(INIT_LINES)) {
+    let text = ''
+    try { text = fs.readFileSync(path.join(repo, name), 'utf8') } catch { /* none */ }
+    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
+    out.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`))
+  }
+  return out
+}
+
 export function initRepo(repo) {
   const added = []
   for (const [name, want] of Object.entries(INIT_LINES)) {

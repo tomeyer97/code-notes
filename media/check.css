@@ -32,3 +32,6 @@ footer { margin-top: 8px; }
 .link:hover { text-decoration: underline; }
 .link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
+.setup { margin: 2px 0 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.setup .link { display: inline; }
+.setup .hide { color: var(--vscode-descriptionForeground); }

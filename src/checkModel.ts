@@ -72,6 +72,8 @@ export interface Cli {
   concernLink(q: Question): Link | undefined
   /** The check file, Code Notes' notes and the setup files: never part of the change, never "uncommitted work". */
   own(file: string): boolean
+  /** The .gitattributes and .ignore lines for check files the repository doesn't have yet. */
+  setupMissing(repo: string): string[]
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
   initRepo(repo: string): string[]
   codeLinksIn(repo: string, links: Link[]): Link[]
@@ -184,6 +186,8 @@ export interface CheckView {
   also?: { file: string; label: string; on: boolean }[]
   /** The answer box: only for the selected question (checkAnswer.ts / media/checkAnswer.js). */
   answer?: AnswerBox
+  /** The repository lacks the lines that collapse check files in diffs: a link that adds them in a commit of their own. */
+  setup?: string
   /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
   tour?: { label: string; action?: 'walk' | 'write' }
 }
@@ -242,7 +246,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -284,6 +288,8 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
     ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
     ...(answer ? { answer } : {}),
+    // Only with a check, and never while busy: the person decides; nothing is written to the repository by itself.
+    ...(o.setup && st.check && !o.busy ? { setup: 'Collapse check files in diffs:' } : {}),
   }
 }
 

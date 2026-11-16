@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
+// Out: { type: 'setup' | 'setupHide' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
 //      (and the answer box's: media/checkAnswer.js)
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
@@ -22,6 +22,13 @@
     if (V.line) h.append(el('p', 'line', V.line))
     if (V.who) h.append(el('p', 'who', V.who))
     if (V.notice) h.append(el('p', 'notice', V.notice))
+    // Once per repository, the person's choice: the lines that collapse check files in diffs, in a commit of their own.
+    if (V.setup) {
+      const p = el('p', 'setup'), b = el('button', 'link', 'Set up'), x = el('button', 'link hide', 'Hide')
+      b.onclick = () => post({ type: 'setup' }); x.onclick = () => post({ type: 'setupHide' }); x.title = "Don't show this again here"
+      b.title = 'Adds .gitattributes and .ignore lines in a commit of their own'
+      p.append(`${V.setup} `, b, ' · ', x); h.append(p)
+    }
     app.append(h)
     if (V.busy) app.append(el('p', 'busy', V.busy))
     // The tour of the change: one quiet link (walking it is optional; the rows go straight to a question).
@@ -88,7 +95,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .setup, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

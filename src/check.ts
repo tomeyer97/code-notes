@@ -81,6 +81,8 @@ const BG_KEY = 'codeNotes.understanding.backgroundHeads'
 const TODO_KEY = 'codeNotes.understanding.todoFiles'
 /** Unsent answers typed in the Check view's box: per check file, per question (this workspace only, never the file). */
 const DRAFT_KEY = 'codeNotes.understanding.drafts'
+/** Repositories where "Set up this repo" was hidden. */
+const SETUP_KEY = 'codeNotes.understanding.setupHidden'
 /** The parts of VS Code's git extension API used here. */
 interface GitRepo { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> } }
 interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
@@ -203,7 +205,8 @@ export class Understanding implements vscode.Disposable {
     return checkView(this.st, this.words, { busy, tourBusy, tourFailed: this.tourFailed === this.st.branch, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(),
       notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
       ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}),
-      ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}) })
+      ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}),
+      setup: !!this.repo && !this.setupHidden() && this.U.setupMissing(this.repo).length > 0 })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -319,7 +322,6 @@ export class Understanding implements vscode.Disposable {
       return false
     }
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
-    if (!topUp) await this.initRepo()
     // Then the tour, in the same session (the change is read already); the questions can be answered meanwhile. It
     // starts once question 1 is open (its thread has the keyboard before anything else is drawn).
     const tour = () => void this.writeTour(topUp, { session: res.sessionId, background: bg })
@@ -475,14 +477,24 @@ export class Understanding implements vscode.Disposable {
   }
 
   /**
-   * On the first check, quietly: the repository's lines for check files (.gitattributes collapses them in merge
-   * request diffs, .ignore keeps them out of search: VS Code's search reads it, search.useIgnoreFiles); committed with
-   * the check. Nothing in the workspace's settings.
+   * "Set up this repo": the repository's lines for check files (.gitattributes collapses them in merge request diffs,
+   * .ignore keeps them out of search) in a commit of their own, only those two files. Never written by itself: files a
+   * branch has untracked block a checkout of a branch where they are tracked.
    */
-  private async initRepo(): Promise<void> {
-    try { const added = this.U.initRepo(this.repo!); if (added.length) this.host.log.info(`understanding check: added ${added.join('; ')}`) } catch (e) { this.host.log.error(`understanding check: init: ${e}`) }
+  private async setupRepo(): Promise<void> {
+    const repo = this.repo
+    if (!repo) return
+    let added: string[] = []
+    try { added = this.U.initRepo(repo) } catch (e) { void vscode.window.showWarningMessage(`Code Notes: couldn't set up the repository: ${(e as Error).message}`); return }
+    const files = REPO_FILES.filter((f) => added.some((a) => a.startsWith(`${f}:`)))
+    if (files.length) {
+      const ok = await gitOut(repo, ['add', '--', ...files], true) !== undefined && await gitOut(repo, ['commit', '-q', '-m', 'Add understanding check setup', '--', ...files], true) !== undefined
+      this.host.log.info(`understanding check: setup ${ok ? 'committed' : 'written, not committed'}: ${added.join('; ')}`)
+      if (!ok) void vscode.window.showWarningMessage('Code Notes: added the setup lines; commit .gitattributes and .ignore yourself.')
+    }
     await this.refresh()
   }
+  private setupHidden(): boolean { return !!this.repo && (this.host.memento.get<string[]>(SETUP_KEY) ?? []).includes(this.repo) }
 
   show(): void { this.view.reveal() }
 
@@ -563,6 +575,8 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'draft' && m.id && typeof m.text === 'string') void this.setDraft(m.id, m.text)
     else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
     else if (m.type === 'next') void this.step(1)
+    else if (m.type === 'setup') void this.setupRepo()
+    else if (m.type === 'setupHide') void this.host.memento.update(SETUP_KEY, [...(this.host.memento.get<string[]>(SETUP_KEY) ?? []), this.repo!]).then(() => this.post())
     else if (m.type === 'escape') { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') }
     else if (m.type === 'include' && m.file) { if (m.on) this.include.add(m.file); else this.include.delete(m.file); this.post() }
     else if (m.type === 'start') void this.write(false)

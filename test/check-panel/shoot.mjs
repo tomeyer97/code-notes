@@ -13,7 +13,7 @@ if (OUT) fs.mkdirSync(OUT, { recursive: true })
 const long = 'What happens to an already-charged order\'s result when the API answers the report with a 4xx other than 409, such as 401 for a wrong WORKER_KEY, while replayUnreportedResultsFromTheLocalFile is still running?'
 const row = (id, n, kind, text, where, state, word, extra = {}) => ({ id, n, kind, text, where, also: [], state, word, ...extra })
 const views = {
-  answering: { branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', notice: 'Answers are kept out of search.', rows: [
+  answering: { branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', notice: 'Not asked about (uncommitted): README.md, allowlist.js', setup: 'Collapse check files in diffs:', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws or the worker dies halfway through the loop?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again', { also: ['worker/queue.js:84-96'] }),
     row('q3', 3, 'Edge case', long, 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js:32', 'todo', '', { flag: 'may be a bug' })] },

@@ -43,7 +43,9 @@ will find a way around it, so every design choice below favours little friction.
    The branch and commit are pinned when the writing starts
    (`start --branch <b> --head <sha>`): the script reads files at that commit and, when that branch is no longer checked
    out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
-   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. The first check also runs `init` (nothing goes in the workspace's settings).
+   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
+   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide"; Set up runs `init` and commits
+   only those two files ("Add understanding check setup"). CI's log has a one-line tip while they are missing.
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
@@ -69,7 +71,7 @@ will find a way around it, so every design choice below favours little friction.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
 5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push**, naming what it
-   commits: the check file, with `.gitattributes`/`.ignore` when `init` changed them (`-u` without an upstream). A file
+   commits: the check file, with `.gitattributes`/`.ignore` when someone ran `init` by hand (`-u` without an upstream). A file
    a TODO was added to from the check is offered with a tick box; the person's other changes are left alone.
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
