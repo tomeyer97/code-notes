@@ -73,6 +73,9 @@ if (tour) {
   const noTour = fs.existsSync(path.join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-no-tour'))
   if (process.env.FAKE_TOUR_FAIL || noTour) { say({ type: 'result', result: 'PROBLEM: gave up', session_id: 'tour-1', is_error: false }); process.exit(0) }
   if (process.env.FAKE_TOUR_SLOW) execFileSync('sleep', [process.env.FAKE_TOUR_SLOW])
+  // A test switches branches while the tour is being written: it leaves this file to say so.
+  const tourWait = path.join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-tour-wait')
+  if (fs.existsSync(tourWait)) { fs.writeFileSync(`${tourWait}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(tourWait) && Date.now() < until) execFileSync('sleep', ['0.1']) }
   j(['new', repo, 'tour', 'What happens when a customer orders too often?', 'Order limits'], 'The API counts each customer\'s orders per hour. The sixth order in an hour is refused.')
   j(['node', repo, 'tour', 'api', 'system', 'API', '--blurb', 'Takes orders and hands charge jobs to the worker'], 'The HTTP API.')
   j(['node', repo, 'tour', 'f_create', 'function', 'createOrder', 'api', 'api/orders.js:8-18'], 'Places an order.')

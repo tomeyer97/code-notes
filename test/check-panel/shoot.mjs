@@ -34,6 +34,16 @@ const views = {
     answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true,
       concern: { text: 'The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.', flagged: false } } },
   drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
+  // Done after an applied fix and a push of a branch without a merge request: said, the fix offered, the link.
+  doneFix: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'ok', title: '✓ Done', line: 'Your fix is not committed yet.', said: '.gitattributes and .ignore committed: they go with your push.', mr: 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fa-branch-with-a-rather-long-name',
+    rows: ['pass', 'pass', 'pass'].map((s, i) => row(`q${i + 1}`, i + 1, 'How', `Question ${i + 1}: how does the worker stop a second charge for the same job?`, 'api/orders.js:12', s, '', i === 2 ? { flag: 'fix applied · not committed' } : {})),
+    action: { id: 'commitPush', label: 'Commit & push' }, also: [{ file: 'services/api/src/refunds.js', label: 'refunds.js (your fix)', on: false }] },
+  // Claude Code not found: the ways on, in one line.
+  notFound: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], failed: { text: "Claude Code wasn't found.", path: true } },
+  // Grading failed: said under the box with Try again.
+  gradeError: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '0 of 2 done', line: 'Answer all 2 · 2 must pass.', rows: [
+    row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'ungraded', 'not graded'), row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'todo', '')],
+    answer: { id: 'q1', n: 1, open: true, draft: '', error: 'Claude is busy right now; your answer is saved.' } },
   conflict: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'The check file has a merge conflict', line: 'Both sides of the conflict can be kept.', rows: [], action: { id: 'merge', label: 'Keep both answers' } },
   none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
   // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
@@ -74,9 +84,11 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
     if ((await box.inputValue()) !== view.answer.draft) fails.push(`${tag}: the draft is not in the box`)
     if ((await box.getAttribute('placeholder')) !== 'Answer in 1–3 sentences') fails.push(`${tag}: placeholder`)
     await box.focus(); await page.keyboard.type(' it never charges twice.'); await page.keyboard.press('Control+Enter')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'answer' && m.id === 'q2' && /so it never charges twice\.$/.test(m.text))))) fails.push(`${tag}: Ctrl+Enter didn't send the answer`)
-    await page.click('.answer .codelink')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'link' && m.id === 'q2' && m.i === 0) && document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: the code link didn't post, or the box lost the keyboard`)
+    if (!(await page.evaluate((id) => window.__posted.some((m) => m.type === 'answer' && m.id === id && /it never charges twice\.$/.test(m.text)), view.answer.id))) fails.push(`${tag}: Ctrl+Enter didn't send the answer`)
+    if (view.answer.grade) {
+      await page.click('.answer .codelink')
+      if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'link' && m.id === 'q2' && m.i === 0) && document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: the code link didn't post, or the box lost the keyboard`)
+    }
     await page.keyboard.press('Escape')
     if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'escape')))) fails.push(`${tag}: Esc didn't go back to the code`)
     // Drawn again (a new grade arrives): the keyboard stays in the box.
@@ -105,7 +117,23 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
     if (!/^Failure · step 4 · orders\.js/.test(meta ?? '')) fails.push(`${tag}: q1's row says "${meta}" (want its step)`)
   }
   if (view.tour && !view.tour.action && !(await page.evaluate(() => !document.querySelector('button.tour') && /Writing the tour/.test(document.querySelector('.tour')?.textContent ?? '')))) fails.push(`${tag}: the tour being written is not one muted line`)
+  if (view.mr) {
+    await page.click('.mr button.link')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'openMr')))) fails.push(`${tag}: Open merge request didn't post`)
+  }
+  if (view.failed?.path) {
+    for (const [label, type] of [['Install ↗', 'install'], ['Set its path', 'pathSetting'], ['Retry', 'retry']]) {
+      await page.click(`.failed button.link:text-is("${label}")`)
+      if (!(await page.evaluate((t) => window.__posted.some((m) => m.type === t), type))) fails.push(`${tag}: ${label} didn't post`)
+    }
+  }
+  if (view.answer?.error) {
+    await page.click('.answer .failed button.link')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'regrade' && m.id === 'q1')))) fails.push(`${tag}: Try again didn't post`)
+  }
   if (view.action) {
+    // The one button sits right under where the check stands, above the questions (never out of sight below them).
+    if (view.rows.length && !(await page.evaluate(() => document.querySelector('footer').getBoundingClientRect().bottom <= document.querySelector('.rows').getBoundingClientRect().top + 1))) fails.push(`${tag}: the button is not above the questions`)
     await page.click('footer button.primary')
     if (!(await page.evaluate((id) => window.__posted.some((m) => m.type === id), view.action.id))) fails.push(`${tag}: ${view.action.label} didn't post`)
   }

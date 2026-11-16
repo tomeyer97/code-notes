@@ -1,5 +1,5 @@
 /* The Check view: VS Code's theme colours, nothing loud. */
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: transparent; margin: 0; padding: 4px 12px 10px 20px; }
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: transparent; margin: 0; padding: 2px 12px 6px 20px; }
 header { margin: 0 0 6px; }
 header p { margin: 0; overflow-wrap: anywhere; }
 .title { font-weight: 600; }
@@ -21,7 +21,7 @@ header p { margin: 0; overflow-wrap: anywhere; }
 .row.pass .text, .row.explained .text, .row.restated .text { color: var(--vscode-descriptionForeground); }
 .meta { font-size: 0.9em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .flag { font-size: 0.9em; color: var(--vscode-editorWarning-foreground, #cca700); }
-footer { margin-top: 8px; }
+footer { margin: 0 0 8px; }
 .commits { margin: 0 0 4px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .also { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; overflow-wrap: anywhere; }
 .also input { margin: 0; accent-color: var(--vscode-checkbox-background); }
@@ -34,8 +34,10 @@ footer { margin-top: 8px; }
 .tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
 .setup { margin: 2px 0 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .setup .link { display: inline; }
+.mr { margin: 2px 0 0; overflow-wrap: anywhere; }
 .setup .hide { color: var(--vscode-descriptionForeground); }
 .failed { margin: 2px 0 0; color: var(--vscode-editorWarning-foreground, #cca700); overflow-wrap: anywhere; }
 .failed .link { display: inline; }
+.failed .waive { color: var(--vscode-descriptionForeground); }
 .text code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
 .open-file { margin-left: 8px; }

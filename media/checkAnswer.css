@@ -1,6 +1,6 @@
 /* The Check view's answer box (media/checkAnswer.js): under the selected question, quiet until used. */
 .answer { margin: 2px 0 6px 26px; }
-.answer .box { box-sizing: border-box; width: 100%; resize: vertical; min-height: 3.6em; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 4px 6px; }
+.answer .box { box-sizing: border-box; width: 100%; resize: vertical; min-height: 2.6em; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 4px 6px; }
 .answer .box:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .answer .box::placeholder { color: var(--vscode-input-placeholderForeground); }
 .answer .grade p, .answer .checking { margin: 4px 0 0; overflow-wrap: anywhere; }
@@ -14,3 +14,6 @@
 .answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .answer .concern p:first-child { color: var(--vscode-editorWarning-foreground, #cca700); }
 .answer .concern .link { display: inline; background: none; border: 0; padding: 0; font: inherit; color: var(--vscode-textLink-foreground); cursor: pointer; }
+.answer .concern .applied { color: var(--vscode-descriptionForeground); }
+.answer .failed { margin: 4px 0 0; color: var(--vscode-editorWarning-foreground, #cca700); overflow-wrap: anywhere; }
+.answer .failed .link { display: inline; background: none; border: 0; padding: 0; font: inherit; color: var(--vscode-textLink-foreground); cursor: pointer; }

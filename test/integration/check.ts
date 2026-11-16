@@ -51,7 +51,7 @@ export async function run(): Promise<void> {
   const read = () => JSON.parse(fs.readFileSync(file, 'utf8'))
   const checkNotes = () => (api.snapshot().notes as any[]).filter((n) => n.session === 'Check · feat/limits')
   const noteOf = (q: string) => checkNotes().find((n) => n.extra?.check?.q === q)
-  dump = () => ({ check: chk(), files: fs.readdirSync(ws), u: fs.existsSync(path.join(ws, 'understanding')) && fs.readdirSync(path.join(ws, 'understanding')), notes: api.snapshot().notes.map((n: any) => [n.session, n.extra]) })
+  dump = () => ({ notes: api.snapshot().notes.map((n: any) => [n.session, n.extra]), u: fs.existsSync(path.join(ws, 'understanding')) && fs.readdirSync(path.join(ws, 'understanding')), files: fs.readdirSync(ws), check: chk() })
   const shot = (name: string) => { const d = process.env.CODE_NOTES_SHOTS; if (d) execFileSync('import', ['-window', 'root', path.join(d, `${name}.png`)]) }
 
   await vscode.workspace.getConfiguration('codeNotes').update('claude.path', path.join(__dirname, '../../../test/fixtures/fake-grader.js'), vscode.ConfigurationTarget.Workspace)
@@ -120,37 +120,42 @@ export async function run(): Promise<void> {
     assert.ok(!fs.readFileSync(file, 'utf8').includes('typed'))
     await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace')
     await until('the draft gone', () => view().answer?.draft === '')
+    // VS Code's own shortcuts still work from the box (Ctrl+G: go to line), and leave nothing in it.
+    await page.keyboard.press('Control+G')
+    await until('Go to Line opened from the box', () => page.locator('.quick-input-widget').isVisible())
+    await page.keyboard.press('Escape')
+    assert.equal(await (await checkFrame()).locator('.answer textarea').inputValue(), '', 'nothing typed into the box')
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass · ~2 min left.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
+  if (cdp) {
+    // At 1280×800 (no zoom), with no notes: the empty Code Notes view steps aside and all three questions and q1's
+    // answer box fit in the Check view without scrolling.
+    const page = await ui()
+    const cdps = await page.context().newCDPSession(page)
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
+    await cdps.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
+    await until('the empty Code Notes view steps aside', async () => !(await page.locator('.pane-header h3.title', { hasText: /^Code Notes$/ }).count()))
+    const fit = await until('the Check view laid out', async () => {
+      await sleep(300)
+      const fr = await checkFrame()
+      const m = await fr.evaluate(() => { const d = (globalThis as any).document, h = (globalThis as any).innerHeight; const rows = [...d.querySelectorAll('.row')]; return { h, scroll: d.documentElement.scrollHeight, rows: rows.length, cut: rows.map((r: any) => r.getBoundingClientRect().bottom).filter((b: number) => b > h + 1).length, box: !!d.querySelector('.answer textarea') } })
+      return m.rows === 3 && m.box && m
+    })
+    await shoot('check-1-fits')
+    assert.ok(fit.cut === 0 && fit.scroll <= fit.h + 1, `all questions visible without scrolling: ${JSON.stringify(fit)}`)
+    await cdps.send('Emulation.clearDeviceMetricsOverride')
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', -2, vscode.ConfigurationTarget.Global)
+    ok(`1280×800, no notes: the Code Notes view steps aside; the Check view shows all 3 questions and the answer box (${fit.scroll} of ${fit.h} px)`)
+  }
   assert.match(chk().itemLabel, /^Understanding check: 0 of 3 done\. Answer all 3/, 'read out as words, never an icon id')
   // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
   // workspace's settings. The view offers the setup once, as a commit of its own.
   assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
-  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
+  // While answering, the questions get the room: the setup is offered once done, beside Commit & push.
+  assert.equal(view().setup, undefined, 'no setup line while answering')
   await shoot('check-1-questions')
-  const headBefore = git('rev-parse', 'HEAD')
-  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
-  await until('the setup committed', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup)
-  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
-  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
-  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
-  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
-  if (cdp) {
-    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
-    const probe = path.join(ws, 'api', 'search-probe.txt')
-    fs.writeFileSync(probe, 'already expired\n')
-    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
-    const page = await ui()
-    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
-    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
-    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
-    fs.rmSync(probe)
-    await vscode.commands.executeCommand('codeNotes.check.focus')
-    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
-  }
   ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view')
 
   const answer = async (q: string, text: string) => {
@@ -203,6 +208,13 @@ export async function run(): Promise<void> {
     await until('the answer in the thread too', () => noteOf('q2').messages.some((m: any) => m.role === 'human' && m.body === 'Not sure.'))
   } else await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
+  if (cdp) {
+    // A grade that asks for more: the keyboard is back in the box by itself (no click), so what is typed next lands there.
+    await until('after the retry grade: the keyboard in q2\'s box', async () => (await boxFocused()) === 'q2' && view().answer?.grade && !view().answer.checking)
+    await (await ui()).keyboard.type('next try')
+    assert.equal(await (await checkFrame()).locator('.answer textarea').inputValue(), 'next try', 'typed after the grade: in the box')
+    await (await ui()).keyboard.press('Control+A'); await (await ui()).keyboard.press('Backspace')
+  }
   const e = vscode.window.visibleTextEditors.find((x) => x.document.uri.fsPath === path.join(ws, 'api/limits.js'))!
   assert.ok(e.selection.isEmpty, `nothing selected: ${JSON.stringify(e.selection)}`); assert.ok(inLines(9, 11), 'on the question')
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
@@ -257,14 +269,29 @@ export async function run(): Promise<void> {
     await until('Esc: the editor has the keyboard', async () => (await boxFocused()) === '' && (await (await ui()).evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.monaco-editor'))))
     ok('the Check view\'s answer box: the keyboard is there on open; Ctrl+Enter answers; its grade\'s code link lights the code and keeps the keyboard; drafts survive switching; Esc goes back to the code')
   }
-  await answer('q2', 'Still not sure.')
+  if (cdp) {
+    // Back in q2's box (from q3), then answered by keyboard; after "explained" the restatement is typed with no click.
+    await vscode.commands.executeCommand('codeNotes.next')
+    await until('on q3', () => view().answer?.id === 'q3')
+    await vscode.commands.executeCommand('codeNotes.previous')
+    await until('q2\'s box has the keyboard', async () => view().answer?.id === 'q2' && (await boxFocused()) === 'q2')
+    const page = await ui()
+    await page.keyboard.press('Control+A'); await page.keyboard.type('Still not sure.'); await page.keyboard.press('Control+Enter')
+  } else await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.
   assert.equal(read().questions[1].attempts[0].answer, undefined)
-  assert.equal(noteOf('q2').messages.filter((m: any) => m.role === 'human')[0].body, '_An earlier answer (not kept)._')
+  // Nor its "Not quite" under it (it would talk about an answer no longer there); the explanation stays.
+  await until('the first answer and its retry gone from the thread', () => !noteOf('q2').messages.some((m: any) => m.body === 'Not sure.' || /^Not quite/.test(m.body) || /not kept/.test(m.body)))
   assert.equal(chk().view.rows[1].word, 'explained · say it back')
-  await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
+  if (cdp) {
+    await until('after "explained": the keyboard in q2\'s box', async () => (await boxFocused()) === 'q2' && !view().answer?.checking)
+    const page = await ui()
+    await page.keyboard.type('GOOD: the counts are per customer, so splitting orders does not help.')
+    await page.keyboard.press('Control+Enter')
+  } else await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
   await until('q2 restated', () => lastBody('q2') === '✓ Right.')
+  assert.ok(noteOf('q2').messages.some((m: any) => /^It retries with backoff/.test(m.body)), 'the explanation stays after saying it back')
   assert.deepEqual(read().questions[1].attempts.map((a: any) => a.verdict), ['retry', 'explained', 'restated'])
   assert.equal(chk().view.rows[1].word, 'in your words')
   await shoot('check-2-restated')
@@ -280,8 +307,9 @@ export async function run(): Promise<void> {
   await until('flagged in the file', () => read().questions[2].concern?.flagged === true && chk().view.rows[2].flag === 'flagged for review')
   // Add TODO next to the flag: one short line in the code, said in the thread; the flag stays.
   await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'todo')
-  const todo = await until('a TODO in the code', () => fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').split('\n').find((l) => l.includes('TODO')))
-  assert.ok(todo.length <= 80, `a short TODO: ${todo}`)
+  const todo = await until('a TODO in the code', () => { const ls = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').split('\n'); const i = ls.findIndex((l) => l.includes('TODO')); return i >= 0 && ls.slice(i, i + 2) })
+  // The whole concern (wrapped, nothing cut), at the line's indentation.
+  assert.ok(todo.every((l) => l.length <= 100) && todo.map((l) => l.replace(/^\/\/( TODO:)?\s+/, '')).join(' ').includes('a restart lets everyone order again.'), `the whole concern: ${todo.join(' / ')}`)
   await until('said in the thread', () => (api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /TODO added at limits\.js:1\b/.test((c.body as vscode.MarkdownString).value)))
   assert.equal(read().questions[2].concern?.flagged, true, 'Add TODO keeps the flag')
   ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file; Add TODO keeps it and says where the TODO went')
@@ -289,13 +317,55 @@ export async function run(): Promise<void> {
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
   await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush' && chk().view.line === 'A new file: not committed yet.')
   await until('status bar done', () => chk().item === '$(pass) Understanding')
+  // The button is right under "✓ Done", on screen and clickable, whatever the questions below take.
+  const buttonShown = async (label: string) => (await checkFrame()).evaluate((l) => {
+    const d = (globalThis as any).document, b = d.querySelector('footer button.primary')
+    if (!b || b.textContent !== l) return false
+    const r = b.getBoundingClientRect()
+    return r.top >= 0 && r.bottom <= (globalThis as any).innerHeight && d.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === b
+  }, label)
+  if (cdp) await until('Commit & push on screen, clickable', () => buttonShown('Commit & push'))
+  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
+  const headBefore = git('rev-parse', 'HEAD')
+  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
+  await until('the setup committed, and said', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup && view().said === '.gitattributes and .ignore committed: they go with your push.')
+  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
+  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
+  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
+  if (cdp) {
+    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
+    const probe = path.join(ws, 'api', 'search-probe.txt')
+    fs.writeFileSync(probe, 'already expired\n')
+    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
+    const page = await ui()
+    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
+    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
+    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
+    fs.rmSync(probe)
+    await vscode.commands.executeCommand('codeNotes.check.focus')
+    await until('the Check view back', () => chk().panel.visible)
+    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
+  }
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
   await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
   await shoot('check-3-done')
   // The status item does what the button does (Commit & push), not a jump to question 1.
+  // The remote says how to open a merge request (as GitLab does for a branch without one).
+  const remoteDir = git('remote', 'get-url', 'origin')
+  fs.writeFileSync(path.join(remoteDir, 'hooks', 'pre-receive'), '#!/bin/sh\necho "To create a merge request for feat/limits, visit:"\necho "  https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Flimits"\n', { mode: 0o755 })
   void vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
+  // Said where the person looks: the status bar says what went; the item uses the view's word; the merge request link.
+  await until('the merge request link', () => chk().view?.mr === 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Flimits')
+  assert.match(chk().itemLabel, /Done\. Pushed\.$/)
+  if (cdp) {
+    await until('the status bar says it', async () => (await (await ui()).locator('.statusbar-item', { hasText: 'Committed feat-limits.json and pushed' }).count()) > 0)
+    assert.ok(await (await checkFrame()).locator('.mr button.link', { hasText: 'Open merge request' }).isVisible(), 'the link is shown')
+  }
+  fs.rmSync(path.join(remoteDir, 'hooks', 'pre-receive'))
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
   assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['understanding/feat-limits.json'])
   assert.deepEqual(git('status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? api/scratch.js', 'M api/limits.js'], 'the TODO and other work are left alone')
@@ -330,11 +400,16 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.applySuggestion', ...args)
   const limDoc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(ws, 'api/limits.js'))!
   await until('applied', () => limDoc.getText().startsWith('// FIXED: counts survive a restart\n'))
+  // The fix is said on its question and offered (ticked) with Commit & push, although the check file is pushed.
+  await until('the applied fix offered', () => view()?.action?.label === 'Commit & push' && view().line === 'Your fix is not committed yet.' && view().rows[2].flag === 'fix applied · not committed' && view().also?.some((x: any) => x.label === 'limits.js (your fix)' && x.on))
+  if (cdp) await until('Commit & push on screen with the fix', () => buttonShown('Commit & push'))
+  await shoot('check-6b-fix-applied')
   await vscode.window.showTextDocument(limDoc)
   await vscode.commands.executeCommand('undo')
   await until('undone', () => limDoc.getText() === lim0)
   if (limDoc.isDirty) await limDoc.save()
-  ok('Suggest a fix: a note asked to Claude; one sentence and a suggestion; Apply puts it in, Undo takes it back')
+  await until('undone: nothing left to commit', () => view()?.line === 'Pushed.' && !view().action)
+  ok('Suggest a fix: a note asked to Claude; one sentence and a suggestion; Apply puts it in ("fix applied · not committed", offered with Commit & push), Undo takes it back')
 
   // 8c. A concern can be marked fixed (once flagged) or dismissed with a reason: it leaves the thread, the row and the comment.
   assert.ok((api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /\[Mark fixed\]\(command:codeNotes\.checkConcern[^)]*\) · \[Dismiss\]/.test((c.body as vscode.MarkdownString).value)), 'the quiet actions are there')
@@ -402,6 +477,9 @@ export async function run(): Promise<void> {
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits again', () => chk().item === '$(pass) Understanding')
+  // feat/second's unfinished (untracked) check doesn't follow to feat/limits: it waits in the cache for its branch.
+  await until('feat/second\'s check parked', () => !fs.existsSync(path.join(ws, 'understanding/feat-second.json')) && fs.existsSync(cached))
+  assert.equal(git('status', '--porcelain', '--', 'understanding'), '', 'feat/limits: no other branch\'s check in the tree')
   ok('a branch switch while questions are written: they are written for the branch and commit they were started on, kept in .code-notes/.cache (git-ignored), nothing touches the branch checked out, and they are put in place on return')
 
   // 12. Someone else answering: one line in the view, nothing blocked.
@@ -412,7 +490,7 @@ export async function run(): Promise<void> {
   ok('another git user: "Ada\'s check: your answers are recorded as yours."')
 
   // 12b. The file rewritten on disk (questions written again, a pull): threads follow; none stands for another question.
-  const oldQ2 = noteOf('q2').id
+  const oldQ2 = (await until('q2\'s thread', () => noteOf('q2'))).id
   const kept = fs.readFileSync(file, 'utf8')
   const rw = read()
   rw.questions[1].text = 'Why does reset() take a customer instead of clearing every count?'; rw.questions[1].attempts = []
@@ -433,6 +511,36 @@ export async function run(): Promise<void> {
   await until('merged', () => !fs.readFileSync(file, 'utf8').includes('<<<<<<<') && chk().view?.title === '✓ Done' && checkNotes().length === 3)
   fs.writeFileSync(file, kept)
   ok('a merge conflict in the check file: "The check file has a merge conflict", Keep both answers merges it')
+
+  // 12b2b. A file broken by hand: the view names the line; Open puts the caret on it.
+  fs.writeFileSync(file, kept.replace('"version": 1,', '"version": 1,,'))
+  await until('where it breaks', () => /^Line 2: /.test(chk().view?.line ?? '') && chk().view.action?.id === 'openFile')
+  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  await until('Open: at the error', () => vscode.window.activeTextEditor?.document.uri.fsPath === file && vscode.window.activeTextEditor.selection.active.line === 1 && vscode.window.activeTextEditor.selection.active.character > 0)
+  fs.writeFileSync(file, kept)
+  await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor')
+  await until('readable again', () => chk().view?.title === '✓ Done')
+  ok('a check file broken by hand: "Line 2: …" in the view, Open puts the caret where it breaks')
+
+  // 12b3. A real merge: a teammate flagged q3's concern, Ada dismissed it (again). Keep both: the flag stays, said;
+  // Commit & push concludes the merge and pushes it.
+  await until('clean before the merge', () => git('status', '--porcelain', '--', 'understanding/feat-limits.json') === '' && chk().view?.title === '✓ Done')
+  git('checkout', '-q', '-b', 'feat/limits-bob')
+  const bob = read(); bob.questions[2].concern = { text: bob.questions[2].concern.text, flagged: true }
+  fs.writeFileSync(file, JSON.stringify(bob, null, 2) + '\n'); git('commit', '-qam', 'bob flags q3')
+  git('checkout', '-q', 'feat/limits')
+  const ada = read(); ada.questions[2].concern.dismissed.reason = 'Counts are per hour: a restart is harmless.'
+  fs.writeFileSync(file, JSON.stringify(ada, null, 2) + '\n'); git('commit', '-qam', 'ada dismisses q3')
+  try { git('merge', '-q', '--no-edit', 'feat/limits-bob') } catch { /* the conflict */ }
+  api.checkRefresh()
+  await until('the real conflict said', () => chk().view?.action?.id === 'merge')
+  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  const readSafe = () => { try { return read() } catch { return undefined } }
+  await until('kept both, the flag kept and said', () => readSafe()?.questions[2].concern?.flagged === true && /Question 3: its concern stays flagged/.test(view()?.said ?? '') && view().action?.id === 'commitPush')
+  if (cdp) await until('Commit & push on screen after the merge', () => buttonShown('Commit & push'))
+  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  await until('the merge concluded and pushed', () => !fs.existsSync(path.join(ws, '.git', 'MERGE_HEAD')) && git('rev-list', '--parents', '-n', '1', 'HEAD').split(' ').length === 3 && git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0] === git('rev-parse', 'HEAD'), 20000)
+  ok('a real merge conflict: Keep both keeps the flag a teammate set (said in one line); Commit & push concludes the merge and pushes')
 
   // 12c. Pushed without a check: the questions are written in the background; nothing opens until clicked.
   git('checkout', '-q', '-b', 'feat/third')
@@ -467,16 +575,28 @@ export async function run(): Promise<void> {
   const readT = () => JSON.parse(fs.readFileSync(tf, 'utf8'))
   const tourNote = (q: string) => (api.snapshot().notes as any[]).find((n) => n.session === 'Check · feat/tour' && n.extra?.check?.q === q)
   const tour = () => api.snapshot().tour
-  const t0 = Date.now()
+  // The branch is switched while the tour is written: it stops (nothing written to the other branch) and goes on
+  // once the branch is back.
+  fs.writeFileSync(path.join(ws, '.git', 'fake-tour-wait'), '')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('q1 opens before the tour is there', () => tourNote('q1')?.threadExpanded)
+  await until('the tour is being written', () => fs.existsSync(path.join(ws, '.git', 'fake-tour-wait-waiting')) && chk().view?.tour?.label?.startsWith('Writing the tour'), 20000)
+  git('checkout', '-q', 'feat/limits')
+  api.checkRefresh()
+  await until('switched away: the tour stops, said nowhere on feat/limits', () => !chk().tourBusy && chk().item === '$(pass) Understanding' && !chk().view?.tour?.label?.startsWith('Writing'))
+  fs.rmSync(path.join(ws, '.git', 'fake-tour-wait')); fs.rmSync(path.join(ws, '.git', 'fake-tour-wait-waiting'), { force: true })
+  assert.equal(fs.readFileSync(path.join(ws, 'understanding/feat-limits.json'), 'utf8').includes('"journey"'), false, 'no tour written into feat/limits\'s check')
+  git('checkout', '-q', 'feat/tour')
+  api.checkRefresh()
+  const t0 = Date.now()
+  await until('back: the tour goes on', () => chk().tourBusy || (fs.existsSync(tf) && readT().journey), 20000)
   await until('the tour, right after the questions', () => fs.existsSync(tf) && readT().journey?.steps.length === 6, 30000)
   assert.deepEqual(readT().questions.map((q: any) => q.step), [2, 4, 4])
   await until('rows say their step; the tour link', () => chk().view?.tour?.label === 'Walk the tour · 6 steps' && chk().view.rows.map((r: any) => r.step).join() === '2,4,4')
   assert.ok(!(api.snapshot().journeys as any[]).some((x) => /^check-/.test(x.id)), 'a check\'s tour is not one of the journeys')
   assert.ok(!(api.journeysTree() as string[]).some((l) => /Order limits/.test(l)), 'nor in the Journeys view')
   await shoot('tour-0-check-view')
-  ok(`the tour is written right after the questions (${((Date.now() - t0) / 1000).toFixed(1)} s with the fake): each question after a step; rows say "step n"; not listed as a journey`)
+  ok(`the tour is written right after the questions; a branch switch stops it and it goes on on return (${((Date.now() - t0) / 1000).toFixed(1)} s with the fake): each question after a step; rows say "step n"; not listed as a journey`)
 
   if (cdp) await clickToast(/The tour of your change is ready/, 'Walk it')
   else api.checkPanelSend({ type: 'test', click: 'button.tour' })

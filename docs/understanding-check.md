@@ -40,22 +40,31 @@ will find a way around it, so every design choice below favours little friction.
    extension asks the coding agent (same Claude Code runner as "Ask Claude", read-only tools) to write the
    questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
    file). Questions cover committed code only: the check starts anyway, and one line in the Check view names every uncommitted
-   or new file left out.
+   or new file left out (the line goes once they are committed). When nothing of the change is committed yet, the view
+   says so before any Claude call and offers **Commit…** (Source Control); the check starts by itself once the commit is
+   in. Claude Code not found: "Claude Code wasn't found. Install ↗ · Set its path · Retry (or a reviewer's approval
+   waives the check)". A window reloaded while the questions are written says "Writing questions · 0:12" (the writer
+   keeps running), never Start.
    The branch and commit are pinned when the writing starts
    (`start --branch <b> --head <sha>`): the script reads files at that commit and, when that branch is no longer checked
    out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
-   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
-   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide"; Set up runs `init` and commits
-   only those two files ("Add understanding check setup"). CI's log has a one-line tip while they are missing.
+   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. An unfinished
+   check that is not committed (untracked) doesn't follow to other branches either: checking out another branch moves
+   it to the same cache, and it is put back, quietly, on return. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
+   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide" once the check is done (beside
+   Commit & push; while answering, the questions get the room); Set up runs `init`, commits only those two files ("Add
+   understanding check setup") and says so in one line. CI's log has a one-line tip while they are missing.
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
    it and focuses its box; ↑ ↓ on the rows select without taking the keyboard. Ctrl+Enter sends (the same attempt as a
-   reply in the thread, which keeps working), Esc goes back to the code; the grade shows under the box and in the
-   thread, its code links light the code and leave the keyboard in the box. After a pass the box closes and
+   reply in the thread, which keeps working), Esc goes back to the code; VS Code's own shortcuts (Ctrl+G,
+   Ctrl+P, Ctrl+' D) work from the box. The grade shows under the box and in the thread, its code links light the code
+   and leave the keyboard in the box; after a grade that asks for more (a retry, "say it back") the keyboard is in the
+   box again, so what is typed next lands there. The box has two lines and grows with the answer. After a pass the box closes and
    **Next question ›** appears. An unsent answer is kept per question in the workspace's state (never in the file).
    The list is the **Check** view in the Code Notes sidebar (the only list of them: the
-   Code Notes tree doesn't repeat them): where the check stands,
+   Code Notes tree doesn't repeat them, and steps aside while a check is open and there are no other notes): where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
    journey lenses step aside in a file with an open question; another branch's check threads (and notes made from them) are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
@@ -67,14 +76,20 @@ will find a way around it, so every design choice below favours little friction.
    (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
    (click: the lines light up, nothing is selected and the keyboard stays in the thread; "← Back to question"). It may
    raise a `concern` about the code itself: **Suggest a fix** (a note on the code the concern names, asked to Claude for
-   the smallest change: one sentence and a suggestion block with Apply; Undo takes it back), **Add TODO** (one line of
-   at most 80 characters; the thread says where it went), **Flag for reviewer** (independent of the TODO). After a grade the editor stays on the question and the
+   the smallest change: one sentence and a suggestion block with Apply; Undo takes it back), **Add TODO** (the whole concern, wrapped at
+   100 characters, above the line it names at its indentation, or inside the block a "} catch {" line opens; the thread
+   says where it went), **Flag for reviewer** (independent of the TODO). After a grade the editor stays on the question and the
    reply box is empty; **Next question ›** under the grade (or Ctrl+' D) moves on.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
-5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push**, naming what it
+5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push** right under
+   "✓ Done", whenever something is left to commit or push (**Push** when only the push is), naming what it
    commits: the check file, with `.gitattributes`/`.ignore` when someone ran `init` by hand (`-u` without an upstream). A file
-   a TODO was added to from the check is offered with a tick box; the person's other changes are left alone.
+   a TODO was added to from the check is offered with a tick box; the person's other changes are left alone. A fix
+   applied from a concern (Suggest a fix → Apply) is said on its question ("fix applied · not committed") and goes with
+   Commit & push, ticked ("pricing.js (your fix)", saved first); that commit marks the concern fixed, so the merge
+   request no longer lists it. When the check file's only change is its tour, the line says "Only the tour is new: it can
+   go with your next push" and the status item doesn't commit and push it by itself (no pipeline just for a tour).
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
 
@@ -98,7 +113,9 @@ is placed after the step that shows its answer (`step` on the question), so the 
   file at the end). Measured on Sonnet (a 90-line change of the example shop): questions 21 s / $0.16, the tour 172 s /
   $0.75 (58 turns). So the questions open as before and can be answered while the tour is written; the Check view says
   "Writing the tour · 1:20", then one notification offers **Walk it**. A failed tour leaves the check as it was
-  ("Couldn't write the tour · Try again").
+  ("Couldn't write the tour · Try again"; the log has a short reason, never Claude's reply). The tour reads the code
+  checked out: switching branch while it is written stops it, and once the branch is back it is written again (in the
+  questions' session), with nothing written to the other branch.
 - **Walking it.** Check my understanding (or **Walk the tour · 9 steps** in the Check view) opens the tour in the journey
   panel like any journey (storyline, map, code links), where it was left. The questions are rows of the storyline after
   their step ("? Why does …", ✓ when passed). Next past a step with an open question opens that question (the card's
@@ -167,7 +184,7 @@ The answers also show as note threads in the editor; the file is the source of t
 
 **Only the final answer is kept.** When a newer attempt is added, every earlier one loses its `answer` text and its
 `hash`; its verdict, times, `by` and the grader's feedback, hint, note, topic and concern stay. A wrong guess never
-stays in the repository. Whoever writes an attempt calls `pruneAttempts(question)` from the CLI module (`addAttempt`
+stays in the repository. Its thread drops it too, with the "Not quite" under it (an explanation stays). Whoever writes an attempt calls `pruneAttempts(question)` from the CLI module (`addAttempt`
 does it itself). Only each question's last attempt must have an `answer`, and only its `hash` is verified by CI.
 Files written before this (every attempt with its answer and hash) still validate.
 
@@ -273,7 +290,8 @@ about 300 characters is cut: "… (full answer in the check file)"); a restateme
 explanation"; an explained question only "explained" (its point is in "Worth discussing"). The grader's words are
 never shown as an answer, and wrong guesses and retries are
 never posted. In VS Code a concern's thread offers, quietly, **Mark fixed** (once flagged) and **Dismiss** (asks for a
-one-line reason; stored as `concern.dismissed = { reason, by, at }`); both take it off the merge request. An answer by
+one-line reason; stored as `concern.dismissed = { reason, by, at }`; when the concern's code changed since it was
+raised, or its suggested fix was applied, it first offers **I fixed it**, stored with the reason `fixed`); both take it off the merge request. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
 references (`#12`, `!3`, `~5`, …) are made inert. Answers, notes, topics and concerns are literal text: their markdown
 and HTML are escaped line by line (a `---` under a line, `### ✅ waived`, `</blockquote>`, a table row or `:emoji:` shows
@@ -299,15 +317,24 @@ The skill's script finds the CLI beside it, through `UNDERSTANDING_CLI`, or as t
 
 Grading runs only locally (extension, or `grade` from a terminal). Grader backends: `claude` (the `claude -p` CLI, read-only tools, uses `CLAUDE_CODE_OAUTH_TOKEN` or the
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
-answer, the diff and may read the code; it returns JSON `{verdict, feedback, hint}`.
+answer, the diff and may read the code; it returns JSON `{verdict, feedback, hint}`. When grading fails, the thread
+and the answer box say it in the same words as writing ("Claude is busy right now; your answer is saved.") with **Try
+again**.
 
 **In a stash.** A check file that is not in the tree but in a git stash (`git stash -u`) is "Your check is in a git
 stash · Run git stash pop (stash@{0})." instead of Start; its threads are hidden until it is back.
 
 **Merge conflicts.** A check file with git conflict markers is "The check file has a merge conflict" (never a parser
 error): when both sides read as checks, **Keep both answers** merges them (each question once, from the side with more
-graded answers); else **Open** goes to the first marker (the status item too). `status` exits 1 for a file that can't
-be read.
+graded answers; a concern flagged on either side stays flagged, said in one line); else **Open** goes to the first
+marker (the status item too). During a git merge, Commit & push concludes it (the merge commit) and pushes; a push
+rejected because the remote has newer commits offers **Pull**. A file that isn't valid JSON names where ("Line 3:
+expected double-quoted property name.") and **Open** puts the caret there; its tour stays as it was meanwhile.
+`status` exits 1 for a file that can't be read.
+
+**After a push.** The status bar says what went ("Committed feat-x.json and pushed"); the status item's tooltip uses
+the view's words ("Pushed.", "Not pushed yet."). A branch without a merge request: the link the push printed (GitLab,
+GitHub) is offered, "Open merge request ↗".
 
 ## Config: `understanding/config.json` (optional, committed)
 

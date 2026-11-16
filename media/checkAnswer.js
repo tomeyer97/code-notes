@@ -2,12 +2,14 @@
 // textarea for the answer (Ctrl+Enter sends it, Esc goes back to the code), its latest grade with the code links
 // clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
-// Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' }
+// Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' } { type: 'regrade', id }
 //      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
   let timer
+  /** The question whose answer was just sent from its box: once graded, the keyboard goes back into it (or onto "Next"). */
+  let sent
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
   const boxOf = (id) => document.querySelector(`.answer[data-id="${CSS.escape(id)}"]`)
 
@@ -32,24 +34,33 @@
       if (a.open) {
         const t = el('textarea', 'box')
         t.placeholder = 'Answer in 1–3 sentences'
-        t.rows = 3
+        // Two lines, growing with the answer (up to six): the other questions stay in view.
+        t.rows = 2
+        const grow = () => { t.style.height = ''; const lh = parseFloat(getComputedStyle(t).lineHeight) || 18; if (t.scrollHeight > t.clientHeight) t.style.height = `${Math.min(t.scrollHeight + 2, 6 * lh + 10)}px` }
         t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
         t.value = drafts[a.id] ?? a.draft
-        t.disabled = !!a.checking
-        t.oninput = () => { drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
+        // Never disabled while checking: a disabled box drops the keyboard, and what is typed next after the grade
+        // would go nowhere. It can't be sent again until the grade is in.
+        if (a.checking) t.setAttribute('aria-busy', 'true')
+        requestAnimationFrame(grow)
+        t.oninput = () => { grow(); drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
+        // Keys bubble on to VS Code (its shortcuts work from here: Ctrl+G, Ctrl+P, Ctrl+' D); check.js leaves the
+        // arrows in a box alone.
         t.onkeydown = (e) => {
-          e.stopPropagation() // the arrows move the caret here, not between the questions
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault()
             const text = t.value.trim()
             if (!text || a.checking) return
             drafts[a.id] = ''; clearTimeout(timer)
+            sent = a.id
             post({ type: 'answer', id: a.id, text })
           } else if (e.key === 'Escape') { e.preventDefault(); post({ type: 'escape' }) }
         }
         w.append(t)
       }
       if (a.checking) w.append(el('p', 'checking', 'Checking…'))
+      // Couldn't grade it (the answer is kept): why, and Try again.
+      else if (a.error) { const p = el('p', 'failed'), b = el('button', 'link', 'Try again'); b.onclick = () => post({ type: 'regrade', id: a.id }); p.append(`⚠ ${a.error} `, b); w.append(p) }
       else if (a.grade) {
         const g = el('div', `grade${a.grade.pass ? ' pass' : ''}`)
         const f = el('p')
@@ -66,7 +77,9 @@
         c.append(el('p', null, `⚠ ${a.concern.text}`))
         const acts = el('p', 'acts')
         const act = (label, action) => { const b = el('button', 'link', label); b.onclick = () => post({ type: 'concern', id: a.id, action }); return b }
-        acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
+        // Its fix is in the code: said; it goes with Commit & push.
+        if (a.concern.applied) acts.append(el('span', 'applied', 'Fix applied · not committed'), ' · ', act('Dismiss', 'dismiss'))
+        else acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
         c.append(acts); w.append(c)
       }
       if (a.next) { const n = el('button', 'next', 'Next question ›'); n.onclick = () => post({ type: 'next' }); w.append(n) }
@@ -80,9 +93,19 @@
     },
     /** After: the keyboard back where it was (the box gone after a pass: on "Next question ›"). */
     after(k) {
+      // Graded after an answer sent from here: the keyboard back in the box (a retry, say it back) or on "Next", also
+      // when it was lost meanwhile (nothing else took it: the body has it).
+      if (sent) {
+        const w = boxOf(sent), a = document.activeElement
+        if (w && !w.querySelector('.checking') && (!a || a === document.body || (k && k.id === sent))) {
+          const t = w.querySelector('textarea'), target = t || w.querySelector('.next')
+          sent = undefined
+          if (target) { target.focus(); if (t) t.setSelectionRange(t.value.length, t.value.length); return }
+        } else if (!w) sent = undefined
+      }
       if (!k) return
       const w = boxOf(k.id)
-      const t = w && w.querySelector('textarea:not([disabled])')
+      const t = w && w.querySelector('textarea')
       if (t) { t.focus(); if (k.box) t.setSelectionRange(k.s, k.e) } else if (w && w.querySelector('.next')) w.querySelector('.next').focus()
     },
     message(m, post) {
