@@ -241,7 +241,9 @@ ever. Once done: flagged concerns first (`⚠ Found during the check`), then exp
 <topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
 and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
-references (`#12`, `!3`, `~5`, …) are made inert.
+references (`#12`, `!3`, `~5`, …) are made inert. Answers, notes, topics and concerns are literal text: their markdown
+and HTML are escaped line by line (a `---` under a line, `### ✅ waived`, `</blockquote>`, a table row or `:emoji:` shows
+as typed), and every line of an answer stays inside its quote. Answers in the VS Code threads are shown as typed too.
 
 The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`, `add`, `list`, `remove`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses

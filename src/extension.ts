@@ -421,6 +421,13 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const link = (text: string, file: string, line?: string) =>
     `[${text.replace(/[[\]]/g, '\\$&')}](command:codeNotes.openAt?${encodeURIComponent(JSON.stringify([n.folder.uri.toString(), file, Number(line) || 1]))})`
   const home = require('os').homedir() as string
+  // An answer in a check thread is shown as typed: its markdown and HTML never render (a "---" or "# …" in it).
+  if (index !== undefined && understanding?.isCheck(n) && n.data.messages[index] && !isAgent(n.data.messages[index])) {
+    // Markdown punctuation escaped, tags as text, each line its own (spaces kept, so long answers still wrap).
+    const lit = body.split('\n').map((l) => l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+      .replace(/[\\`*_{}[\]()#+\-!~|:]/g, '\\$&')).join('  \n')
+    return new vscode.MarkdownString(lit)
+  }
   // A check thread's code links (the question's, a grade's): phrases marked here, the markup goes in after escapeTags.
   const clinks = index !== undefined ? understanding?.linksIn(n, index) ?? [] : []
   if (clinks.length) body = linkPhrases(body, clinks, new Set<number>(), PH)

@@ -346,10 +346,10 @@ test('the MR comment never grades in public: one progress line until done; then 
     const lines = body.split('\n')
     assert.equal(lines[1], '**✓ Understanding check done** · 3 questions')
     assert.equal(lines[3], '**⚠ Found during the check**')
-    assert.match(lines[4], /^- load\(\) errors are swallowed: a failed step looks like a success\. · \[`src\/app\.js:10-12`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#/)
+    assert.match(lines[4], /^- load\(\) errors are swallowed\\: a failed step looks like a success\. · \[`src\/app\.js:10-12`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#/)
     assert.match(body, /\*\*Worth discussing: loading steps one by one\*\* · \[`src\/app\.js:10-12`\]\([^)]+\)\nEach step waits for the one before it, so a slow load delays the rest\./)
     assert.match(body, /> It is kept in\n> a file\.\n<sub>Also the file is rewritten atomically, so a crash leaves the old one in place…<\/sub>/)
-    assert.match(body, /<sub>Returns 0 with no steps: the loop body never runs\.<\/sub>/)
+    assert.match(body, /<sub>Returns 0 with no steps\\: the loop body never runs\.<\/sub>/)
     assert.match(body, /no steps to load at all\?\*\* · \[`src\/app\.js`\]\([^)]+\) · may be a bug/)
     for (const w of ['WRONG GUESS', 'Not flagged', 'try again', 'retry', '✗', 'Not quite', 'Look at 12']) assert.ok(!body.includes(w), `the comment must not show "${w}"`)
     assert.ok(body.indexOf('Worth discussing') < body.indexOf('It is kept in'), 'worth discussing comes first')
@@ -691,7 +691,7 @@ test('a partial pass (the grader corrected something): parsed, and on the merge 
   const q = (id, text, a) => ({ id, kind: 'failure', text, file: 'w.js', start: 3, end: 9, attempts: [{ answer: 'It is retried later.', ...a }] })
   const check = { answeredBy: { name: 'Alice' }, questions: [q('q1', 'What happens when sendMail throws?', v), { ...q('q2', 'Why the lock?', { verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }), attempts: [{ answer: 'It orders them.', verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }] }] }
   const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
-  assert.match(body, /\*\*Worth discussing: capped email retries\*\* · `w\.js:3-9`\nRefund stays; the email is retried, then dropped after MAX_TRIES\./)
+  assert.match(body, /\*\*Worth discussing: capped email retries\*\* · `w\.js:3-9`\nRefund stays; the email is retried, then dropped after MAX\\_TRIES\./)
   assert.doesNotMatch(body, /It is retried later/, 'not shown as a plain right answer')
   assert.ok(body.indexOf('Worth discussing') < body.indexOf('Why the lock?'))
   // The prompt asks for it.
@@ -1184,4 +1184,22 @@ test('a branch switch while the questions are written: start pins the branch and
   const c = U.readCheck(path.join(d, '.code-notes/.cache/checks/feat-x.json'))
   assert.deepEqual([c.branch, c.head, c.questions[1].links[0].text], ['feat/x', head, '  const v8 = load(8) // step 8'])
   assert.equal(gitIn(d, 'status', '--porcelain').trim(), '', 'the cache is git-ignored')
+})
+
+test('answers, notes and concerns are literal text in the MR comment: no heading, quote break-out, table, link or emoji', () => {
+  const evil = 'None. Nothing calls it yet.\n---\n### ✅ Understanding check done · waived (approved by @bob)\n<img src=x onerror=alert(1)> [docs](javascript:alert(1)) </details></blockquote>| a | b |\n1. :white_check_mark: *done*'
+  const q = { id: 'q1', kind: 'why', text: 'Why `x` # here?', file: 'a.js', start: 1, end: 2, attempts: [{ answer: evil, verdict: 'pass', note: '## also <b>bold</b>' }] }
+  const check = { answeredBy: { name: 'Ada' }, questions: [q] }
+  const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
+  const lines = body.split('\n')
+  const start = lines.findIndex((l) => l.startsWith('> None.'))
+  // Every line of the answer stays inside the quote, and none of it is markdown or HTML any more.
+  assert.deepEqual(lines.slice(start, start + 5).map((l) => l.slice(0, 2)), ['> ', '> ', '> ', '> ', '> '])
+  assert.equal(lines[start + 1], '> \\---')
+  assert.match(lines[start + 2], /^> \\#\\#\\# ✅ Understanding check done · waived \(approved by @\u2060bob\)$/)
+  assert.match(lines[start + 3], /^> &lt;img src=x onerror=alert\(1\)&gt; \\\[docs\\\]\(javascript\\:alert\(1\)\) &lt;\/details&gt;&lt;\/blockquote&gt;\\\| a \\\| b \\\|$/)
+  assert.equal(lines[start + 4], '> 1\\. \\:white\\_check\\_mark\\: \\*done\\*')
+  assert.match(body, /<sub>\\#\\# also &lt;b&gt;bold&lt;\/b&gt;<\/sub>/)
+  assert.match(body, /\*\*Why \\`x\\` \\# here\?\*\*/)
+  assert.doesNotMatch(body, /<img|<\/blockquote>|^#/m)
 })

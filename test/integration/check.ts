@@ -169,6 +169,9 @@ export async function run(): Promise<void> {
   } else await vscode.commands.executeCommand('codeNotes.nextCheckQuestion')
   await until('Next question opens q2', () => inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
   assert.ok(api.thread(n1.id), 'the passed thread stays where it is')
+  // A remark on a passed question with markdown in it: shown as typed in the thread (no heading, no rule).
+  await answer('q1', '# not a heading\n---\n<b>x</b> [link](https://example.com)')
+  await until('the remark shown as typed', () => (api.thread(n1.id).comments as vscode.Comment[]).some((c) => /^\\# not a heading/.test((c.body as vscode.MarkdownString).value) && (c.body as vscode.MarkdownString).value.includes('\\[link\\]') && !(c.body as vscode.MarkdownString).supportHtml))
   ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the editor stays on q1 with the reply box cleared; "Next question ›" opens q2')
 
   // 4. A miss: feedback and a hint, the editor stays on the question's lines; the second miss explains; say it back.

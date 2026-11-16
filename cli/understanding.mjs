@@ -1034,7 +1034,18 @@ const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungr
  * text never turns into a link to something else.
  */
 export const inert = (s) => String(s ?? '').replace(/(^|[^\w.@`])@(?=[\w-])/g, '$1@\u2060').replace(/(^|[^\w&\u2060])([#!~%$&])(?=\d)/g, '$1$2\u2060')
-const quote = (s) => inert(String(s).trim().replace(/<!--/g, '&lt;!--')).split('\n').map((l) => `> ${l}`).join('\n')
+/**
+ * Text written by a person or the grader, shown exactly as typed in a comment: HTML and markdown made literal (a
+ * "---" under a line, "### ✅ waived", "</blockquote>", a table row, `:emoji:` or a link never render), line by line.
+ */
+export function literal(s) {
+  return String(s ?? '').split('\n').map((l) => l
+    .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c])
+    .replace(/[\\`*_[\]|~#:!]/g, '\\$&')
+    .replace(/^(\s*)([-+=])/, '$1\\$2')
+    .replace(/^(\s*\d+)([.)])/, '$1\\$2')).join('\n')
+}
+const quote = (s) => literal(inert(String(s).trim())).split('\n').map((l) => (l.trim() ? `> ${l}` : '>')).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
 /**
@@ -1073,7 +1084,7 @@ export function refLink(ctx, q, diff) {
 }
 
 /** Text from the grader or the author, safe on one markdown line. */
-const inline = (s) => inert(String(s ?? '').replace(/<!--/g, '&lt;!--').replace(/\s+/g, ' ').trim())
+const inline = (s) => literal(inert(String(s ?? '').replace(/\s+/g, ' ').trim()))
 /** At most `n` words ("…" when cut). */
 export function clipWords(s, n) {
   const w = inline(s).split(' ').filter(Boolean)
