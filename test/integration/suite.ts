@@ -542,9 +542,9 @@ export async function run(): Promise<void> {
   // A reply to it shows on the folded journey row and on the step's card.
   reply(an.path, { author: 'claude', role: 'agent', body: 'Because it is the answer.', at: new Date().toISOString() })
   await until('the journey row says 1 reply ("new" is only a new journey)', () => ((api as any).journeysTree() as string[]).some((l) => /journey:Demo · .*1 reply/.test(l)))
-  await until('the card lists the question', () => /1 question · new reply ›\]\(command:codeNotes\.openNoteId/.test(t().card?.body ?? ''))
+  await until('the card lists the question', () => /1 asked · new reply ›\]\(command:codeNotes\.openNoteId/.test(t().card?.body ?? ''))
   await vscode.commands.executeCommand('codeNotes.markAllRead')
-  ok('a reply to a step question: "1 reply" on the journey row, "1 question · new reply" on the card')
+  ok('a reply to a step question: "1 reply" on the journey row, "1 asked · new reply" on the card')
 
   // The journey is edited mid-tour: a step inserted before the current one; the tour stays on the same step.
   fs.writeFileSync(demoPath, JSON.stringify(demo([step('s-0', 'Before a', 'fa', 'src/flow.ts', 3), ...demoSteps]), null, 2))

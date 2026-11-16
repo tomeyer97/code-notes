@@ -533,6 +533,14 @@ function skillAccess(): { tools: string[]; dirs: string[]; hint: string } {
   }
 }
 
+/** A question asked on a journey step: the answer first, short (a yes/no question gets its yes or no). */
+function stepAskHint(n: Note): string {
+  const x = n.data.extra as { journey?: unknown } | undefined
+  return x?.journey && !n.data.messages[0]?.body.startsWith(UPDATE_ASK)
+    ? '\n\nStart with a one-line answer (yes or no first, for a yes/no question), then at most 2-4 sentences. No headings, no lists unless asked; more only if asked.'
+    : ''
+}
+
 /**
  * A question asked about the code of an understanding-check question: explain the code, never write that answer.
  * "Suggest a fix" on a concern: the smallest change, as one suggestion block (Apply puts it in; Undo takes it back).
@@ -629,7 +637,7 @@ async function runAsk(id: string): Promise<void> {
   const code = n.data.target ? undefined : await linesOfUri(docUri(n))
   const skills = skillAccess()
   const ask = new Ask({
-    cli, cwd: n.folder.uri.fsPath, prompt: claudePrompt(n, code) + checkHint(n) + skills.hint, resume: n.data.claudeSession,
+    cli, cwd: n.folder.uri.fsPath, prompt: claudePrompt(n, code) + checkHint(n) + stepAskHint(n) + skills.hint, resume: n.data.claudeSession,
     extraTools: skills.tools, addDirs: skills.dirs,
     model: cfg().get<string>('claude.model') || undefined,
     onProgress: (p) => { entry.text = p.text; entry.activity = p.activity; const x = byId(id); if (x) syncThread(x) },
@@ -1390,7 +1398,7 @@ function askedOf(lj: LoadedJourney): Record<number, Asked> {
   return out
 }
 /** "2 questions · 1 answered". */
-const askedText = (a: Asked) => `${a.count} question${a.count === 1 ? '' : 's'}${a.unread ? ' · new reply' : ''}`
+const askedText = (a: Asked) => `${a.count} asked${a.unread ? ' · new reply' : ''}`
 function questionsNode(lj: LoadedJourney): Node | undefined {
   const qs = notes().filter((n) => matchesFilter(n) && journeyOfNote(n) === lj)
   return qs.length ? cached(`questions:${lj.key}`, { kind: 'questions' as const, lj, notes: qs }) : undefined
@@ -3000,7 +3008,8 @@ async function askStep(text?: string): Promise<Note | undefined> {
   const box = vscode.window.createInputBox()
   box.title = `Ask about step ${n0}/${lj.j.steps.length}: ${s.title}`
   box.placeholder = 'Your question'
-  box.prompt = 'Enter asks · Esc keeps the draft'
+  // One hint: as a prompt, VS Code would add "(Press 'Enter' to confirm or 'Escape' to cancel)" after it.
+  box.validationMessage = { message: 'Enter asks · Esc keeps the draft', severity: vscode.InputBoxValidationSeverity.Info }
   box.ignoreFocusOut = true
   box.value = askDrafts.get(dk) ?? ''
   const typed = await new Promise<string | undefined>((res) => {
