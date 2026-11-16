@@ -252,7 +252,7 @@ test('ci: unanswered, below the threshold, damaged hashes, drift, an invalid fil
 test('ci: the questions\' commit is gone (rebased): compared by size', async () => {
   const d = repo()
   const f = writeQuestions(d)
-  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'retry' }])
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
   const c = U.readCheck(f); c.head = 'deadbeef00'; U.writeCheck(f, c)
   commitAll(d)
   const r = await ci(d, gitlabEnv(d))
@@ -282,7 +282,7 @@ test('ci on GitLab: skip label needs an approval by someone else; the MR comment
     // Without the label: the check itself, and its comment.
     api.calls.length = 0
     const f = writeQuestions(d)
-    answerAll(f, [{ text: 'It is kept in\na file.', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'retry' }])
+    answerAll(f, [{ text: 'It is kept in\na file.', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
     commitAll(d)
     const noLabel = await fakeApi({
       [`GET ${mr}`]: () => ({ labels: [], author: { username: 'ada' } }), [`GET ${mr}/notes`]: () => notes,
@@ -295,7 +295,7 @@ test('ci on GitLab: skip label needs an approval by someone else; the MR comment
       assert.equal(notes.length, 1)
       assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: passed, 2 of 3\*\*/)
       assert.match(notes[0].body, /> It is kept in\n> a file\./)
-      assert.match(notes[0].body, /try again/)
+      assert.match(notes[0].body, /explained after 2 tries/)
       r = await ci(d, env2)
       assert.match(r.lines.at(-1), /comment updated/)
       assert.equal(notes.length, 1, 'one comment, updated in place')
@@ -336,11 +336,12 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
 
 test('status: what to do next, locally', async () => {
   const d = repo()
-  assert.match(U.localStatus(d).next, /Run "Code Notes: Check my understanding"/)
+  assert.equal(U.localStatus(d).next, '30 code lines changed.')
   const f = writeQuestions(d)
-  assert.match(U.localStatus(d).next, /Answer 3 more questions \(0 passed, 2 needed\)/)
+  assert.equal(U.localStatus(d).next, 'Answer all 3 · 2 must pass.')
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
-  assert.match(U.localStatus(d).next, /^Passed\. Commit understanding\/feat-x\.json and push\./)
+  assert.equal(U.localStatus(d).next, 'Commit and push.')
+  assert.match((await run(d, ['status'])).out, /^✓ Done · Commit and push\./)
   const r = await run(d, ['status', '--json'])
   assert.equal(JSON.parse(r.out).summary.passed, 2)
   assert.equal((await run(d, ['validate', f])).code, 0)
@@ -418,7 +419,12 @@ test('checkState: one word for where the check stands', () => {
   assert.equal(U.checkState(U.localStatus(d)).phase, 'none')
   const f = writeQuestions(d)
   commitAll(d)
-  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'answering', passed: 0, total: 3, needed: 2, maxDrift: 40, grew: 0 })
+  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'answering', passed: 0, done: 0, total: 3, needed: 2, maxDrift: 40, grew: 0 })
+  // A "try again" is not done: the rule waits for it, even with enough passes.
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'retry' }])
+  assert.equal(U.localStatus(d).state.phase, 'answering')
+  assert.equal(U.stateWords(U.localStatus(d).state).bar, 'Understanding 2/3')
+  U.writeCheck(f, { ...U.readCheck(f), questions: U.readCheck(f).questions.map((q) => ({ ...q, attempts: [] })) })
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'explained' }, { text: 'c', verdict: 'explained' }])
   assert.equal(U.checkState(U.localStatus(d)).phase, 'short')
   answerAll(f, [undefined, undefined, { text: 'd', verdict: 'pass' }])
@@ -426,7 +432,8 @@ test('checkState: one word for where the check stands', () => {
   commitAll(d)
   // Uncommitted lines past the limit: a top-up is due once they are committed.
   fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const w${i} = ${i}`).join('\n') + '\n')
-  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'drift', commitFirst: true, passed: 2, total: 3, needed: 2, maxDrift: 40, grew: 45 })
+  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'drift', commitFirst: true, passed: 2, done: 3, total: 3, needed: 2, maxDrift: 40, grew: 45 })
+  assert.equal(U.stateWords(U.localStatus(d).state).bar, 'Needs top-up: +45 lines')
   commitAll(d, 'more')
   assert.equal(U.checkState(U.localStatus(d)).commitFirst, false)
 })
@@ -478,4 +485,27 @@ test('commit & push: only the check file; -u without an upstream; then to it; re
     r = await U.commitAndPush(d, [rel], 'Understanding check: answers', { env: { ...process.env, GIT_ASKPASS: '', SSH_ASKPASS: '' } })
     assert.equal(r.line, "The push failed: git couldn't sign in to origin.")
   } finally { srv.close() }
+})
+
+test('the rule: every question done (pass, explained, restated; not "try again") and ceil(60 %) passed; restatements', () => {
+  const q = (...vs) => ({ attempts: vs.map((v) => ({ answer: 'a', ...(v ? { verdict: v } : {}) })) })
+  assert.equal(U.stateOf(q('retry', 'explained', 'restated')), 'restated')
+  let s = U.summarize({ questions: [q('pass'), q('pass'), q('retry')] }, U.DEFAULTS)
+  assert.deepEqual([s.done, s.passed, s.met], [2, 2, false])
+  s = U.summarize({ questions: [q('pass'), q('retry', 'explained', 'restated'), q('retry', 'explained')] }, U.DEFAULTS)
+  assert.deepEqual([s.done, s.passed, s.met], [3, 2, true])
+  assert.equal(U.ruleText(s), 'Answer all 3 · 2 must pass')
+  // A restatement: graded against the explanation; only "restated" or "explained".
+  const ex = q('retry', 'explained', undefined); ex.attempts[1].feedback = 'Both miss the lookup; the second fails on the UNIQUE key.'
+  const mode = U.gradeMode(ex)
+  assert.deepEqual(mode, { attempt: 3, explanation: 'Both miss the lookup; the second fails on the UNIQUE key.' })
+  const p = U.graderPrompt({ q: { kind: 'edge', text: 'What if?', file: 'a.js', start: 1, end: 2 }, answer: 'the second errors', ...mode, diff: '', code: '', canRead: true })
+  assert.match(p, /<explanation>\nBoth miss the lookup/); assert.match(p, /"verdict": "restated" \| "explained"/)
+  assert.equal(U.parseVerdict('{"verdict":"pass","feedback":"Right."}', 3, { restate: true }).verdict, 'restated')
+  assert.equal(U.parseVerdict('{"verdict":"retry","feedback":"No."}', 3, { restate: true }).verdict, 'explained')
+  assert.equal(U.parseVerdict('{"verdict":"restated","feedback":"Right."}', 1).verdict, 'pass')
+  // The note for the reviewer, the topic of an explanation, a concern about the code.
+  assert.deepEqual(U.parseVerdict('{"verdict":"explained","feedback":"It…","note":"The second fails on UNIQUE.","topic":"same-key refunds","concern":"api/refunds.js:11 looks up before the lock."}', 2),
+    { verdict: 'explained', feedback: 'It…', hint: '', note: 'The second fails on UNIQUE.', topic: 'same-key refunds', concern: 'api/refunds.js:11 looks up before the lock.' })
+  assert.deepEqual(U.parseVerdict('{"verdict":"retry","feedback":"Re-check.","hint":"Look.","note":"x","concern":""}', 1), { verdict: 'retry', feedback: 'Re-check.', hint: 'Look.' })
 })
