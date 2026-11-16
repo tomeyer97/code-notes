@@ -2105,7 +2105,7 @@ async function stepBy(dir: 1 | -1): Promise<void> {
   // No tour: start (or resume) the journey whose map is open, else pick one.
   const lj = tourJourney() ?? (await pickJourney())
   // Just finished: next is not step 1 again; the panel says Done.
-  if (lj && finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); showMap(lj); return }
+  if (lj && finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); if (mapPanel.journey || (await panelFits())) showMap(lj); return }
   if (lj) await goToStep(lj, resumeAt(lj) || 1)
 }
 
@@ -2134,7 +2134,8 @@ function nextStop(lj: LoadedJourney): { step: number; q?: string } | undefined {
 async function openCheckpoint(lj: LoadedJourney, id: string): Promise<boolean> {
   const q = understanding?.tourStops().find((x) => x.id === id)
   if (!q || q.step > lj.j.steps.length) return false
-  if (mapPanel.journey?.key !== lj.key || !mapPanel.visible) showMap(lj, true)
+  // The panel follows only when it is open: a question never opens it (the code keeps its room).
+  if (mapPanel.journey && mapPanel.journey.key !== lj.key) showMap(lj, true)
   if (!(tourKey === lj.key && tourStep === q.step)) await goToStep(lj, q.step, { focus: false })
   tourCp = id
   showCard(lj, tourStep)
@@ -2692,13 +2693,24 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
  * or where it was left (the step being walked, else the resume point).
  */
 async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean; keepFocus?: 'sidebar' | 'panel' } = {}): Promise<void> {
-  await openMap(lj)
+  // No room for the panel beside 80 columns of code: the step card only, decided before anything opens (the
+  // panel never squeezes the code, not even for a moment).
+  const room = !lj.j.steps.length || (await panelFits())
+  await openMap(lj, room)
+  if (!room) cardOnly()
   if (!lj.j.steps.length) return
   await goToStep(lj, opts.fromStart ? 1 : tourKey === lj.key && tourStep ? tourStep : resumeAt(lj) || 1)
   // Back where the click was: the code is shown, but arrows and Enter never type into it.
   if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
-  else if (opts.keepFocus === 'panel') mapPanel.takeFocus()
-  await codeGetsMoreRoom()
+  else if (opts.keepFocus === 'panel' && room) mapPanel.takeFocus()
+  if (room) await codeGetsMoreRoom()
+}
+
+/** The walk goes on with the step card in the editor; the panel (if open) closes. Said once per walk. */
+function cardOnly(): void {
+  if (mapPanel.journey) mapPanel.close()
+  log.info('journey panel: no room beside 80 columns of code; the step card only')
+  vscode.window.setStatusBarMessage(`$(info) Narrow window: the step card only (${KEY} V: the map)`, 6000)
 }
 
 /** The panel's width as the reader left it (a share of the editor area), every journey. */
@@ -2719,6 +2731,24 @@ async function sideBySide(): Promise<{ layout: Layout; panel: number; total: num
   return total > 10 ? { layout, panel, total } : undefined
 }
 
+/** The panel's share of an editor area `total` px wide (0: no room beside 80 columns of code). */
+function shareFor(total: number): number {
+  const ed = vscode.workspace.getConfiguration('editor')
+  return panelShare(total, { fontSize: ed.get<number>('fontSize') ?? 14, minimap: ed.get<boolean>('minimap.enabled') ?? true, remembered: gstate.get<number>(PANEL_SHARE_KEY) })
+}
+/** The editor area's width (px), from the layout as it is now; undefined when it can't be told (groups above each other). */
+async function editorAreaWidth(): Promise<number | undefined> {
+  const layout = await vscode.commands.executeCommand<Layout>('vscode.getEditorLayout').then((x) => x, () => undefined)
+  if (!layout?.groups.length || (layout.groups.length > 1 && layout.orientation !== 0)) return undefined
+  const total = layout.groups.reduce((a, g) => a + (g.size ?? 0), 0)
+  return total > 10 ? total : undefined
+}
+/** Room for the panel beside the code (80 columns of it), in the editor area as it is now. */
+async function panelFits(): Promise<boolean> {
+  const total = await editorAreaWidth()
+  return total === undefined || shareFor(total) > 0
+}
+
 /**
  * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
  * ~80 characters; a window too narrow for both walks with the step card in the editor only (no panel).
@@ -2726,14 +2756,8 @@ async function sideBySide(): Promise<{ layout: Layout; panel: number; total: num
 async function codeGetsMoreRoom(): Promise<void> {
   const s = await sideBySide()
   if (!s) return
-  const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14
-  const share = panelShare(s.total, { fontSize, remembered: gstate.get<number>(PANEL_SHARE_KEY) })
-  if (!share) {
-    log.info(`journey panel: ${Math.round(s.total)} px is too narrow for the code and the panel; the step card only`)
-    mapPanel.close()
-    vscode.window.setStatusBarMessage(`$(info) Narrow window: the step card only (${KEY} V: the map)`, 6000)
-    return
-  }
+  const share = shareFor(s.total)
+  if (!share) { cardOnly(); return }
   const want = s.layout.groups.map((_, i) => (i === s.panel ? share : 1 - share))
   const now = (s.layout.groups[s.panel].size ?? 0) / s.total
   if (Math.abs(now - share) < 0.02) return
@@ -2767,8 +2791,8 @@ async function keepOffMap(t: vscode.Tab): Promise<void> {
   if (sel) { ed.selection = sel; ed.revealRange(sel, vscode.TextEditorRevealType.InCenterIfOutsideViewport) }
 }
 
-/** Shows a journey's map. Another journey's tour ends first, keeping its place. */
-async function openMap(lj: LoadedJourney): Promise<void> {
+/** Shows a journey's map (`show`: false when there is no room for it). Another journey's tour ends first, keeping its place. */
+async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   // Another journey's map is only a look: the running tour goes on until Start there, or End.
   await markJourneysSeen(lj)
   if (showIntro()) await gstate.update(INTRO_KEY, true)
@@ -2776,7 +2800,7 @@ async function openMap(lj: LoadedJourney): Promise<void> {
   // for Resume); its status item and code marker go with it.
   if (lj.key !== tourKey && touring()) await endTour()
   if (lj.key !== tourKey) { tourKey = lj.key; tourStep = 0 }
-  showMap(lj)
+  if (show) showMap(lj)
   updateTour()
   tree.refresh()
 }
@@ -2919,7 +2943,8 @@ async function finishTour(): Promise<void> {
     .filter((t) => t.isPreview && !t.isDirty && t.input instanceof vscode.TabInputText && lj.j.steps.some((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).toString() === (t.input as vscode.TabInputText).uri.toString())) : []
   if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
   finishedKey = lj.key
-  showMap(lj)
+  // The panel says Done when it is open or has the room; else the status bar says it.
+  if (mapPanel.journey || (await panelFits())) showMap(lj); else vscode.window.setStatusBarMessage('$(check) Journey finished', 3000)
   updateTour()
   tree.refresh()
 }
@@ -4360,7 +4385,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const lj = [...journeys.list.values()].find((x) => x.j.id === id)
     if (!lj) { vscode.window.setStatusBarMessage('$(info) That journey is gone', 3000); return }
     const i = lj.j.steps.findIndex((x) => x.id === stepId)
-    await openMap(lj)
+    const room = await panelFits()
+    await openMap(lj, room)
+    if (!room) cardOnly()
     await goToStep(lj, i >= 0 ? i + 1 : n)
   })
   // From a reference's "← Back to step n" (R8).
