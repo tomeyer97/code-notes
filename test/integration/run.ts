@@ -5,18 +5,38 @@ import * as os from 'os'
 import { execFileSync, spawn } from 'child_process'
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron'
 
+/** The test window is VS Code's default 1024 px (xvfb has no window manager to maximize it), which leaves the editor
+ *  ~620 px: zoomed out, the code keeps its 80 characters beside the journey panel, as on a normal screen. */
+function roomyEditor(userData: string): string {
+  fs.mkdirSync(path.join(userData, 'User'), { recursive: true })
+  const f = path.join(userData, 'User', 'settings.json')
+  if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ 'window.zoomLevel': -2 }))
+  return userData
+}
+
+/** Errors VS Code logged about the extension's tree views (a node revealed or expanded after it was redrawn away). */
+function treeErrors(userData: string): string[] {
+  const out: string[] = []
+  const walk = (d: string) => { for (const e of fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }) : []) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === 'exthost.log') out.push(...fs.readFileSync(p, 'utf8').split('\n').filter((l) => /TreeView:codeNotes|resolve tree item .*code-notes/.test(l))) } }
+  walk(path.join(userData, 'logs'))
+  return out
+}
+
 async function main() {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'code-notes-ws-'))
   fs.mkdirSync(path.join(ws, 'src'))
   fs.writeFileSync(path.join(ws, 'src', 'app.ts'), ['import { readToken, use } from "./lib"', 'export function main() {', '  const token = readToken()', '  use(token)', '  return 0', '}', ''].join('\n'))
   const root = path.resolve(__dirname, '../../..')
+  const userData = roomyEditor(process.env.CODE_NOTES_PROFILE ? path.join(process.env.CODE_NOTES_PROFILE, `main-${path.basename(ws)}`) : fs.mkdtempSync(path.join(os.tmpdir(), 'code-notes-main-ud-')))
   await runTests({
     extensionDevelopmentPath: root,
     extensionTestsPath: path.join(__dirname, 'index.js'),
     // No Chromium sandbox: CI runners (and containers) often can't set it up; the untrusted run below does the same.
-    launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox',
-      ...(process.env.CODE_NOTES_PROFILE ? [`--user-data-dir=${path.join(process.env.CODE_NOTES_PROFILE, `main-${path.basename(ws)}`)}`] : [])],
+    launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${userData}`],
   })
+  const tree = treeErrors(userData)
+  if (tree.length) throw new Error(`tree view errors in the extension host log:\n${tree.join('\n')}`)
+  console.log('  ✓ extension host log: no tree view errors')
 }
 
 // The same extension in Restricted Mode (workspace trust on, the folder never trusted): Claude never runs.
@@ -79,7 +99,7 @@ async function check() {
     await runTests({
       extensionDevelopmentPath: root,
       extensionTestsPath: path.join(__dirname, 'index-check.js'),
-      launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${userData}`, `--remote-debugging-port=${port}`],
+      launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${roomyEditor(userData)}`, `--remote-debugging-port=${port}`],
       extensionTestsEnv: { CODE_NOTES_SHOTS: process.env.CODE_NOTES_SHOTS ?? '', CODE_NOTES_CDP: String(port), CODE_NOTES_CONSOLE: consoleLog },
     })
   } finally { watcher.stop() }

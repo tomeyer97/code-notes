@@ -466,8 +466,11 @@
     const sortSel = el('select', 'hsort')
     sortSel.setAttribute('aria-label', 'Sort')
     sortSel.dataset.f = 'sort'
-    for (const [id, label] of [['area', 'By area'], ['newest', 'Newest'], ['walked', 'Recently walked'], ['name', 'A–Z']]) { const o = el('option', '', label); o.value = id; if (m.sort === id) o.selected = true; sortSel.append(o) }
-    sortSel.onchange = () => { focusNext = 'sort'; sendList({ sort: sortSel.value }) }
+    // A search orders by best match unless another order is picked for it (the list's own sort stays as it is).
+    const searching = !!m.query
+    const cur = searching ? m.searchSort || 'best' : m.sort
+    for (const [id, label] of [...(searching ? [['best', 'Best match']] : []), ['area', 'By area'], ['newest', 'Newest'], ['walked', 'Recently walked'], ['name', 'A–Z']]) { const o = el('option', '', label); o.value = id; if (cur === id) o.selected = true; sortSel.append(o) }
+    sortSel.onchange = () => { focusNext = 'sort'; if (searching) { hq.searchSort = sortSel.value; sendList({}) } else sendList({ sort: sortSel.value }) }
     bar.append(sortSel)
     if (!chips.length) bar.removeAttribute('role')
     return bar
@@ -557,7 +560,7 @@
     go.dataset.f = 'walk'
     go.onclick = () => walkKey(r.key)
     acts.append(go)
-    if (stale.size) { const rf = el('button', 'link refreshb', 'Refresh'); rf.title = 'Ask the agent to update the stale steps'; rf.dataset.f = 'refresh'; rf.onclick = () => post({ type: 'refresh', key: r.key }); acts.append(rf) }
+    if (stale.size) { const rf = el('button', 'link refreshb', r.refreshing ? 'Refreshing…' : 'Refresh'); rf.disabled = !!r.refreshing; rf.title = 'The agent updates the stale steps of this journey (nothing else)'; rf.dataset.f = 'refresh'; rf.onclick = () => post({ type: 'refresh', key: r.key }); acts.append(rf) }
     p.append(acts)
     return p
   }
@@ -568,7 +571,7 @@
     if (e.key === '/' && !inSearch) { e.preventDefault(); searchEl && searchEl.focus(); return }
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (hq.query) { hq.query = ''; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
+      if (hq.query) { hq.query = ''; hq.searchSort = 'best'; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
       if (J) { setHome(false); render() }
       return
     }
@@ -917,5 +920,8 @@
   let st = 0
   window.addEventListener('scroll', () => { clearTimeout(st); st = setTimeout(() => { if (J) saveState() }, 300) })
   window.addEventListener('resize', relayout)
+  // The panel's width as the reader drags it: the extension keeps it for the next walk.
+  let pw = 0
+  window.addEventListener('resize', () => { clearTimeout(pw); pw = setTimeout(() => post({ type: 'panelWidth', w: window.innerWidth }), 500) })
   post({ type: 'ready' })
 })()

@@ -393,6 +393,12 @@ export async function run(): Promise<void> {
   await until('map open and drawn, walking at step 1', () => t().map === 'demo' && t().journey === 'demo' && t().mapBoxes === 5 && t().mapFocus === 'fa' && t().step === 1 && at() === 'src/flow.ts:2' && t().card?.title === 'a calls b', 10000)
   await until('opened: no longer new', () => !((api as any).journeysTree() as string[]).some((l: string) => /· new/.test(l)))
   assert.equal(t().touring, true, 'walking')
+  // The panel beside the code: at most 40 % (the code keeps ~80 characters).
+  const lay = await vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
+  console.log(`  (editor layout: ${JSON.stringify(lay)})`)
+  await sleep(500)
+  const lay2 = await vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
+  if (lay2.groups.length === 2) { const tot = lay2.groups[0].size + lay2.groups[1].size; assert.ok(lay2.groups[1].size / tot <= 0.41, `the panel takes ${JSON.stringify(lay2)}`) }
   const mapCol = t().mapColumn
   const c1 = t().card
   assert.equal(c1.label, '1/3 · a calls b', 'the card\'s first line is "1/3 · title"')
@@ -558,6 +564,20 @@ export async function run(): Promise<void> {
   await until('one lens per function', async () => { const l = (await lenses(flowUri)).filter((x) => x.includes('◇')); return l.length === 2 && l.includes(`${fnLine('a')}:◇ Step 1 of Demo`) && l.includes(`${fnLine('b')}:◇ Step 3 of Demo`) }, 15000)
   await vscode.window.showTextDocument(flowUri, { viewColumn: vscode.ViewColumn.One })
   await shotX('step-lens')
+  // A file's top consts share one lens; a function gets one lens however its steps sit in it (a destructuring, a
+  // callback, a step on the comment above it).
+  const topSrc = ["import { get, connect, makePool } from './lib'", '', 'const pool = makePool({', "  url: 'postgres://db',", '})', "const HOST = 'mail'", 'const PORT = 25', '',
+    '// Sends one mail.', 'export async function send(to: string) {', '  const { a } = await get(to, pool)', '  return new Promise((ok) => {', '    connect(PORT, HOST, a, ok)', '  })', '}', '']
+  fs.writeFileSync(path.join(ws, 'src', 'top.ts'), topSrc.join('\n'))
+  const topPath = path.join(jdir, 'top.json')
+  const tst = (id: string, a: number, b = a) => ({ id, title: `Line ${a}`, node: 'f', file: 'src/top.ts', range: { start: a, end: b }, lead: 'Here.', refs: [] })
+  fs.writeFileSync(topPath, JSON.stringify({ version: 2, id: 'top', question: 'How is a mail sent?', title: 'Top', summary: '', nodes: [{ id: 'f', kind: 'function', label: 'send' }],
+    steps: [tst('t1', 4), tst('t2', 6), tst('t3', 7), tst('t4', 9, 10), tst('t5', 11), tst('t6', 13)] }))
+  const topUri = vscode.Uri.file(path.join(ws, 'src', 'top.ts'))
+  await vscode.workspace.openTextDocument(topUri)
+  await until('top: one lens for the consts, one for send()', async () => { const l = (await lenses(topUri)).filter((x) => x.includes('◇')); return l.join('|') === '3:◇ Step 1 of Top|10:◇ Step 4 of Top' }, 15000)
+  fs.unlinkSync(topPath)
+  await until('top gone', () => !snap().journeys.some((x: any) => x.id === 'top'))
   await vscode.workspace.getConfiguration('codeNotes').update('journeys.codeLens', false, vscode.ConfigurationTarget.Workspace)
   await until('the setting turns them off', async () => !(await lenses(flowUri)).some((x) => x.includes('◇')))
   await vscode.workspace.getConfiguration('codeNotes').update('journeys.codeLens', undefined, vscode.ConfigurationTarget.Workspace)
@@ -760,8 +780,8 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   fs.writeFileSync(dk, dlines.join('\n'))
   const dkPath = path.join(path.dirname(j.demoPath), 'disk.json')
   fs.writeFileSync(dkPath, JSON.stringify({ version: 2, id: 'disk', question: 'How is an order charged?', title: 'Disk', summary: '',
-    nodes: [{ id: 'c', kind: 'function', label: 'charge' }],
-    steps: [{ id: 'd1', title: 'Charged', node: 'c', file: 'src/disk.ts', range: { start: 2, end: 3 }, lead: 'Here.', refs: [] }] }))
+    nodes: [{ id: 'c', kind: 'function', label: 'charge' }], edges: [],
+    steps: [{ id: 'd1', title: 'Charged', node: 'c', file: 'src/disk.ts', range: { start: 2, end: 3 }, anchor: { text: dlines.slice(1, 3).join('\n'), before: '// disk', after: '}' }, lead: 'Here.', refs: [] }] }))
   const dAt = () => snap().journeys.find((x: any) => x.id === 'disk')?.at[0]
   await until('disk loaded, fresh', () => !!dAt() && !dAt().stale)
   fs.writeFileSync(dk, ['// disk', '', '// moved down by a comment', ...dlines.slice(1)].join('\n'))
@@ -770,9 +790,17 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await until('edited on disk: stale', () => dAt().stale, 8000)
   fs.writeFileSync(dk, dlines.join('\n'))
   await until('the old code back on disk: fresh again', () => !dAt().stale && dAt().start === 2, 8000)
+  // Refresh: the journey writer updates the stale step in a staged copy, which replaces the file once checked; no note.
+  fs.writeFileSync(dk, ['// disk', 'export function charge(order) {', '  return gateway.charge(order.total, "EUR")', '}', ''].join('\n'))
+  await until('stale again', () => dAt().stale, 8000)
+  const notesBeforeRefresh = snap().notes.length
+  await vscode.commands.executeCommand('codeNotes.refreshJourney', vscode.Uri.file(dkPath).toString())
+  await until('refreshed: the file rewritten, the step fresh', () => JSON.parse(fs.readFileSync(dkPath, 'utf8')).steps[0].anchor?.v === 3 && !dAt().stale, 20000)
+  assert.equal(snap().notes.length, notesBeforeRefresh, 'Refresh writes no note in the reader\'s name')
+  assert.ok(!fs.readdirSync(path.join(ws, '.code-notes', '.writing')).length, 'the staging folder is cleaned up')
   fs.unlinkSync(dkPath)
   await until('disk gone', () => !snap().journeys.some((x: any) => x.id === 'disk'))
-  ok('a step file changed on disk (no editor open): moved stays fresh, an edit is stale, the old code back is fresh')
+  ok('a step file changed on disk (no editor open): moved stays fresh, an edit is stale, the old code back is fresh; Refresh updates the stale step through the journey writer, no note')
 
   // 32e. The map follows the step; a ref is lit with "← Back to step"; the card and the step's lines are in view after a jump lower in the same
   // file; arriving at a step doesn't read a note there; leaving a journey for another says so;

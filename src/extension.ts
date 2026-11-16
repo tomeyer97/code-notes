@@ -15,6 +15,8 @@ import { linkify } from './answerLinks'
 import { scoreJourney } from './match'
 import { clock, journeyPrompt, journeyRules, minutes, modelProblem, phaseOf } from './writing'
 import { Understanding } from './check'
+import { panelShare } from './layout'
+import { Block, Sym, blockAt, blocksFromSymbols, blocksFromText, groupSteps } from './codeBlocks'
 import { Group, ListItem, ListKind, ListModel, SORTS, Sort, ageOf, buildList, seeAlso } from './journeyList'
 
 const CONTROLLER_ID = 'codeNotes'
@@ -1401,7 +1403,7 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
   const left = active ? tourStep : resumeAt(lj) > 1 ? resumeAt(lj) : 0
   // Where it was left, else its area and age (journeyList.ts): muted, short.
   const row = lastList?.rows[lj.key]
-  item.description = [left ? `step ${left}/${lj.j.steps.length}` : row ? [row.area, row.age].filter(Boolean).join(' · ') : '', staleCount(lj) ? '⚠ Stale' : '', newReplies ? `${newReplies} repl${newReplies === 1 ? 'y' : 'ies'}` : '', lj.readError ? '⚠ unreadable' : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(' · ') || undefined
+  item.description = [left ? `step ${left}/${lj.j.steps.length}` : row ? [row.area, row.age].filter(Boolean).join(' · ') : '', refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '', newReplies ? `${newReplies} repl${newReplies === 1 ? 'y' : 'ies'}` : '', lj.readError ? '⚠ unreadable' : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(' · ') || undefined
 
   // The icon says state only: walking, or stale steps; a plain row otherwise.
   // No stale ⚠ here: the step card says it, the storyline marks the step.
@@ -1417,24 +1419,32 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
   return item
 }
 
-/** The walk's row where it is near the top (In this file, Continue): never deep in All, which scrolled the view away. */
-function revealJourneyRow(lj: LoadedJourney): void {
+/**
+ * A reveal in the Journeys view goes only to a node the view holds now and keeps holding: a reveal of a node that a
+ * redraw dropped meanwhile (the "In this file" group of the file before) logged "Failed to resolve tree node".
+ * So: once things settle, against the model as it is then, and only for groups that don't come and go with the editor.
+ */
+let revealTimer: NodeJS.Timeout | undefined
+function revealSettled(f: (m: ListModel) => Node | undefined, o: { select: boolean; expand: boolean }, wait: number): void {
+  clearTimeout(revealTimer)
   if (!journeysView?.visible) return
-  const m = lastList ?? listModel()
-  const g = ['here', 'continue'].find((id) => m.groups.find((x) => x.id === id)?.keys.includes(lj.key))
-  if (!g) return
-  journeysView.reveal(cached(`journey:${g}:${lj.key}`, { kind: 'journey' as const, lj, group: g }), { select: true, focus: false, expand: false }).then(undefined, () => { /* not listed */ })
+  const file = activeRel()
+  revealTimer = setTimeout(() => {
+    if (!journeysView.visible || activeRel() !== file) return
+    const n = f(listModel())
+    if (n) journeysView.reveal(n, { ...o, focus: false }).then(undefined, () => { /* gone meanwhile */ })
+  }, wait)
 }
 
-/** The editor changed: the Journeys view shows "In this file" (the top), not a row deep in All. */
+/** The walk's row in Continue (where a walk is listed first): never deep in All, which scrolled the view away. */
+function revealJourneyRow(lj: LoadedJourney): void {
+  revealSettled((m) => m.groups.find((x) => x.id === 'continue')?.keys.includes(lj.key) ? cached(`journey:continue:${lj.key}`, { kind: 'journey' as const, lj, group: 'continue' }) : undefined, { select: true, expand: false }, 300)
+}
+
+/** The editor changed (and stayed): the Journeys view shows "In this file" (the top), not a row deep in All. */
 function revealHereGroup(): void {
-  if (!journeysView?.visible) return
-  setTimeout(() => {
-    const m = lastList
-    const g = m?.groups.find((x) => x.id === 'here')
-    if (!g) return
-    void journeysView.reveal(cached('jgroup:here', { kind: 'jgroup' as const, g }), { select: false, focus: false, expand: true }).then(undefined, () => { /* not listed */ })
-  }, 150)
+  if (touring()) return
+  revealSettled((m) => { const g = m.groups.find((x) => x.id === 'here'); return g ? cached('jgroup:here', { kind: 'jgroup' as const, g }) : undefined }, { select: false, expand: true }, 700)
 }
 
 // ---------- finding journeys: one model (journeyList.ts) for the Journeys view and the panel's home ----------
@@ -1457,7 +1467,7 @@ function listItems(): ListItem[] {
       files: lj.j.steps.map((s, i) => lj.at[i]?.file ?? s.file), stepTitles: lj.j.steps.map((s) => s.title), steps: lj.j.steps.length,
       ranges: lj.at.map((a) => ({ start: a.start, end: a.end })),
       stale: staleCount(lj), staleSteps: lj.at.flatMap((a, i) => (a.stale ? [i + 1] : [])),
-      isNew: isNewJourney(lj), resume: walking ? tourStep : resumeAt(lj), ...(walking ? { walking: true } : {}),
+      isNew: isNewJourney(lj), ...(refreshing.has(lj.key) ? { refreshing: true } : {}), resume: walking ? tourStep : resumeAt(lj), ...(walking ? { walking: true } : {}),
       walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined, ...(lj.j.start ? { start: true } : {}),
     }
   })
@@ -1473,30 +1483,43 @@ function staleLine(lj: LoadedJourney): string {
 let cursorSpan: { start: number; end: number } | undefined
 /** Sidebar and panel: "In this file" in full. */
 let hereAll = false
-const symbolCache = new Map<string, { version: number; symbols: vscode.DocumentSymbol[] }>()
+/** The functions of a document (codeBlocks.ts): its symbols, else its text. Symbols not ready yet (a language server
+ *  still starting) are not cached: the text's blocks stand in and the symbols are asked for again next time. */
+const blockCache = new Map<string, { version: number; blocks: Block[] }>()
+const SYM_KIND: Partial<Record<vscode.SymbolKind, Sym['kind']>> = {
+  [vscode.SymbolKind.Function]: 'fn', [vscode.SymbolKind.Method]: 'fn', [vscode.SymbolKind.Constructor]: 'fn',
+  [vscode.SymbolKind.Class]: 'class', [vscode.SymbolKind.Interface]: 'class', [vscode.SymbolKind.Struct]: 'class',
+  [vscode.SymbolKind.Variable]: 'var', [vscode.SymbolKind.Constant]: 'var',
+}
+async function blocksOf(doc: vscode.TextDocument): Promise<{ blocks: Block[]; fromText: boolean }> {
+  const k = doc.uri.toString()
+  const c = blockCache.get(k)
+  if (c && c.version === doc.version) return { blocks: c.blocks, fromText: false }
+  const got = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then((x) => x ?? [], () => [])
+  const conv = (l: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): Sym[] => l.map((x) => {
+    const r = 'range' in x ? x.range : x.location.range
+    return { kind: SYM_KIND[x.kind] ?? 'other', start: r.start.line, end: r.end.line, children: 'children' in x ? conv(x.children) : [] }
+  })
+  const syms = Array.isArray(got) ? conv(got) : []
+  if (!syms.length) return { blocks: blocksFromText(Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)), fromText: true }
+  const blocks = blocksFromSymbols(syms)
+  blockCache.set(k, { version: doc.version, blocks })
+  if (blockCache.size > 30) blockCache.delete(blockCache.keys().next().value!)
+  return { blocks, fromText: false }
+}
 async function updateCursorSpan(): Promise<void> {
   const e = vscode.window.activeTextEditor
   if (!e || e.document.uri.scheme !== 'file') { cursorSpan = undefined; return }
   const line = e.selection.active.line
-  const k = e.document.uri.toString()
-  let c = symbolCache.get(k)
-  if (!c || c.version !== e.document.version) {
-    const got = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', e.document.uri).then((x) => x ?? [], () => [])
-    c = { version: e.document.version, symbols: Array.isArray(got) && got.every((x) => 'children' in x) ? got : [] }
-    symbolCache.set(k, c)
-    if (symbolCache.size > 20) symbolCache.delete(symbolCache.keys().next().value!)
-  }
-  const fn = new Set([vscode.SymbolKind.Function, vscode.SymbolKind.Method, vscode.SymbolKind.Constructor])
-  let best: vscode.Range | undefined
-  const walk = (l: vscode.DocumentSymbol[]) => { for (const x of l) if (x.range.start.line <= line && x.range.end.line >= line) { if (fn.has(x.kind)) best = x.range; walk(x.children) } }
-  walk(c.symbols)
-  cursorSpan = best ? { start: best.start.line + 1, end: best.end.line + 1 } : { start: line + 1, end: line + 1 }
+  // The whole function around the cursor: every line of it ranks the same.
+  const b = blockAt(line, (await blocksOf(e.document)).blocks)
+  cursorSpan = b ? { start: b.start + 1, end: b.end + 1 } : { start: line + 1, end: line + 1 }
 }
 /** The last model the sidebar drew (rows' area and age for journeyItem). */
 let lastList: ListModel | undefined
 /** The panel home's own search, chips and sort (the sidebar searches with a picker). */
-let homeQuery: { query: string; kind: ListKind | 'all'; area: string } = { query: '', kind: 'all', area: '' }
-function listModel(o: { query?: string; kind?: ListKind | 'all'; area?: string } = {}): ListModel {
+let homeQuery: { query: string; kind: ListKind | 'all'; area: string; searchSort?: Sort | 'best' } = { query: '', kind: 'all', area: '' }
+function listModel(o: { query?: string; kind?: ListKind | 'all'; area?: string; searchSort?: Sort | 'best' } = {}): ListModel {
   return buildList(listItems(), { activeFile: activeRel(), activeSpan: cursorSpan, hereAll, sort: listSort(), ...o })
 }
 
@@ -1504,7 +1527,10 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>()
   readonly onDidChangeTreeData = this.changed.event
   private parents = new Map<string, Node>()
-  refresh() { this.changed.fire(undefined) }
+  /** One redraw for a burst of changes (a step, the editor, the cursor): VS Code asked for the children of a group
+   *  from one drawing after the next had dropped it ("Failed to resolve tree node"). */
+  private timer: NodeJS.Timeout | undefined
+  refresh() { clearTimeout(this.timer); this.timer = setTimeout(() => this.changed.fire(undefined), 80) }
   /** The group a journey is listed under in "All" (for reveal). */
   groupOf(key: string): string | undefined {
     const m = lastList ?? listModel()
@@ -2656,28 +2682,59 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
  * or where it was left (the step being walked, else the resume point).
  */
 async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean; keepFocus?: 'sidebar' | 'panel' } = {}): Promise<void> {
-  const fresh = mapPanel.viewColumn === undefined
   await openMap(lj)
   if (!lj.j.steps.length) return
   await goToStep(lj, opts.fromStart ? 1 : tourKey === lj.key && tourStep ? tourStep : resumeAt(lj) || 1)
   // Back where the click was: the code is shown, but arrows and Enter never type into it.
   if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
   else if (opts.keepFocus === 'panel') mapPanel.takeFocus()
-  if (fresh) await codeGetsMoreRoom()
+  await codeGetsMoreRoom()
+}
+
+/** The panel's width as the reader left it (a share of the editor area), every journey. */
+const PANEL_SHARE_KEY = 'codeNotes.panelShare'
+/** When the extension last set the layout (a resize right after is ours, not the reader's). */
+let layoutSetAt = 0
+type Layout = { orientation: number; groups: { size?: number }[] }
+/** Code and the panel side by side, the panel's index, and the editor area's width (px), when that is the layout. */
+async function sideBySide(): Promise<{ layout: Layout; panel: number; total: number } | undefined> {
+  const groups = vscode.window.tabGroups.all
+  const mapCol = mapPanel.viewColumn
+  if (groups.length !== 2 || mapCol === undefined) return undefined
+  const panel = groups.findIndex((g) => g.viewColumn === mapCol)
+  if (panel < 0 || !groups[1 - panel].tabs.length) return undefined
+  const layout = await vscode.commands.executeCommand<Layout>('vscode.getEditorLayout').then((x) => x, () => undefined)
+  if (!layout || layout.orientation !== 0 || layout.groups.length !== 2) return undefined
+  const total = layout.groups.reduce((a, g) => a + (g.size ?? 0), 0)
+  return total > 10 ? { layout, panel, total } : undefined
 }
 
 /**
- * the map just opened beside the code: the code group gets the larger share (60/40), so a step's code and a ref's
- * peek are not cut mid-identifier. Only with exactly the two groups (code, map); a layout the reader made is kept.
+ * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
+ * ~80 characters; a window too narrow for both walks with the step card in the editor only (no panel).
  */
 async function codeGetsMoreRoom(): Promise<void> {
-  const groups = vscode.window.tabGroups.all
-  const mapCol = mapPanel.viewColumn
-  if (groups.length !== 2 || mapCol === undefined || !groups.some((g) => g.viewColumn === mapCol)) return
-  const code = groups.find((g) => g.viewColumn !== mapCol)
-  if (!code || !code.tabs.length) return
-  const sizes = groups.map((g) => (g.viewColumn === mapCol ? 0.4 : 0.6))
-  await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: sizes.map((size) => ({ size })) }).then(undefined, (e) => log.warn(`layout: ${e}`))
+  const s = await sideBySide()
+  if (!s) return
+  const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14
+  const share = panelShare(s.total, { fontSize, remembered: gstate.get<number>(PANEL_SHARE_KEY) })
+  if (!share) {
+    log.info(`journey panel: ${Math.round(s.total)} px is too narrow for the code and the panel; the step card only`)
+    mapPanel.close()
+    vscode.window.setStatusBarMessage(`$(info) Narrow window: the step card only (${KEY} V: the map)`, 6000)
+    return
+  }
+  const want = s.layout.groups.map((_, i) => (i === s.panel ? share : 1 - share))
+  const now = (s.layout.groups[s.panel].size ?? 0) / s.total
+  if (Math.abs(now - share) < 0.02) return
+  layoutSetAt = Date.now()
+  await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: want.map((size) => ({ size })) }).then(undefined, (e) => log.warn(`layout: ${e}`))
+}
+/** The panel was resized: by the reader (not just after we set it), so that width is kept for next time. */
+async function rememberPanelWidth(): Promise<void> {
+  if (Date.now() - layoutSetAt < 1500) return
+  const s = await sideBySide()
+  if (s) void gstate.update(PANEL_SHARE_KEY, Math.round(((s.layout.groups[s.panel].size ?? 0) / s.total) * 1000) / 1000)
 }
 
 /**
@@ -2727,8 +2784,9 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'home') { /* the list over the walk: the walk keeps its place, card and status item */ }
   else if (m.type === 'beat') void showBeat(lj, m.n, m.i)
   else if (m.type === 'closed') beats.clear()
+  else if (m.type === 'panelWidth') void rememberPanelWidth()
   else if (m.type === 'mapWidth') void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined)
-  else if (m.type === 'list') { homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? '') }; if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }); else mapPanel.update() }
+  else if (m.type === 'list') { homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? ''), searchSort: m.searchSort ?? 'best' }; if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }); else mapPanel.update() }
   else if (m.type === 'preview') { const x = journeys.list.get(m.key); if (x) void staleInfo(x).then((stale) => mapPanel.send({ type: 'preview', key: m.key, journey: x.j, stale })) }
   else if (m.type === 'refresh') { const x = journeys.list.get(m.key); if (x) void refreshJourney(x) }
   else if (m.type === 'hereAll') { hereAll = true; mapPanel.update() }
@@ -2973,40 +3031,122 @@ async function staleInfo(lj: LoadedJourney): Promise<{ n: number; when: string }
 }
 
 /**
- * "Refresh journey": one request to the agent (a step question, as Ask on a stale step makes) to update only the
- * steps whose code changed; the rest still match. Asked already: that note opens.
+ * "Refresh journey": the journey writer (Claude Code with the code-journey skill, as when writing one) updates the
+ * stale steps of a copy in a staging folder, changing nothing else; once `journey.py check` passes, the copy replaces
+ * the journey file and a notice offers the diff. No note, nothing said in the reader's name. Without the CLI: the
+ * prompt on the clipboard.
  */
-async function refreshJourney(arg?: unknown): Promise<Note | undefined> {
-  const key = typeof arg === 'string' ? arg : arg && typeof arg === 'object' && 'lj' in arg ? (arg as { lj: LoadedJourney }).lj.key : undefined
+async function refreshJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
+  const key = typeof arg === 'string' ? arg : arg && typeof arg === 'object' ? ('lj' in arg ? (arg as { lj: LoadedJourney }).lj.key : 'key' in arg && 'j' in arg ? (arg as LoadedJourney).key : undefined) : undefined
   let lj = key ? journeys.list.get(key) : undefined
   if (!lj) {
     const stale = journeyOrder().filter((x) => staleCount(x))
     if (!stale.length) { vscode.window.setStatusBarMessage('$(check) Every journey matches the code', 3000); return undefined }
-    const p = await vscode.window.showQuickPick(stale.map((x) => ({ label: x.j.title, description: staleLine(x).replace(/^⚠ /, ''), key: x.key })), { title: 'Refresh which journey?' })
+    // The one in front (the walk, the panel's), else none preselected: Enter never refreshes a journey by chance.
+    const near = tourJourney() ?? mapPanel.journey
+    const items = stale.map((x) => ({ label: x.j.title, description: staleLine(x).replace(/^⚠ /, ''), key: x.key }))
+    const qp = vscode.window.createQuickPick<typeof items[number]>()
+    qp.title = 'Refresh which journey?'
+    qp.items = items
+    const pre = items.find((x) => x.key === near?.key)
+    qp.activeItems = pre ? [pre] : []
+    const p = await new Promise<typeof items[number] | undefined>((res) => { qp.onDidAccept(() => { res(qp.selectedItems[0] ?? qp.activeItems[0]); qp.hide() }); qp.onDidHide(() => { res(undefined); qp.dispose() }); qp.show() })
     lj = p && journeys.list.get(p.key)
     if (!lj) return undefined
   }
   const stale = lj.at.flatMap((a, i) => (a.stale ? [i + 1] : []))
   if (!stale.length) { vscode.window.setStatusBarMessage('$(check) Every step matches the code', 3000); return undefined }
-  const asked = askedOf(lj)
-  const before = stale.map((n) => asked[n]).find((a) => a?.update)
-  if (before) { const nt = byId(before.id); if (nt) await reveal(nt); return nt }
-  const n = stale[0], s = lj.j.steps[n - 1], at = lj.at[n - 1]
-  const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))).then((d) => d, () => undefined)
-  if (!doc) { void showError(`Code Notes: ${fileOf(lj, n)} can't be opened.`); return undefined }
-  const list = stale.map((k) => `${k} (“${lj!.j.steps[k - 1].title}”)`).join(', ')
-  const text = `${UPDATE_ASK}${stale.length > 1 ? ` Out of date: steps ${list}.` : ''} Update only ${stale.length > 1 ? 'these steps' : 'this step'}; the others still match the code.`
-  const about = `_About the step “${s.title}” (id \`${s.id}\`) of the journey “${lj.j.title}”_`
-  const note = await createNote(doc, { start: at.start - 1, end: at.end - 1 }, `${text}\n\n${about}`, undefined, { journey: { id: lj.j.id, step: s.id, n } })
-  if (!note) return undefined
-  // About the code as the journey wrote it, not what is at those lines now: stale from the start.
-  const was = journeys.anchorOf(lj, n)
-  if (was && 'text' in was) { note.data.anchor = { ...note.data.anchor, ...was }; note.data.stale = true; await store.save(note) }
-  if (claudeMode() !== 'off' && findCli(cfg().get<string>('claude.path') || undefined)) void askClaude(note)
-  vscode.window.setStatusBarMessage(`$(check) Asked the agent to refresh ${stale.length === 1 ? 'step' : 'steps'} ${stale.join(', ')}`, 4000)
-  refreshAll(); journeysTree.refresh(); mapPanel.update()
-  return note
+  if (refreshing.has(lj.key)) { vscode.window.setStatusBarMessage('$(sync~spin) Already refreshing this journey', 3000); return undefined }
+  const fs = require('fs') as typeof import('fs')
+  const path = require('path') as typeof import('path')
+  const os = require('os') as typeof import('os')
+  const folder = lj.folder
+  const repo = folder.uri.fsPath
+  const slug = path.basename(lj.uri.fsPath, '.json')
+  const which = stale.map((n) => `${n} (“${lj!.j.steps[n - 1].title}”)`).join(', ')
+  const task = `The journey "${slug}" is out of date: step${stale.length === 1 ? '' : 's'} ${which} no longer match${stale.length === 1 ? 'es' : ''} the code. Update only ${stale.length === 1 ? 'that step' : 'those steps'}: \`check … fix\` what only moved; where the code changed, re-read it, \`restep\` the facts that are no longer true, then the range; \`rmstep\` a step whose code is gone for good. Leave the other steps, the map and the journey's question and title as they are.`
+  const cli = findCli(cfg().get<string>('claude.path') || undefined)
+  if (!cli) {
+    await vscode.env.clipboard.writeText(`Use the code-journey skill. ${task}`)
+    void vscode.window.showInformationMessage(`Copied a prompt for your agent to refresh “${lj.j.title}”`)
+    return undefined
+  }
+  if (!claudeAllowed('refresh journeys')) return undefined
+  const skill = journeySkill(folder)
+  if (!skill) { void showError('Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills.'); return undefined }
+  const model = journeyModel()
+  const bad = modelProblem(model)
+  if (bad) { void showError(`Code Notes: ${bad}`); return undefined }
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  const stage = `${folderName()}/.writing/${id}`
+  const stageDir = path.join(repo, stage)
+  fs.mkdirSync(stageDir, { recursive: true })
+  const cleanup = () => { try { fs.rmSync(stageDir, { recursive: true, force: true }) } catch { /* gone */ } }
+  const before = fs.readFileSync(lj.uri.fsPath, 'utf8')
+  fs.writeFileSync(path.join(stageDir, `${slug}.json`), before)
+  const bundled = skill === bundledSkill()
+  // What `check` says before: a refresh is judged by what it adds, not by rule breaks the journey already had.
+  const problems = (out: string) => new Set(out.split('\n').filter((l) => l.startsWith('PROBLEM')).map((l) => l.replace(/\d+/g, '#')))
+  const was = problems((await journeyPy(skill, repo, stage, ['check', repo, slug, 'quiet'])).out)
+  const how = bundled ? `Read ${skill}/SKILL.md and follow it exactly (it is the code-journey skill; it is not installed, so do not look for it with the Skill tool).` : 'Use the code-journey skill.'
+  const prompt = [how, task,
+    `The journey is in a staging folder: run journey.py always with \`--dir ${stage}\` (Code Notes puts it back in place once \`check\` passes). Run its scripts by their full path (${skill}/scripts/…), one command per call: no shell variables, no && or pipes. Edit nothing else.`,
+    'When done, reply with one short line per step you changed.'].join('\n\n')
+  const title = lj.j.title
+  const w: Writing = { id, question: `Refresh: ${title}`, started: Date.now(), phase: 'starting', model: modelLabel(model) }
+  writingNow.set(id, w); writingChanged.fire()
+  refreshing.add(lj.key); journeysTree.refresh(); mapPanel.update()
+  log.info(`journey ${lj.j.id}: Claude (${w.model}) refreshes step(s) ${stale.join(', ')}`)
+  let res: AskResult
+  try {
+    res = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Refreshing: ${shortQ(title)}`, cancellable: true }, async (progress, token) => {
+      const tick = () => { progress.report({ message: `${clock(Date.now() - w.started)} · ${w.phase}` }); writingChanged.fire() }
+      const ask = new Ask({
+        cli, cwd: repo, prompt, model,
+        extraTools: ['Skill', `Bash(${skill}/scripts/*)`], addDirs: bundled ? [skill] : [],
+        env: { JOURNEY_MODEL: w.model },
+        onProgress: (p) => { const ph = phaseOf(p.tool, w.phase); if (ph !== w.phase) { w.phase = ph; tick() } },
+      })
+      w.ask = ask
+      tick()
+      const timer = setInterval(tick, 1000)
+      token.onCancellationRequested(() => ask.cancel())
+      try { return await ask.done } finally { clearInterval(timer) }
+    })
+  } finally {
+    writingNow.delete(id); writingChanged.fire()
+    refreshing.delete(lj.key)
+  }
+  const staged = path.join(stageDir, `${slug}.json`)
+  const after = fs.existsSync(staged) ? fs.readFileSync(staged, 'utf8') : ''
+  if (res.cancelled) { cleanup(); journeysTree.refresh(); mapPanel.update(); return undefined }
+  if (res.error) { cleanup(); void showError(`Code Notes: Claude couldn't refresh the journey: ${res.error}`); journeysTree.refresh(); return undefined }
+  const chk = await journeyPy(skill, repo, stage, ['check', repo, slug, 'quiet'])
+  const added = [...problems(chk.out)].filter((p) => !was.has(p))
+  if (added.length || !after) {
+    log.error(`journey ${slug}: the refreshed copy has new problems (journey.py check); left in ${stage}/:\n${chk.out}`)
+    void showError('Code Notes: the refreshed journey broke a rule of its check, so nothing changed.', 'Show Output').then((b) => { if (b) log.show(true) })
+    journeysTree.refresh(); mapPanel.update()
+    return undefined
+  }
+  if (after === before) { cleanup(); void vscode.window.showInformationMessage(`“${title}”: Claude changed nothing. ${res.text.trim().split('\n')[0] ?? ''}`.trim()); journeysTree.refresh(); return lj }
+  // The journey file was edited meanwhile: keep that, the refresh stays in the staging folder.
+  if (fs.readFileSync(lj.uri.fsPath, 'utf8') !== before) { void showError(`Code Notes: “${title}” changed while it was refreshed; the refreshed copy is in ${stage}/.`); return undefined }
+  const old = path.join(os.tmpdir(), `code-notes-${id}-${slug}.before.json`)
+  fs.writeFileSync(old, before)
+  fs.writeFileSync(lj.uri.fsPath, after)
+  cleanup()
+  const done = await journeys.reload(lj.uri)
+  const left = done ? staleCount(done) : 0
+  log.info(`journey ${slug}: refreshed in ${clock(Date.now() - w.started)}${left ? `; ${left} step(s) still out of date` : ''}`)
+  void vscode.window.showInformationMessage(`Refreshed “${title}”${left ? ` · ${left} step${left === 1 ? '' : 's'} still out of date` : ''}`, 'Show changes').then((b) => {
+    if (b) void vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(old), lj!.uri, `${title}: before ↔ refreshed`)
+  })
+  journeysTree.refresh(); mapPanel.update()
+  return done ?? lj
 }
+/** Journeys being refreshed (key): their Refresh says so. */
+const refreshing = new Set<string>()
 
 /** A box without steps (a store): open what its `path` names: a file, else the folder in the Explorer. */
 async function openBoxPath(lj: LoadedJourney, p: string): Promise<void> {
@@ -3082,13 +3222,15 @@ async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> 
     for (const s of lj.j.steps) {
       const at = lj.at[s.n - 1]
       if (!at || at.stale || fileOf(lj, s.n) !== rel) continue
-      hits.push({ line: at.start - 1, journey: lj.j.id, title: lj.j.title, step: s.id, n: s.n, stepTitle: s.title })
+      hits.push({ line: at.start - 1, end: at.end - 1, journey: lj.j.id, title: lj.j.title, step: s.id, n: s.n, stepTitle: s.title })
     }
   }
   if (!hits.length) return []
-  // At most one lens per function (its symbol), on its first line: the step there, or how many journeys pass there.
-  const syms = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then((x) => x ?? [], () => [])
-  return lensGroups(hits, symbolRanges(syms)).map((g) => {
+  // At most one lens per function, on its first line: the step there, or how many journeys pass there.
+  const { blocks, fromText } = await blocksOf(doc)
+  // The language's symbols were not ready: the text's blocks for now, the symbols' in a moment.
+  if (fromText && !lensRetried.has(`${doc.uri}|${doc.version}`)) { lensRetried.add(`${doc.uri}|${doc.version}`); setTimeout(() => lensChanged.fire(), 2000) }
+  return groupSteps(hits, blocks).map((g) => {
     const r = new vscode.Range(g.line, 0, g.line, 0)
     const js = [...new Set(g.steps.map((x) => x.journey))]
     if (js.length === 1) {
@@ -3098,32 +3240,10 @@ async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> 
     return new vscode.CodeLens(r, { title: `◇ ${js.length} journeys`, command: 'codeNotes.pickJourneyStep', arguments: [g.steps], tooltip: [...new Set(g.steps.map((x) => x.title))].join(' · ') })
   })
 }
+const lensRetried = new Set<string>()
 
 /** A journey step whose lines are in a file (for the lenses). */
-interface LensStep { line: number; journey: string; title: string; step: string; n: number; stepTitle: string }
-/** Functions, methods and classes of a document as line ranges (0-based), innermost last. */
-function symbolRanges(syms: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = []
-  const walk = (list: (vscode.DocumentSymbol | vscode.SymbolInformation)[]) => {
-    for (const s of list) {
-      const r = 'range' in s ? s.range : s.location.range
-      if ([vscode.SymbolKind.Function, vscode.SymbolKind.Method, vscode.SymbolKind.Constructor, vscode.SymbolKind.Class].includes(s.kind) || ('children' in s && s.kind === vscode.SymbolKind.Variable && s.children.length)) out.push({ start: r.start.line, end: r.end.line })
-      if ('children' in s) walk(s.children)
-    }
-  }
-  walk(syms)
-  return out
-}
-/** Steps grouped by the innermost function around their first line (else by that line); the lens goes on its first line. */
-function lensGroups(hits: LensStep[], fns: { start: number; end: number }[]): { line: number; steps: LensStep[] }[] {
-  const groups = new Map<number, LensStep[]>()
-  for (const h of hits) {
-    const inner = fns.filter((f) => f.start <= h.line && h.line <= f.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
-    const at = inner ? inner.start : h.line
-    groups.set(at, [...(groups.get(at) ?? []), h])
-  }
-  return [...groups].sort((a, b) => a[0] - b[0]).map(([line, steps]) => ({ line, steps }))
-}
+interface LensStep { line: number; end: number; journey: string; title: string; step: string; n: number; stepTitle: string }
 
 /** After a reload: the tour where it was. The map comes back by itself when it was open (serializer). */
 async function restoreTour(): Promise<void> {
@@ -3479,7 +3599,8 @@ async function focusReply(n: Note): Promise<boolean> {
 
 /** Selects the note's row in the sidebar, when the sidebar is open. */
 function revealInList(n: Note): void {
-  if (!treeView.visible || !matchesFilter(n)) return
+  // A step's question is listed under its journey in the Journeys view, not in this one.
+  if (!treeView.visible || !matchesFilter(n) || journeyOfNote(n)) return
   treeView.reveal(noteNode(n), { select: true, focus: false }).then(undefined, () => { /* not in the list */ })
 }
 
@@ -4395,7 +4516,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // "◇ 3 journeys" above a function: which journey, and which step, then walk to it.
   cmd('codeNotes.pickJourneyStep', async (steps?: LensStep[]) => {
     if (!Array.isArray(steps) || !steps.length) return
-    const pick = await vscode.window.showQuickPick(steps.map((s) => ({ label: s.title, description: `step ${s.n}`, detail: s.stepTitle, s })), { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
+    // One row per journey (its first step here), most steps here first.
+    const by = new Map<string, LensStep[]>()
+    for (const s of steps) by.set(s.journey, [...(by.get(s.journey) ?? []), s])
+    const rows = [...by.values()].sort((a, b) => b.length - a.length || a[0].title.localeCompare(b[0].title)).map((l) => { const s = l.reduce((a, b) => (b.n < a.n ? b : a)); return { label: s.title, description: l.length > 1 ? `steps ${l.map((x) => x.n).sort((a, b) => a - b).join(', ')}` : `step ${s.n}`, detail: s.stepTitle, s } })
+    const pick = await vscode.window.showQuickPick(rows, { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
     if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n)
   })
   cmd('codeNotes.checkConcern', async (id?: string, action?: string) => {

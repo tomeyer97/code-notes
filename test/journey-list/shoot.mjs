@@ -45,7 +45,7 @@ for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   const pump = async () => {
     const ps = await posted()
     for (const m of ps.slice(seen)) {
-      if (m.type === 'list') { state = { query: m.query, kind: m.kind, area: m.area, sort: m.sort ?? state.sort }; await send({ type: 'tour', ...tour(model()) }) }
+      if (m.type === 'list') { state = { query: m.query, kind: m.kind, area: m.area, sort: m.sort ?? state.sort, searchSort: m.searchSort }; await send({ type: 'tour', ...tour(model()) }) }
       if (m.type === 'preview') await send({ type: 'preview', key: m.key, journey, stale: (model().rows[m.key].staleSteps || []).map((n) => ({ n, when: 'a1b2c3d · 3 d ago' })) })
       if (m.type === 'hereAll') { hereAll = true; await send({ type: 'tour', ...tour(model()) }) }
       if (m.type === 'error') errors.push(`posted error: ${m.message}`)
@@ -90,6 +90,13 @@ for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   if (!h.rows.includes('How charging work')) fail(`"retry" didn't find "How charging work": ${h.rows.join(', ')}`)
   if (!h.marks) fail('matched words are not marked')
   if (h.note) fail(`a fallback line with every word found: ${h.note}`)
+  // While searching, the order is "Best match" unless another is picked; a picked one applies to the results.
+  if ((await page.$eval('.hsort', (e) => e.value)) !== 'best') fail('searching: the sort does not say "Best match"')
+  await page.selectOption('.hsort', 'name'); await settle()
+  h = await home()
+  if (h.rows.join('|') !== [...h.rows].sort((a, b) => a.localeCompare(b)).join('|')) fail(`A–Z while searching: ${h.rows.join(', ')}`)
+  await page.selectOption('.hsort', 'best'); await settle()
+  await page.focus('.hsearch'); await page.keyboard.press('End')
   // A word nothing has: any word, and the line says so.
   await page.keyboard.press('Home'); await page.keyboard.type('zebra '); await settle()
   h = await home()

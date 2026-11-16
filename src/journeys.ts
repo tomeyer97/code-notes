@@ -163,6 +163,15 @@ export class Journeys implements vscode.Disposable {
     if (names.length) this.log.info(`journeys in the old format (v1, steps as notes) not shown: ${names.join(', ')}; migrate them to v2`)
   }
 
+  /** Reads one journey file again now (it was just rewritten), without waiting for the file watcher. */
+  async reload(uri: vscode.Uri): Promise<LoadedJourney | undefined> {
+    const f = vscode.workspace.getWorkspaceFolder(uri)
+    if (!f) return undefined
+    await this.read(f, uri)
+    this.changed.fire()
+    return this.list.get(uri.toString())
+  }
+
   /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). */
   private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<string | undefined> {
     let raw: string
@@ -354,7 +363,7 @@ export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } 
   | { type: 'error'; message?: string; text?: string } | { type: 'legend'; hidden: boolean } | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
   | { type: 'ref'; i: number } | { type: 'ask'; update?: boolean } | { type: 'details'; open: boolean } | { type: 'authors' }
   | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string } | { type: 'checkpoint'; id: string } | { type: 'nextStop' }
-  | { type: 'story'; steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
+  | { type: 'story'; steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name'; searchSort?: 'best' | 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'panelWidth'; w: number } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]

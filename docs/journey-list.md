@@ -86,3 +86,23 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
   never a row of these lists, a code lens or a search hit; it is reached from the Check view. Its question rows and
   "See also" are in docs/understanding-check.md ("The tour of the change"). "See also" ranks journeys as In this file
   does (`seeAlso` in journeyList.ts).
+
+## As built (round 2)
+
+- **Refresh** runs the journey writer (Claude Code with the code-journey skill, as when writing a journey) on a copy
+  of the journey in a staging folder, asked to update only the stale steps. Once `journey.py check` passes, the copy
+  replaces the journey file and a notice offers **Show changes** (a diff). No note is written and nothing is said in
+  the reader's name. From the preview or the row it refreshes that journey; the command's picker preselects only the
+  journey in front (the walk, the panel's), never the first in the list.
+- **Lenses:** one per function. Functions come from `src/codeBlocks.ts`: the language's symbols (functions,
+  methods, classes; never what is nested in a function, so a destructuring or a callback is part of it), else
+  the text (indentation and braces) while a language server is still starting. A step on the comment just above a
+  function belongs to it; a file's top-level consts share one lens. The picker lists one row per journey.
+- **In this file** ranks by the whole function around the cursor (the same blocks), so every line of a function
+  gives the same order, led by the journeys with the most steps in it.
+- **The walk panel** opens at the reader's last width (else 35 %, at most 40 %), and never leaves the code under
+  ~80 characters (`editor.fontSize`); a window too narrow for both walks with the step card in the editor only.
+  The reader's width is remembered when they drag it.
+- **Tree reveals** (In this file, the walk's row) wait for the view's next drawing and go only to a node it holds;
+  a step's question is never revealed in the Notes view (it lives under its journey).
+- **Search order:** while searching, the sort reads "Best match"; picking another order applies it to the results.

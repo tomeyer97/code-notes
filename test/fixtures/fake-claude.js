@@ -26,6 +26,15 @@ if ((jq || (resumed && dirArg)) && !clarify && !exists) {
   fs.writeFileSync(path.join(dir, '.written.json.tmp'), JSON.stringify(j, null, 2))
   fs.renameSync(path.join(dir, '.written.json.tmp'), path.join(dir, 'written.json'))
 }
+// "The journey "<slug>" is out of date: …" (Refresh): re-point its steps in the staged copy, as `restep … range`
+// does (here: every step's range kept, its anchor taken from the code there now).
+const refresh = /The journey "([\w.-]+)" is out of date/.exec(prompt)
+if (refresh && dirArg) {
+  const f = require('path').join(process.cwd(), dirArg[1], `${refresh[1]}.json`)
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+  const py = /by their full path \((\S+)\/scripts\//.exec(prompt)[1] + '/scripts/journey.py'
+  j.steps.forEach((st, i) => require('child_process').execFileSync('python3', [py, '--dir', dirArg[1], 'restep', process.cwd(), refresh[1], String(i + 1), 'range', st.file, String(st.range.start), String(st.range.end)], { cwd: process.cwd(), stdio: 'ignore' }))
+}
 say({ type: 'system', subtype: 'init' })
 say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/repo/src/renamed.ts' } }] } })
 const words = exists ? ['The ', 'journey ', 'you ', 'need ', 'is ', 'already ', 'in ', '`journeys/saving.json`.'] : clarify ? ['Which ', 'part ', 'do ', 'you ', 'mean: ', '**saving** ', 'or ', 'loading?'] : ['The ', 'token ', 'is ', 'read ', 'once ', 'in ', '`src/renamed.ts:3`.']
