@@ -180,13 +180,19 @@ the comment. One concern per question; `text` may be edited by the author. `susp
 writer) is shown as "may be a bug" next to the question in the comment, and in VS Code only once the question has been
 answered (never before: it would give the answer away), with the same actions.
 
-CI also posts each flagged concern as a **thread on its line** that a reviewer can resolve: a GitLab discussion with a
-diff position (the merge request's `diff_refs`; the line the concern names: its grade's code link, found again by its
-text, else the last line of the question's range), a GitHub review comment (`side: RIGHT`). The text is short: "⚠ **Found during the understanding
-check** (flagged by Bob)" and the concern, mentions made inert. A hidden marker with the question's id finds it again:
-never posted twice, its text updated when it changed. Un-flagged, or its question gone: GitLab resolves the discussion
-(and reopens it when flagged again); GitHub gets one "No longer flagged." reply (resolving a review thread needs GraphQL).
-A line outside the diff falls back to a plain merge request note with a file:line link. Errors here never fail the job.
+CI also posts each item of the comment (below) as a **thread on the code** that a reviewer can resolve: a GitLab
+discussion with a diff position (the merge request's `diff_refs`), a GitHub review comment (`side: RIGHT`). One thread
+per question: a question's concern and its "Worth discussing" line share one. It goes on the line the item is about (a
+concern: its grade's code link, found again by its text, else the last line of the question's range; else the question's
+first line) or, when that line is not in the diff, on the nearest changed line of its hunk (or within 20 lines), with a
+link to the line it is about. Only when there is none: a plain merge request note with a file:line link. The text is
+short: "⚠ **Found during the understanding check** (flagged by Bob)" and the concern, mentions made inert. A hidden
+marker with the question's id finds it again: never posted twice, its text updated when it changed.
+**The reviewer's decisions win.** The bot never reopens a thread a person resolved, and never resolves one a person
+replied to. It closes only its own concern threads whose concern is no longer flagged (or whose question is gone):
+GitLab resolves the discussion (and reopens it when flagged again, only if the bot had resolved it); GitHub gets one "No
+longer flagged." reply (resolving a review thread needs GraphQL). "Worth discussing" threads are left to the reviewer,
+also when a top-up is pending. Errors here never fail the job.
 
 ## Out of diffs and search
 
@@ -249,13 +255,16 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 The merge request comment follows the job and is found again by the marker `<!-- understanding-check -->` and updated
 in place. Its first line is the result or what is missing (no check yet, needs a top-up, file not valid). It never
 grades in public: while the check is in progress it is one line (`Understanding check in progress: 2 of 4 done.`), no ✗
-ever. It stays short: the status line, then one line per thread a reviewer can act on, each a link to its resolvable
-diff thread: flagged concerns first (`- ⚠ …`, "· possibly fixed" when the line the concern named is gone from the
-file), then, once done, explained questions and partial passes (`- 💬 Worth discussing: <topic>`, posted as threads on
-their question's first line with the correct point; resolved when the item goes). Without an API token, the same lines
-carry the text and a file link instead. Once done also: concerns nobody flagged, dismissed or fixed, one line each
-under "Also noticed while grading"; the tour line; and every answer in a collapsed `<details>` "All answers": each answer
-once, the grader's line ("Check: …", outside the quote) only when it corrects something. Wrong guesses and retries are
+ever. It stays short: one problem, one line. The status line, then one line per item a reviewer can act on, each a link
+to its resolvable diff thread (reviewItems): once done, a concern the grader raised on a question asked as "may be a bug"
+first (`- ⚠ May be a bug: …`); flagged concerns (`- ⚠ …`); then, once done, explained questions and partial passes
+(`- 💬 Worth discussing: <topic>`). A concern whose line changed since the questions' commit says "· lines changed in
+<sha> · fixed?". Without an API token, the same lines carry the text and a file link instead. Once done also: concerns
+no item shows (nobody flagged, dismissed or fixed them), one line each under "Also noticed while grading"; the tour
+line; and every answer once in a collapsed `<details>` "All answers": the author's own words, quoted (an answer over
+about 300 characters is cut: "… (full answer in the check file)"); a restatement marked "restated after an
+explanation"; an explained question only "explained" (its point is in "Worth discussing"). The grader's words are
+never shown as an answer, and wrong guesses and retries are
 never posted. In VS Code a concern's thread offers, quietly, **Mark fixed** (once flagged) and **Dismiss** (asks for a
 one-line reason; stored as `concern.dismissed = { reason, by, at }`); both take it off the merge request. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered

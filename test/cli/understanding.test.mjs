@@ -333,11 +333,12 @@ test('the MR comment never grades in public: one progress line until done; then 
     let r = await ci(d, env())
     assert.equal(r.code, 1)
     assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done (about 1 min left).')
-    // Done: an explained question, a flagged concern, a suspect question.
+    // Done: an explained question with a flagged concern, a suspect question with a concern, a concern nobody flagged.
     c = U.readCheck(f)
     grade(c.questions[1], 'WRONG GUESS TWO', 'explained', { feedback: 'Each step waits for the one before it, so a slow load delays the rest. See src/app.js:3.', topic: 'loading steps one by one' })
     grade(c.questions[2], 'It returns 0.', 'pass', { feedback: 'Right.', note: 'Returns 0 with no steps: the loop body never runs.' })
     c.questions[2].suspect = true
+    c.questions[2].concern = { text: 'main reports success when nothing was loaded.', flagged: false }
     c.questions[1].concern = { text: 'load() errors are swallowed: a failed step\nlooks like a success.', flagged: true }
     c.questions[0].concern = { text: 'Not flagged: stays in the editor.', flagged: false }
     U.writeCheck(f, c); commitAll(d)
@@ -346,18 +347,22 @@ test('the MR comment never grades in public: one progress line until done; then 
     const body = notes[0].body
     const lines = body.split('\n')
     assert.equal(lines[1], '**✓ Understanding check done** · 3 questions')
-    // Short: one line per thread a reviewer can act on (concerns first), then concerns nobody flagged, then all answers collapsed.
-    assert.match(lines[3], /^- ⚠ load\(\) errors are swallowed\\: a failed step looks like a success\. · \[`src\/app\.js:10-12`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#/)
-    assert.match(lines[4], /^- 💬 \*\*Worth discussing: loading steps one by one\*\* · \[`src\/app\.js:10-12`\]\([^)]+\) · Each step waits for the one before it, so a slow load delays the rest\.$/)
+    // Short: one line per problem ("may be a bug" first, then flagged concerns), then concerns nobody flagged, then all answers collapsed.
+    assert.match(lines[3], /^- ⚠ May be a bug: main reports success when nothing was loaded\. · \[`src\/app\.js`\]/)
+    assert.match(lines[4], /^- ⚠ load\(\) errors are swallowed\\: a failed step looks like a success\. · \[`src\/app\.js:10-12`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#/)
+    // q2's "Worth discussing" goes with its concern: one problem, one line.
+    assert.equal(lines[5], '')
+    assert.doesNotMatch(body, /Worth discussing/)
     assert.match(body, /\n\*\*Also noticed while grading\*\*\n- Not flagged\\: stays in the editor\. · \[`src\/app\.js:3-6`\]/)
+    assert.equal(body.split('main reports success').length, 2, 'said once')
     assert.match(body, /\n<details><summary>All answers<\/summary>\n/)
-    // Each answer once: the quote; the grader's line only when it corrects something, labelled, outside the quote.
+    // Each answer once, as typed; never the grader's words as an answer.
     assert.match(body, /> It is kept in\n> a file\.\n/)
-    assert.doesNotMatch(body, /<sub>|Returns 0 with no steps|rewritten atomically/)
-    assert.match(body, /instead of all at once\?\*\* · [^\n]+\n\nCheck: Each step waits for the one before it/)
+    assert.doesNotMatch(body, /<sub>|Returns 0 with no steps|rewritten atomically|Check: /)
+    assert.match(body, /instead of all at once\?\*\* · [^\n]+ · explained\n/)
     assert.match(body, /no steps to load at all\?\*\* · \[`src\/app\.js`\]\([^)]+\) · may be a bug/)
     for (const w of ['WRONG GUESS', 'try again', 'retry', '✗', 'Not quite', 'Look at 12']) assert.ok(!body.includes(w), `the comment must not show "${w}"`)
-    assert.ok(body.indexOf('Worth discussing') < body.indexOf('It is kept in'), 'worth discussing comes first')
+    assert.ok(body.indexOf('load() errors') < body.indexOf('It is kept in'), 'the items come first')
     // The reasoning line is at most 15 words.
     assert.ok(U.reasonOf({ feedback: 'Right. ' + 'word '.repeat(30) }).split(' ').length <= 15)
     assert.equal(U.reasonOf({ note: 'Right: tick() re-queues it.', feedback: 'Right.' }), 'tick() re-queues it.')
@@ -368,7 +373,7 @@ test('the MR comment never grades in public: one progress line until done; then 
     r = await ci(d, env())
     assert.equal(r.code, 1)
     assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: needs a top-up\.\*\* The change grew by 45 code lines since the questions; 1–2 questions about the new part are missing\./)
-    assert.match(notes[0].body, /Worth discussing/)
+    assert.match(notes[0].body, /May be a bug/)
     // A damaged file: one line, what is wrong.
     fs.writeFileSync(f, '{ "version": 1, '); commitAll(d)
     r = await ci(d, env())
@@ -699,7 +704,9 @@ test('a partial pass (the grader corrected something): parsed, and on the merge 
   const check = { answeredBy: { name: 'Alice' }, questions: [q('q1', 'What happens when sendMail throws?', v), { ...q('q2', 'Why the lock?', { verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }), attempts: [{ answer: 'It orders them.', verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }] }] }
   const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
   assert.match(body, /- 💬 \*\*Worth discussing: capped email retries\*\* · `w\.js:3-9` · Refund stays; the email is retried, then dropped after MAX\\_TRIES\./)
-  assert.match(body, /> It is retried later\.\n\nCheck: Refund stays/)
+  // The correction is said once, in "Worth discussing"; the answer is quoted as typed.
+  assert.match(body, /> It is retried later\.\n/)
+  assert.equal(body.split('Refund stays').length, 2)
   assert.ok(body.indexOf('Worth discussing') < body.indexOf('Why the lock?'))
   // The prompt asks for it.
   const p = U.graderPrompt({ q: check.questions[0], answer: 'x', attempt: 1, diff: '', code: '', canRead: true })
@@ -887,6 +894,9 @@ async function fakeServer(handle) {
 }
 
 /** A passed check whose q1 carries a concern; `flag(d, {...})` changes it and commits. */
+/** GitLab users of the fake API: the bot (the token's user) and a reviewer. */
+const BOT = { id: 1, username: 'understanding-ci' }, BOB = { id: 2, username: 'bob' }
+
 function concernRepo() {
   const d = repo()
   const f = writeQuestions(d)
@@ -916,13 +926,13 @@ test('flagged concerns on GitLab: a thread on the line, never twice, updated, re
     if (m === 'GET' && p === `${mr}/discussions`) return [200, discussions]
     if (m === 'POST' && p === `${mr}/discussions`) {
       if (b.position && b.position.new_line > 500) return [400, { message: 'line_code can\'t be blank' }]
-      const dsc = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position }] }
+      const dsc = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position, author: BOT }] }
       discussions.push(dsc); return [201, dsc]
     }
     const note = /discussions\/(d\d+)\/notes\/(\d+)$/.exec(p)
     if (m === 'PUT' && note) { const x = discussions.find((y) => y.id === note[1]); x.notes[0].body = b.body; return [200, x.notes[0]] }
     const res = /discussions\/(d\d+)$/.exec(p)
-    if (m === 'PUT' && res) { const x = discussions.find((y) => y.id === res[1]); x.notes[0].resolved = b.resolved; return [200, x] }
+    if (m === 'PUT' && res) { const x = discussions.find((y) => y.id === res[1]); x.notes[0].resolved = b.resolved; x.notes[0].resolved_by = b.resolved ? BOT : null; return [200, x] }
   })
   const env = () => ({ ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
   try {
@@ -950,6 +960,18 @@ test('flagged concerns on GitLab: a thread on the line, never twice, updated, re
     set({ text: 'load() errors are swallowed', flagged: true, by: { name: 'Bob' } })
     r = await ci(d, env())
     assert.equal(discussions[0].notes[0].resolved, false); assert.ok(r.lines.includes('  Concern reopened (q1).'))
+    // The reviewer resolves it: never reopened by the bot.
+    Object.assign(discussions[0].notes[0], { resolved: true, resolved_by: BOB })
+    r = await ci(d, env())
+    assert.equal(discussions[0].notes[0].resolved, true); assert.ok(!r.lines.some((l) => /reopened/.test(l)), r.lines.join('\n'))
+    // The reviewer replied, then the author un-flags it: the thread is theirs, never resolved by the bot.
+    Object.assign(discussions[0].notes[0], { resolved: false, resolved_by: null }); discussions[0].notes.push({ id: 77, body: 'Agreed, fix it.', author: BOB })
+    set({ text: 'load() errors are swallowed', flagged: false })
+    r = await ci(d, env())
+    assert.equal(discussions[0].notes[0].resolved, false); assert.ok(!r.lines.some((l) => /resolved/.test(l)), r.lines.join('\n'))
+    discussions[0].notes.pop(); Object.assign(discussions[0].notes[0], { resolved: true, resolved_by: BOT })
+    set({ text: 'load() errors are swallowed', flagged: true, by: { name: 'Bob' } })
+    r = await ci(d, env())
     // The question is gone: resolved too. A concern whose line is not in the diff: a plain note with a link.
     set({ text: 'Off the diff', flagged: true }, (c) => { c.questions[0].concern = undefined; c.questions[1].start = 900; c.questions[1].end = 901; c.questions[1].anchor = undefined; c.questions[1].concern = { text: 'Off the diff', flagged: true } })
     r = await ci(d, env())
@@ -1321,7 +1343,7 @@ test('the default branch: one line, no check here', () => {
   assert.deepEqual(U.stateWords(st.state, st), { tone: 'ok', bar: '', title: 'main: no check here', line: '', rule: '' })
 })
 
-test('GitLab: "Worth discussing" items are resolvable threads too; a flagged concern whose code changed says "possibly fixed"', async () => {
+test('GitLab: "Worth discussing" items are resolvable threads too, never resolved by the bot; a concern whose code changed says where', async () => {
   const d = repo()
   const f = writeQuestions(d)
   const c = U.readCheck(f)
@@ -1339,7 +1361,7 @@ test('GitLab: "Worth discussing" items are resolvable threads too; a flagged con
     if (p === `${mr}/notes`) { if (m === 'GET') return [200, notes]; notes.push({ id: 900, body: b.body }); return [201, notes[0]] }
     if (m === 'PUT' && p === `${mr}/notes/900`) { notes[0].body = b.body; return [200, notes[0]] }
     if (m === 'GET' && p === `${mr}/discussions`) return [200, discussions]
-    if (m === 'POST' && p === `${mr}/discussions`) { const x = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position }] }; discussions.push(x); return [201, x] }
+    if (m === 'POST' && p === `${mr}/discussions`) { const x = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position, author: BOT }] }; discussions.push(x); return [201, x] }
     const note = /discussions\/(d\d+)\/notes\/(\d+)$/.exec(p)
     if (m === 'PUT' && note) { const x = discussions.find((y) => y.id === note[1]); x.notes[0].body = b.body; return [200, x.notes[0]] }
     const res = /discussions\/(d\d+)$/.exec(p)
@@ -1349,7 +1371,7 @@ test('GitLab: "Worth discussing" items are resolvable threads too; a flagged con
   try {
     let r = await ci(d, env())
     assert.equal(r.code, 0, r.lines.join('\n'))
-    const disc = discussions.find((x) => x.notes[0].body.includes('understanding-concern:discuss-q2'))
+    const disc = discussions.find((x) => x.notes[0].body.includes('understanding-concern:q2'))
     assert.ok(disc, r.lines.join('\n'))
     assert.equal(disc.notes[0].position.new_line, 10)
     assert.match(disc.notes[0].body, /💬 \*\*Worth discussing\*\* \(understanding check\): steps one by one\nEach step waits for the one before\./)
@@ -1360,12 +1382,21 @@ test('GitLab: "Worth discussing" items are resolvable threads too; a flagged con
     // Never twice.
     r = await ci(d, env())
     assert.equal(discussions.length, 2)
-    // The concern's code changes (load(3) rewritten): possibly fixed, in the comment and in its thread.
+    // The concern's code changes (load(3) rewritten): the commit is named, in the comment and in its thread.
     fs.writeFileSync(path.join(d, 'src/app.js'), fs.readFileSync(path.join(d, 'src/app.js'), 'utf8').replace('load(3) // step 3', 'safeLoad(3) // step 3'))
     commitAll(d, 'fix')
+    const sha = gitIn(d, 'rev-parse', '--short', 'HEAD').trim()
     r = await ci(d, env())
-    assert.match(notes[0].body, /^- ⚠ \[load\(\) errors are swallowed\.\]\([^)]+\) · possibly fixed$/m)
-    assert.match(discussions[0].notes[0].body, /possibly fixed/)
+    assert.ok(notes[0].body.split('\n').includes(`- ⚠ [load() errors are swallowed.](https://gl/grp/shop/-/merge_requests/7#note_1) · lines changed in ${sha} · fixed?`), notes[0].body)
+    assert.match(discussions[0].notes[0].body, new RegExp(`Lines changed in ${sha} · fixed\\?`))
+    // The change grows past the top-up limit: the "Worth discussing" thread stays open (only a person resolves it).
+    fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
+    commitAll(d, 'more')
+    r = await ci(d, env())
+    assert.equal(r.code, 1)
+    assert.equal(disc.notes[0].resolved, false, r.lines.join('\n'))
+    assert.match(notes[0].body, /Worth discussing: steps one by one/)
+    gitIn(d, 'reset', '-q', '--hard', 'HEAD~1')
     // Marked fixed in VS Code (flag off, fixed set): its thread is resolved and it leaves the comment.
     const c2 = U.readCheck(f); c2.questions[0].concern = { ...c2.questions[0].concern, flagged: false, fixed: { at: 'now' } }; U.writeCheck(f, c2); commitAll(d, 'marked fixed')
     r = await ci(d, env())
@@ -1480,4 +1511,65 @@ test('a check in a git stash: said (git stash pop), never Start', () => {
   fs.mkdirSync(path.join(d, 'understanding')); fs.writeFileSync(f, execFileSync('git', ['cat-file', 'blob', blob], { cwd: d, encoding: 'utf8' }))
   st = U.localStatus(d, { base: 'main' })
   assert.equal(st.state.phase, 'answering')
+})
+
+test('threads go on the nearest changed line of their hunk, one per question; the comment shows restatements and cuts long answers', () => {
+  const diff = ['diff --git a/w.js b/w.js', '--- a/w.js', '+++ b/w.js', '@@ -50,8 +50,10 @@ function tick() {', ' a', ' b', '+c', '+d', ' e', ' f', ' g', ' h', ' i', ' j', '@@ -200,3 +202,4 @@', ' x', '+y', ' z', ''].join('\n')
+  // Lines 52-53 were added; 58 is a context line of the same hunk; 120 is between hunks; 203 is added; 400 is far away.
+  assert.deepEqual([52, 58, 120, 210, 400].map((n) => U.nearestChanged(diff, 'w.js', n)), [52, 53, undefined, 203, undefined])
+  assert.equal(U.nearestChanged(diff, 'other.js', 52), undefined)
+  const explained = { verdict: 'explained', feedback: 'It is retried, then dropped.', topic: 'email retries', note: 'Retried, then dropped after five tries.' }
+  const long = `${'word '.repeat(100)}end`
+  const check = { answeredBy: { name: 'Alice' }, questions: [
+    { id: 'q1', kind: 'failure', text: 'What happens when sendMail throws?', file: 'w.js', start: 58, end: 60, concern: { text: 'Dropped after five tries: the customer is never told.', flagged: true },
+      attempts: [{ verdict: 'retry' }, { ...explained }, { answer: 'It retries, then gives up with a log line.', verdict: 'restated', feedback: 'Right.' }] },
+    { id: 'q2', kind: 'why', text: 'Why the lock?', file: 'w.js', start: 52, end: 53, attempts: [{ answer: long, verdict: 'pass', feedback: 'Right.' }] },
+  ] }
+  const sum = U.summarize(check)
+  const items = U.reviewItems(check, sum, { qa: true })
+  assert.deepEqual(items.map((it) => [it.id, !!it.flagged, !!it.d]), [['q1', true, true]], 'concern and "Worth discussing" of one question: one item')
+  const body = U.commentBody(check, sum, 'head', undefined, { qa: true })
+  assert.match(body, /\*\*What happens when sendMail throws\?\*\* · `w\.js:58-60` · restated after an explanation\n> It retries, then gives up with a log line\./)
+  assert.doesNotMatch(body, /Check: |Worth discussing/)
+  const quoted = body.split('\n').find((l) => l.startsWith('> word'))
+  assert.ok(quoted.length < 345 && quoted.endsWith('… (full answer in the check file)'), quoted)
+  assert.equal(U.clipAnswer('short answer'), 'short answer')
+  // The thread carries both: the concern, then the "Worth discussing" line.
+  const t = U.threadBody(check, items[0], undefined)
+  assert.equal(t, '<!-- understanding-concern:q1 -->\n⚠ **Found during the understanding check** (flagged by Alice)\nDropped after five tries\\: the customer is never told.\n\n💬 Worth discussing: email retries · Retried, then dropped after five tries.')
+})
+
+test('GitLab: a thread whose line is outside the diff goes on the nearest changed line and names its own; an earlier "Worth discussing" thread is reused', async () => {
+  const { d, set } = concernRepo()
+  // The concern names `return 0` (line 72, unchanged, right after the last added line 71; its link says 73: found by its text).
+  set({ text: 'main returns 0 even after a failed step.', flagged: true }, (c) => { c.questions[0].attempts.at(-1).concern = 'main returns 0 even after a failed step.'; c.questions[0].attempts.at(-1).links = [{ phrase: 'main returns 0', file: 'src/app.js', start: 73, end: 73, text: '  return 0' }] })
+  const mr = '/projects/grp%2Fshop/merge_requests/7'
+  const discussions = [{ id: 'd0', notes: [{ id: 50, body: '<!-- understanding-concern:discuss-q2 -->\n💬 **Worth discussing** (understanding check): old', resolved: false, position: { new_line: 10 }, author: BOT }] }]
+  let n = 100
+  const api = await fakeServer((m, p, b) => {
+    if (m === 'GET' && p === mr) return [200, { labels: [], author: { username: 'ada' }, diff_refs: { base_sha: 'b1', start_sha: 's1', head_sha: 'h1' } }]
+    if (p === `${mr}/notes`) return [200, m === 'GET' ? [] : { id: 1 }]
+    if (m === 'GET' && p === `${mr}/discussions`) return [200, discussions]
+    if (m === 'POST' && p === `${mr}/discussions`) { const x = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position, author: BOT }] }; discussions.push(x); return [201, x] }
+    const note = /discussions\/(d\d+)\/notes\/(\d+)$/.exec(p)
+    if (m === 'PUT' && note) { const x = discussions.find((y) => y.id === note[1]); x.notes[0].body = b.body; return [200, x.notes[0]] }
+    const res = /discussions\/(d\d+)$/.exec(p)
+    if (m === 'PUT' && res) { const x = discussions.find((y) => y.id === res[1]); x.notes[0].resolved = b.resolved; return [200, x] }
+  })
+  const env = () => ({ ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
+  try {
+    // q2 explained: its "Worth discussing" is the old thread, updated in place (its marker kept), never a second one.
+    const c = U.readCheck(path.join(d, 'understanding/feat-x.json'))
+    c.questions[1].attempts = []
+    const a = U.addAttempt(c, c.questions[1], 'no idea'); Object.assign(a, { verdict: 'explained', feedback: 'Each step waits.', topic: 'steps one by one', note: 'Each step waits.' }); a.hash = U.attemptHash(c.questions[1], a)
+    U.writeCheck(path.join(d, 'understanding/feat-x.json'), c); commitAll(d, 'explained')
+    const r = await ci(d, env())
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    const added = Number(fs.readFileSync(path.join(d, 'src/app.js'), 'utf8').split('\n').findIndex((l) => l === '  return 0')) // 0-based index = the last added line's number
+    const posted = discussions.find((x) => x.notes[0].body.includes('understanding-concern:q1'))
+    assert.equal(posted.notes[0].position.new_line, added, r.lines.join('\n'))
+    assert.match(posted.notes[0].body, /main returns 0 even after a failed step\. · \[`src\/app\.js:72`\]/)
+    assert.equal(discussions.filter((x) => /understanding-concern:(discuss-)?q2/.test(x.notes[0].body)).length, 1)
+    assert.match(discussions[0].notes[0].body, /^<!-- understanding-concern:discuss-q2 -->\n💬 \*\*Worth discussing\*\* \(understanding check\): steps one by one/)
+  } finally { api.close() }
 })
