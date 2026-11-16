@@ -91,7 +91,7 @@
       setTimeout(() => {
         const a = document.activeElement
         post({ type: 'focused', id: m.id, ok: document.hasFocus() && !!a && !!a.closest && !!a.closest(`.answer[data-id="${CSS.escape(m.id)}"]`) })
-      }, 250)
+      }, 1200)
       const go = () => {
         const w = boxOf(m.id)
         if (!w) return false
@@ -101,8 +101,10 @@
         w.scrollIntoView({ block: 'nearest' })
         return true
       }
-      // The view may still be drawing this question's box.
-      if (!go()) requestAnimationFrame(() => { if (!go()) setTimeout(go, 100) })
+      // The view may still be drawing this question's box (its view update can come a moment later): keep trying, 1 s.
+      let tries = 0
+      const again = () => { if (!go() && ++tries < 10) setTimeout(again, 100) }
+      requestAnimationFrame(again)
       return true
     },
   }
