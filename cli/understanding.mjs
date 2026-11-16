@@ -280,6 +280,25 @@ export function changedRanges(diff, { codeOnly = false } = {}) {
   return map
 }
 
+/**
+ * Where code lines were removed, on the new side (`Map<file, [line, line][]>`: the line after the removal, in files
+ * that still exist): a question about a removal sits there.
+ */
+export function removalPoints(diff) {
+  const map = new Map()
+  let file, old, n = 0, cs = {}
+  for (const l of diff.split('\n')) {
+    if (l.startsWith('--- ')) { old = l.slice(4).replace(/^a\//, ''); continue }
+    if (l.startsWith('+++ ')) { file = l.slice(4).replace(/^b\//, ''); if (file === '/dev/null') file = undefined; continue }
+    if (l.startsWith('diff --git')) { file = undefined; continue }
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (h) { n = Number(h[1]); cs = {}; continue }
+    if (l.startsWith('-')) { if (file && isCode(l.slice(1), old ?? file, cs)) { const at = Math.max(1, n); const rs = map.get(file) ?? []; if (!rs.some(([a, b]) => at >= a && at <= b + 1)) rs.push([at, at]); map.set(file, rs) } }
+    else if (l.startsWith('+') || l.startsWith(' ')) n++
+  }
+  return map
+}
+
 // ---------- config and the file ----------
 
 export function loadConfig(repo) {

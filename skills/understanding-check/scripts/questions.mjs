@@ -99,12 +99,17 @@ if (cmd === 'start') {
   if (!lines || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
   const diff = U.diffText(repo, base, head, files, cfg.exempt)
   ranges ??= U.changedRanges(diff, { codeOnly: true })
+  // Removed code is part of the change: a question may sit where code was removed, and when the change only removes
+  // code, also where the removed code was used (any file).
+  for (const [f, rs] of U.removalPoints(diff)) ranges.set(f, [...(ranges.get(f) ?? []), ...rs])
+  const removedOnly = !topUp && st.added === 0 && st.removed > 0
   const want = wanted(lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
   const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
-  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), questions: [] })
+  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), questions: [] })
   say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (removedOnly) say(`REMOVED ONLY: this change only removes code. Ask what the removal changes: put a question on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on the code that used what was removed (any file; find it with Grep).`)
   if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
   say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
   const numbered = U.numberDiff(diff).split('\n')
@@ -124,7 +129,8 @@ if (cmd === 'add') {
   // The file as committed in the change (whatever is checked out now).
   const lines = linesAt(d.head, file)
   if (!lines) fail(`${file} doesn't exist`)
-  const ranges = d.ranges[file]
+  // A removal-only change: also the code that used what was removed (anywhere).
+  const ranges = d.ranges[file] ?? (d.removedOnly ? [] : undefined)
   if (!ranges) fail(`${file} is not part of this ${d.mode === 'top-up' ? 'new change' : 'change'}: ask about the changed files (${Object.keys(d.ranges).join(', ')})`)
   if (text.length < 25) fail('--text is too short: ask a real question about this change')
   if (text.length > U.MAX_TEXT) fail(`--text is ${text.length} characters: at most ${U.MAX_TEXT}. One question, plainly`)
@@ -146,7 +152,7 @@ if (cmd === 'add') {
     if (q.end - q.start > 40) fail('--lines: more than 40 lines; point at the lines that matter (the question shows on them)')
     const cs = {}
     if (!lines.slice(q.start - 1, q.end).map((l) => U.isCode(l, file, cs)).some(Boolean)) fail(`--lines ${q.start}-${q.end} hold only comments or blank lines: ask about code`)
-    const near = ranges.some(([a, b]) => q.start <= b + 5 && q.end >= a - 5)
+    const near = (d.removedOnly && !d.ranges[file]) || ranges.some(([a, b]) => q.start <= b + 5 && q.end >= a - 5)
     if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed code line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
     q.anchor = U.compactOf(lines, q.start, q.end)
   }

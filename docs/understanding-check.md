@@ -251,7 +251,8 @@ The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
 questions that are not near a changed code line, on lines that hold only comments or blank lines, longer than 240
 characters, more than one question ("…, and could…", "what happens to X, Y and Z", "…, or does…"), or that name a line
-number; `--suspect` marks a question whose honest answer is "this is a bug". `finish` wants the count for the change's
+number; `--suspect` marks a question whose honest answer is "this is a bug". A change that only removes code gets questions too: on the lines where code was removed, or on the code that used
+it (any file). `finish` wants the count for the change's
 size (exactly 1 or 2 for a small change, 3–5 above; 1–2 for a top-up), from 3 questions on of at least two kinds, one
 of them why/failure/edge.
 

@@ -1220,3 +1220,25 @@ test('setup: never written by itself; setupMissing names what is missing; ci giv
   r = await ci(d, {})
   assert.ok(!r.lines.some((l) => /tip:/.test(l)))
 })
+
+test('a change that only removes code gets questions: at the removal, or where the removed code was used', () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'src/codes.js'), "export const CODES = {\n  SAVE10: 10,\n  SAVE15: 15,\n  SAVE20: 20,\n}\n")
+  fs.writeFileSync(path.join(d, 'src/use.js'), "import { CODES } from './codes.js'\nexport const discount = (c) => CODES[c] ?? 0\n")
+  fs.writeFileSync(path.join(d, 'src/old.sql'), 'ALTER TABLE orders ADD COLUMN gift boolean;\n')
+  commitAll(d, 'codes')
+  gitIn(d, 'checkout', '-qb', 'chore/drop')
+  fs.writeFileSync(path.join(d, 'src/codes.js'), "export const CODES = {\n  SAVE10: 10,\n  SAVE20: 20,\n}\n")
+  fs.rmSync(path.join(d, 'src/old.sql'))
+  commitAll(d, 'drop SAVE15')
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /^REMOVED ONLY: this change only removes code\. .*src\/codes\.js:3/m)
+  assert.match(out, /WRITE: 1 question/)
+  // At the removal (src/codes.js around line 3), or where it was used (src/use.js, not part of the diff).
+  assert.equal(script(d, 'add', '--kind', 'failure', '--file', 'src/use.js', '--lines', '2-2', '--text', 'What does discount() return now for a customer who still enters SAVE15?').code, 0)
+  assert.equal(script(d, 'remove', '1').code, 0)
+  const r = script(d, 'add', '--kind', 'failure', '--file', 'src/codes.js', '--lines', '2-3', '--text', 'What happens to orders that still carry the SAVE15 code after this?')
+  assert.equal(r.code, 0, r.out)
+  assert.match(script(d, 'finish').out, /WROTE understanding\/chore-drop\.json: 1 questions/)
+})
