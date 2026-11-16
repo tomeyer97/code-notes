@@ -801,6 +801,20 @@ test('validate: optional code links on questions and attempts, checked lightly',
   assert.match(U.validateCheck(c({}, { links: 'x' })).join(), /attempt 1: "links" must be a list/)
 })
 
+test('the MR comment never notifies anyone: @mentions in answers, notes, topics, concerns and questions are inert', () => {
+  const q = (id, text, attempts, x = {}) => ({ id, kind: 'why', text, file: 'a.js', start: 1, end: 2, attempts, ...x })
+  const check = { answeredBy: { name: 'Ada' }, questions: [
+    q('q1', 'Why does @all get the alert here?', [{ answer: 'Because @carol said so,\n@group/sub agreed; mail ada@example.com', verdict: 'pass', note: 'Right: @bob owns it.' }],
+      { concern: { text: 'Pages @org/team on every retry', flagged: true } }),
+    q('q2', 'Why is the retry kept?', [{ verdict: 'retry' }, { answer: 'no idea', verdict: 'explained', topic: 'what @dave asked', note: 'The loop at a.js:2 retries; ask @erin.' }]),
+  ] }
+  const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
+  assert.doesNotMatch(body, /(^|[^\w.@`⁠])@[\w-]/m, 'no live @mention')
+  for (const m of ['all', 'carol', 'group/sub', 'bob', 'org/team', 'dave', 'erin']) assert.ok(body.includes(`@⁠${m}`), m)
+  assert.ok(body.includes('ada@example.com'), 'emails untouched')
+  assert.equal(U.inert(U.inert('@x')), '@⁠x', 'applying it twice changes nothing (an edit never re-notifies)')
+})
+
 test('code links: the grader names code and links it; links are checked against the text and the files; the skill takes --links', () => {
   const d = repo()
   const v = U.parseVerdict(JSON.stringify({ verdict: 'retry', feedback: 'Right about the loop. Re-check what main returns.', hint: 'What does the return at the end do?',
