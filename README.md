@@ -111,6 +111,8 @@ label.
 ```yaml
 understanding:
   image: node:22
+  stage: .pre        # runs first, on its own: a failing test never skips it
+  needs: []
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:

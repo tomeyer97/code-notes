@@ -311,7 +311,7 @@ comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an 
 
 ## CI recipes (in the README)
 
-GitLab: a job on `merge_request_event` with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
+GitLab: a job on `merge_request_event` that runs on its own (`stage: .pre`, `needs: []`: a failing test never skips it) with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
 `api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. GitHub Actions: same CLI, `GITHUB_TOKEN`.
 
 **Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
