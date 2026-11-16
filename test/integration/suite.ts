@@ -1362,7 +1362,8 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
     await vscode.commands.executeCommand('codeNotes.stepDetails', false)
     await until('More closed again: no longer marked', () => bt().codeLinks.visible.join() === '0,1,4', 10000)
     await vscode.commands.executeCommand('codeNotes.codeLink', bt().codeLinks.key, 1)
-    await until('clicked: that phrase\'s lines lit, the cursor there', () => bt().codeLinks.active === 1 && /anim\.ts$/.test(vscode.window.activeTextEditor?.document.uri.path ?? '') && vscode.window.activeTextEditor?.selection.active.line === 2, 10000)
+    const caretBefore = codeEd()?.selection.active.line
+    await until('clicked: that phrase\'s lines lit, the caret left where it was (typing next never lands in the code)', () => bt().codeLinks.active === 1 && /anim\.ts$/.test(codeEd()?.document.uri.path ?? '') && codeEd()?.selection.active.line === caretBefore, 10000)
     assert.equal(bt().step, 1, 'still on the step')
     const lensTitles = async (uri = vscode.window.activeTextEditor!.document.uri) => ((await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', uri, 20)) ?? []).map((l) => `${l.range.start.line}:${l.command?.title}`)
     // A link into the card's file, on screen with the card: no scroll away from it, no way back needed.

@@ -292,11 +292,12 @@ export class Journeys implements vscode.Disposable {
   }
 
   /**
-   * An edit in an editor (typing, an applied fix; not a reload from disk): steps in that document keep up with it. A
-   * step whose lines the edit touched (without replacing them all) stays on them: `locate` takes them as its code.
+   * An edit in an editor (typing, an applied fix): steps in that document keep up with it. A step whose lines the edit
+   * touched (without replacing them all) stays on them: `locate` takes them as its code. A reload from disk looks the
+   * same here; it leaves the document clean, so `onDocument` forgets those edits before locating.
    */
   onEdit(e: vscode.TextDocumentChangeEvent): void {
-    if (e.document.uri.scheme !== 'file' || !e.document.isDirty || !e.contentChanges.length) return
+    if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) return
     const changes = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start))
     for (const lj of this.list.values()) {
       const base = lj.folder.uri.path.replace(/\/?$/, '/')
@@ -379,6 +380,8 @@ export class Journeys implements vscode.Disposable {
       this.pending.set(k, setTimeout(() => {
         this.pending.delete(k)
         if (this.list.get(lj.key) !== lj) return
+        // Clean after the change: the file was reloaded from disk (a checkout, an agent), not edited here.
+        if (!doc.isDirty) for (const st of lj.j.steps) if (fileOf(lj, st.n) === rel) this.edited.delete(this.stepKey(lj, st.n))
         const lines = Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
         void this.locate(lj, (n) => fileOf(lj, n) === rel, { file: rel, lines }).then((c) => { if (c) this.moved.fire(lj) })
       }, 250))
