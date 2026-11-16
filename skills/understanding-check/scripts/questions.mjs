@@ -41,22 +41,35 @@ if (cmd === 'start') {
   if (topUp && !existing) fail(`--top-up: ${rel} doesn't exist yet; run start without it`)
   if (!topUp && existing && !o.replace) fail(`${rel} exists already. Use --top-up to add questions about what changed since, or --replace to start over (its answers are lost)`)
   const baseRef = typeof o.base === 'string' ? o.base : U.defaultBase(repo)
-  const base = topUp ? existing.head : baseRef && U.mergeBase(repo, baseRef, head)
+  const base = baseRef && U.mergeBase(repo, baseRef, head)
   if (!base) fail('no base to compare with: pass --base <branch or commit>')
   // Committed code only: the questions record the commit they were written for (uncommitted lines would count as drift).
   // Code lines only: blank and comment-only lines don't count, nor the config's exempt files.
-  const files = U.numstat(repo, base, head)
+  // Always the branch's OWN change (from today's merge base): code that came in from the target branch is never asked.
+  let files = U.numstat(repo, base, head)
   const loose = U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt))
   const st = U.codeStat(repo, base, head, cfg.exempt)
-  const lines = U.linesOf(st)
+  let lines = U.linesOf(st), ranges
+  if (topUp) {
+    // Only what the branch's own change gained since the questions (freshLines); else, when the questions' commits are
+    // gone, what changed since the questions' commit, or the whole change.
+    const fresh = U.freshLines(repo, existing, base, head, cfg.exempt)
+      ?? (U.hasCommit(repo, existing.head) ? U.codeLines(repo, existing.head, head, cfg.exempt) : U.codeLines(repo, base, head, cfg.exempt))
+    lines = fresh.length
+    ranges = U.rangesOf(fresh)
+    files = files.filter((f) => ranges.has(f.file))
+  }
   if (!topUp && !lines && loose) { say(`UNCOMMITTED: this change is not committed yet (${loose} code lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
-  if (!lines) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
+  if (!lines || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
   const diff = U.diffText(repo, base, head, files, cfg.exempt)
+  ranges ??= U.changedRanges(diff, { codeOnly: true })
   const want = wanted(lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
-  saveDraft({ branch, base: topUp ? existing.base : base, from: base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(topUp ? U.codeStat(repo, existing.base ?? base, head, cfg.exempt) : st), ranges: Object.fromEntries(U.changedRanges(diff, { codeOnly: true })), questions: [] })
-  say(`${topUp ? 'TOP-UP' : 'CHANGE'}: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})${topUp ? ' since the questions were written' : ''}`)
+  const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
+  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), questions: [] })
+  say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
   say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
   const numbered = U.numberDiff(diff).split('\n')
   say('')
@@ -163,6 +176,7 @@ if (cmd === 'finish') {
     let k = Math.max(0, ...check.questions.map((q) => Number(q.id.slice(1)) || 0))
     const round = Math.max(1, ...check.questions.map((q) => q.round ?? 1)) + 1
     for (const q of d.questions) check.questions.push({ ...q, id: `q${++k}`, round })
+    check.base = d.base
     check.head = d.head
     check.diffStat = d.diffStat
     check.updatedAt = new Date().toISOString()

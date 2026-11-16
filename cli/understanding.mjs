@@ -130,29 +130,70 @@ export function isCode(line, file, state = {}) {
 }
 
 /**
- * What changed in CODE lines between two commits (or a commit and the working tree when `to` is undefined): counted
- * files only, blank and comment-only lines left out. `{ files, added, removed, exempt: [exempt files that changed] }`.
+ * The code lines of a change between two commits (or a commit and the working tree when `to` is undefined): counted
+ * files only, blank and comment-only lines left out. `[{ file, sign: '+' | '-', text (trimmed), line (new side, for +) }]`.
  */
-export function codeStat(repo, from, to, exempt = []) {
-  const all = numstat(repo, from, to)
-  const out = { files: 0, added: 0, removed: 0, exempt: all.filter((f) => !own(f.file) && !counted(f.file, exempt)).map((f) => f.file) }
+export function codeLines(repo, from, to, exempt = [], all = numstat(repo, from, to)) {
   const list = all.filter((f) => counted(f.file, exempt) && !f.binary).map((f) => f.file)
-  if (!list.length) { out.exemptOnly = out.exempt.length > 0; return out }
-  const seen = new Set()
-  let file, plus = {}, minus = {}
+  if (!list.length) return []
+  const out = []
+  let file, n = 0, plus = {}, minus = {}
   for (const l of git(repo, ['diff', '--no-color', '--no-ext-diff', '-U0', '-M', from, ...(to ? [to] : []), '--', ...list]).split('\n')) {
     if (l.startsWith('diff --git')) { file = undefined; continue }
     if (l.startsWith('+++ ')) { const f = l.slice(4).replace(/^b\//, ''); if (f !== '/dev/null') file = f; continue }
     if (l.startsWith('--- ')) { const f = l.slice(4).replace(/^a\//, ''); if (f !== '/dev/null') file = f; continue }
-    if (l.startsWith('@@')) { plus = {}; minus = {}; continue }
-    if (!file || (l[0] !== '+' && l[0] !== '-')) continue
-    if (!isCode(l.slice(1), file, l[0] === '+' ? plus : minus)) continue
-    if (l[0] === '+') out.added++; else out.removed++
-    seen.add(file)
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (h) { n = Number(h[1]); plus = {}; minus = {}; continue }
+    if (!file) continue
+    if (l[0] === '+') { if (isCode(l.slice(1), file, plus)) out.push({ file, sign: '+', text: l.slice(1).trim(), line: n }); n++ }
+    else if (l[0] === '-' && isCode(l.slice(1), file, minus)) out.push({ file, sign: '-', text: l.slice(1).trim() })
   }
-  out.files = seen.size
-  out.exemptOnly = !seen.size && !list.length && out.exempt.length > 0
   return out
+}
+
+/**
+ * What changed in CODE lines between two commits (or a commit and the working tree when `to` is undefined): counted
+ * files only, blank and comment-only lines left out. `{ files, added, removed, exempt: [exempt files that changed],
+ * exemptOnly }`.
+ */
+export function codeStat(repo, from, to, exempt = []) {
+  const all = numstat(repo, from, to)
+  const out = { files: 0, added: 0, removed: 0, exempt: all.filter((f) => !own(f.file) && !counted(f.file, exempt)).map((f) => f.file) }
+  const lines = codeLines(repo, from, to, exempt, all)
+  for (const x of lines) { if (x.sign === '+') out.added++; else out.removed++ }
+  out.files = new Set(lines.map((x) => x.file)).size
+  out.exemptOnly = !all.some((f) => counted(f.file, exempt)) && out.exempt.length > 0
+  return out
+}
+
+/** Lines of `now` that `was` doesn't have (same file, sign and trimmed text; each line of `was` used once). */
+export function newCodeLines(was, now) {
+  const bag = new Map()
+  const key = (x) => `${x.file}\0${x.sign}${x.text}`
+  for (const x of was) bag.set(key(x), (bag.get(key(x)) ?? 0) + 1)
+  return now.filter((x) => { const k = key(x), c = bag.get(k) ?? 0; if (c) { bag.set(k, c - 1); return false } return true })
+}
+
+/**
+ * The code lines the branch's OWN change has now and didn't have when the questions were written: the change against
+ * today's merge base (`base`) compared with the change the questions were written for (`check.base` → `check.head`).
+ * Merging or rebasing onto the target branch adds nothing; a conflict resolved differently does. Undefined when the
+ * check's commits are not in this clone.
+ */
+export function freshLines(repo, check, base, to, exempt = []) {
+  if (!base || !hasCommit(repo, check.base) || !hasCommit(repo, check.head)) return undefined
+  return newCodeLines(codeLines(repo, check.base, check.head, exempt), codeLines(repo, base, to, exempt))
+}
+
+/** `[{ file, sign, line }]` → file -> new-side ranges [[start, end], …] of the added lines. */
+export function rangesOf(lines) {
+  const map = new Map()
+  for (const x of [...lines].filter((y) => y.sign === '+').sort((p, q) => p.file.localeCompare(q.file) || p.line - q.line)) {
+    const rs = map.get(x.file) ?? map.set(x.file, []).get(x.file)
+    const last = rs[rs.length - 1]
+    if (last && x.line <= last[1] + 1) last[1] = Math.max(last[1], x.line); else rs.push([x.line, x.line])
+  }
+  return map
 }
 
 /**
@@ -486,9 +527,9 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const errors = validateCheck(check, { repo })
   if (errors.length) return done({ ...st, errors: [`${rel}: ${errors[0]}`] })
   relocate(repo, check) // today's line numbers (in memory: the file is rewritten only when it is saved anyway)
-  const drift = driftOf(repo, check, 'HEAD', change, cfg.exempt)
+  const drift = driftOf(repo, check, 'HEAD', change, cfg.exempt, mb)
   // With uncommitted edits too: the drift CI will see once they are pushed.
-  const pending = driftOf(repo, check, undefined, change, cfg.exempt)
+  const pending = driftOf(repo, check, undefined, change, cfg.exempt, mb)
   const dirty = !!gitOk(repo, ['status', '--porcelain', '--', rel])
   return done({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty })
 }
@@ -539,11 +580,15 @@ export function stateWords(state, st = {}) {
 }
 
 /**
- * Code lines changed (counted files; blank and comment lines left out) between the commit the questions were written for and `to` (undefined: the working
- * tree). `approx`: that commit is not in this clone (rebased, squashed, or a shallow clone): sizes compared instead.
+ * Code lines the change gained since the questions were written. `base`: the branch's merge base now; the branch's
+ * own change is compared (freshLines), so merging the target branch in counts nothing. `to`: a commit, or undefined
+ * for the working tree. Without `base` or the check's commits: lines changed since `check.head`, or (`approx`) the
+ * change's size now (`nowStat`) against the size recorded in the file.
  */
-export function driftOf(repo, check, to, nowStat, exempt = []) {
-  if (hasCommit(repo, check.head)) return { lines: linesOf(codeStat(repo, check.head, to, exempt)), approx: false }
+export function driftOf(repo, check, to, nowStat, exempt = [], base) {
+  const fresh = freshLines(repo, check, base, to, exempt)
+  if (fresh) return { lines: fresh.length, approx: false }
+  if (!base && hasCommit(repo, check.head)) return { lines: linesOf(codeStat(repo, check.head, to, exempt)), approx: false }
   const was = check.diffStat ? linesOf(check.diffStat) : 0
   return { lines: nowStat ? Math.abs(linesOf(nowStat) - was) : 0, approx: true }
 }
@@ -939,7 +984,8 @@ export function flaggedConcerns(check) {
  * The merge request comment. `head`: its first line (the result, or what is missing). Flagged concerns follow as
  * "⚠ Found during the check". With `qa` (only once the check is done: it never grades in public) the questions follow:
  * explained ones as "Worth discussing" with the correct point in one line (the author's wrong guesses and retries are
- * never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning.
+ * never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning. An answer
+ * by someone other than the check's `answeredBy` says "answered by <name>".
  */
 export function commentBody(check, sum, head, link = () => undefined, { qa = false } = {}) {
   const ref = (q) => { const u = link(q); return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\`` }
@@ -948,18 +994,20 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
   if (flagged.length) out.push('', '**⚠ Found during the check**', ...flagged.map((c) => `- ${inline(c.text)} · ${ref(c.q)}`))
   if (!qa) return out.join('\n')
   const discuss = [], answered = []
+  // Someone other than the check's author answered (a teammate): said, never blocking.
+  const by = (a) => (a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : '')
   check.questions.forEach((q, i) => {
     const s = sum.states[i]
     const as = q.attempts ?? []
     if (s === 'explained' || s === 'restated') {
       const ex = as.find((a) => a.verdict === 'explained')
       const why = explanationOf(ex)
-      discuss.push('', `**Worth discussing: ${inline(ex?.topic || q.text)}** · ${ref(q)}`, ...(why ? [why] : []))
+      discuss.push('', `**Worth discussing: ${inline(ex?.topic || q.text)}** · ${ref(q)}${by(ex)}`, ...(why ? [why] : []))
       return
     }
     const good = as.find((a) => a.verdict === 'pass')
     const why = reasonOf(good)
-    answered.push('', `**${q.text.trim()}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
+    answered.push('', `**${q.text.trim()}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
   })
   return [...out, ...discuss, ...answered].join('\n')
 }
@@ -1049,7 +1097,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   const errs = validateCheck(check, { repo })
   if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
 
-  const drift = driftOf(repo, check, head, change, cfg.exempt)
+  const drift = driftOf(repo, check, head, change, cfg.exempt, base)
   relocate(repo, check) // the lines as they are in this commit
   const sum = summarize(check, cfg)
   const state = checkState({ exists: true, summary: sum, drift }, cfg)

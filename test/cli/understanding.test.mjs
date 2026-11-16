@@ -670,3 +670,69 @@ test('validate: suspect and concern', () => {
   assert.match(U.validateCheck(q({ concern: 'x' })).join(), /"concern" must be/)
   assert.match(U.validateCheck(q({ concern: { text: 'x', flagged: 'yes' } })).join(), /"concern" must be/)
 })
+
+test('the MR comment says who answered when it was not the check\'s author', () => {
+  const q = (text, by) => ({ id: 'q1', kind: 'why', text, file: 'a.js', start: 1, end: 2, attempts: [{ answer: 'yes', verdict: 'pass', ...(by ? { by } : {}) }] })
+  const check = { answeredBy: { name: 'Alice', email: 'a@x' }, questions: [q('Why one?', undefined), q('Why two?', { name: 'Bob', email: 'b@x' })] }
+  const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
+  assert.match(body, /\*\*Why two\?\*\* · `a\.js:1-2` · answered by Bob/)
+  assert.doesNotMatch(body, /Why one\?\*\* · `a\.js:1-2` · answered by/)
+})
+
+/** A branch whose check passed, with main moving on: main gets `mainLines` in its own file, the branch keeps app.js. */
+function divergedRepo() {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d, 'answers')
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'src/refunds.js'), Array.from({ length: 260 }, (_, i) => `export const r${i} = ${i}`).join('\n') + '\n')
+  commitAll(d, 'refunds on main')
+  gitIn(d, 'checkout', '-q', 'feat/x')
+  return { d, f }
+}
+const ciAt = (d) => ci(d, gitlabEnv(d, undefined, { CI_MERGE_REQUEST_DIFF_BASE_SHA: gitIn(d, 'merge-base', 'main', 'HEAD').trim() }))
+
+test('drift is the branch\'s own change: merging main counts nothing, a conflict resolution does, a top-up never asks about main\'s code', async () => {
+  const { d } = divergedRepo()
+  gitIn(d, 'merge', '-q', '--no-edit', 'main')
+  let r = await ciAt(d)
+  assert.equal(r.code, 0, r.lines.join('\n')); assert.doesNotMatch(r.lines[0], /since the check/)
+  assert.equal(U.localStatus(d).drift.lines, 0)
+  assert.match(script(d, 'start', '--top-up').out, /^NOTHING: no code lines changed since the questions were written/)
+  // Main changes a line the branch changed too; the conflict is resolved with new code: those lines count.
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'src/app.js'), 'export function main() {\n  return 1\n}\n')
+  commitAll(d, 'main returns 1')
+  gitIn(d, 'checkout', '-q', 'feat/x')
+  try { gitIn(d, 'merge', '-q', '--no-edit', 'main') } catch { /* the conflict */ }
+  const body = Array.from({ length: 70 }, (_, i) => `  const v${i} = load(${i}) // step ${i}`).join('\n')
+  const resolved = Array.from({ length: 45 }, (_, i) => `  const w${i} = merge(${i})`).join('\n')
+  fs.writeFileSync(path.join(d, 'src/app.js'), `export function main() {\n${body}\n${resolved}\n  return 1\n}\n`)
+  commitAll(d, 'merge main, resolved')
+  r = await ciAt(d)
+  assert.equal(r.code, 1); assert.match(r.lines[0], /grew by 45 code lines/, 'the 45 resolution lines, not main\'s 260')
+  const out = script(d, 'start', '--top-up').out
+  assert.match(out, /NEW LINES \(ask only about these\): src\/app\.js:72-116/)
+  assert.doesNotMatch(out, /refunds\.js/)
+  assert.match(script(d, 'add', '--kind', 'why', '--file', 'src/refunds.js', '--lines', '1-3', '--text', 'Why are the refunds exported one constant at a time here?').out, /not part of this new change/)
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '80-82', '--text', 'Why does the merge step run after every load instead of once?').code, 0)
+  assert.match(script(d, 'finish').out, /4 questions \(1 new\)/)
+  const c = U.readCheck(path.join(d, 'understanding/feat-x.json'))
+  assert.equal(c.base, gitIn(d, 'merge-base', 'main', 'HEAD').trim(), 'the top-up records today\'s merge base')
+})
+
+test('drift after a rebase onto main: none locally (old commits known), none in CI by size (old commits gone)', async () => {
+  const { d, f } = divergedRepo()
+  gitIn(d, 'rebase', '-q', 'main')
+  let r = await ciAt(d)
+  assert.equal(r.code, 0, r.lines.join('\n')); assert.doesNotMatch(r.lines[0], /since the check/)
+  // A fresh clone in CI doesn't have the questions' commits: compared by size, still nothing.
+  const c = U.readCheck(f); c.head = 'deadbeef00'; c.base = 'deadbeef01'; U.writeCheck(f, c); commitAll(d, 'as if rewritten')
+  r = await ciAt(d)
+  assert.equal(r.code, 0, r.lines.join('\n'))
+  fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
+  commitAll(d, 'grew')
+  r = await ciAt(d)
+  assert.equal(r.code, 1); assert.match(r.lines[0], /grew by 45 code lines since the check \(compared by size/)
+})
