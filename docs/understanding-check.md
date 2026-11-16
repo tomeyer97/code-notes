@@ -286,6 +286,11 @@ Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 unde
 `questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
+**Settings changes are said.** A merge request that changes `understanding/config.json` gets a line at the top of the
+comment ("This merge request changes the understanding check's settings: mode required → advisory."), also when no code
+changed (then that line is the whole comment). After a self-approval the comment says "Your own approval doesn't count:
+ask a reviewer to approve, then re-run this job." The size is honest: "3 questions, ~2 min" (by the question count).
+
 ## Skipping
 
 No size limit: every change with code lines needs the check (only exempt files or comment-only changes pass by
@@ -301,8 +306,8 @@ GitLab: a job on `merge_request_event` with plain `node` (no LLM CLI, no model k
 
 **Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
 a month, then switch to required. Wherever `ci` would fail (exit 1) it exits 3, its first line starts "⚠ Advisory:", and
-the merge request comment is the same as in required mode plus one muted line "Advisory: this check doesn't block
-merging." GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
+the merge request comment starts with "Advisory: this check doesn't block merging." and never shows skip instructions
+(nothing to skip; the job log neither). GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
 GitHub Actions `ci` prints a `::warning::` annotation and exits 0 instead. "Can't check" (exit 2) stays 2.
 
 ## Out of scope for the prototype

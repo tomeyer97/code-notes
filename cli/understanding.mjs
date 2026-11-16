@@ -1255,9 +1255,25 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
 }
 
 /** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
-export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job') {
-  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (about 5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
-    `<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`].join('\n')
+export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job', { quiet = false, size = 'about 5 min' } = {}) {
+  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (${size}): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
+    ...(quiet ? [] : [`<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`])].join('\n')
+}
+
+/** How long a check takes, honestly, by its number of questions: "3 questions, ~2 min". */
+export const minutesFor = (n) => Math.max(1, Math.round(n * 0.6))
+export const sizeText = (n) => `${n} question${n === 1 ? '' : 's'}, ~${minutesFor(n)} min`
+
+/**
+ * What this change does to the check's own settings (understanding/config.json at `base` vs `head`), as one sentence
+ * for the merge request ("mode required → advisory"), or undefined.
+ */
+export function settingsChange(repo, base, head) {
+  const at = (c) => { try { return JSON.parse(git(repo, ['show', `${c}:${DIR}/config.json`])) } catch { return undefined } }
+  const a = { ...DEFAULTS, ...(at(base) ?? {}) }, b = { ...DEFAULTS, ...(at(head) ?? {}) }
+  const v = (x) => (x !== null && typeof x === 'object' ? JSON.stringify(x) : String(x))
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => v(a[k]) !== v(b[k]))
+  return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => inline(`${k} ${v(a[k])} → ${v(b[k])}`)).join(', ')}.` : undefined
 }
 
 /** Why no check is needed: only exempt files changed, or no code lines (comments, blank lines). */
@@ -1310,24 +1326,31 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
     return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
   }
   const change = codeStat(repo, base, head, cfg.exempt)
-  if (!linesOf(change) && !change.renamed?.length) return { code: 0, lines: [stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : noCheckLine(change)] }
-
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
   // GitHub runs the job again on a review (the recipe listens to it); GitLab doesn't.
   const rerun = ctx.platform === 'github' ? '' : ', then re-run this job'
+  // This merge request changes the check's own settings (understanding/config.json): said to everyone, first.
+  const settings = settingsChange(repo, base, head)
   const post = async (res, body) => {
     if (!comment || !cfg.mrComment || !body) return res
-    if (advisory) body = `${body}\n\n<sub>Advisory: this check doesn't block merging.</sub>`
+    const top = [...(advisory ? ["Advisory: this check doesn't block merging."] : []), ...(settings ? [settings] : [])]
+    if (top.length) { const [m, ...rest] = body.split('\n'); body = [m, ...top, ...(rest.length ? [''] : []), ...rest].join('\n') }
     res.comment = body
     if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
     return res
+  }
+  if (!linesOf(change) && !change.renamed?.length) {
+    const line = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : noCheckLine(change)
+    // Only the settings changed: the comment says so (a policy change everyone should see), nothing else.
+    return settings ? post({ code: 0, lines: [line, `  ${settings}`] }, MARKER) : { code: 0, lines: [line] }
   }
   let info = { labels: ctx.labels ?? [], author: ctx.author }
   if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] } } }
 
   // Skip: an approval by anyone but the author waives the check (good faith: no reason asked).
   let skip
-  if (info.labels.includes(cfg.skipLabel)) {
+  // Advisory: nothing blocks, so nothing to skip.
+  if (!advisory && info.labels.includes(cfg.skipLabel)) {
     if (!canApi) skip = { line: `✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === 'github' ? 'GITHUB_TOKEN' : 'GITLAB_TOKEN'}).` }
     else {
       let all = []
@@ -1338,10 +1361,11 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
         return post({ code: 0, lines: [line] }, `${MARKER}\n${line}`)
       }
       const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`
-      skip = { line: all.length ? `✗ Approved only by ${info.author} (the author). Ask a reviewer to approve${rerun}.` : asked, body: `${MARKER}\n${asked}` }
+      const own = `Your own approval doesn't count: ask a reviewer to approve${rerun}.`
+      skip = { line: all.length ? `✗ Approved only by ${info.author} (the author). Ask a reviewer to approve${rerun}.` : asked, body: `${MARKER}\n${all.length ? own : asked}` }
     }
   }
-  const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun })
+  const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet: advisory || !!skip })
   // Flagged concerns go on their lines first, as threads a reviewer can resolve (never fails the job); the comment
   // then lists them as one-line links to those threads.
   let synced = []
@@ -1504,14 +1528,16 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
 }
 
 /** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
-async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
+async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet = false }) {
   const abs = path.join(repo, rel)
   if (!fs.existsSync(abs)) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (about 5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+    const size = sizeText(questionsFor(linesOf(change), cfg))
+    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
       `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
-      `  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`], body: missingBody(rel, cfg, rerun.replace('this job', 'the job')) }
+      // Advisory, or the label is there already: no skip instructions.
+      ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
   }
   const short = (line, head) => ({ code: 1, lines: [line], body: `${MARKER}\n${head}` })
   let check

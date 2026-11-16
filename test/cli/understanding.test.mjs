@@ -208,7 +208,7 @@ test('ci: nothing changed passes; no file fails with what to do; no model is eve
   const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
-  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(about 5 min\)\. Run "Code Notes: Check my understanding"/)
+  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(3 questions, ~2 min\)\. Run "Code Notes: Check my understanding"/)
   assert.match(r2.lines[1], /Without VS Code: .*node understanding\.mjs grade --question q1/)
   assert.match(r2.lines[2], /skip-understanding.*then re-run this job/)
   const f = writeQuestions(d)
@@ -294,6 +294,7 @@ test('ci on GitLab: skip label + an approval by a non-author waives; self-approv
     assert.equal(r.code, 1)
     assert.equal(r.lines[0], '✗ Approved only by alice (the author). Ask a reviewer to approve, then re-run this job.')
     assert.doesNotMatch(notes[0].body, /✗/, 'no ✗ in the comment')
+    assert.equal(notes[0].body, "<!-- understanding-check -->\nYour own approval doesn't count: ask a reviewer to approve, then re-run this job.")
     // A reviewer's approval (any, also one given before the label) waives it.
     approvals = [{ user: { username: 'alice' } }, { user: { username: 'bob' } }]
     r = await ci(d, env)
@@ -405,7 +406,7 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
     assert.equal(r.code, 1, 'bo\'s latest review is not an approval; the author\'s own does not count')
     // GitHub re-runs the job on the review event: no "re-run" in the messages.
     assert.equal(r.lines[0], '✗ Approved only by ada (the author). Ask a reviewer to approve.')
-    assert.equal(comments[1].body, '<!-- understanding-check -->\nSkip requested: an approval from a reviewer waives the understanding check.')
+    assert.equal(comments[1].body, "<!-- understanding-check -->\nYour own approval doesn't count: ask a reviewer to approve.")
   } finally { api.close() }
 })
 
@@ -474,7 +475,7 @@ test('ci: no check yet posts the MR comment (what and how, in two lines); a pass
     let r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
     assert.equal(r.code, 1); assert.match(r.lines.at(-1), /comment created/)
     assert.equal(notes[0].body.split('\n').length, 3)
-    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(about 5 min\)/)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, ~2 min\)/)
     assert.match(notes[0].body, /and get a reviewer's approval, then re-run the job\./)
     const f = writeQuestions(d)
     answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
@@ -1024,7 +1025,9 @@ test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a 
   commitAll(d, 'advisory')
   r = await ci(d, gitlabEnv(d))
   assert.deepEqual([r.code, r.mode], [3, 'advisory']); assert.match(r.lines[0], /^⚠ Advisory: No understanding check yet: a few questions/)
-  assert.match(r.comment, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\*[\s\S]*\n\n<sub>Advisory: this check doesn't block merging\.<\/sub>$/)
+  // Advisory first; no skip instructions (nothing to skip); the settings change is called out.
+  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: mode required → advisory\.\n\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, ~2 min\)/)
+  assert.doesNotMatch(r.comment + r.lines.join('\n'), /skip-understanding/)
   // The env var wins over the file.
   r = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_MODE: 'required' })
   assert.equal(r.code, 1); assert.doesNotMatch(r.comment, /Advisory/)
@@ -1366,4 +1369,17 @@ test('GitLab: "Worth discussing" items are resolvable threads too; a flagged con
     assert.equal(discussions[0].notes[0].resolved, true)
     assert.doesNotMatch(notes[0].body, /swallowed/)
   } finally { api.close() }
+})
+
+test('an MR that only changes the check\'s settings: no check needed, and the comment says what changed', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d)
+  gitIn(d, 'checkout', '-q', 'main'); gitIn(d, 'merge', '-q', '--no-ff', '-m', 'm', 'feat/x'); gitIn(d, 'checkout', '-qb', 'chore/advisory')
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "mode": "advisory", "maxDrift": 60 }\n'); commitAll(d, 'advisory')
+  const r = await ci(d, { CI_MERGE_REQUEST_DIFF_BASE_SHA: gitIn(d, 'rev-parse', 'main').trim() })
+  assert.equal(r.code, 0)
+  assert.match(r.lines[1], /This merge request changes the understanding check's settings: (mode required → advisory, maxDrift 40 → 60|maxDrift 40 → 60, mode required → advisory)\./)
+  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: /)
 })
