@@ -3380,9 +3380,14 @@ async function reveal(n: Note, column?: vscode.ViewColumn): Promise<void> {
  * the caret in a thread's reply box; "Focus Comment on Current Line" moves focus into the thread (Tab reaches Reply).
  */
 async function focusReply(n: Note): Promise<boolean> {
-  for (let k = 0; k < 20 && (!threads.get(n.data.id) || settling(threads.get(n.data.id)!)); k++) await new Promise((r) => setTimeout(r, 50))
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  for (let k = 0; k < 20 && (!threads.get(n.data.id) || settling(threads.get(n.data.id)!)); k++) await wait(50)
   if (!threads.get(n.data.id)) return false
-  await new Promise((r) => setTimeout(r, 150)) // its widget is drawn after the thread's first state arrives
+  // Its widget is drawn after the thread's first state arrives, and in an editor that has just opened, after the
+  // editor has settled: too early, and the command finds no thread and the keyboard stays in the code.
+  editorSettling(docUri(n))
+  const since = Date.now() - (editorShownAt.get(docUri(n).toString()) ?? 0)
+  await wait(Math.max(150, 500 - since))
   const e = vscode.window.activeTextEditor
   if (!e || e.document.uri.toString() !== docUri(n).toString()) return false
   // The command looks for a thread on the caret's line: the thread's last line, where its widget hangs.
