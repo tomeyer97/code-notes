@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -107,4 +107,13 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
   assert.deepEqual(linksAt(qq as never, roles, 3), [])
   assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: api/store.js:2-4')
+})
+
+test('a TODO from the check is one short line (at most 80 characters, cut at a word)', () => {
+  assert.equal(todoLine(['//', ''], 'Stock goes up for damaged units.'), '// TODO: Stock goes up for damaged units.')
+  const long = 'The stock update in the refund loop adds every refunded unit back to products with no restock option, so unreturned or damaged goods inflate stock.'
+  const t = todoLine(['//', ''], long)
+  assert.ok(t.length <= 80, `${t.length}`); assert.match(t, /^\/\/ TODO: The stock update in the refund loop adds every refunded unit back to\S*…$/)
+  const h = todoLine(['<!--', ' -->'], long)
+  assert.ok(h.length <= 80 && h.endsWith('… -->'), h)
 })

@@ -1008,3 +1008,11 @@ test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a 
   // Through main: the exit code is what the job sees.
   assert.equal((await run(d, ['ci', '--no-comment'], { ...gitlabEnv(d), PATH: process.env.PATH })).code, 3)
 })
+
+test('concernLink: the code a concern names (a link of the grade that raised it, by its phrase)', () => {
+  const q = { id: 'q1', concern: { text: 'The stock update adds every unit back.', flagged: false }, attempts: [
+    { verdict: 'pass', concern: 'The stock update adds every unit back.', links: [{ phrase: 'the refund loop', file: 'api/r.js', start: 50, end: 60 }, { phrase: 'The stock update', file: 'api/r.js', start: 61, end: 61, text: '  await q()' }] }] }
+  assert.deepEqual(U.concernLink(q), { phrase: 'The stock update', file: 'api/r.js', start: 61, end: 61, text: '  await q()' })
+  assert.equal(U.concernLink({ ...q, attempts: [{ verdict: 'pass', concern: 'x', links: [{ phrase: 'nowhere', file: 'a.js', start: 1, end: 1 }] }] }), undefined)
+  assert.equal(U.concernLink({ id: 'q2' }), undefined)
+})

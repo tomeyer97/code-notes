@@ -60,6 +60,8 @@ export interface Cli {
   fileFor(branch: string): string
   slugOf(branch: string): string
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
+  /** The code a question's concern is about (a link of the grade that raised it), if it named some. */
+  concernLink(q: Question): Link | undefined
   /** The check file, Code Notes' notes and the setup files: never part of the change, never "uncommitted work". */
   own(file: string): boolean
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
@@ -195,6 +197,15 @@ export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Se
     ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
   }
+}
+
+/** A TODO comment of at most 80 characters (the text cut at a word, with "…"). */
+export function todoLine(mark: [string, string], text: string, max = 80): string {
+  const head = `${mark[0]} TODO: `, room = max - head.length - mark[1].length
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (t.length <= room) return `${head}${t}${mark[1]}`
+  const cut = t.slice(0, room - 1).replace(/\s+\S*$/, '').replace(/[,;:.]$/, '')
+  return `${head}${cut}…${mark[1]}`
 }
 
 /** The status bar, from the CLI's words: hidden when no check is needed; an icon by tone; amber for a top-up. */

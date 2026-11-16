@@ -206,11 +206,15 @@ export async function run(): Promise<void> {
   await until('D opens q3', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
   await answer('q3', 'GOOD CONCERN: they are in memory, so a restart forgets them.')
   await until('q3 passed with a concern', () => chk().view?.rows[2].flag === 'concern')
-  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'todo')
-  await until('a TODO in the code', () => /TODO/.test(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')))
   await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'flag')
   await until('flagged in the file', () => read().questions[2].concern?.flagged === true && chk().view.rows[2].flag === 'flagged for review')
-  ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file')
+  // Add TODO next to the flag: one short line in the code, said in the thread; the flag stays.
+  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'todo')
+  const todo = await until('a TODO in the code', () => fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').split('\n').find((l) => l.includes('TODO')))
+  assert.ok(todo.length <= 80, `a short TODO: ${todo}`)
+  await until('said in the thread', () => (api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /TODO added at limits\.js:1\b/.test((c.body as vscode.MarkdownString).value)))
+  assert.equal(read().questions[2].concern?.flagged, true, 'Add TODO keeps the flag')
+  ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file; Add TODO keeps it and says where the TODO went')
 
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
   await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush')

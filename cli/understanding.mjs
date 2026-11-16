@@ -1034,6 +1034,17 @@ export function explanationOf(a) {
   return clipWords(a.note || (/^.*?[.!?](?=\s|$)/.exec(inline(a.feedback))?.[0] ?? a.feedback), 30)
 }
 
+/**
+ * The code a question's concern is about: the first link of the attempt that raised it whose phrase is in the concern's
+ * own words (`{ phrase, file, start, end, text? }`), else undefined.
+ */
+export function concernLink(q) {
+  const a = [...(q.attempts ?? [])].reverse().find((x) => x.concern && x.links?.length)
+  const words = String(q.concern?.text ?? a?.concern ?? '')
+  const l = a?.links?.find((x) => x && words.includes(x.phrase))
+  return l && typeof l.file === 'string' && Number.isInteger(l.start) ? l : undefined
+}
+
 /** Concerns the author flagged for the reviewer (`questions[].concern` with `flagged: true`). */
 export function flaggedConcerns(check) {
   return (check.questions ?? []).filter((q) => q.concern?.flagged && inline(q.concern.text)).map((q) => ({ q, text: q.concern.text }))

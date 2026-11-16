@@ -13,7 +13,7 @@ import { pathToFileURL } from 'url'
 import { Ask, AskResult } from './claude'
 import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
-import { Check, CheckView, Cli, Link, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from './checkModel'
+import { Check, CheckView, Cli, Link, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine } from './checkModel'
 import { clock } from './writing'
 
 /** What the check needs from the rest of the extension (extension.ts). */
@@ -447,12 +447,30 @@ export class Understanding implements vscode.Disposable {
     for (const f of this.todoFiles()) if (await dirty(f)) todos.push(f)
     return { files, todos }
   }
-  /** Files a TODO was added to from this branch's check. */
-  private todoFiles(): string[] { return this.st ? this.host.memento.get<Record<string, string[]>>(TODO_KEY)?.[this.st.branch] ?? [] : [] }
-  private async addTodoFile(file: string): Promise<void> {
-    const all = this.host.memento.get<Record<string, string[]>>(TODO_KEY) ?? {}
+  /** The TODOs added from this branch's check: per question, the file and line it went to. */
+  private todos(): Record<string, { file: string; line: number }> { return this.st ? this.host.memento.get<Record<string, Record<string, { file: string; line: number }>>>(TODO_KEY)?.[this.st.branch] ?? {} : {} }
+  private todoFiles(): string[] { return [...new Set(Object.values(this.todos()).map((t) => t.file))] }
+  private async addTodo(q: string, file: string, line: number): Promise<void> {
+    const all = this.host.memento.get<Record<string, Record<string, { file: string; line: number }>>>(TODO_KEY) ?? {}
     const b = this.st!.branch
-    if (!(all[b] ?? []).includes(file)) await this.host.memento.update(TODO_KEY, { ...all, [b]: [...(all[b] ?? []), file] })
+    await this.host.memento.update(TODO_KEY, { ...all, [b]: { ...(all[b] ?? {}), [q]: { file, line } } })
+  }
+  /**
+   * The lines a concern is about: the code its grade linked (found again by its text when it moved), else the
+   * question's thread.
+   */
+  private async concernAt(q: Question, n: Note): Promise<{ file: string; start: number; end: number }> {
+    const l = this.U.concernLink(q)
+    if (!l) return { file: n.data.file, start: n.data.range.start, end: n.data.range.end }
+    let start = l.start
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.folder!.uri, l.file))
+      if (l.text && doc.lineAt(Math.min(doc.lineCount - 1, l.start - 1)).text !== l.text) {
+        const hits = Array.from({ length: doc.lineCount }, (_, k) => k).filter((k) => doc.lineAt(k).text === l.text)
+        if (hits.length) start = hits.reduce((a, b) => (Math.abs(b + 1 - l.start) < Math.abs(a + 1 - l.start) ? b : a)) + 1
+      }
+    } catch { return { file: n.data.file, start: n.data.range.start, end: n.data.range.end } }
+    return { file: l.file, start, end: start + (l.end - l.start) }
   }
 
   /** Commit & push: exactly the files named in the view (the check file, the setup files, ticked TODO files), then the push. */
@@ -653,7 +671,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** A thread's passing state for commentsOf: checking, why it couldn't be checked, a concern about the code. */
-  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string }; next?: boolean } | undefined {
+  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string; todo?: string }; next?: boolean } | undefined {
     const l = linkOf(n)
     if (!l) return undefined
     if (this.grading.has(l.q)) return { checking: true }
@@ -663,7 +681,9 @@ export class Understanding implements vscode.Disposable {
     const c = q && concernOf(q)
     // Done here and another one open: the way on, under the grade.
     const next = !!q && !notDone(this.U.stateOf(q)) && this.hasOpen()
-    return c || next ? { ...(c ? { concern: c } : {}), ...(next ? { next } : {}) } : undefined
+    const t = q && this.todos()[q.id]
+    const todo = t ? `${t.file.split('/').pop()}:${t.line}` : undefined
+    return c || next ? { ...(c ? { concern: { ...c, ...(todo ? { todo } : {}) } } : {}), ...(next ? { next } : {}) } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
   /** The code links of message `mi` of a check thread (with the line text to find them after edits). */
@@ -686,24 +706,28 @@ export class Understanding implements vscode.Disposable {
       return
     }
     if (action === 'todo') {
-      const uri = vscode.Uri.joinPath(this.folder!.uri, n.data.file)
+      // Above the code the concern names (else the question's first line); one short line; said in the thread.
+      const at = await this.concernAt(q, n)
+      const uri = vscode.Uri.joinPath(this.folder!.uri, at.file)
       const doc = await vscode.workspace.openTextDocument(uri)
-      const line = doc.lineAt(Math.max(0, start - 1))
+      const line = doc.lineAt(Math.min(doc.lineCount - 1, Math.max(0, at.start - 1)))
       const indent = line.text.slice(0, line.firstNonWhitespaceCharacterIndex)
-      const mark = commentMark(n.data.file)
+      const mark = commentMark(at.file)
       const edit = new vscode.WorkspaceEdit()
-      edit.insert(uri, new vscode.Position(line.lineNumber, 0), `${indent}${mark[0]} TODO: ${c.suspect ? q.text : c.text}${mark[1]}\n`)
-      await vscode.workspace.applyEdit(edit)
+      edit.insert(uri, new vscode.Position(line.lineNumber, 0), `${indent}${todoLine(mark, c.suspect ? q.text : c.text)}\n`)
+      if (!(await vscode.workspace.applyEdit(edit))) return
       await doc.save()
-      await this.addTodoFile(n.data.file)
+      await this.addTodo(q.id, at.file, line.lineNumber + 1)
+      this.host.refresh()
+      return
     }
-    // Flag for reviewer: on the merge request (toggles); a TODO in the code takes the place of the flag.
+    // Flag for reviewer: on the merge request (toggles); independent of a TODO.
     const abs = this.abs!
     const check = this.U.readCheck(abs)
     const fq = check.questions.find((x) => x.id === q.id)
     if (!fq) return
     const text = c.suspect ? q.text : c.text
-    fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: action === 'flag' ? !c.flagged : false }
+    fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: !c.flagged }
     // Flagged by someone other than the check's author: the merge request says who.
     const me = this.me(), by = check.answeredBy
     const other = !!me && !!by && (me.email && by.email ? me.email !== by.email : me.name !== by.name)
