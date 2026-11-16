@@ -103,10 +103,19 @@ Files written before this (every attempt with its answer and hash) still validat
 
 **Concerns.** When the grader thinks the CODE is wrong it returns `concern` on that attempt (text only). The author
 decides what happens to it; the extension then writes the question's `concern`:
-`{ "text": string, "flagged": boolean, "at"?: ISO time }`. `flagged: true` (**Flag for reviewer**) puts it at the top of
+`{ "text": string, "flagged": boolean, "at"?: ISO time, "by"?: { "name", "email" } }` (`by`: who flagged it, else
+`answeredBy`). `flagged: true` (**Flag for reviewer**) puts it at the top of
 the merge request comment under "⚠ Found during the check"; `false` (e.g. **Add TODO**, or not decided) keeps it out of
 the comment. One concern per question; `text` may be edited by the author. `suspect: true` (set by the question
 writer) is shown as "may be a bug" next to the question in the comment.
+
+CI also posts each flagged concern as a **thread on its line** that a reviewer can resolve: a GitLab discussion with a
+diff position (the merge request's `diff_refs`, the last line of the question's range, else the first code link of the
+attempt that raised it), a GitHub review comment (`side: RIGHT`). The text is short: "⚠ **Found during the understanding
+check** (flagged by Bob)" and the concern, mentions made inert. A hidden marker with the question's id finds it again:
+never posted twice, its text updated when it changed. Un-flagged, or its question gone: GitLab resolves the discussion
+(and reopens it when flagged again); GitHub gets one "No longer flagged." reply (resolving a review thread needs GraphQL).
+A line outside the diff falls back to a plain merge request note with a file:line link. Errors here never fail the job.
 
 ## Out of diffs and search
 
@@ -182,7 +191,7 @@ answer, the diff and may read the code; it returns JSON `{verdict, feedback, hin
 ## Config: `understanding/config.json` (optional, committed)
 
 ```jsonc
-{ "questions": { "min": 1, "max": 5 }, "exempt": [], "passRatio": 0.6, "maxDrift": 40,
+{ "questions": { "min": 1, "max": 5 }, "exempt": [], "passRatio": 0.6, "maxDrift": 40, "mode": "required",
   "skipLabel": "skip-understanding", "model": null, "backend": null, "mrComment": true }
 ```
 
@@ -203,7 +212,13 @@ comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an 
 ## CI recipes (in the README)
 
 GitLab: a job on `merge_request_event` with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
-`api` scope) for labels/approvals/comment. GitHub Actions: same CLI, `GITHUB_TOKEN`.
+`api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. GitHub Actions: same CLI, `GITHUB_TOKEN`.
+
+**Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
+a month, then switch to required. Wherever `ci` would fail (exit 1) it exits 3, its first line starts "⚠ Advisory:", and
+the merge request comment is the same as in required mode plus one muted line "Advisory: this check doesn't block
+merging." GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
+GitHub Actions `ci` prints a `::warning::` annotation and exits 0 instead. "Can't check" (exit 2) stays 2.
 
 ## Out of scope for the prototype
 

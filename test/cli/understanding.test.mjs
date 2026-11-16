@@ -831,3 +831,178 @@ test('code links: the grader names code and links it; links are checked against 
   assert.equal(r.code, 0, r.out); assert.match(r.out, /1 link/)
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, '.git/understanding-draft.json'), 'utf8')).questions[0].links, [{ phrase: 'the first step', file: 'src/app.js', start: 2, end: 2, text: fs.readFileSync(path.join(d, 'src/app.js'), 'utf8').split('\n')[1] }])
 })
+
+/** A fake API driven by one function: (method, path, body) → [status, json]. Every request recorded. */
+async function fakeServer(handle) {
+  const calls = []
+  const srv = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', (x) => { b += x })
+    req.on('end', () => {
+      const p = req.url.split('?')[0], body = b ? JSON.parse(b) : undefined
+      calls.push({ method: req.method, path: p, body })
+      const [status, json] = handle(req.method, p, body) ?? [404, {}]
+      res.statusCode = status; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(json ?? {}))
+    })
+  })
+  await new Promise((r) => srv.listen(0, r))
+  return { url: `http://127.0.0.1:${srv.address().port}`, calls, close: () => srv.close() }
+}
+
+/** A passed check whose q1 carries a concern; `flag(d, {...})` changes it and commits. */
+function concernRepo() {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  const set = (concern, extra = (c) => c) => { const c = U.readCheck(f); c.questions[0].concern = concern; extra(c); U.writeCheck(f, c); commitAll(d, 'concern') }
+  set({ text: 'load() errors are swallowed; tell @carol', flagged: true, by: { name: 'Bob' } })
+  return { d, f, set }
+}
+
+test('flagged concerns on GitLab: a thread on the line, never twice, updated, resolved when un-flagged, a note when the line is not in the diff', async () => {
+  const { d, set } = concernRepo()
+  const mr = '/projects/grp%2Fshop/merge_requests/7'
+  const discussions = []
+  let n = 0
+  const api = await fakeServer((m, p, b) => {
+    if (m === 'GET' && p === mr) return [200, { labels: [], author: { username: 'ada' }, diff_refs: { base_sha: 'b1', start_sha: 's1', head_sha: 'h1' } }]
+    if (p === `${mr}/notes`) return [200, m === 'GET' ? [] : { id: 1 }]
+    if (m === 'GET' && p === `${mr}/discussions`) return [200, discussions]
+    if (m === 'POST' && p === `${mr}/discussions`) {
+      if (b.position && b.position.new_line > 500) return [400, { message: 'line_code can\'t be blank' }]
+      const dsc = { id: `d${++n}`, notes: [{ id: n, body: b.body, resolved: false, position: b.position }] }
+      discussions.push(dsc); return [201, dsc]
+    }
+    const note = /discussions\/(d\d+)\/notes\/(\d+)$/.exec(p)
+    if (m === 'PUT' && note) { const x = discussions.find((y) => y.id === note[1]); x.notes[0].body = b.body; return [200, x.notes[0]] }
+    const res = /discussions\/(d\d+)$/.exec(p)
+    if (m === 'PUT' && res) { const x = discussions.find((y) => y.id === res[1]); x.notes[0].resolved = b.resolved; return [200, x] }
+  })
+  const env = () => ({ ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
+  try {
+    let r = await ci(d, env())
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    assert.ok(r.lines.includes('  Concern posted on src/app.js:6 (q1).'), r.lines.join('\n'))
+    assert.equal(discussions.length, 1)
+    assert.deepEqual(discussions[0].notes[0].position, { position_type: 'text', base_sha: 'b1', start_sha: 's1', head_sha: 'h1', new_path: 'src/app.js', new_line: 6 })
+    assert.equal(discussions[0].notes[0].body, '<!-- understanding-concern:q1 -->\n⚠ **Found during the understanding check** (flagged by Bob)\nload() errors are swallowed; tell @⁠carol')
+    assert.match(r.comment, /\*\*⚠ Found during the check\*\*/, 'still at the top of the bot comment')
+    // A re-run: nothing new.
+    r = await ci(d, env())
+    assert.equal(discussions.length, 1); assert.ok(!r.lines.some((l) => /Concern/.test(l)), r.lines.join('\n'))
+    // The text changed: updated in place.
+    set({ text: 'load() errors are swallowed', flagged: true, by: { name: 'Bob' } })
+    r = await ci(d, env())
+    assert.equal(discussions.length, 1); assert.match(discussions[0].notes[0].body, /swallowed$/); assert.ok(r.lines.includes('  Concern updated (q1).'))
+    // Un-flagged: resolved; flagged again: reopened.
+    set({ text: 'load() errors are swallowed', flagged: false })
+    r = await ci(d, env())
+    assert.equal(discussions[0].notes[0].resolved, true); assert.ok(r.lines.includes('  Concern resolved (q1): no longer flagged.'))
+    r = await ci(d, env())
+    assert.ok(!r.lines.some((l) => /Concern/.test(l)), 'resolved once')
+    set({ text: 'load() errors are swallowed', flagged: true, by: { name: 'Bob' } })
+    r = await ci(d, env())
+    assert.equal(discussions[0].notes[0].resolved, false); assert.ok(r.lines.includes('  Concern reopened (q1).'))
+    // The question is gone: resolved too. A concern whose line is not in the diff: a plain note with a link.
+    set({ text: 'Off the diff', flagged: true }, (c) => { c.questions[0].concern = undefined; c.questions[1].start = 900; c.questions[1].end = 901; c.questions[1].anchor = undefined; c.questions[1].concern = { text: 'Off the diff', flagged: true } })
+    r = await ci(d, env())
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    assert.equal(discussions[0].notes[0].resolved, true)
+    assert.equal(discussions.length, 2)
+    assert.equal(discussions[1].notes[0].position, undefined)
+    assert.match(discussions[1].notes[0].body, /^<!-- understanding-concern:q2 -->\n⚠ \*\*Found during the understanding check\*\* \(flagged by Ada\)\nOff the diff · \[`src\/app\.js:901`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#[0-9a-f]{40}_\d+_901\)$/)
+    assert.ok(r.lines.includes('  Concern posted as a note (q2).'))
+  } finally { api.close() }
+})
+
+test('flagged concerns on GitHub: a review comment on the line (RIGHT), never twice, "No longer flagged" once, a comment when off the diff; API errors never fail the job', async () => {
+  const { d, set } = concernRepo()
+  const ev = path.join(d, '..', `event-${path.basename(d)}.json`)
+  const writeEv = () => fs.writeFileSync(ev, JSON.stringify({ pull_request: { number: 5, head: { sha: gitIn(d, 'rev-parse', 'HEAD').trim(), ref: 'feat/x' }, base: { sha: gitIn(d, 'rev-parse', 'main').trim() }, user: { login: 'ada' }, labels: [] } }))
+  const review = [], issue = []
+  let n = 0, broken = false
+  const api = await fakeServer((m, p, b) => {
+    if (broken && p.endsWith('/pulls/5/comments')) return [500, { message: 'down' }]
+    if (m === 'GET' && p === '/repos/o/shop/pulls/5') return [200, { labels: [], user: { login: 'ada' } }]
+    if (m === 'GET' && p === '/repos/o/shop/issues/5/comments') return [200, issue]
+    if (m === 'POST' && p === '/repos/o/shop/issues/5/comments') { const c = { id: ++n, body: b.body }; issue.push(c); return [201, c] }
+    const ic = /issues\/comments\/(\d+)$/.exec(p)
+    if (m === 'PATCH' && ic) { const c = issue.find((x) => x.id === Number(ic[1])); c.body = b.body; return [200, c] }
+    if (m === 'GET' && p === '/repos/o/shop/pulls/5/comments') return [200, review]
+    if (m === 'POST' && p === '/repos/o/shop/pulls/5/comments') {
+      if (b.line > 500) return [422, { message: 'line must be part of the diff' }]
+      const c = { id: ++n, body: b.body, path: b.path, line: b.line, side: b.side, commit_id: b.commit_id }; review.push(c); return [201, c]
+    }
+    const rep = /pulls\/5\/comments\/(\d+)\/replies$/.exec(p)
+    if (m === 'POST' && rep) { const c = { id: ++n, body: b.body, in_reply_to_id: Number(rep[1]) }; review.push(c); return [201, c] }
+    const rc = /pulls\/comments\/(\d+)$/.exec(p)
+    if (m === 'PATCH' && rc) { const c = review.find((x) => x.id === Number(rc[1])); c.body = b.body; return [200, c] }
+  })
+  const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop', GITHUB_API_URL: api.url, GITHUB_TOKEN: 't' }
+  try {
+    writeEv()
+    let r = await ci(d, env)
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    assert.equal(review.length, 1)
+    assert.deepEqual([review[0].path, review[0].line, review[0].side, review[0].commit_id], ['src/app.js', 6, 'RIGHT', gitIn(d, 'rev-parse', 'HEAD').trim()])
+    assert.match(review[0].body, /^<!-- understanding-concern:q1 -->\n⚠ \*\*Found during the understanding check\*\* \(flagged by Bob\)\n/)
+    r = await ci(d, env)
+    assert.equal(review.length, 1, 'never twice')
+    set({ text: 'load() errors are swallowed', flagged: false }); writeEv()
+    r = await ci(d, env)
+    assert.equal(review.length, 2); assert.equal(review[1].in_reply_to_id, review[0].id); assert.match(review[1].body, /No longer flagged\.$/)
+    r = await ci(d, env)
+    assert.equal(review.length, 2, 'the reply once')
+    // Off the diff: an issue comment with a link.
+    set(undefined, (c) => { c.questions[1].start = 900; c.questions[1].end = 901; c.questions[1].anchor = undefined; c.questions[1].concern = { text: 'Off the diff', flagged: true } }); writeEv()
+    r = await ci(d, env)
+    const note = issue.find((c) => c.body.includes('understanding-concern:q2'))
+    assert.ok(note); assert.match(note.body, /Off the diff · \[`src\/app\.js:901`\]\(.*\/pull\/5\/files#diff-[0-9a-f]{64}R901\)/)
+    assert.ok(r.lines.includes('  Concern posted as a comment (q2).'))
+    // The API fails: the job's result doesn't change.
+    broken = true
+    r = await ci(d, env)
+    assert.equal(r.code, 0, r.lines.join('\n')); assert.ok(r.lines.some((l) => /couldn't read the review comments/.test(l)))
+  } finally { api.close() }
+})
+
+test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a warning; the comment says it doesn\'t block; UNDERSTANDING_MODE overrides the config', async () => {
+  const d = repo()
+  assert.equal(U.ciMode({}, {}), 'required')
+  assert.equal(U.ciMode({ mode: 'advisory' }, {}), 'advisory')
+  assert.equal(U.ciMode({ mode: 'advisory' }, { UNDERSTANDING_MODE: 'required' }), 'required')
+  assert.equal(U.ciMode({}, { UNDERSTANDING_MODE: 'advisory' }), 'advisory')
+  // Required: no file → 1.
+  let r = await ci(d, gitlabEnv(d))
+  assert.deepEqual([r.code, r.mode], [1, 'required']); assert.match(r.lines[0], /^✗ No understanding check yet/)
+  // Advisory from the config: 3, the same message, the comment with one muted line.
+  fs.mkdirSync(path.join(d, 'understanding'))
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "mode": "advisory" }\n')
+  commitAll(d, 'advisory')
+  r = await ci(d, gitlabEnv(d))
+  assert.deepEqual([r.code, r.mode], [3, 'advisory']); assert.match(r.lines[0], /^⚠ Advisory: No understanding check yet: a few questions/)
+  assert.match(r.comment, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\*[\s\S]*\n\n<sub>Advisory: this check doesn't block merging\.<\/sub>$/)
+  // The env var wins over the file.
+  r = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_MODE: 'required' })
+  assert.equal(r.code, 1); assert.doesNotMatch(r.comment, /Advisory/)
+  // Can't check stays 2.
+  r = await ci(d, gitlabEnv(d, undefined, { CI_MERGE_REQUEST_DIFF_BASE_SHA: 'deadbeef00' }))
+  assert.equal(r.code, 2)
+  // A pass stays 0, with the muted line.
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d)
+  r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 0); assert.match(r.lines[0], /^✓ Understanding check done/); assert.match(r.comment, /doesn't block merging/)
+  // GitHub Actions: exit 0 and a warning annotation.
+  const c = U.readCheck(f); delete c.questions[2].attempts; U.writeCheck(f, c)
+  commitAll(d, 'one open')
+  const ev = path.join(d, '..', `event-adv-${path.basename(d)}.json`)
+  fs.writeFileSync(ev, JSON.stringify({ pull_request: { number: 5, head: { sha: gitIn(d, 'rev-parse', 'HEAD').trim(), ref: 'feat/x' }, base: { sha: gitIn(d, 'rev-parse', 'main').trim() }, user: { login: 'ada' }, labels: [] } }))
+  r = await ci(d, { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop' })
+  assert.equal(r.code, 0)
+  assert.match(r.lines[0], /^⚠ Advisory: Understanding check: 2 of 3 done/)
+  assert.match(r.lines.at(-1), /^::warning title=Understanding check::⚠ Advisory: Understanding check: 2 of 3 done/)
+  // Through main: the exit code is what the job sees.
+  assert.equal((await run(d, ['ci', '--no-comment'], { ...gitlabEnv(d), PATH: process.env.PATH })).code, 3)
+})

@@ -17,7 +17,7 @@ export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
 export const VERDICTS = ['pass', 'retry', 'explained', 'restated']
 export const MARKER = '<!-- understanding-check -->'
 export const DEFAULTS = {
-  questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [],
+  questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [], mode: 'required',
   skipLabel: 'skip-understanding', model: null, backend: null, mrComment: true,
 }
 /** At most this many questions in one file (the first set plus top-ups). */
@@ -1091,9 +1091,28 @@ export function noCheckLine(change) {
  * someone other than the author → waived. Else the file must exist, be valid, belong to this change (drift in code
  * lines), match its hashes, and meet the rule (checkState: every question done, enough passed). A skip label without a
  * valid approval only says how to waive when the check itself doesn't pass. The merge request comment follows the job:
- * its first line says the result or what is missing. Returns { code, lines, comment? }: 0 pass, 1 fail, 2 can't check.
+ * its first line says the result or what is missing. Returns { code, lines, comment?, mode }: 0 pass, 1 fail, 2 can't
+ * check, 3 a failure in advisory mode (on GitHub Actions: 0 with a warning annotation).
  */
-export async function runCi(repo, { env = process.env, comment = true, base: baseFlag } = {}) {
+export async function runCi(repo, opts = {}) {
+  const env = opts.env ?? process.env
+  const mode = ciMode(loadConfig(repo), env)
+  const res = await ciJob(repo, { ...opts, env, advisory: mode === 'advisory' })
+  res.mode = mode
+  if (mode !== 'advisory' || res.code !== 1) return res
+  // Advisory: never blocks. GitLab shows exit 3 as "passed with warnings" (allow_failure: exit_codes: [3]); GitHub
+  // can't allow one exit code, so there it is a warning annotation and exit 0.
+  res.lines[0] = `⚠ Advisory: ${res.lines[0].replace(/^[✗!]\s*/, '')}`
+  if (env.GITHUB_ACTIONS) { res.lines.push(`::warning title=Understanding check::${res.lines[0].replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`); res.code = 0 } else res.code = 3
+  return res
+}
+
+/** `required` (default) or `advisory`: UNDERSTANDING_MODE, else the config's "mode". */
+export function ciMode(cfg = DEFAULTS, env = process.env) {
+  return (env.UNDERSTANDING_MODE || cfg.mode) === 'advisory' ? 'advisory' : 'required'
+}
+
+async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, advisory = false } = {}) {
   const cfg = loadConfig(repo)
   const ctx = ciContext(env)
   const head = ctx.head || gitOk(repo, ['rev-parse', 'HEAD'])
@@ -1112,6 +1131,7 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   const rerun = ctx.platform === 'github' ? '' : ', then re-run this job'
   const post = async (res, body) => {
     if (!comment || !cfg.mrComment || !body) return res
+    if (advisory) body = `${body}\n\n<sub>Advisory: this check doesn't block merging.</sub>`
     res.comment = body
     if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
     return res
@@ -1136,8 +1156,125 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
     }
   }
   const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun })
-  if (res.code !== 0 && skip) return post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body)
-  return post({ code: res.code, lines: res.lines }, res.body)
+  const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
+  // Flagged concerns also go on their lines, as threads a reviewer can resolve. Never fails the job.
+  if (res.check && canApi && comment && cfg.mrComment) done.lines.push(...await syncConcerns(ctx, res.check, { head, link: res.link }))
+  return done
+}
+
+// ---------- flagged concerns as diff threads ----------
+
+const concernMarker = (id) => `<!-- understanding-concern:${id} -->`
+const closedMarker = (id) => `<!-- understanding-concern-closed:${id} -->`
+const concernIdOf = (body) => /<!-- understanding-concern:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
+const closedIdOf = (body) => /<!-- understanding-concern-closed:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
+
+/**
+ * Where a flagged concern goes: the last line of its question's range, else the first code link of the attempt that
+ * raised it (or of the question). `{ file, line }`, or undefined (then a plain note).
+ */
+export function concernPlace(q) {
+  if (q.target !== 'file' && Number.isInteger(q.end)) return { file: q.file, line: q.end }
+  const as = [...(q.attempts ?? [])].reverse()
+  const l = (as.find((x) => x.concern && x.links?.length) ?? as.find((x) => x.links?.length))?.links?.[0] ?? q.links?.[0]
+  return l && typeof l.file === 'string' && Number.isInteger(l.start) ? { file: l.file, line: l.start } : undefined
+}
+
+/** A concern thread's text: short, mentions inert, the marker hidden. `where`: a file:line link (only in a fallback note). */
+export function concernBody(check, q, where) {
+  const who = q.concern?.by ?? check.answeredBy
+  const name = who?.name || who?.email
+  return [concernMarker(q.id), `⚠ **Found during the understanding check**${name ? ` (flagged by ${inline(name)})` : ''}`,
+    `${inline(q.concern.text)}${where ? ` · ${where}` : ''}`].join('\n')
+}
+
+/**
+ * Posts each flagged concern (`questions[].concern.flagged`) as a resolvable thread on its line: a GitLab discussion
+ * with a diff position (from the merge request's diff_refs), a GitHub review comment (side RIGHT). Each is found again
+ * by a hidden marker with its question's id: never posted twice, its text updated when it changed. A concern
+ * un-flagged, or whose question is gone: GitLab resolves the discussion; GitHub gets one "No longer flagged." reply
+ * (review threads can only be resolved through GraphQL). A line the diff doesn't have (the position is rejected) falls
+ * back to a plain merge request note with a file:line link. Returns log lines; never throws.
+ */
+export async function syncConcerns(ctx, check, { head, link = () => undefined } = {}) {
+  const lines = []
+  const say = (s) => { lines.push(`  ${s}`); return true }
+  const safe = async (what, fn) => { try { return await fn() } catch (e) { lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`); return undefined } }
+  const want = new Map(flaggedConcerns(check).map((c) => [c.q.id, c.q]))
+  const whereOf = (q) => {
+    const p = concernPlace(q)
+    if (!p) return undefined
+    const u = link({ file: p.file, start: p.line, end: p.line })
+    return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\``
+  }
+  const noted = (body) => /understanding check\*\*.*\n.* · [[`]/.test(body) // a fallback note carries the link
+
+  if (ctx.platform === 'gitlab') {
+    const mr = glMr(ctx)
+    const discussions = await safe('read the merge request threads', () => api(ctx, 'GET', `${mr}/discussions?per_page=100`))
+    if (!Array.isArray(discussions)) return lines
+    const mine = new Map()
+    for (const d of discussions) { const n = d.notes?.[0]; const id = concernIdOf(n?.body); if (id && !mine.has(id)) mine.set(id, { d, n }) }
+    let refs
+    for (const [id, q] of want) {
+      const had = mine.get(id)
+      if (had) {
+        const body = noted(had.n.body) ? concernBody(check, q, whereOf(q)) : concernBody(check, q)
+        if (had.n.body !== body && await safe('update a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
+        if (had.n.resolved && await safe('reopen a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true))) say(`Concern reopened (${id}).`)
+        continue
+      }
+      const p = concernPlace(q)
+      if (p && refs === undefined) refs = await safe('read the diff refs', async () => (await api(ctx, 'GET', mr))?.diff_refs ?? null) ?? null
+      const position = p && refs?.base_sha ? { position_type: 'text', base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line } : undefined
+      // A line outside the diff is rejected: then a plain note, quietly (no error in the log).
+      let ok = false
+      if (position) { try { await api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q), position }); ok = true } catch { /* not in the diff */ } }
+      if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
+      if (await safe('post a concern', () => api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q, whereOf(q)) }).then(() => true))) say(`Concern posted as a note (${id}).`)
+    }
+    for (const [id, { d, n }] of mine) {
+      if (want.has(id) || n.resolved) continue
+      if (await safe('resolve a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true))) say(`Concern resolved (${id}): no longer flagged.`)
+    }
+    return lines
+  }
+
+  if (ctx.platform !== 'github') return lines
+  const repoUrl = `/repos/${ctx.project}`
+  const pr = `${repoUrl}/pulls/${ctx.mr}`
+  const review = await safe('read the review comments', () => api(ctx, 'GET', `${pr}/comments?per_page=100`))
+  const notes = await safe('read the comments', () => api(ctx, 'GET', `${repoUrl}/issues/${ctx.mr}/comments?per_page=100`))
+  if (!Array.isArray(review) || !Array.isArray(notes)) return lines
+  const mine = new Map(), closed = new Map()
+  for (const c of review) { const id = concernIdOf(c.body); if (id && !c.in_reply_to_id && !mine.has(id)) mine.set(id, { c, review: true }) }
+  for (const c of notes) { const id = concernIdOf(c.body); if (id && !mine.has(id)) mine.set(id, { c, review: false }) }
+  for (const c of review) { const id = closedIdOf(c.body); if (id) closed.set(id, c) }
+  for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c) }
+  for (const [id, q] of want) {
+    const had = mine.get(id)
+    if (had) {
+      const body = had.review ? concernBody(check, q) : concernBody(check, q, whereOf(q))
+      if (had.c.body !== body && await safe('update a concern', () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
+      // Flagged again: the "No longer flagged." reply goes.
+      const gone = closed.get(id)
+      if (gone && had.review && await safe('remove a reply', () => api(ctx, 'DELETE', `${repoUrl}/pulls/comments/${gone.id}`).then(() => true))) say(`Concern flagged again (${id}).`)
+      continue
+    }
+    const p = concernPlace(q)
+    let ok = false
+    if (p && head) { try { await api(ctx, 'POST', `${pr}/comments`, { body: concernBody(check, q), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); ok = true } catch { /* not in the diff */ } }
+    if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
+    if (await safe('post a concern', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: concernBody(check, q, whereOf(q)) }).then(() => true))) say(`Concern posted as a comment (${id}).`)
+  }
+  for (const [id, { c, review: rv }] of mine) {
+    if (want.has(id) || (rv && closed.has(id)) || (!rv && closedIdOf(c.body))) continue
+    const reply = `${closedMarker(id)}\nNo longer flagged.`
+    const ok = rv ? await safe('reply to a concern', () => api(ctx, 'POST', `${pr}/comments/${c.id}/replies`, { body: reply }).then(() => true))
+      : await safe('mark a concern', () => api(ctx, 'PATCH', `${repoUrl}/issues/comments/${c.id}`, { body: `${c.body}\n\n${reply}` }).then(() => true))
+    if (ok) say(`Concern no longer flagged (${id}).`)
+  }
+  return lines
 }
 
 /** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
@@ -1163,27 +1300,29 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   let diff = ''
   try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
   const link = (q) => refLink({ ...ctx, head }, q, diff)
+  // The check and its links go along: runCi posts the flagged concerns on their lines.
+  const out = (r) => Object.assign(r, { check, link, diff })
   if (state.phase === 'drift') {
-    return { code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
-      body: commentBody(check, sum, `**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, link, { qa: sum.met }) }
+    return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
+      body: commentBody(check, sum, `**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, link, { qa: sum.met }) })
   }
   const bad = hashProblems(check)
-  if (bad.length) return short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.')
+  if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
 
   const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${q.text.trim().slice(0, 70)}${q.text.trim().length > 70 ? '…' : ''}`)
   const rule = ruleText(sum)
   if (state.phase === 'answering') {
-    return { code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      body: commentBody(check, sum, `**Understanding check in progress:** ${sum.done} of ${sum.total} done.`, link) }
+    return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
+      body: commentBody(check, sum, `**Understanding check in progress:** ${sum.done} of ${sum.total} done.`, link) })
   }
   if (state.phase === 'short') {
-    return { code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
-      body: commentBody(check, sum, `**Understanding check in progress:** all ${sum.total} answered, not finished yet.`, link) }
+    return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
+      body: commentBody(check, sum, `**Understanding check in progress:** all ${sum.total} answered, not finished yet.`, link) })
   }
   // How much room is left before a top-up is needed.
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-  return { code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    body: commentBody(check, sum, `**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, link, { qa: true }) }
+  return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
+    body: commentBody(check, sum, `**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, link, { qa: true }) })
 }
 
 // ---------- init ----------
@@ -1220,7 +1359,8 @@ const HELP = `understanding.mjs: an understanding check for a change (docs: unde
   grade <file> [--question q2] [--answer "text"] [--write] [--backend claude|anthropic] [--model m]
                                           grade answers (local only): the ungraded ones, or one question
                                           (--answer adds an attempt first; --write saves the result)
-  ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check
+  ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check,
+                                          3 would fail but advisory (config "mode", UNDERSTANDING_MODE)
   init                                    keep understanding/ out of diffs and search (.gitattributes, .ignore)
 
 Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or claude when on PATH, else
