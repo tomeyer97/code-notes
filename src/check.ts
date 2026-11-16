@@ -184,6 +184,8 @@ export class Understanding implements vscode.Disposable {
       if (t && this.ready && this.st?.state.phase === 'answering' && !this.st.summary?.done) { t.text = `$(checklist) ${this.ready} question${this.ready === 1 ? '' : 's'} ready`; t.tip = `Questions about ${this.st.branch} are ready · Check my understanding` }
       if (t) {
         this.item.text = t.text; this.item.tooltip = t.tip
+        // Read out as words (VS Code would read the icon's id: "pass Understanding").
+        this.item.accessibilityInformation = { label: `Understanding check: ${t.tip.replace(/^✓\s*/, '').replace(/ · /g, '. ')}`, role: 'button' }
         this.item.backgroundColor = t.warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined
         this.item.show()
       } else this.item.hide()
@@ -282,6 +284,7 @@ export class Understanding implements vscode.Disposable {
     const model = this.host.model()
     const w = (this.writing = { started: Date.now(), phase: 'starting', branch: st.branch } as NonNullable<Understanding['writing']>)
     this.item.text = '$(sync~spin) Understanding'
+    this.item.accessibilityInformation = { label: 'Understanding check: writing questions', role: 'button' }
     this.item.show()
     this.host.log.info(`understanding check: Claude (${model ?? 'default model'}) is ${topUp ? 'topping up' : 'writing'} the questions for ${st.branch}${bg ? ' in the background' : ''}`)
     let res: AskResult
@@ -927,7 +930,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** For the integration test. */
-  snapshot() { return { tourBusy: !!this.touring, bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
+  snapshot() { return { itemLabel: this.item.accessibilityInformation?.label, tourBusy: !!this.touring, bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
   panelSend(m: unknown): void { this.view.send(m) }
 
   dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer) }

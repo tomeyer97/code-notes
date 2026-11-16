@@ -123,6 +123,7 @@ export async function run(): Promise<void> {
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass · ~2 min left.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
+  assert.match(chk().itemLabel, /^Understanding check: 0 of 3 done\. Answer all 3/, 'read out as words, never an icon id')
   // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
   // workspace's settings. The view offers the setup once, as a commit of its own.
   assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
@@ -161,7 +162,7 @@ export async function run(): Promise<void> {
   // 3. A good answer typed in the real reply box: ✓ in the thread, the verdict in the file; on to question 2.
   if (cdp) {
     const page = await ui()
-    await page.locator('.statusbar-item[aria-label*="Understanding 0/3"]').first().click()
+    await page.locator('.statusbar-item[aria-label*="Understanding check: 0 of 3 done"]').first().click()
     await sleep(800)
     await page.locator('.review-widget .review-thread-reply-button').first().click()
     await sleep(400)
