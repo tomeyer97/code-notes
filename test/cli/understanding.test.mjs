@@ -353,6 +353,8 @@ test('the MR comment never grades in public: one progress line until done; then 
     assert.ok(body.indexOf('Worth discussing') < body.indexOf('It is kept in'), 'worth discussing comes first')
     // The reasoning line is at most 15 words.
     assert.ok(U.reasonOf({ feedback: 'Right. ' + 'word '.repeat(30) }).split(' ').length <= 15)
+    assert.equal(U.reasonOf({ note: 'Right: tick() re-queues it.', feedback: 'Right.' }), 'tick() re-queues it.')
+    assert.equal(U.reasonOf({ feedback: 'Right.' }), '')
     // Drift: the first line says what is missing, the answers stay below.
     fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
     commitAll(d, 'more')

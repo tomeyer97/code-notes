@@ -967,7 +967,7 @@ export function clipWords(s, n) {
 /** The grader's reasoning for the reviewer, at most 15 words: its `note`, else its feedback without the "Right.". */
 export function reasonOf(a) {
   if (!a) return ''
-  return clipWords(a.note || String(a.feedback ?? '').replace(/^\s*(right|correct|yes)[.!]\s*/i, ''), 15)
+  return clipWords(String(a.note || a.feedback || '').replace(/^\s*(right|correct|yes)[.!:,]\s*/i, ''), 15)
 }
 /** The one-line correct explanation of an explained question: the grader's `note`, else the first sentence of its explanation. */
 export function explanationOf(a) {
