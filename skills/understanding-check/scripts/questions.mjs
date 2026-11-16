@@ -87,7 +87,8 @@ if (cmd === 'start') {
   // Code lines only: blank and comment-only lines don't count, nor the config's exempt files.
   // Always the branch's OWN change (from today's merge base): code that came in from the target branch is never asked.
   let files = U.numstat(repo, base, head)
-  const loose = U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt))
+  // Uncommitted lines: only those of this branch's working tree (another branch may be checked out by now).
+  const loose = U.currentBranch(repo) === branch ? U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt)) : 0
   const st = U.codeStat(repo, base, head, cfg.exempt)
   let lines = U.linesOf(st), ranges
   if (topUp) {
