@@ -2751,7 +2751,7 @@ async function panelFits(): Promise<boolean> {
 
 /**
  * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
- * ~80 characters; a window too narrow for both walks with the step card in the editor only (no panel).
+ * 80 columns; a window too narrow for both walks with the step card in the editor only (no panel).
  */
 async function codeGetsMoreRoom(): Promise<void> {
   const s = await sideBySide()
