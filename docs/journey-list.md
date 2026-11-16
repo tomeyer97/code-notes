@@ -60,7 +60,7 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
 
 - Checks are not in the journey lists (no group, section or chip): a branch's check lives in the Check view. The
   panel's count and the sidebar's All are the same number.
-- Search: every word, else any word with one line saying so ("Nothing mentions “payment”; showing “retry”"). The
+- Search: every word, else any word with one line saying so ("No journey about “payment”; closest for “retry”"). The
   sidebar's picker shows the same line as a separator.
 - Continue starts past step 1 (opening a journey is not reading it); the walk being walked is first and its row says
   its step. A sidebar click still walks; the panel list previews.
@@ -106,3 +106,25 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
 - **Tree reveals** (In this file, the walk's row) wait for the view's next drawing and go only to a node it holds;
   a step's question is never revealed in the Notes view (it lives under its journey).
 - **Search order:** while searching, the sort reads "Best match"; picking another order applies it to the results.
+
+## As built (round 3)
+
+- **Room for the code:** a walk (a journey, a check's tour, a "See also" link) decides before anything opens whether
+  the panel fits beside 80 visible columns of code, counting the gutter, the scrollbar and the minimap
+  (`codeWidth` in layout.ts). It doesn't: the step card only, the panel (if open) closes, the status bar says so once.
+  A check's question ("Question ›", a Check view row) never opens the panel; finishing opens it only when it fits.
+- **Code links** in a step card only light their lines, as in a question's thread: the caret and the keyboard stay
+  where the click was, so typing next never lands in the code.
+- **Your own edits** (typing, an applied fix) to a step's lines keep the step on them: never "out of date" for it.
+  The edited code becomes the step's anchor (kept in workspace state, not in the journey file) until the journey's
+  own anchor matches again. Code changed on disk (a pull, a checkout, an agent) is flagged as before.
+- **Search** leaves out the words a question is made of (how, are, the, does…) and stems the rest ("retried" finds
+  "retry", "charges" finds "charge"). Nothing about one of the words: "No journey about “charges”; closest for
+  “retried”". A sort picked for the list (Newest, Recently walked, A–Z) orders search results too, in the panel and
+  in the sidebar's picker; "By area" searches by best match.
+- **Newest:** journeys of the same age ("13 d") show their date and time instead ("3 Nov 14:05").
+- **Ask on a step:** the step card says "1 asked ›" ("question" is for a check's questions); the answer starts with a
+  one-line answer, 2-4 sentences in all. The Ask box has one hint line ("Enter asks · Esc keeps the draft").
+- **Lenses** step aside only in the function of an open check question; the rest of the file keeps them.
+- **Reload:** the panel comes back on its journey (a check's tour too, read a moment later); one that can't (the
+  journey is gone, or no room) closes once VS Code has put it back, so no empty editor group is left.

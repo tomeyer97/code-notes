@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchScore, seeAlso } from '../src/journeyList'
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchScore, queryWords, seeAlso, stem } from '../src/journeyList'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { items, NOW } = require('../../test/journey-list/fixture.js')
 
@@ -30,12 +30,53 @@ test('search: no journey has every word: any word, and one line says which word 
   const m = buildList(items(), { query: 'zebra retry', now: NOW })
   assert.ok(m.count > 0)
   assert.ok(m.sections[0].keys.some((k) => m.rows[k].title === 'How charging work'))
-  assert.deepEqual(m.fallback, { missing: ['zebra'], note: 'Nothing mentions “zebra”; showing “retry”' })
+  assert.deepEqual(m.fallback, { missing: ['zebra'], note: 'No journey about “zebra”; closest for “retry”' })
   // Every word is somewhere, never together.
   const b = buildList(items(), { query: 'cart refunds', now: NOW })
   assert.equal(b.fallback?.note, 'No journey has every word; showing any')
   // One word that matches nothing: no fallback, nothing found.
   assert.equal(buildList(items(), { query: 'zebra', now: NOW }).count, 0)
+})
+
+test('a question asked as one would ask it: stop-words left out, words stemmed, retry journeys first', () => {
+  assert.deepEqual(queryWords('how are charges retried'), ['charges', 'retried'])
+  assert.deepEqual(queryWords('how does it'), ['how', 'does', 'it'], 'only stop-words: kept')
+  assert.equal(stem('retried'), stem('retry')); assert.equal(stem('retries'), stem('retrying')); assert.equal(stem('charges'), stem('charge'))
+  const it = (key: string, title: string, steps: string[], summary = ''): ListItem => ({ key, kind: 'journey', title, question: `How does ${title.toLowerCase()} work?`, summary, files: steps.map(() => 'api/x.js'), stepTitles: steps, steps: steps.length, stale: 0, isNew: false, resume: 0 })
+  const list = [
+    it('totals', 'Order totals and discounts', ['Totals are summed', 'A discount code is applied'], 'How the totals of an order are computed and what the discounts are.'),
+    it('errors', 'Unexpected server errors', ['The error handler logs it', 'The client gets a 500']),
+    it('setup', 'Discount code setup', ['An admin adds a code']),
+    it('backoff', 'Job retry backoff', ['A failed job waits longer each time']),
+    it('queue', 'Worker job queue', ['A job is taken', 'A failed job is retried later']),
+    it('email', 'Order confirmation email', ['The email is queued', 'A failed send is retried']),
+    it('routing', 'API request routing', ['A route is matched']),
+  ]
+  const m = buildList(list, { query: 'how are charges retried' })
+  const keys = m.sections[0].keys
+  assert.deepEqual(keys.slice(0, 3), ['backoff', 'email', 'queue'], `retry journeys first: ${keys}`)
+  assert.equal(keys.length, 3, 'stop-words match nothing')
+  assert.equal(m.fallback?.note, 'No journey about “charges”; closest for “retried”')
+  // A journey with both words comes first.
+  const both = buildList([...list, it('charge', 'Card charges', ['A declined charge is retried once'])], { query: 'how are charges retried' })
+  assert.equal(both.sections[0].keys[0], 'charge'); assert.equal(both.fallback, undefined)
+})
+
+test('Newest: ties of the same age say when; a search keeps the sort that was picked', () => {
+  const n = buildList(items(), { sort: 'newest', now: NOW })
+  const rows = n.sections.at(-1)!.keys.map((k) => n.rows[k])
+  const ages = rows.map((r) => r.age)
+  // Every age shown once, or a time that tells them apart.
+  assert.equal(new Set(ages).size, ages.length, `no ties: ${ages.join(', ')}`)
+  assert.ok(ages.some((a) => /^\d+ [A-Z][a-z]{2} \d\d:\d\d$/.test(a)), `a date and time where ages tied: ${ages.join(', ')}`)
+  assert.ok(rows.every((r, i) => i === 0 || Date.parse(rows[i - 1].createdAt!) >= Date.parse(r.createdAt!)), 'newest first')
+  // The default sort (by area) searches by best match; a picked sort orders the results too.
+  assert.equal(buildList(items(), { query: 'work', now: NOW }).searchSort, 'best')
+  const s = buildList(items(), { query: 'work', sort: 'newest', now: NOW })
+  assert.equal(s.searchSort, 'newest')
+  const found = s.sections[0].keys.map((k) => Date.parse(s.rows[k].createdAt!))
+  assert.deepEqual(found, [...found].sort((a, b) => b - a), 'search results newest first')
+  assert.equal(buildList(items(), { query: 'work', sort: 'newest', searchSort: 'best', now: NOW }).searchSort, 'best')
 })
 
 test('sections: Continue, In <file>, New, then by area; the sidebar\'s groups from the same model; no checks', () => {

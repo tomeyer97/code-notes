@@ -292,7 +292,7 @@
     else if (cur < J.steps.length) { const b = el('button', 'link snext', 'Next ›'); b.onclick = () => goStep(cur + 1); nav.append(b) }
     else if (!stops.length) { const b = el('button', 'link send', 'Finish'); b.onclick = () => post({ type: 'finish' }); nav.append(b) }
     // The step's questions live here only: a count, the unread colour for a new reply.
-    if (asked[cur]) { const a = asked[cur], k = a.count || 1; const q = el('button', `link squestion${a.unread ? ' unread' : ''}`, `${k} question${k === 1 ? '' : 's'} ›`); q.onclick = () => post({ type: 'question', id: a.id }); nav.append(q) }
+    if (asked[cur]) { const a = asked[cur], k = a.count || 1; const q = el('button', `link squestion${a.unread ? ' unread' : ''}`, `${k} asked ›`); q.onclick = () => post({ type: 'question', id: a.id }); nav.append(q) }
     // One Ask in a stale card: the banner's, which opens the request prefilled.
     if (!card.staleText) { const ask = el('button', 'link sask', 'Ask'); ask.onclick = () => post({ type: 'ask' }); nav.append(ask) }
     // More holds the details and the references (no bare link row).
@@ -571,7 +571,7 @@
     if (e.key === '/' && !inSearch) { e.preventDefault(); searchEl && searchEl.focus(); return }
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (hq.query) { hq.query = ''; hq.searchSort = 'best'; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
+      if (hq.query) { hq.query = ''; delete hq.searchSort; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
       if (J) { setHome(false); render() }
       return
     }

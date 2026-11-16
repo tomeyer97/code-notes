@@ -509,6 +509,17 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.previousStep')
   await until('back to step 2 at its new line', () => t().step === 2 && at() === 'src/flow.ts:8')
   ok('steps follow edits in memory; the journey file is untouched')
+  // The reader's own edit on a step's lines (typing, an applied fix): the step stays on them, never "out of date".
+  await fed.edit((b) => b.replace(fdoc.lineAt(7).range, '  return 2 + 0'))
+  await sleep(700)
+  assert.deepEqual([snap().journeys[0].at[1].start, snap().journeys[0].at[1].stale], [8, false], 'an edit of mine on the step\'s line: not stale')
+  await fdoc.save()
+  await sleep(700)
+  assert.deepEqual([snap().journeys[0].at[1].start, snap().journeys[0].at[1].stale], [8, false], 'nor once saved')
+  await fed.edit((b) => b.replace(fdoc.lineAt(7).range, '  return 2'))
+  await fdoc.save()
+  await until('the code as the journey has it: fresh', () => !snap().journeys[0].at[1].stale && snap().journeys[0].at[1].start === 8)
+  ok('my own edit of a step\'s lines keeps the step on them, not stale')
 
   // Ask about this step: a normal note on the step's lines.
   const asked = (await vscode.commands.executeCommand('codeNotes.askStep', 'Why does b return 2?')) as any
@@ -531,9 +542,9 @@ export async function run(): Promise<void> {
   // A reply to it shows on the folded journey row and on the step's card.
   reply(an.path, { author: 'claude', role: 'agent', body: 'Because it is the answer.', at: new Date().toISOString() })
   await until('the journey row says 1 reply ("new" is only a new journey)', () => ((api as any).journeysTree() as string[]).some((l) => /journey:Demo · .*1 reply/.test(l)))
-  await until('the card lists the question', () => /1 question · new reply ›\]\(command:codeNotes\.openNoteId/.test(t().card?.body ?? ''))
+  await until('the card lists the question', () => /1 asked · new reply ›\]\(command:codeNotes\.openNoteId/.test(t().card?.body ?? ''))
   await vscode.commands.executeCommand('codeNotes.markAllRead')
-  ok('a reply to a step question: "1 reply" on the journey row, "1 question · new reply" on the card')
+  ok('a reply to a step question: "1 reply" on the journey row, "1 asked · new reply" on the card')
 
   // The journey is edited mid-tour: a step inserted before the current one; the tour stays on the same step.
   fs.writeFileSync(demoPath, JSON.stringify(demo([step('s-0', 'Before a', 'fa', 'src/flow.ts', 3), ...demoSteps]), null, 2))
@@ -1351,7 +1362,8 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
     await vscode.commands.executeCommand('codeNotes.stepDetails', false)
     await until('More closed again: no longer marked', () => bt().codeLinks.visible.join() === '0,1,4', 10000)
     await vscode.commands.executeCommand('codeNotes.codeLink', bt().codeLinks.key, 1)
-    await until('clicked: that phrase\'s lines lit, the cursor there', () => bt().codeLinks.active === 1 && /anim\.ts$/.test(vscode.window.activeTextEditor?.document.uri.path ?? '') && vscode.window.activeTextEditor?.selection.active.line === 2, 10000)
+    const caretBefore = codeEd()?.selection.active.line
+    await until('clicked: that phrase\'s lines lit, the caret left where it was (typing next never lands in the code)', () => bt().codeLinks.active === 1 && /anim\.ts$/.test(codeEd()?.document.uri.path ?? '') && codeEd()?.selection.active.line === caretBefore, 10000)
     assert.equal(bt().step, 1, 'still on the step')
     const lensTitles = async (uri = vscode.window.activeTextEditor!.document.uri) => ((await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', uri, 20)) ?? []).map((l) => `${l.range.start.line}:${l.command?.title}`)
     // A link into the card's file, on screen with the card: no scroll away from it, no way back needed.

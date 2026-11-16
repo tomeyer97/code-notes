@@ -105,17 +105,33 @@ export function ageOf(at: string | undefined, now: number): string {
 }
 
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter(Boolean)
-/** A word matches a query token when it starts with it ("retr" → "retries"); tokens of 4+ letters also inside a word. */
-/** A light stem: "retries" and "retry", "charged" and "charge" meet. */
-const stem = (w: string) => (w.length > 4 ? w.replace(/ies$/, 'y').replace(/(es|s|ed|ing)$/, '') : w)
-const wordHit = (w: string, t: string) => w.startsWith(t) || (t.length >= 4 && w.includes(t)) || (t.length >= 4 && stem(w).startsWith(stem(t)))
+/** Words a question is made of that say nothing about the code ("how are charges retried": charges, retried). */
+const STOP = new Set(('a an the and or but of to in on at by for from with into about as is are was were be been being do does did done ' +
+  'how what when where why which who whom whose this that these those it its we our you your i my me they them their there here ' +
+  'can could should would will shall may might must has have had get gets got if then than so not no yes any some all each every').split(' '))
+/** The words of a query that count: without the stop-words (unless that leaves none). */
+export function queryWords(q: string): string[] {
+  const ws = words(q)
+  const kept = ws.filter((w) => !STOP.has(w))
+  return kept.length ? kept : ws
+}
+/** A light stem: "retried", "retries", "retrying" and "retry" meet; so do "charges", "charged" and "charge". */
+export const stem = (w: string) => (w.length > 3 ? w.replace(/(ies|ied)$/, 'y').replace(/(ying)$/, 'y').replace(/(ing|ed|es|s|e)$/, '') : w)
+/** A word matches a query token when it starts with it ("retr" → "retries"); tokens of 4+ letters also inside a word,
+ *  or with the same stem. */
+const wordHit = (w: string, t: string) => {
+  if (w.startsWith(t) || (t.length >= 4 && w.includes(t))) return true
+  if (t.length < 4) return false
+  const a = stem(w), b = stem(t)
+  return a.length >= 3 && (a.startsWith(b) || (a.length >= 4 && b.startsWith(a)))
+}
 
 /**
  * How well an item matches the query (0: not at all): every token must be found in the title, question, summary,
  * step titles or file paths (`any`: at least one); title hits weigh most. Also returns the words that matched.
  */
 export function matchScore(it: ListItem, query: string, any = false): { score: number; hits: string[] } {
-  const tokens = words(query)
+  const tokens = queryWords(query)
   if (!tokens.length) return { score: 1, hits: [] }
   const fields: [string[], number][] = [[words(it.title), 6], [words(it.question), 4], [words(it.stepTitles.join(' ')), 2], [words(it.summary), 1.5], [words(it.files.join(' ')), 1]]
   let score = 0
@@ -138,6 +154,13 @@ export interface ListOptions {
   query?: string; sort?: Sort; kind?: ListKind | 'all'; area?: string; now?: number
   /** With a search: best match first (the default), or one of the sorts. */
   searchSort?: Sort | 'best'
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** "3 Nov 14:05" (local time). */
+export function stamp(t: number): string {
+  const d = new Date(t), p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 const quote = (ws: string[]) => ws.map((w) => `“${w}”`).join(', ')
@@ -171,23 +194,33 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   let shown = pick(false)
   // Several words and no journey has them all: any of them, said in one line (an empty list is a dead end).
   let fallback: ListModel['fallback']
-  const tokens = words(query)
+  const tokens = queryWords(query)
   if (!shown.length && tokens.length > 1) {
     shown = pick(true)
     if (shown.length) {
       const missing = tokens.filter((t) => !all.some((r) => inFilter(r) && matchScore(r, t).score))
       const found = tokens.filter((t) => !missing.includes(t))
-      fallback = { missing, note: missing.length ? `Nothing mentions ${quote(missing)}; showing ${quote(found)}` : 'No journey has every word; showing any' }
+      fallback = { missing, note: missing.length ? `No journey about ${quote(missing)}; closest for ${quote(found)}` : 'No journey has every word; showing any' }
     }
   }
   const byName = (x: ListRow, y: ListRow) => x.title.localeCompare(y.title)
+  const when = (r: ListRow) => Date.parse(r.createdAt ?? '') || 0
   const order: Record<Sort, (x: ListRow, y: ListRow) => number> = {
     area: (x, y) => x.area.localeCompare(y.area) || byName(x, y),
-    newest: (x, y) => (y.createdAt ?? '').localeCompare(x.createdAt ?? '') || byName(x, y),
+    newest: (x, y) => when(y) - when(x) || byName(x, y),
     walked: (x, y) => (y.walkedAt ?? 0) - (x.walkedAt ?? 0) || byName(x, y),
     name: byName,
   }
   const sorted = [...shown].sort(order[sort])
+  // Newest: rows of the same age ("13 d") say when, so the newest can be told.
+  if (sort === 'newest') {
+    const byAge = new Map<string, ListRow[]>()
+    for (const r of sorted) if (r.age) byAge.set(r.age, [...(byAge.get(r.age) ?? []), r])
+    for (const l of byAge.values()) {
+      if (l.length < 2 || new Set(l.map(when)).size < 2) continue
+      for (const r of l) { r.age = stamp(when(r)); r.meta = [r.area, `${r.steps} step${r.steps === 1 ? '' : 's'}`, r.age].join(' · ') }
+    }
+  }
   const keys = (l: ListRow[]) => l.map((r) => r.key)
   const fileName = o.activeFile?.split('/').pop()
   // In this file, ranked: a step in the function under the cursor, then the most steps here, then the largest share.
@@ -204,7 +237,8 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   }
   const hereSection = fileName && area !== 'here'
   let sections: Section[]
-  const searchSort = o.searchSort ?? 'best'
+  // A search keeps the list's order when one was picked (Newest, Recently walked, A–Z); "By area" means best match.
+  const searchSort = o.searchSort ?? (sort === 'area' ? 'best' : sort)
   if (query) sections = [{ id: 'results', label: `${shown.length} found`, keys: keys([...shown].sort(searchSort === 'best' ? (x, y) => (scores.get(y.key)! - scores.get(x.key)!) || order[sort](x, y) : order[searchSort])) }]
   else if (area === 'here') sections = [{ id: 'here', label: `In ${fileName ?? 'this file'}`, keys: keys(hereRows) }]
   else {
