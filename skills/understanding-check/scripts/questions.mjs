@@ -111,12 +111,15 @@ if (cmd === 'start') {
   // A moved file: a question about the move itself (--whole-file), never about the content it kept.
   if (renamedOnly) for (const r of st.renamed) if (!ranges.has(r.to)) ranges.set(r.to, [])
   const removedOnly = !topUp && st.added === 0 && st.removed > 0
-  const want = wanted(lines, topUp)
+  // Only documentation changed: one question about what a reader now sees or understands differently.
+  const docsOnly = !topUp && !!st.docsOnly
+  const want = docsOnly ? 1 : wanted(lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
   const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
-  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), questions: [] })
+  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), ...(docsOnly ? { docsOnly } : {}), questions: [] })
   say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (docsOnly) say('DOCS ONLY: only documentation changed. Write ONE question about what a reader now sees, can do or understands differently (never why a word was chosen, never about unchanged text). "It is just wording" is a full answer.')
   if (renamedOnly) say(`RENAMED ONLY: ${st.renamed.map((r) => `${r.from} → ${r.to}`).join(', ')}, 0 lines changed. Ask only what the move changes (how a tool, an import or a convention treats the new name or place), with --whole-file; never about the content it kept.`)
   if (removedOnly) say(`REMOVED ONLY: this change only removes code. Ask what the removal changes: put a question on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on the code that used what was removed (any file; find it with Grep).`)
   if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
@@ -253,7 +256,7 @@ if (cmd === 'finish') {
   } else {
     const who = U.gitIdentity(repo)
     check = { version: 1, branch: d.branch, base: d.base, head: d.head, diffStat: d.diffStat, ...(who ? { answeredBy: who } : {}), ...(model ? { model } : {}), createdAt: new Date().toISOString(),
-      questions: d.questions.map((q, i) => ({ ...q, id: `q${i + 1}` })) }
+      questions: d.questions.map((q, i) => ({ ...q, id: `q${i + 1}`, ...(d.docsOnly ? { docs: true } : {}) })) }
   }
   // Its files are checked in the working tree only while its branch is checked out (they were read at its commit).
   const errs = U.validateCheck(check, U.currentBranch(repo) === d.branch ? { repo } : {})

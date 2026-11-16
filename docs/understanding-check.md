@@ -262,7 +262,9 @@ The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
 questions that are not near a changed code line, on lines that hold only comments or blank lines, longer than 240
 characters, more than one question ("…, and could…", "what happens to X, Y and Z", "…, or does…"), or that name a line
-number; `--suspect` marks a question whose honest answer is "this is a bug". A moved or renamed file is detected as a move (git `-M`, both paths passed to git): it counts no line, but a change
+number; `--suspect` marks a question whose honest answer is "this is a bug". A change made only of documentation (`*.md`, `*.txt`, `docs/`, …) gets one question about what a reader now sees
+or understands differently ("4 lines changed (docs)"); the question carries `docs: true` and the grader passes an honest
+"it's just wording". A moved or renamed file is detected as a move (git `-M`, both paths passed to git): it counts no line, but a change
 that is only a move still gets one question about the move itself ("Renamed, 0 lines changed"), never about the
 content it kept. A change that only removes code gets questions too: on the lines where code was removed, or on the code that used
 it (any file). `finish` wants the count for the change's

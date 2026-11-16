@@ -1413,3 +1413,23 @@ test('at most one "what does it return for <numbers>" question per check', () =>
   assert.match(r.out, /a second "what does it return for <numbers>" question/)
   assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '10-12', '--text', 'Why are the steps loaded one by one instead of all at once?').code, 0)
 })
+
+test('a docs-only change: one question about what a reader sees differently; "just wording" passes', () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'README.md'), '# Shop\n\nWe sell outdoor gear.\n\nQuestions: #shop-team.\n')
+  commitAll(d, 'readme')
+  gitIn(d, 'checkout', '-qb', 'docs/typos')
+  fs.writeFileSync(path.join(d, 'README.md'), '# Shop\n\nWe sell outdoor gear and camping kit.\n\nQuestions: #shop-team on chat.\n')
+  commitAll(d, 'wording')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.equal(U.stateWords(st.state, st).line, '4 lines changed (docs) · 1 question, ~1 min.')
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /^DOCS ONLY: only documentation changed\. Write ONE question/m)
+  assert.match(out, /WRITE: 1 question/)
+  assert.equal(script(d, 'add', '--kind', 'change', '--file', 'README.md', '--lines', '3-3', '--text', 'What does a reader of the README now learn about what the shop sells?').code, 0)
+  assert.match(script(d, 'finish').out, /WROTE understanding\/docs-typos\.json: 1 questions/)
+  const q = U.readCheck(path.join(d, 'understanding/docs-typos.json')).questions[0]
+  assert.equal(q.docs, true)
+  assert.match(U.graderPrompt({ q, answer: "It's just wording.", attempt: 1, diff: '', code: '', canRead: true }), /documentation change: an honest answer that it is just wording[^.]*is a full pass/)
+})

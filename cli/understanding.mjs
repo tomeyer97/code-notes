@@ -100,6 +100,8 @@ export function globRe(glob) {
   }
   return new RegExp(`${g.includes('/') ? '^' : '(^|/)'}${re}$`)
 }
+/** Documentation files: a change made only of these gets one question about what a reader sees differently. */
+export const isDoc = (file) => /\.(md|mdx|markdown|rst|adoc|txt)$/i.test(file) || /(^|\/)docs?\//i.test(file)
 /** Files that never count: the check itself, Code Notes' notes, and the repository lines `init` writes for them. */
 export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore'
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
@@ -201,6 +203,8 @@ export function codeStat(repo, from, to, exempt = []) {
   for (const x of lines) { if (x.sign === '+') out.added++; else out.removed++ }
   out.files = new Set(lines.map((x) => x.file)).size
   out.exemptOnly = !all.some((f) => counted(f.file, exempt)) && out.exempt.length > 0
+  // Only documentation changed (README, docs/): one question about what a reader now sees differently.
+  out.docsOnly = out.files > 0 && lines.every((x) => isDoc(x.file))
   // Moved or renamed files (detected by git, -M): a move is a change even when no line changed.
   out.renamed = all.filter((f) => f.from && counted(f.file, exempt)).map((f) => ({ from: f.from, to: f.file }))
   return out
@@ -681,7 +685,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
  */
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
-  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: questionsFor(st.changed, cfg) }
+  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: st.change?.docsOnly ? 1 : questionsFor(st.changed, cfg), ...(st.change?.docsOnly ? { docs: true } : {}) }
   if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid' }
   const s = st.summary
   const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
@@ -702,7 +706,7 @@ export function stateWords(state, st = {}) {
     // The default branch: one line, no change to speak of.
     case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
       return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
+    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} changed${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
       line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
@@ -790,6 +794,7 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
       'How to judge:',
       `- Judge against the actual code${canRead ? ' (read the repository as needed; read-only)' : ' and diff above'}. The answer must be right about THIS code.`,
       '- Be lenient. One to three sentences is a complete answer. Accept informal wording, approximate names, and answers that get the main point while missing details. Never ask for more than the question needs.',
+      q.docs ? '- This question is about a documentation change: an honest answer that it is just wording, or what a reader now sees or understands differently, is a full pass.' : '',
       restate ? '- "restated": their sentence gets the main point of the explanation right. Otherwise "explained".'
         : '- "pass": the answer shows they understand the main point. Most honest, roughly right answers pass.\n- Not a pass: wrong about the code, empty, evasive ("not sure", "the AI wrote it"), or only restating the question.',
       verify,
@@ -1557,7 +1562,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   if (!fs.existsSync(abs)) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    const size = sizeText(questionsFor(linesOf(change), cfg))
+    const size = sizeText(change.docsOnly ? 1 : questionsFor(linesOf(change), cfg))
     return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
       `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
       // Advisory, or the label is there already: no skip instructions.

@@ -24,7 +24,8 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
    new file's line numbers and how many questions to write (1 for a small change, up to 5 for a big one; write that
    many). `NOTHING` or `UNCOMMITTED`: write nothing, reply with that one line. `REMOVED ONLY`: the change only removes
    code; ask what the removal changes (what still used it, what now happens instead), on the lines where it was removed
-   or on the code that used it (any file). `RENAMED ONLY`: one question about what the move changes, `--whole-file`.
+   or on the code that used it (any file). `RENAMED ONLY`: one question about what the move changes, `--whole-file`. `DOCS ONLY`: one question about what a reader now sees or
+   understands differently; never why a word was chosen.
 2. Read the diff. Open the changed files (Read) where the diff alone doesn't show what the code does, and the code
    that calls the changed functions. Find the places that matter most: where the behaviour is decided, where it can
    fail, what is new.
