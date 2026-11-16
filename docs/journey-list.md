@@ -55,3 +55,27 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
 - `review` is a kind the model knows; nothing produces it yet.
 - Tests: `test/journeyList.test.ts`, `test/journey-list/shoot.mjs` (panel home, 320/600/1000 px, dark and light),
   the VS Code suite (`test/integration/check.ts`: In this file follows the editor, search over step titles).
+
+## As built (list fixes after 0.24.0)
+
+- Checks are not in the journey lists (no group, section or chip): a branch's check lives in the Check view. The
+  panel's count and the sidebar's All are the same number.
+- Search: every word, else any word with one line saying so ("Nothing mentions “payment”; showing “retry”"). The
+  sidebar's picker shows the same line as a separator.
+- Continue starts past step 1 (opening a journey is not reading it); the walk being walked is first and its row says
+  its step. A sidebar click still walks; the panel list previews.
+- In this file: ranked (a step in the function under the cursor, from the document symbols; then the most steps
+  here; then the largest share), "3 of 7 steps here", 5 rows and "Show n more". The view reveals that group when
+  the editor changes, and a walk's row only where it is near the top (In this file, Continue), never deep in All.
+- Stale: a "Stale n" chip; the row's ⚠ says which steps; the preview marks them with the last commit to their file
+  since the journey's commit ("⚠ changed · a1b2c3d · 3 d ago", or "uncommitted") and "The other n still match the
+  code." **Refresh** (preview, the sidebar row's inline button, the command) asks the agent in one step note to update
+  only those steps (the same request as Ask on a stale step); asked already, that note opens.
+- Staleness is re-checked when a step's file changes on disk (checkout, pull, an agent) and on a branch switch.
+  Before, steps were only located at load and while their file was open, so after a branch switch the list showed a
+  mix of both branches' stale steps.
+- Keyboard: ↓ from the search goes into the rows (roving focus, a focus ring, scrolled into view), ↑ from the first
+  row back; Home/End; the chips are one Tab stop with ← →; Ctrl+' J opens Search Journeys.
+- "‹ Journeys" from a walk lists over it: the walk keeps its place (card, status item), and its row is selected.
+- The panel heading is the short title; the question is under it (at most three lines, whole on hover).
+- The preview has no mini map: at that size it showed overlapping boxes and told less than the step list.
