@@ -120,6 +120,13 @@ export function conflictOf(text) {
   return { line: first + 1, merged: { ...ours, questions: [...questions, ...byId.values()] } }
 }
 
+/** The newest stash that holds `rel` (its untracked part or its changes): "stash@{0}", or undefined. */
+export function stashedIn(repo, rel) {
+  // The stash's reflog (what `git stash list` reads).
+  const refs = (gitOk(repo, ['log', '-g', '--format=%gd', 'refs/stash', '--']) ?? '').split('\n').filter(Boolean)
+  return refs.find((r) => gitOk(repo, ['cat-file', '-e', `${r}^3:${rel}`]) !== undefined || gitOk(repo, ['cat-file', '-e', `${r}:${rel}`]) !== undefined)
+}
+
 /** Files that never count: the check itself, Code Notes' notes, and the repository lines `init` writes for them. */
 export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore'
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
@@ -676,7 +683,8 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const change = mb ? codeStat(repo, mb, undefined, cfg.exempt) : { files: 0, added: 0, removed: 0, exempt: [], exemptOnly: false }
   const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}), ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}) }
   const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
-  if (!st.exists) return done(st)
+  // Not in the tree, but in a git stash (`git stash -u`): said, never "Start" (a new check would clash with the pop).
+  if (!st.exists) { const stash = stashedIn(repo, rel); return done(stash ? { ...st, stashed: stash } : st) }
   // Git conflict markers (a merge, two people answering on one branch): said so, with where, and whether both sides merge.
   const conflict = conflictOf(fs.readFileSync(abs, 'utf8'))
   if (conflict) return done({ ...st, errors: [`${rel} has a merge conflict`], conflict: { line: conflict.line, mergeable: !!conflict.merged } })
@@ -709,6 +717,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
  */
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
+  if (!st.exists && st.stashed) return { phase: 'stashed', stash: st.stashed }
   if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: st.change?.docsOnly ? 1 : questionsFor(st.changed, cfg), ...(st.change?.docsOnly ? { docs: true } : {}) }
   if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid', ...(st.conflict ? { conflict: st.conflict } : {}) }
   const s = st.summary
@@ -730,6 +739,7 @@ export function stateWords(state, st = {}) {
     // The default branch: one line, no change to speak of.
     case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
       return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
+    case 'stashed': return { tone: 'warn', bar: 'Understanding: in a stash', title: 'Your check is in a git stash', line: `Run git stash pop (${state.stash}).`, rule }
     case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} changed${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
     case 'invalid': return state.conflict
       ? { tone: 'warn', bar: 'Understanding: merge conflict', title: 'The check file has a merge conflict', line: state.conflict.mergeable ? 'Both sides of the conflict can be kept.' : 'Open it at the conflict.', rule }

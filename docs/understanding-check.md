@@ -275,6 +275,9 @@ Grading runs only locally (extension, or `grade` from a terminal). Grader backen
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
 answer, the diff and may read the code; it returns JSON `{verdict, feedback, hint}`.
 
+**In a stash.** A check file that is not in the tree but in a git stash (`git stash -u`) is "Your check is in a git
+stash · Run git stash pop (stash@{0})." instead of Start; its threads are hidden until it is back.
+
 **Merge conflicts.** A check file with git conflict markers is "The check file has a merge conflict" (never a parser
 error): when both sides read as checks, **Keep both answers** merges them (each question once, from the side with more
 graded answers); else **Open** goes to the first marker (the status item too). `status` exits 1 for a file that can't

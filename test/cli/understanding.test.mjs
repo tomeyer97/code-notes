@@ -1455,3 +1455,23 @@ test('a check file with merge-conflict markers: said so, where, and both answers
   // Not JSON on one side: open it, nothing to merge.
   assert.deepEqual(U.conflictOf('{\n<<<<<<< HEAD\n  "a": 1\n=======\n  "a": 2,\n>>>>>>> x\n}'), { line: 2 })
 })
+
+test('a check in a git stash: said (git stash pop), never Start', () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  // As `git stash -u` leaves it (built with plumbing): a stash commit whose third parent holds the untracked check file.
+  const head = gitIn(d, 'rev-parse', 'HEAD').trim(), tree = gitIn(d, 'rev-parse', 'HEAD^{tree}').trim()
+  const blob = execFileSync('git', ['hash-object', '-w', f], { cwd: d, encoding: 'utf8' }).trim()
+  const sub = execFileSync('git', ['mktree'], { cwd: d, encoding: 'utf8', input: `100644 blob ${blob}\tfeat-x.json\n` }).trim()
+  const utree = execFileSync('git', ['mktree'], { cwd: d, encoding: 'utf8', input: `040000 tree ${sub}\tunderstanding\n` }).trim()
+  const ct = (t, msg, ...parents) => execFileSync('git', ['commit-tree', t, ...parents.flatMap((x) => ['-p', x]), '-m', msg], { cwd: d, encoding: 'utf8' }).trim()
+  const ucommit = ct(utree, 'untracked'), icommit = ct(tree, 'index', head)
+  gitIn(d, 'update-ref', '--create-reflog', '-m', 'WIP on feat/x', 'refs/stash', ct(tree, 'WIP', head, icommit, ucommit))
+  fs.rmSync(path.join(d, 'understanding'), { recursive: true })
+  let st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.state.phase, st.stashed], ['stashed', 'stash@{0}'])
+  assert.deepEqual(U.stateWords(st.state, st), { tone: 'warn', bar: 'Understanding: in a stash', title: 'Your check is in a git stash', line: 'Run git stash pop (stash@{0}).', rule: '' })
+  fs.mkdirSync(path.join(d, 'understanding')); fs.writeFileSync(f, execFileSync('git', ['cat-file', 'blob', blob], { cwd: d, encoding: 'utf8' }))
+  st = U.localStatus(d, { base: 'main' })
+  assert.equal(st.state.phase, 'answering')
+})

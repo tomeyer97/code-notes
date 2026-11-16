@@ -231,7 +231,7 @@ export class Understanding implements vscode.Disposable {
     const p = st.state.phase
     // A file that can't be read: open it, at the first conflict marker.
     if (p === 'invalid') { await this.openFile(); return }
-    if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
+    if (p === 'nothing' || p === 'stashed') { this.show(); return }
     if (p === 'none') { await this.write(false); return }
     this.show()
     if (p === 'drift') { if (st.state.commitFirst) await openScm(); else await this.write(true); return }
@@ -767,7 +767,8 @@ export class Understanding implements vscode.Disposable {
    */
   offBranch(n: Note): boolean {
     const f = linkOf(n)?.file ?? (n.data.extra as { checkFile?: string } | undefined)?.checkFile
-    return !!f && !!this.st && f !== this.st.file
+    // Another branch's check, or this branch's while its file is gone (stashed, deleted): not shown.
+    return !!f && !!this.st && (f !== this.st.file || !this.st.exists)
   }
   /** For a note made from a check thread: the check it belongs to (hidden with it on other branches). */
   branchOf(n: Note): { checkFile?: string } { const f = linkOf(n)?.file; return f ? { checkFile: f } : {} }
