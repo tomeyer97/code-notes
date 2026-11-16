@@ -3964,7 +3964,7 @@ export async function activate(context: vscode.ExtensionContext) {
     journeysTree.refresh()
     if (lj.key === tourKey && tourStep) showCard(lj, tourStep)
     refreshStepDecorations()
-  }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) journeys.onDocument(e.document) }))
+  }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) { journeys.onEdit(e); journeys.onDocument(e.document) } }))
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(ORPHAN_SCHEME, {
     provideTextDocumentContent: (uri) => { const n = byId(uri.query); return n ? orphanMarkdown(n) : 'This note no longer exists.' },
   }))

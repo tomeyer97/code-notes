@@ -509,6 +509,17 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.previousStep')
   await until('back to step 2 at its new line', () => t().step === 2 && at() === 'src/flow.ts:8')
   ok('steps follow edits in memory; the journey file is untouched')
+  // The reader's own edit on a step's lines (typing, an applied fix): the step stays on them, never "out of date".
+  await fed.edit((b) => b.replace(fdoc.lineAt(7).range, '  return 2 + 0'))
+  await sleep(700)
+  assert.deepEqual([snap().journeys[0].at[1].start, snap().journeys[0].at[1].stale], [8, false], 'an edit of mine on the step\'s line: not stale')
+  await fdoc.save()
+  await sleep(700)
+  assert.deepEqual([snap().journeys[0].at[1].start, snap().journeys[0].at[1].stale], [8, false], 'nor once saved')
+  await fed.edit((b) => b.replace(fdoc.lineAt(7).range, '  return 2'))
+  await fdoc.save()
+  await until('the code as the journey has it: fresh', () => !snap().journeys[0].at[1].stale && snap().journeys[0].at[1].start === 8)
+  ok('my own edit of a step\'s lines keeps the step on them, not stale')
 
   // Ask about this step: a normal note on the step's lines.
   const asked = (await vscode.commands.executeCommand('codeNotes.askStep', 'Why does b return 2?')) as any

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { Journey, parseJourney } from './journeyModel'
-import { anchor, staleKind } from './anchor'
-import { AnyAnchor, Found, compactOf, findCompact, isCompact, toCompact } from './compact'
+import { anchor, shift, staleKind, swallows, Loc } from './anchor'
+import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, isCompact, toCompact } from './compact'
 import { folderName, journeysFolderName, notesDir } from './store'
 import { gitRenames } from './gitRenames'
 
@@ -27,6 +27,7 @@ export interface LoadedJourney { key: string; folder: vscode.WorkspaceFolder; ur
 const decoder = new TextDecoder()
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 const RENAMED_KEY = 'codeNotes.journeyRenames'
+const FOLLOWED_KEY = 'codeNotes.journeyFollowed'
 const CONTEXT_LINES = 2
 
 /** A journey's identity across reloads and file renames within a folder: folder + id. */
@@ -44,6 +45,8 @@ export class Journeys implements vscode.Disposable {
   private pending = new Map<string, ReturnType<typeof setTimeout>>()
   /** Anchors taken from the code for steps written without one (in memory only). */
   private captured = new Map<string, AnyAnchor>()
+  /** Where the reader's own edits (typing, an applied fix) took a step's lines, until the step is found again there. */
+  private edited = new Map<string, Loc>()
 
   /** The last readable text of each journey file (by URI): Restore after a delete. */
   readonly lastGood = new Map<string, string>()
@@ -51,6 +54,16 @@ export class Journeys implements vscode.Disposable {
   readonly invalid = new Map<string, { folder: vscode.WorkspaceFolder; uri: vscode.Uri; why: string }>()
 
   constructor(private log: vscode.LogOutputChannel, private state?: vscode.Memento) {}
+
+  /** A step's code as the reader's own edits left it (by `stepKey`), kept across reloads; the journey file is never
+   *  written. Dropped once the journey's own anchor matches again (undo, a refreshed journey). */
+  private followed(): Record<string, CompactAnchor> { return this.state?.get<Record<string, CompactAnchor>>(FOLLOWED_KEY) ?? {} }
+  private async follow(k: string, a: CompactAnchor | undefined): Promise<void> {
+    const all = { ...this.followed() }
+    if (a) all[k] = a; else if (k in all) delete all[k]; else return
+    await this.state?.update(FOLLOWED_KEY, all)
+  }
+  private stepKey(lj: LoadedJourney, n: number): string { const s = lj.j.steps[n - 1]; return `${lj.key}|${s.id}|${s.file}:${s.range.start}` }
 
   /** Files steps followed through a rename, kept across reloads (the journey file is never written): key -> new path. */
   private renamed(): Record<string, string> { return this.state?.get<Record<string, string>>(RENAMED_KEY) ?? {} }
@@ -245,7 +258,7 @@ export class Journeys implements vscode.Disposable {
       let now: StepAt
       if (!lines) now = { ...was, stale: true }
       else {
-        const ck = `${lj.key}|${s.id}|${s.file}:${s.range.start}`
+        const ck = this.stepKey(lj, s.n)
         let a: AnyAnchor | undefined = s.anchor ?? this.captured.get(ck)
         if (!a || (!isCompact(a) && !a.text && !a.before && !a.after)) {
           // Written without an anchor: take it from the code at its range, once, in memory (compact; a step on blank
@@ -256,26 +269,17 @@ export class Journeys implements vscode.Disposable {
         }
         const nf = gitFile ?? was.file
         const fileField = nf && nf !== s.file ? { file: nf } : {}
-        const c = toCompact(a)
-        if (c) {
-          // v3 (or v2 read as v3): fresh, changed (shown at its new place), or gone (nothing lit, card in the map).
-          const f = findCompact(lines, c, was.start - 1)
-          if (f.state === 'gone') {
-            const last = Math.max(1, lines.length)
-            const start = Math.min(Math.max(1, was.start), last)
-            now = { start, end: Math.min(Math.max(start, was.end), last), stale: true, removed: true, ...fileField }
-          } else {
-            now = { start: f.loc.start + 1, end: f.loc.end + 1, stale: f.state === 'changed', ...fileField }
-            if (f.state === 'changed') Object.assign(now, { was: isCompact(a) ? '' : a.text, now: lines.slice(f.loc.start, f.loc.end + 1).join('\n') })
-          }
-        } else {
-          // A v2 step on blank lines: only its context to go by (anchor.ts).
-          const v2 = a as { text: string; before: string; after: string }
-          const r = anchor(lines, v2.text, v2.before, v2.after, { start: was.start - 1, end: was.end - 1 })
-          now = { start: r.loc.start + 1, end: r.loc.end + 1, stale: r.stale, ...fileField }
-          if (r.stale) Object.assign(now, staleKind(lines, v2, r.loc))
-          // It may stay where it is, never move to look-alike code.
-          if (!r.stale && r.loc.start !== was.start - 1) now = { ...was, stale: true }
+        now = placeStep(lines, a, was, fileField)
+        // The reader's own edits: the step stays on the code they edited, never "out of date" for it (their change is
+        // what they are reading). Their version is the anchor from then on, until the journey's own matches again.
+        const mine = this.followed()[ck]
+        const ed = this.edited.get(ck)
+        this.edited.delete(ck)
+        if (!now.stale) { if (mine) await this.follow(ck, undefined) }
+        else if (mine) { const m = placeStep(lines, mine, was, fileField); if (!m.stale) now = m }
+        if (now.stale && ed && ed.end >= ed.start && ed.end < lines.length) {
+          const c = compactOf(lines, ed.start, ed.end)
+          if (c) { now = { start: ed.start + 1, end: ed.end + 1, stale: false, ...fileField }; await this.follow(ck, c) }
         }
       }
       if (now.start !== was.start || now.end !== was.end || now.stale !== was.stale || now.removed !== was.removed || now.now !== was.now || now.file !== was.file) {
@@ -287,10 +291,40 @@ export class Journeys implements vscode.Disposable {
     return changed
   }
 
+  /**
+   * An edit in an editor (typing, an applied fix; not a reload from disk): steps in that document keep up with it. A
+   * step whose lines the edit touched (without replacing them all) stays on them: `locate` takes them as its code.
+   */
+  onEdit(e: vscode.TextDocumentChangeEvent): void {
+    if (e.document.uri.scheme !== 'file' || !e.document.isDirty || !e.contentChanges.length) return
+    const changes = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start))
+    for (const lj of this.list.values()) {
+      const base = lj.folder.uri.path.replace(/\/?$/, '/')
+      if (!e.document.uri.path.startsWith(base)) continue
+      const rel = e.document.uri.path.slice(base.length)
+      for (const st of lj.j.steps) {
+        const at = lj.at[st.n - 1]
+        if (fileOf(lj, st.n) !== rel || !at || (at.stale && !this.edited.has(this.stepKey(lj, st.n)))) continue
+        const k = this.stepKey(lj, st.n)
+        let loc: Loc = this.edited.get(k) ?? { start: at.start - 1, end: at.end - 1 }
+        let touched = this.edited.has(k), gone = false
+        for (const c of changes) {
+          const edit = { startLine: c.range.start.line, startChar: c.range.start.character, endLine: c.range.end.line, endChar: c.range.end.character, newLines: (c.text.match(/\n/g) ?? []).length }
+          if (swallows(loc, edit)) gone = true
+          if (edit.startLine <= loc.end && edit.endLine >= loc.start) touched = true
+          loc = shift(loc, edit)
+        }
+        // Its code replaced as a whole (deleted, a big paste): found again, or stale, as usual.
+        if (gone) this.edited.delete(k)
+        else if (touched) this.edited.set(k, loc)
+      }
+    }
+  }
+
   /** What the step's code looked like: from the journey file, or taken from the code when the file had none. */
   anchorOf(lj: LoadedJourney, n: number): AnyAnchor | undefined {
     const s = lj.j.steps[n - 1]
-    return s.anchor ?? this.captured.get(`${lj.key}|${s.id}|${s.file}:${s.range.start}`)
+    return s.anchor ?? this.captured.get(this.stepKey(lj, n))
   }
 
   /** Where step `n`'s code is in `lines` (another file's, e.g. one just created): fresh, changed or gone. */
@@ -357,6 +391,31 @@ export class Journeys implements vscode.Disposable {
     this.changed.dispose()
     this.moved.dispose()
   }
+}
+
+/** Where anchor `a` finds a step's code in `lines`: fresh, changed (shown at its new place), or removed. */
+function placeStep(lines: string[], a: AnyAnchor, was: StepAt, fileField: { file?: string }): StepAt {
+  const c = toCompact(a)
+  if (c) {
+    // v3 (or v2 read as v3): fresh, changed (shown at its new place), or gone (nothing lit, card in the map).
+    const f = findCompact(lines, c, was.start - 1)
+    if (f.state === 'gone') {
+      const last = Math.max(1, lines.length)
+      const start = Math.min(Math.max(1, was.start), last)
+      return { start, end: Math.min(Math.max(start, was.end), last), stale: true, removed: true, ...fileField }
+    }
+    const now: StepAt = { start: f.loc.start + 1, end: f.loc.end + 1, stale: f.state === 'changed', ...fileField }
+    if (f.state === 'changed') Object.assign(now, { was: isCompact(a) ? '' : a.text, now: lines.slice(f.loc.start, f.loc.end + 1).join('\n') })
+    return now
+  }
+  // A v2 step on blank lines: only its context to go by (anchor.ts).
+  const v2 = a as { text: string; before: string; after: string }
+  const r = anchor(lines, v2.text, v2.before, v2.after, { start: was.start - 1, end: was.end - 1 })
+  const now: StepAt = { start: r.loc.start + 1, end: r.loc.end + 1, stale: r.stale, ...fileField }
+  if (r.stale) Object.assign(now, staleKind(lines, v2, r.loc))
+  // It may stay where it is, never move to look-alike code.
+  if (!r.stale && r.loc.start !== was.start - 1) return { ...was, stale: true }
+  return now
 }
 
 export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } | { type: 'end' } | { type: 'step'; n: number } | { type: 'view'; node: string } | { type: 'rendered'; boxes: number }
