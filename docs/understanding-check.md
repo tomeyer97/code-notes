@@ -78,6 +78,7 @@ never match. The file records the code commit the questions were written for.
       "suspect": true,                       // optional: the question writer thinks the honest answer is "a bug"
       "concern": { "text": "…", "flagged": true, "at": "…" },   // optional, see below
       "attempts": [
+        { "verdict": "retry", "at": "…", "feedback": "…", "hint": "…", "gradedAt": "…" },   // superseded: no answer, no hash
         { "answer": "…", "at": "…", "by": { "name": "…", "email": "…" },   // "by" only when not answeredBy
           "verdict": "pass" | "retry" | "explained" | "restated", "feedback": "…", "hint": "…", "gradedAt": "…",
           "note": "…", "topic": "…", "concern": "…",   // from the grader, when it gives them
@@ -94,12 +95,28 @@ passed; any `explained` → missed; else (last is `retry`) → try again.
 
 The answers also show as note threads in the editor; the file is the source of truth (notes are a view).
 
+**Only the final answer is kept.** When a newer attempt is added, every earlier one loses its `answer` text and its
+`hash`; its verdict, times, `by` and the grader's feedback, hint, note, topic and concern stay. A wrong guess never
+stays in the repository. Whoever writes an attempt calls `pruneAttempts(question)` from the CLI module (`addAttempt`
+does it itself). Only each question's last attempt must have an `answer`, and only its `hash` is verified by CI.
+Files written before this (every attempt with its answer and hash) still validate.
+
 **Concerns.** When the grader thinks the CODE is wrong it returns `concern` on that attempt (text only). The author
 decides what happens to it; the extension then writes the question's `concern`:
 `{ "text": string, "flagged": boolean, "at"?: ISO time }`. `flagged: true` (**Flag for reviewer**) puts it at the top of
 the merge request comment under "⚠ Found during the check"; `false` (e.g. **Add TODO**, or not decided) keeps it out of
 the comment. One concern per question; `text` may be edited by the author. `suspect: true` (set by the question
 writer) is shown as "may be a bug" next to the question in the comment.
+
+## Out of diffs and search
+
+`understanding.mjs init` (the extension runs it on the first check) adds, once and without duplicating lines:
+
+- `.gitattributes`: `understanding/*.json linguist-generated=true`. GitLab and GitHub collapse the files in diffs.
+- `.ignore`: `understanding/`. ripgrep (and editors that use it) skip the folder in search. `git grep` users can
+  exclude it with `git grep … -- ':!understanding'`.
+
+The files stay in the tree: CI reads them from the merge request's commit.
 
 ## Belongs to this change? (staleness)
 
@@ -125,6 +142,7 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 | `status [--json]` | which file, valid for this change?, answered/passed counts, what to do next |
 | `validate <file>` | schema + anchors check (used by the skill's script and by CI) |
 | `grade <file> [--question q2] [--answer "…"] [--write]` | grade answers with the configured backend (`--answer` adds an attempt first) |
+| `init` | keeps `understanding/` out of diffs and search: writes or extends `.gitattributes` and `.ignore` (idempotent) |
 | `ci` | the CI job: find file → check drift → check completeness + recorded verdicts vs threshold + attempt hashes → exit 0/1 with a short reason → optional MR comment. Never calls a model. Exit 2: it can't check (commits missing, API error). |
 
 `ci` rules, in order:
