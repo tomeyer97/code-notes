@@ -96,7 +96,7 @@ export async function run(): Promise<void> {
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
   // Quietly: .gitattributes and .ignore for check files; nothing in the workspace's settings.
-  await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json linguist-generated=true\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
+  await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json gitlab-generated linguist-generated\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
   await shoot('check-1-questions')
   if (cdp) {

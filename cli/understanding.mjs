@@ -1338,13 +1338,18 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
 
 // ---------- init ----------
 
-/** What `init` makes sure of: the check files collapsed in GitLab/GitHub diffs, and skipped by ripgrep and similar. */
-export const INIT_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`], '.ignore': [`${DIR}/`] }
+/**
+ * What `init` makes sure of: the check files collapsed in merge request diffs (GitLab reads `gitlab-generated`, GitHub
+ * `linguist-generated`), and skipped by ripgrep, VS Code's search and similar.
+ */
+export const INIT_LINES = { '.gitattributes': [`${DIR}/*.json gitlab-generated linguist-generated`], '.ignore': [`${DIR}/`] }
+/** Lines an earlier `init` wrote, replaced by today's. */
+const OLD_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] }
 
 /**
  * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
- * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice. Returns what it added,
- * as "file: line".
+ * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
+ * version wrote is replaced in place. Returns what it added, as "file: line".
  */
 export function initRepo(repo) {
   const added = []
@@ -1355,8 +1360,11 @@ export function initRepo(repo) {
     const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
     const missing = want.filter((l) => !have.has(l))
     if (!missing.length) continue
-    fs.writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`)
-    added.push(...missing.map((l) => `${name}: ${l}`))
+    const old = (OLD_LINES[name] ?? []).find((l) => have.has(l))
+    if (old && missing.length === 1) text = text.split(/(\r?\n)/).map((l) => (l.trim() === old ? missing.shift() : l)).join('')
+    if (missing.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`
+    fs.writeFileSync(file, text)
+    added.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`))
   }
   return added
 }

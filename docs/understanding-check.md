@@ -134,7 +134,9 @@ A line outside the diff falls back to a plain merge request note with a file:lin
 
 `understanding.mjs init` (the extension runs it on the first check) adds, once and without duplicating lines:
 
-- `.gitattributes`: `understanding/*.json linguist-generated=true`. GitLab and GitHub collapse the files in diffs.
+- `.gitattributes`: `understanding/*.json gitlab-generated linguist-generated`. GitLab (`gitlab-generated`) and GitHub
+  (`linguist-generated`) collapse the files in diffs. The line an earlier version wrote (`linguist-generated=true`
+  only, which GitLab ignores) is replaced.
 - `.ignore`: `understanding/`. ripgrep and VS Code's search (`search.useIgnoreFiles`, on by default) skip the folder.
   `git grep` users can exclude it with `git grep … -- ':!understanding'`.
 

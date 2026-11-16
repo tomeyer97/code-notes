@@ -89,8 +89,8 @@ make you look, not to police.
 Only the final answer to each question is kept in the file; earlier tries keep their verdict, not their text.
 
 To keep the files out of diffs and search, run `node cli/understanding.mjs init` once (VS Code does it on the first
-check). It adds `understanding/*.json linguist-generated=true` to `.gitattributes` (collapsed in GitLab/GitHub diffs) and
-`understanding/` to `.ignore` (skipped by ripgrep), never twice.
+check). It adds `understanding/*.json gitlab-generated linguist-generated` to `.gitattributes` (collapsed in GitLab and
+GitHub diffs) and `understanding/` to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
 
 The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
 `grade` (local; Claude Code or `ANTHROPIC_API_KEY`), `init` and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).
