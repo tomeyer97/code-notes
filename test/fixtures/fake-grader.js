@@ -1,11 +1,27 @@
 #!/usr/bin/env node
-// A stand-in for `claude -p --output-format json` as the understanding check's grader: reads the prompt on stdin
-// (or after -p), passes an answer that says "GOOD", otherwise asks again (first try) or explains (later tries).
+// A stand-in for `claude -p` in the understanding check's tests. As the grader (json on stdin, or stream-json with the
+// prompt after -p): passes an answer that says "GOOD", otherwise asks again (first try) or explains (later tries).
+// Asked to write the questions ("questions.mjs start …" in the prompt): runs the skill's script as Claude would.
 const fs = require('fs')
+const { execFileSync } = require('child_process')
 const args = process.argv.slice(2)
 if (process.env.FAKE_GRADER_LOG) fs.appendFileSync(process.env.FAKE_GRADER_LOG, JSON.stringify(args) + '\n')
 const fromArg = args[args.indexOf('-p') + 1]
 const prompt = fromArg && !fromArg.startsWith('--') ? fromArg : fs.readFileSync(0, 'utf8')
+const say = (o) => process.stdout.write(JSON.stringify(o) + '\n')
+const start = /Start with: (\S+questions\.mjs) start (.*)/.exec(prompt)
+if (start) {
+  const script = start[1]
+  const run = (...a) => { say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${script} ${a.join(' ')}` } }] } }); return execFileSync('node', [script, ...a], { encoding: 'utf8' }) }
+  say({ type: 'system', subtype: 'init' })
+  run('start', ...start[2].trim().split(/\s+/))
+  run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
+  run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')
+  run('add', '--kind', 'edge', '--file', 'api/limits.js', '--whole-file', '--text', 'What happens to the counts when the API process restarts?')
+  run('finish')
+  say({ type: 'result', result: 'q1 failure\nq2 why\nq3 edge', session_id: 'write-1', is_error: false })
+  process.exit(0)
+}
 const answer = (/<answer>\n([\s\S]*?)\n<\/answer>/.exec(prompt) || [])[1] || ''
 const attempt = Number((/\(attempt (\d+)\)/.exec(prompt) || [])[1] || 1)
 const v = /GOOD/.test(answer) ? { verdict: 'pass', feedback: 'Right: the result is kept and sent again.', hint: '' }

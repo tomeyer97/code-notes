@@ -14,6 +14,7 @@ import { escapeTags, linkPaths } from './journeyModel'
 import { linkify } from './answerLinks'
 import { scoreJourney } from './match'
 import { clock, journeyPrompt, journeyRules, minutes, modelProblem, phaseOf } from './writing'
+import { Understanding } from './check'
 
 const CONTROLLER_ID = 'codeNotes'
 const SEEN_KEY = 'codeNotes.seenCount' // note id -> how many of its messages the person has seen
@@ -65,6 +66,8 @@ let pendingMove: string | undefined
 const threads = new Map<string, vscode.CommentThread>() // note id -> thread
 const checked = new Set<string>() // note ids selected in the sidebar (2 or more: bulk actions)
 let journeys: Journeys
+/** The understanding check (check.ts): its questions are notes of a session "Check · <branch>". */
+let understanding: Understanding | undefined
 let mapPanel: MapPanel
 let beats: Beats
 let tutorialSpot: TutorialSpot
@@ -479,7 +482,7 @@ function showError(text: string, ...items: string[]): Thenable<string | undefine
 /** Markdown the extension writes itself, allowed to run its own commands. */
 function systemMarkdown(text: string): vscode.MarkdownString {
   const md = new vscode.MarkdownString(text)
-  md.isTrusted = { enabledCommands: ['codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt'] }
+  md.isTrusted = { enabledCommands: ['codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck'] }
   return md
 }
 const cmdLink = (label: string, command: string, ...args: unknown[]) => `[${label}](command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''})`
@@ -689,6 +692,9 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
       mode: vscode.CommentMode.Preview, author: { name: 'Claude' }, label: secs > 2 ? `answering… ${secs}s` : 'answering…', contextValue: 'system',
     })
   }
+  const chk = understanding?.threadStatus(n)
+  if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
+  if (chk?.error) out.push({ body: systemMarkdown(`⚠ Couldn't check this answer: ${chk.error}\n\n${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
   const err = askErrors.get(n.data.id)
   // A failure is a passing status, not a message from Claude: Try again, or Dismiss; never saved.
   if (err) out.push({ body: systemMarkdown(`⚠ Claude couldn't answer: ${err}\n\n${cmdLink('Try again', 'codeNotes.askClaude', n.data.id)} · ${cmdLink('Dismiss', 'codeNotes.cancelClaude', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
@@ -755,7 +761,7 @@ const shown = new Map<string, string>()
 function syncThread(n: Note): void {
   const showResolvedInEditor = cfg().get<boolean>('showResolvedInEditor', false)
   let t = threads.get(n.data.id)
-  const wanted = ((n.data.status === 'open' || showResolvedInEditor || unread(n) > 0 || revealedId === n.data.id) && !hiddenInEditor(n)) || asking.has(n.data.id) || askErrors.has(n.data.id)
+  const wanted = ((n.data.status === 'open' || showResolvedInEditor || unread(n) > 0 || revealedId === n.data.id) && !hiddenInEditor(n)) || asking.has(n.data.id) || askErrors.has(n.data.id) || !!understanding?.threadStatus(n)
   if (!wanted) {
     if (t) { t.dispose(); threads.delete(n.data.id); shown.delete(n.data.id) }
     return
@@ -779,19 +785,19 @@ function syncThread(n: Note): void {
   // Rebuilding comments re-renders the widget: only when something shown changed (an agent reply elsewhere must be cheap).
   const sig = JSON.stringify([stepLinkOf(n) ? `${tourKey}|${touring()}|${tourId}` : '', n.data.messages.length, n.data.messages[n.data.messages.length - 1]?.body.length, n.data.status, n.data.stale, n.data.events?.length, n.data.target,
     missing.has(n.data.id), pastEnd.get(n.data.id), n.data.stale && openDoc(docUri(n))?.version, seenCount(n), visitFrom.get(n.data.id), expanded.has(n.data.id), otherBranch(n) ?? '', n.data.anchor.text.length,
-    asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
+    asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
   setThread(t, 'canReply', true)
   const st = n.data.status === 'resolved' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
   if (t.state !== st) t.state = st
-  setThread(t, 'contextValue', ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : ''].filter(Boolean).join(';'))
+  setThread(t, 'contextValue', ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', understanding?.isCheck(n) ? 'check' : ''].filter(Boolean).join(';'))
   // Question, replies, Reply: the header says only what the gutter can't — a file or folder note,
   // or that its file is missing. Severity, session, "n new" and "resolved" are in the list and VS Code's own state.
   setThread(t, 'label', [
     n.data.target === 'folder' ? `Folder ${n.data.file}/` : n.data.target ? 'File note' : '',
     missing.has(n.data.id) ? `⚠ ${n.data.target === 'folder' ? 'folder' : 'file'} not found` : '',
     // The note's first line: never VS Code's "Start discussion".
-    shortQ((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '', 80),
+    shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*/g, ''), 80),
   ].filter(Boolean).join(' · '))
 }
 
@@ -3810,6 +3816,36 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.addPathNote', (uri?: vscode.Uri, text?: string) => addPathNote(uri, text))
   cmd('codeNotes.applySuggestion', (id: string, mi: number, k: number) => applySuggestion(id, mi, k))
 
+  // The understanding check: questions about this branch's change, answered in their threads (check.ts).
+  understanding = new Understanding({
+    log, store, extUri: context.extensionUri, me, now, newId,
+    cli: () => findCli(cfg().get<string>('claude.path') || undefined),
+    allowed: (what) => claudeAllowed(what),
+    model: () => cfg().get<string>('understanding.model') || cfg().get<string>('claude.model') || undefined,
+    changed: async (n, created) => {
+      if (created) await setSeen([[n.data.id, n.data.messages.length]])
+      shape.set(n.data.id, shapeOf(n))
+      if (revealedId === n.data.id) await markRead([n], n)
+      refreshAll()
+    },
+    addReply: (n, text) => addReply(n, text),
+    resolve: (n) => resolve([n]),
+    reveal: (n, col) => reveal(n, col ?? codeColumn()),
+    refresh: () => refreshAll(),
+    codeColumn,
+  })
+  context.subscriptions.push(understanding)
+  cmd('codeNotes.checkUnderstanding', () => understanding!.run())
+  // Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded.
+  cmd('codeNotes.answerCheck', async (r: vscode.CommentReply) => {
+    const n = noteOfThread(r.thread)
+    if (n && r.text.trim()) await understanding!.answer(n, r.text)
+  })
+  cmd('codeNotes.gradeCheck', async (id?: string) => {
+    const n = typeof id === 'string' ? byId(id) : undefined
+    const q = n && understanding!.qidOf(n)
+    if (q) await understanding!.grade(q)
+  })
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     await refreshBranch(f)
     const head = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, '.git/HEAD'))
@@ -3827,6 +3863,7 @@ export async function activate(context: vscode.ExtensionContext) {
   loaded = true
   refreshAll()
   await restoreTour()
+  await understanding.init().catch((e) => log.error(`understanding check: ${e}`))
   // Requests from scripts: the link, and the request file (one that came before this window did is handled now).
   context.subscriptions.push(vscode.window.registerUriHandler({ handleUri: (u) => void onUri(u).catch((e) => log.error(`explain link: ${e}`)) }))
   for (const f of vscode.workspace.workspaceFolders ?? []) {
@@ -3873,6 +3910,10 @@ export async function activate(context: vscode.ExtensionContext) {
         .map((x) => (x.kind === 'note' ? x.note.data.id : x.kind)),
     }),
     thread: (id: string) => threads.get(id),
+    /** The understanding check: status, status bar, panel view and what the panel reported. */
+    check: () => understanding?.snapshot(),
+    checkPanelSend: (m: unknown) => understanding?.panelSend(m),
+    checkRefresh: () => understanding?.refresh(),
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),

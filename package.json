@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -437,6 +437,22 @@
         "command": "codeNotes.toggleAnimation",
         "title": "Play or Stop the Step's Animation",
         "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.checkUnderstanding",
+        "title": "Check my understanding",
+        "category": "Code Notes",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "codeNotes.answerCheck",
+        "title": "Answer",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.gradeCheck",
+        "title": "Grade the answer again",
+        "category": "Code Notes"
       }
     ],
     "keybindings": [
@@ -635,12 +651,17 @@
         {
           "command": "codeNotes.reply",
           "group": "inline@1",
-          "when": "commentController == codeNotes && !commentThreadIsEmpty && !(commentThread =~ /resolved/)"
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && !(commentThread =~ /resolved/) && !(commentThread =~ /check/)"
         },
         {
           "command": "codeNotes.replyReopen",
           "group": "inline@1",
-          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /resolved/"
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /resolved/ && !(commentThread =~ /check/)"
+        },
+        {
+          "command": "codeNotes.answerCheck",
+          "group": "inline@1",
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /check/"
         }
       ],
       "comments/commentThread/title": [
@@ -652,7 +673,7 @@
         {
           "command": "codeNotes.askClaude",
           "group": "navigation@0",
-          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /asking/) && codeNotes.claudeFound"
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /asking/) && codeNotes.claudeFound && !(commentThread =~ /check/)"
         },
         {
           "command": "codeNotes.resolve",
@@ -1097,6 +1118,14 @@
         {
           "command": "codeNotes.toggleAuthorMode",
           "when": "config.codeNotes.journeys.authorMode"
+        },
+        {
+          "command": "codeNotes.answerCheck",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.gradeCheck",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -1193,6 +1222,11 @@
           "type": "string",
           "default": "",
           "description": "Model Claude Code uses to write a journey from the journey picker (\"Ask the agent to write a journey…\"). Empty: Code Notes › Claude: Model, else Claude Code's default."
+        },
+        "codeNotes.understanding.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The model that writes and grades the understanding-check questions (`sonnet`, `opus`, a `claude-*` id). Empty: **Code Notes › Claude: Model**, else Claude Code's default."
         }
       }
     },
@@ -1276,7 +1310,8 @@
     "test:integration": "npm run -s build && env -u ELECTRON_RUN_AS_NODE xvfb-run -a node out/test/integration/run.js",
     "test:scenes": "node test/journey-scene/check.mjs test/journey-scene/sample.json",
     "test:panel": "node test/journey-map/shoot.mjs",
-    "test:cli": "node --test test/cli/*.test.mjs"
+    "test:cli": "node --test test/cli/*.test.mjs",
+    "test:checkpanel": "node test/check-panel/shoot.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

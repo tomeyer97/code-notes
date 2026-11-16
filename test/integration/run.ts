@@ -2,7 +2,7 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { spawn } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron'
 
 async function main() {
@@ -47,4 +47,29 @@ async function untrusted() {
   if (code !== 0) throw new Error(`Restricted Mode test run failed with code ${code}`)
 }
 
-(process.env.ONLY_UNTRUSTED ? untrusted() : main().then(untrusted)).catch((e) => { console.error(e); process.exit(1) })
+// The understanding check: a git repository (the example shop) on a branch with a change.
+async function check() {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'code-notes-check-'))
+  const root = path.resolve(__dirname, '../../..')
+  fs.cpSync(path.join(root, 'examples', 'shop'), ws, { recursive: true })
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.com', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.com' }
+  const g = (...a: string[]) => execFileSync('git', a, { cwd: ws, env })
+  g('init', '-q', '-b', 'main'); g('config', 'user.name', 'Ada'); g('config', 'user.email', 'ada@example.com')
+  g('add', '-A'); g('commit', '-qm', 'shop')
+  g('checkout', '-qb', 'feat/limits')
+  fs.writeFileSync(path.join(ws, 'api', 'limits.js'), ['// Orders per customer per hour.', 'const counts = new Map()', '',
+    'export function allow(customer, now = Date.now()) {', '  const c = counts.get(customer)', '  if (!c || now - c.since > 3600_000) { counts.set(customer, { since: now, n: 1 }); return true }',
+    '  return ++c.n <= 5', '}', '', '// One count per customer: a customer splitting a big cart into orders is still one customer.',
+    'export function reset(customer) {', '  counts.delete(customer)', '}', ...Array.from({ length: 14 }, (_, i) => `export const LIMIT_${i} = ${i}`), ''].join('\n'))
+  g('add', '-A'); g('commit', '-qm', 'limits')
+  const userData = process.env.CODE_NOTES_PROFILE ? path.join(process.env.CODE_NOTES_PROFILE, `check-${path.basename(ws)}`) : fs.mkdtempSync(path.join(os.tmpdir(), 'code-notes-check-ud-'))
+  await runTests({
+    extensionDevelopmentPath: root,
+    extensionTestsPath: path.join(__dirname, 'index-check.js'),
+    launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${userData}`],
+    extensionTestsEnv: { CODE_NOTES_SHOTS: process.env.CODE_NOTES_SHOTS ?? '' },
+  })
+}
+
+const only = process.env.ONLY_UNTRUSTED ? untrusted() : process.env.ONLY_CHECK ? check() : main().then(untrusted).then(check)
+only.catch((e) => { console.error(e); process.exit(1) })

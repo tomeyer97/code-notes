@@ -1,0 +1,23 @@
+/* The understanding check's panel: VS Code's theme colours, nothing loud. */
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 12px 14px; }
+header h1 { font-size: 1em; font-weight: 600; margin: 0 0 2px; }
+.progress { margin: 0 0 10px; color: var(--vscode-descriptionForeground); }
+.progress.met { color: var(--vscode-testing-iconPassed, #73c991); }
+.busy { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-style: italic; }
+.rows { list-style: none; margin: 0; padding: 0; }
+.row { margin: 0 0 2px; }
+.open { display: flex; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 6px 6px; border-radius: 3px; cursor: pointer; }
+.open:hover { background: var(--vscode-list-hoverBackground); }
+.open:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.icon { flex: 0 0 1.1em; text-align: center; color: var(--vscode-descriptionForeground); }
+.row.pass .icon { color: var(--vscode-testing-iconPassed, #73c991); }
+.row.retry .icon { color: var(--vscode-editorWarning-foreground); }
+.body { display: flex; flex-direction: column; min-width: 0; }
+.text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.row.pass .text, .row.explained .text { color: var(--vscode-descriptionForeground); }
+.meta { font-size: 0.9em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, transparent); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+footer p { margin: 0; flex: 1 1 12em; overflow-wrap: anywhere; }
+.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 12px; border-radius: 2px; font: inherit; cursor: pointer; }
+.primary:hover { background: var(--vscode-button-hoverBackground); }
+.muted { color: var(--vscode-descriptionForeground); }
