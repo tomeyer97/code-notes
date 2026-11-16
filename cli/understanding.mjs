@@ -649,14 +649,15 @@ export function diffForGrader(diff, file) {
 }
 
 /** Word limits of the grader's reply (feedback + hint), by verdict. */
-export const REPLY_WORDS = { pass: 25, retry: 40, explained: 60, restated: 20 }
+export const REPLY_WORDS = { pass: 25, partial: 30, retry: 40, explained: 60, restated: 20 }
 
 /**
  * The grader's prompt. Lenient: 1–3 sentences is a full answer; judged against the code and the diff; JSON only.
  * Attempt-aware: a first miss gets feedback and a hint, a second one the explanation. `explanation`: the question was
  * explained already and the author now says it back in their own words (restated or not). Short replies, every claim
  * about the code checked against lines the grader read (a check that teaches something false is worse than none).
- * Besides the verdict: `note` (≤ 15 words for the reviewer), `topic` (explained), `concern` (the CODE looks wrong).
+ * Besides the verdict: `note` (≤ 15 words for the reviewer: the correct point), `topic` (explained, partial),
+ * `partial` (a pass whose feedback corrects something that matters), `concern` (the CODE looks wrong).
  */
 export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanation }) {
   const where = q.target === 'file' ? `${q.file} (the whole file)` : `${q.file} lines ${q.start}-${q.end}`
@@ -687,17 +688,18 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
       ...(restate ? [
         `- "feedback": "Right." when restated; else what is still off, without repeating the whole explanation (at most ${REPLY_WORDS.restated} words). "hint" is "".`,
       ] : [
-        `- pass: "feedback" is "Right." plus at most one fact they did not mention, ${REPLY_WORDS.pass} words in all. Do not restate their answer. "hint" is "".`,
+        `- pass: "feedback" answers what THEY said: "Right" and their main point confirmed in a few words of your own (if they say it is a bug and it is one, confirm that bug, e.g. "Right: nothing tells returned from damaged units, so stock goes up either way."). At most one more fact, only about that same point; never an unrelated fact. ${REPLY_WORDS.pass} words in all. "hint" is "". "partial": false.`,
+        `- a partial pass: the main point is right, but the answer says or implies something wrong that matters (e.g. "it is retried later" when the retries stop after a limit, so it may never happen). Verdict "pass", "partial": true, "feedback" is "Mostly right." and the correction in one sentence, at most ${REPLY_WORDS.partial} words in all. "topic": what the correction is about, at most 6 words. If the one fact you would add on a pass corrects something they said or implied, it is a partial pass, not a plain one.`,
         second
           ? `- not a pass (their second try): verdict "explained"; "feedback" explains the answer plainly, naming the code it is about, at most ${REPLY_WORDS.explained} words; "hint" is "". "topic": what the question is about, at most 6 words (e.g. "same-key refunds at once").`
           : '- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check. Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X"). "hint" (at most 20 words) names the code to read, ideally as a question.',
       ]),
-      '- "note": for the reviewer of the merge request, at most 15 words: on a pass or a restatement, the point the author got right; when explained, the correct answer in one line; on a retry, "".',
+      '- "note": for the reviewer of the merge request, at most 15 words, always correct about the code: on a pass or a restatement, the point the author got right; on a partial pass, the correct point including the correction; when explained, the correct answer in one line; on a retry, "".',
       '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (name the code), at most 25 words. Otherwise "". Never invent one.',
       '- "links": 1-3 links for the code you named: {"phrase": the exact words as they appear in your feedback, hint or concern, "file": a path in the repository, "start": first line, "end": last line} (lines you read). [] when you named no code.',
     ].join('\n'),
     'Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another; it is within the word limit; on a miss, nothing in it gives the answer away. Fix or cut what fails.',
-    `Reply with only this JSON object, nothing before or after it:\n{"verdict": ${verdicts}, "feedback": "…", "hint": "…", "note": "…"${second ? ', "topic": "…"' : ''}, "concern": "", "links": [{"phrase": "…", "file": "…", "start": 1, "end": 2}]}`,
+    `Reply with only this JSON object, nothing before or after it:\n{"verdict": ${verdicts}, "feedback": "…", "hint": "…", "note": "…"${restate ? '' : ', "partial": false, "topic": "…"'}, "concern": "", "links": [{"phrase": "…", "file": "…", "start": 1, "end": 2}]}`,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -724,7 +726,9 @@ export function parseVerdict(text, attempt = 1, { restate = false } = {}) {
     const str = (x) => String(x ?? '').trim()
     const out = { verdict, feedback: str(v.feedback), hint: verdict === 'retry' ? str(v.hint) : '' }
     if (str(v.note) && verdict !== 'retry') out.note = str(v.note)
-    if (str(v.topic) && verdict === 'explained') out.topic = str(v.topic)
+    // A pass that corrects something: worth discussing on the merge request.
+    if (verdict === 'pass' && v.partial === true) out.partial = true
+    if (str(v.topic) && (verdict === 'explained' || out.partial)) out.topic = str(v.topic)
     if (str(v.concern)) out.concern = str(v.concern)
     // Links whose phrase is in the text (verbatim); their lines are checked against the files by codeLinksIn().
     const said = [out.feedback, out.hint, out.concern ?? ''].join('\n')
@@ -1055,8 +1059,8 @@ export function flaggedConcerns(check) {
 /**
  * The merge request comment. `head`: its first line (the result, or what is missing). Flagged concerns follow as
  * "⚠ Found during the check". With `qa` (only once the check is done: it never grades in public) the questions follow:
- * explained ones as "Worth discussing" with the correct point in one line (the author's wrong guesses and retries are
- * never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning. An answer
+ * explained ones and partial passes as "Worth discussing" with the correct point in one line (the author's wrong guesses
+ * and retries are never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning. An answer
  * by someone other than the check's `answeredBy` says "answered by <name>".
  */
 export function commentBody(check, sum, head, link = () => undefined, { qa = false } = {}) {
@@ -1078,6 +1082,12 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
       return
     }
     const good = as.findLast((a) => a.verdict === 'pass')
+    // A partial pass (the grader corrected something that matters): worth discussing, with the correct point.
+    if (good?.partial) {
+      const fix = explanationOf(good) || clipWords(String(good.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30)
+      discuss.push('', `**Worth discussing: ${inline(good.topic || q.text)}** · ${ref(q)}${by(good)}`, ...(fix ? [fix] : []))
+      return
+    }
     const why = reasonOf(good)
     answered.push('', `**${inline(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
   })

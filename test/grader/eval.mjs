@@ -40,11 +40,16 @@ function build() {
   sh(d, 'git', ['add', '-A']); sh(d, 'git', ['commit', '-qm', 'refunds'])
   const script = path.join(root, 'skills/understanding-check/scripts/questions.mjs')
   const add = (...a) => sh(d, 'node', [script, 'add', ...a])
+  // Six questions (one per case family): more than a change this size gets by default.
+  fs.mkdirSync(path.join(d, 'understanding'), { recursive: true })
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), JSON.stringify({ questions: { min: 1, max: 6 } }))
   sh(d, 'node', [script, 'start', '--base', 'main'])
   add('--kind', 'failure', '--file', 'worker/notify.js', '--lines', '33-39', '--text', 'If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?')
   add('--kind', 'edge', '--file', 'api/refunds.js', '--lines', '11-13', '--text', 'What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?')
   add('--kind', 'why', '--file', 'api/refunds.js', '--lines', '18-20', '--text', 'Why is the order row locked before the remaining refundable amount is checked?')
   add('--kind', 'failure', '--file', 'worker/alerts.js', '--lines', '5-12', '--text', 'Where do the low-stock alerts end up once this runs in production?')
+  add('--kind', 'why', '--file', 'api/restock.js', '--lines', '3-6', '--text', 'Why does every refunded unit go back into product stock, even when staff refund without a return?')
+  add('--kind', 'failure', '--file', 'worker/notify.js', '--lines', '34-39', '--text', 'What happens to the refund when sendMail throws in refundNotice?')
   sh(d, 'node', [script, 'finish'])
   return d
 }
@@ -70,6 +75,13 @@ const CASES = [
     mustConcern: /OPS_EMAIL/ },
   { id: 'B3', q: 'q2', answer: 'Both miss the lookup; the second waits on the row lock, then its INSERT violates the unique key and errors instead of replaying.',
     verdict: 'pass', maxWords: 25, never: [/refunded twice/i] },
+  // The answer names a bug, and it is one: the feedback confirms THAT, not some other fact.
+  { id: 'P1', q: 'q5', answer: "Looks like a bug to me: there's no restock flag, so a refund for a damaged item that never comes back still adds it to stock.",
+    verdict: 'pass', maxWords: 25, must: [/stock|return|damaged/i], never: [/transaction|atomic|commit|rollback/i] },
+  // Right in the main, wrong in a detail that matters (the retries are capped): a pass that corrects it, marked partial,
+  // and the reviewer's one-liner says the correct thing.
+  { id: 'P2', q: 'q6', answer: 'The refund is already committed by the API, only the job fails: tick() catches it and retries the email later.',
+    verdict: 'pass', maxWords: 30, partial: true, must: [/MAX_TRIES|gives? up|dead|five|\b5\b|capped|stops/i], noteMust: /MAX_TRIES|gives? up|dead|five|\b5\b|capped|stops|no (email|mail)/i },
 ]
 
 const repo = build()
@@ -90,6 +102,8 @@ for (const c of CASES.filter((x) => !only?.length || only.includes(x.id))) {
     const problems = [
       c.verdict && a.verdict !== c.verdict && `verdict ${a.verdict}, expected ${c.verdict}`,
       c.mustConcern && !c.mustConcern.test(a.concern ?? '') && 'no concern about OPS_EMAIL',
+      c.partial !== undefined && !!a.partial !== c.partial && `partial: ${!!a.partial}, expected ${c.partial}`,
+      c.noteMust && !c.noteMust.test(a.note ?? '') && `the reviewer's note misses ${c.noteMust}`,
       // Code is named and linked, never pointed at by line numbers.
       /\blines? \d+|:\d+(-\d+)?\b/.test(text) && 'line numbers in the text',
       words(text) > c.maxWords && `${words(text)} words, at most ${c.maxWords}`,
@@ -98,7 +112,7 @@ for (const c of CASES.filter((x) => !only?.length || only.includes(x.id))) {
     ].filter(Boolean)
     if (problems.length) bad++
     console.log(`${c.id} ${problems.length ? '✗' : '✓'} ${a.verdict} · ${words(text)} words · ${Math.round((Date.now() - t0) / 1000)}s${problems.length ? `\n  PROBLEMS: ${problems.join('; ')}` : ''}`)
-    console.log(`  feedback: ${a.feedback}${a.hint ? `\n  hint: ${a.hint}` : ''}${a.concern ? `\n  concern: ${a.concern}` : ''}${a.links ? `\n  links: ${a.links.map((l) => `"${l.phrase}" → ${l.file}:${l.start}-${l.end}`).join('; ')}` : ''}\n`)
+    console.log(`  feedback: ${a.feedback}${a.hint ? `\n  hint: ${a.hint}` : ''}${a.note ? `\n  note: ${a.note}` : ''}${a.partial ? '\n  partial: true' : ''}${a.concern ? `\n  concern: ${a.concern}` : ''}${a.links ? `\n  links: ${a.links.map((l) => `"${l.phrase}" → ${l.file}:${l.start}-${l.end}`).join('; ')}` : ''}\n`)
   }
 }
 if (!args.includes('--keep')) fs.rmSync(repo, { recursive: true, force: true })

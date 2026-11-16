@@ -49,8 +49,9 @@ will find a way around it, so every design choice below favours little friction.
    journey lenses step aside in a file with an open question; another branch's check threads (and notes made from them) are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
    only for the question text it was shown with.
-4. Each reply is graded on submit: ✓ "Right." with at most one new fact, or "Not quite" (what is right, what to
-   re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
+4. Each reply is graded on submit: ✓ "Right" confirming what the answer said (a bug it names, confirmed), at most one
+   more fact on the same point; "Mostly right" + the correction when the main point is right but a detail that matters
+   is wrong (`partial`, worth discussing on the merge request); or "Not quite" (what is right, what to re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
    (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
    (click: the lines light up, nothing is selected and the keyboard stays in the thread; "← Back to question"). It may
    raise a `concern` about the code itself: **Suggest a fix** (a note on the code the concern names, asked to Claude for
@@ -93,7 +94,7 @@ never match. The file records the code commit the questions were written for.
         { "verdict": "retry", "at": "…", "feedback": "…", "hint": "…", "gradedAt": "…" },   // superseded: no answer, no hash
         { "answer": "…", "at": "…", "by": { "name": "…", "email": "…" },   // "by" only when not answeredBy
           "verdict": "pass" | "retry" | "explained" | "restated", "feedback": "…", "hint": "…", "gradedAt": "…",
-          "note": "…", "topic": "…", "concern": "…",   // from the grader, when it gives them
+          "note": "…", "topic": "…", "partial": true, "concern": "…",   // from the grader, when it gives them
           "hash": "<12 hex: sha256 of question text, answer, verdict>" }
       ]
     }
@@ -186,7 +187,7 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 The merge request comment follows the job and is found again by the marker `<!-- understanding-check -->` and updated
 in place. Its first line is the result or what is missing (no check yet, needs a top-up, file not valid). It never
 grades in public: while the check is in progress it is one line (`Understanding check in progress: 2 of 4 done.`), no ✗
-ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions as `Worth discussing:
+ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions and partial passes as `Worth discussing:
 <topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
 and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered

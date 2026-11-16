@@ -421,7 +421,7 @@ test('status: what to do next, locally', async () => {
 test('grader prompt: short replies by verdict, claims checked against lines read, a self-check, the "also" code', () => {
   const q = { kind: 'failure', text: 'What if?', file: 'a.js', start: 1, end: 2, also: [{ file: 'b.js', start: 4, end: 9 }] }
   const first = U.graderPrompt({ q, answer: 'x', attempt: 1, diff: '+x', code: '1 x', canRead: true })
-  assert.match(first, /"Right\." plus at most one fact they did not mention, 25 words/)
+  assert.match(first, /answers what THEY said: "Right" and their main point confirmed[\s\S]*25 words in all/)
   assert.match(first, /says which part of their answer is right and which part to re-check\. Never state or imply the correct outcome/)
   assert.match(first, /checked by reading those exact lines/)
   assert.match(first, /Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another/)
@@ -681,6 +681,22 @@ test('the MR comment says who answered when it was not the check\'s author', () 
   const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
   assert.match(body, /\*\*Why two\?\*\* · `a\.js:1-2` · answered by Bob/)
   assert.doesNotMatch(body, /Why one\?\*\* · `a\.js:1-2` · answered by/)
+})
+
+test('a partial pass (the grader corrected something): parsed, and on the merge request under "Worth discussing" with the correct point', () => {
+  const v = U.parseVerdict(JSON.stringify({ verdict: 'pass', partial: true, feedback: 'Mostly right. After MAX_TRIES the job is marked dead: no email.', hint: '', note: 'Refund stays; the email is retried, then dropped after MAX_TRIES.', topic: 'capped email retries' }), 1)
+  assert.deepEqual([v.verdict, v.partial, v.topic], ['pass', true, 'capped email retries'])
+  assert.equal(U.parseVerdict(JSON.stringify({ verdict: 'retry', partial: true, feedback: 'x', topic: 't' }), 1).partial, undefined, 'only a pass is partial')
+  assert.equal(U.parseVerdict(JSON.stringify({ verdict: 'pass', partial: false, feedback: 'Right.', topic: 't' }), 1).topic, undefined)
+  const q = (id, text, a) => ({ id, kind: 'failure', text, file: 'w.js', start: 3, end: 9, attempts: [{ answer: 'It is retried later.', ...a }] })
+  const check = { answeredBy: { name: 'Alice' }, questions: [q('q1', 'What happens when sendMail throws?', v), { ...q('q2', 'Why the lock?', { verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }), attempts: [{ answer: 'It orders them.', verdict: 'pass', feedback: 'Right.', note: 'The lock orders the two.' }] }] }
+  const body = U.commentBody(check, U.summarize(check), 'head', undefined, { qa: true })
+  assert.match(body, /\*\*Worth discussing: capped email retries\*\* · `w\.js:3-9`\nRefund stays; the email is retried, then dropped after MAX_TRIES\./)
+  assert.doesNotMatch(body, /It is retried later/, 'not shown as a plain right answer')
+  assert.ok(body.indexOf('Worth discussing') < body.indexOf('Why the lock?'))
+  // The prompt asks for it.
+  const p = U.graderPrompt({ q: check.questions[0], answer: 'x', attempt: 1, diff: '', code: '', canRead: true })
+  assert.match(p, /"partial": true/); assert.match(p, /if they say it is a bug and it is one, confirm that bug/); assert.match(p, /never an unrelated fact/)
 })
 
 /** A branch whose check passed, with main moving on: main gets `mainLines` in its own file, the branch keeps app.js. */
