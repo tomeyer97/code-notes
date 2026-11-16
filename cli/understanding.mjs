@@ -949,7 +949,12 @@ export async function upsertComment(ctx, body) {
 }
 
 const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungraded: '?', todo: '○' }
-const quote = (s) => String(s).trim().replace(/<!--/g, '&lt;!--').split('\n').map((l) => `> ${l}`).join('\n')
+/**
+ * Makes @mentions inert (`@carol`, `@all`, `@group/sub`, `@org/team`): a word joiner after the "@" keeps the text as it
+ * reads but GitLab and GitHub no longer notify anyone, also when the comment is edited later. Emails stay as they are.
+ */
+export const inert = (s) => String(s ?? '').replace(/(^|[^\w.@`])@(?=[\w-])/g, '$1@\u2060')
+const quote = (s) => inert(String(s).trim().replace(/<!--/g, '&lt;!--')).split('\n').map((l) => `> ${l}`).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
 /**
@@ -988,7 +993,7 @@ export function refLink(ctx, q, diff) {
 }
 
 /** Text from the grader or the author, safe on one markdown line. */
-const inline = (s) => String(s ?? '').replace(/<!--/g, '&lt;!--').replace(/\s+/g, ' ').trim()
+const inline = (s) => inert(String(s ?? '').replace(/<!--/g, '&lt;!--').replace(/\s+/g, ' ').trim())
 /** At most `n` words ("…" when cut). */
 export function clipWords(s, n) {
   const w = inline(s).split(' ').filter(Boolean)
@@ -1037,7 +1042,7 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
     }
     const good = as.findLast((a) => a.verdict === 'pass')
     const why = reasonOf(good)
-    answered.push('', `**${q.text.trim()}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
+    answered.push('', `**${inline(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
   })
   return [...out, ...discuss, ...answered].join('\n')
 }
