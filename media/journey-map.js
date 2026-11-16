@@ -85,6 +85,7 @@
       render()
     } else if (m.type === 'home') { tcard = 0; setHome(true); render() }
     else if (m.type === 'hello') post({ type: 'ready' })
+    else if (m.type === 'preview') { previews[m.key] = m.journey; if (home && m.key === sel) render() }
     else if (m.type === 'tour') { tour(m); render() }
     else if (m.type === 'deleted') { deleted = m.file || 'the file'; tcard = 0; offer = false; render() }
     else if (m.type === 'tutorial') startTutorial()
@@ -133,6 +134,7 @@
     prov = m.prov
     if (m.key) KEY = m.key
     if (m.list) list = m.list
+    if (m.home) homeModel = m.home
     if (m.tutorial && !offer && !tcard && !offerGone) { offer = true; offerSteps = 0; post({ type: 'tutorial', action: 'bar' }) }
     if (!m.tutorial) offer = false
   }
@@ -344,9 +346,11 @@
   let home
   let list = []
   /** The list in front (or not), and the tab says so. */
+  let homeFocus = false
   function setHome(on) {
     if (!!home === on) return
     home = on || undefined
+    if (on) homeFocus = true
     post({ type: 'home', on })
   }
   function goHome() {
@@ -355,29 +359,165 @@
     window.scrollTo(0, 0)
     render()
   }
+  // ---------- home (0.24): find a journey — search, chips, sections, select to preview (docs/journey-list.md) ----------
+  // The extension computes the list (journeyList.ts) with this home's search, kind, area and sort; we draw it.
+
+  /** The list model; the home's query and chips (sent to the extension, which answers with a new model). */
+  let homeModel
+  let hq = { query: '', kind: 'all', area: '' }
+  /** The selected row (previewed), rows unfolded in a narrow panel, journeys fetched for the preview. */
+  let sel = ''
+  const previews = {}
+  let searchEl
+  let listTimer = 0
+  const sendList = (extra) => { clearTimeout(listTimer); listTimer = setTimeout(() => post({ type: 'list', ...hq, ...(extra || {}) }), extra ? 0 : 90) }
+  /** Visible keys in order (the keyboard moves through these). */
+  const homeKeys = () => (homeModel ? [...new Set(homeModel.sections.flatMap((s) => s.keys))] : [])
+  /** Text with the matched words marked. */
+  function marked(text, hits) {
+    const span = el('span', 't')
+    if (!hits || !hits.length) { span.textContent = text; return span }
+    const re = new RegExp(`(${hits.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi')
+    for (const part of text.split(re)) { if (!part) continue; if (hits.some((h) => h.toLowerCase() === part.toLowerCase())) span.append(el('mark', '', part)); else span.append(document.createTextNode(part)) }
+    return span
+  }
+  function walkKey(k) { if (!k) return; setHome(false); toTop = true; post({ type: 'walk', key: k }); render() }
+  /** Narrow panels: the row whose steps are unfolded (a click or →; ↑↓ only move). */
+  let unfolded = ''
+  function select(k, scroll, unfold) {
+    if (!k || (k === sel && !unfold)) return
+    sel = k
+    if (unfold) unfolded = k
+    const r = homeModel && homeModel.rows[k]
+    if (r && r.kind === 'journey' && !previews[k]) post({ type: 'preview', key: k })
+    render()
+    if (scroll) { const b = app.querySelector('.jrow.sel'); if (b) b.scrollIntoView({ block: 'nearest' }) }
+  }
+  function chip(label, on, fn, title) {
+    const b = el('button', `chip${on ? ' on' : ''}`, label)
+    b.setAttribute('aria-pressed', String(on))
+    if (title) b.title = title
+    b.onclick = fn
+    return b
+  }
+  const KIND_LABEL = { journey: 'Journeys', check: 'Checks', review: 'Reviews' }
   function homeView() {
+    const m = homeModel
     const h = el('div', 'home')
-    h.append(el('h1', 'q', 'Journeys'))
-    const ol = el('ul', 'jlist')
-    for (const x of list) {
-      const li = el('li')
-      const b = el('button', `jrow${x.here ? ' here' : ''}${x.start ? ' start' : ''}`)
-      const top = el('span', 'jtop')
-      top.append(el('span', 't', x.title))
-      // The one to begin with, then where it was left, quietly (a journey never opened has no mark).
-      if (x.start) top.append(el('span', 'jstart', 'Start here'))
-      if (x.resume) { const r = el('span', 'jat', `${x.resume}/${x.steps}`); r.title = `Left at step ${x.resume} of ${x.steps}`; top.append(r) }
-      b.append(top)
-      // The question under the title: what the sidebar doesn't show.
-      if (x.question && x.question.toLowerCase() !== x.title.toLowerCase()) b.append(el('span', 'jq', x.question))
-      b.onclick = () => { setHome(false); toTop = true; post({ type: 'walk', key: x.key }); render() }
-      li.append(b)
-      ol.append(li)
+    const wide = app.clientWidth >= 700
+    h.classList.toggle('wide', wide)
+    const top = el('div', 'htop')
+    top.append(el('h1', 'q', 'Journeys'))
+    if (m) top.append(el('span', 'hcount', m.query || m.kind !== 'all' || m.area ? `${m.count} of ${m.total}` : String(m.total)))
+    h.append(top)
+    if (!searchEl) {
+      searchEl = el('input', 'hsearch')
+      searchEl.type = 'search'
+      searchEl.placeholder = 'Search journeys'
+      searchEl.setAttribute('aria-label', 'Search journeys (/)')
+      searchEl.addEventListener('input', () => { hq.query = searchEl.value; sendList() })
     }
-    if (!list.length) h.append(el('p', 'note', 'No journeys in this workspace.'))
-    h.append(ol)
+    if (searchEl.value !== hq.query) searchEl.value = hq.query
+    h.append(searchEl)
+    if (m) {
+      const chips = el('div', 'chips')
+      const kinds = m.kinds.filter((k) => k.count)
+      if (kinds.length > 1) {
+        chips.append(chip('All', hq.kind === 'all', () => { hq.kind = 'all'; sendList({}) }))
+        for (const k of kinds) chips.append(chip(KIND_LABEL[k.id] || k.id, hq.kind === k.id, () => { hq.kind = hq.kind === k.id ? 'all' : k.id; sendList({}) }))
+        chips.append(el('span', 'csep'))
+      }
+      if (m.file) chips.append(chip(`In ${m.file.split('/').pop()}`, hq.area === 'here', () => { hq.area = hq.area === 'here' ? '' : 'here'; sendList({}) }, m.file))
+      for (const a of m.areas.slice(0, 8)) chips.append(chip(a.name, hq.area === a.name, () => { hq.area = hq.area === a.name ? '' : a.name; sendList({}) }, `${a.count} in ${a.name}`))
+      const sortSel = el('select', 'hsort')
+      sortSel.setAttribute('aria-label', 'Sort')
+      for (const [id, label] of [['area', 'By area'], ['newest', 'Newest'], ['walked', 'Recently walked'], ['name', 'A–Z']]) { const o = el('option', '', label); o.value = id; if (m.sort === id) o.selected = true; sortSel.append(o) }
+      sortSel.onchange = () => sendList({ sort: sortSel.value })
+      chips.append(sortSel)
+      h.append(chips)
+    }
+    const body = el('div', 'hbody')
+    const listEl = el('div', 'hlist')
+    const keys = homeKeys()
+    if (!keys.includes(sel)) { sel = keys[0] || ''; if (sel && m.rows[sel].kind === 'journey' && !previews[sel]) post({ type: 'preview', key: sel }) }
+    for (const sec of m ? m.sections : []) {
+      listEl.append(el('h2', 'hsec', sec.label))
+      const ul = el('ul', 'jlist')
+      for (const k of sec.keys) {
+        const r = m.rows[k]
+        const li = el('li')
+        const b = el('button', `jrow${k === sel ? ' sel' : ''}${r.here ? ' here' : ''}`)
+        b.dataset.key = k
+        b.setAttribute('aria-selected', String(k === sel))
+        const t = el('span', 'jtop')
+        t.append(marked(r.title, r.hits))
+        if (r.start) t.append(el('span', 'jstart', 'Start here'))
+        if (r.isNew) t.append(el('span', 'jnew', 'new'))
+        if (r.resume) { const x = el('span', 'jat', `${r.resume}/${r.steps}`); x.title = `Left at step ${r.resume} of ${r.steps}`; t.append(x) }
+        if (r.stale) { const x = el('span', 'jstale', '⚠'); x.title = `${r.stale} step${r.stale === 1 ? '' : 's'} changed since it was written`; t.append(x) }
+        b.append(t)
+        if (r.question && r.question.toLowerCase() !== r.title.toLowerCase()) b.append(el('span', 'jq', r.question))
+        b.append(el('span', 'jmeta', r.meta))
+        b.onclick = () => select(k, false, true)
+        b.ondblclick = () => walkKey(k)
+        li.append(b)
+        // Narrow: the selected row unfolds its steps and its Walk button.
+        if (!wide && k === sel && k === unfolded) li.append(previewEl(r, false))
+        ul.append(li)
+      }
+      listEl.append(ul)
+    }
+    if (m && !m.count) listEl.append(el('p', 'note', m.total ? 'Nothing matches.' : 'No journeys in this workspace.'))
+    body.append(listEl)
+    if (wide && sel && m) body.append(previewEl(m.rows[sel], true))
+    h.append(body)
     return h
   }
+  /** What a row holds: its question, a small map (wide), its steps, Walk / Resume. */
+  function previewEl(r, wide) {
+    const p = el(wide ? 'aside' : 'div', wide ? 'hprev' : 'hunfold')
+    if (wide) { p.append(el('h2', 'pt', r.title)); if (r.question) p.append(el('p', 'pq', r.question)) }
+    const j = previews[r.key]
+    if (wide && j && j.nodes && j.nodes.length) {
+      const mm = el('div', 'minimap')
+      // The whole map, small and still: laid out like the journey's own, fitted once it is drawn.
+      if (!miniGraph) miniGraph = window.JourneyGraph({ goStep() {}, open() {}, quiet: true, legend() {}, rendered() { requestAnimationFrame(() => miniGraph.fit()) }, view() {}, error: (message) => post({ type: 'error', message }) })
+      miniGraph.el.setAttribute('tabindex', '-1')
+      miniGraph.el.setAttribute('aria-hidden', 'true')
+      mm.append(miniGraph.el)
+      p.append(mm)
+      requestAnimationFrame(() => { miniGraph.set(j, 0, true); miniGraph.resized(); miniGraph.fit() })
+    }
+    const ol = el('ol', 'psteps')
+    for (const t of r.stepTitles.slice(0, wide ? 14 : 8)) ol.append(el('li', '', t))
+    if (r.stepTitles.length > (wide ? 14 : 8)) ol.append(el('li', 'more', `+${r.stepTitles.length - (wide ? 14 : 8)} more`))
+    p.append(ol)
+    const go = el('button', 'walkb', r.kind === 'check' ? 'Open' : r.resume ? `Resume at ${r.resume}` : 'Walk')
+    go.onclick = () => walkKey(r.key)
+    p.append(go)
+    return p
+  }
+  let miniGraph
+  document.addEventListener('keydown', (e) => {
+    if (!home || tcard) return
+    const inSearch = e.target === searchEl
+    if (e.key === '/' && !inSearch) { e.preventDefault(); searchEl && searchEl.focus(); return }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      if (hq.query) { hq.query = ''; if (searchEl) searchEl.value = ''; sendList({}); return }
+      if (J) { setHome(false); render() }
+      return
+    }
+    const keys = homeKeys()
+    const i = keys.indexOf(sel)
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      select(keys[Math.max(0, Math.min(keys.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))], true)
+      return
+    }
+    if (e.key === 'ArrowRight' && !inSearch) { e.preventDefault(); if (sel) { unfolded = sel; if (homeModel.rows[sel].kind === 'journey' && !previews[sel]) post({ type: 'preview', key: sel }); render() } return }
+    if (e.key === 'Enter' && (inSearch || !e.target.closest || !e.target.closest('button:not(.jrow), select'))) { e.preventDefault(); walkKey(sel || keys[0]) }
+  })
 
   // ---------- the splitter (0.21.1): the map column's width, dragged (wide panels only) ----------
 
@@ -440,6 +580,9 @@
 
   function render() {
     if (!J) return
+    // The home's search keeps the keyboard across a re-render (the list is drawn again under it).
+    const searchFocused = !!searchEl && document.activeElement === searchEl
+    const caret = searchFocused ? searchEl.selectionStart : 0
     // The scene keeps the keyboard across a re-render (its element is taken out and put back).
     if (scene && scene.el.contains(document.activeElement)) focusScene = true
     // A re-render keeps the scroll; the first render after a reload goes back to where it was.
@@ -449,7 +592,11 @@
     firstRender = false
     app.textContent = ''
     app.classList.toggle('deleted', !!deleted)
-    if (home) { app.append(homeView()); saveState(); return }
+    if (home) {
+      app.append(homeView())
+      if (searchFocused || homeFocus) { searchEl.focus(); if (searchFocused) searchEl.setSelectionRange(caret, caret); homeFocus = false }
+      saveState(); return
+    }
     if (offer && !tcard && !deleted) app.append(tutorialBar())
     const head = el('div', 'head')
     head.append(header())

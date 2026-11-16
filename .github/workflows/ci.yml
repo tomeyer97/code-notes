@@ -62,3 +62,5 @@ jobs:
         run: npm run test:scenes
       - name: Understanding check panel, three widths
         run: npm run test:checkpanel
+      - name: Journeys list in the panel, three widths
+        run: npm run test:journeylist

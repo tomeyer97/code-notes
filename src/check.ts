@@ -36,6 +36,8 @@ export interface CheckHost {
   refresh(): void
   /** The view column the code is shown in (never the panel's). */
   codeColumn(): vscode.ViewColumn | undefined
+  /** The check's row in the journeys list changed. */
+  listChanged?(): void
 }
 
 export const SESSION = (branch: string) => `Check · ${branch}`
@@ -108,6 +110,7 @@ export class Understanding implements vscode.Disposable {
     else if (!this.writing) this.item.hide()
     if (this.st?.check) await this.syncThreads(this.st.check)
     this.post()
+    this.host.listChanged?.()
   }
 
   private cfg() { return this.repo && this.U ? this.U.loadConfig(this.repo) : { maxDrift: 40, minChangedLines: 20, passRatio: 0.6, questions: { min: 3, max: 5 }, model: null } }
@@ -375,6 +378,15 @@ export class Understanding implements vscode.Disposable {
     return e ? { error: e } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
+
+  /** The check as a row of the journeys list (journeyList.ts). */
+  listItem(): import('./journeyList').ListItem | undefined {
+    const c = this.st?.check, s = this.st?.summary
+    if (!c || !s || !this.st) return undefined
+    return { key: `check:${this.st.file}`, kind: 'check', title: `Check · ${this.st.branch}`, question: 'Questions about this branch\'s change', summary: '',
+      ...(c.createdAt ? { createdAt: c.createdAt } : {}), files: c.questions.map((q) => q.file), stepTitles: c.questions.map((q) => q.text), steps: c.questions.length,
+      stale: 0, isNew: false, resume: 0, progress: `${s.passed}/${s.total} ✓`, open: !(s.met && !s.todo && !s.ungraded) }
+  }
 
   /** For the integration test. */
   snapshot() { return { status: this.st && { ...this.st, check: undefined }, item: this.item.text, itemShown: !!this.item.text, view: this.view(), panel: this.panel.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }

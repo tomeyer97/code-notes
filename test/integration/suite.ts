@@ -376,15 +376,14 @@ export async function run(): Promise<void> {
   assert.equal(snap().notes.length, notesBefore, 'steps are not notes')
   assert.equal(snap().broken, brokenBefore, 'journey files are not read as notes')
   assert.equal(snap().badge, badgeBefore, 'steps never count as unread')
-  const jt = snap().tree() as string[]
-  // The first time, the group is open with one quiet line; rows are the short title; a journey written after the
-  // list was first seen is "new"; the group comes after the notes.
-  const gi = jt.findIndex((l) => /^journeys:Journeys$/.test(l)) // its name only
-  assert.ok(gi >= 0, `an open Journeys group the first time:\n${jt.join('\n')}`)
-  assert.equal(jt[gi + 1], '  journey:Demo · new', 'the title and "new"; no step count, no info row, no icon but for state')
-  assert.ok(!jt.slice(gi + 1).some((l) => /^\S/.test(l)), 'nothing after the journeys at the top level')
-  // Files that never were valid journeys: one dimmed row each (the text is the muted description), after the journeys.
-  assert.deepEqual(jt.slice(gi + 2, gi + 4), ['  badJourney: · ⚠ half-written.json', '  badJourney: · ⚠ old-v1.json'], `never-valid files are dimmed rows:\n${jt.join('\n')}`)
+  // 0.24: journeys have their own view (Journeys), grouped by area; the Notes view lists notes only.
+  const jt = (api as any).journeysTree() as string[]
+  assert.ok(!(snap().tree() as string[]).some((l) => /^journeys:|journey:/.test(l)), 'no journeys in the Notes view')
+  const di = jt.findIndex((l) => /journey:Demo · new$/.test(l))
+  assert.ok(di > 0 && /^\s+jgroup:src · 1$/.test(jt[di - 1]), `Demo under its area (not said again), "new":\n${jt.join('\n')}`)
+  assert.ok(jt.some((l) => /^jgroup:All · 1$/.test(l)), `an "All" group:\n${jt.join('\n')}`)
+  // Files that never were valid journeys: one dimmed row each, after the groups.
+  assert.deepEqual(jt.slice(-2), ['badJourney: · ⚠ half-written.json', 'badJourney: · ⚠ old-v1.json'], `never-valid files are dimmed rows:\n${jt.join('\n')}`)
   ok('v2 journeys load (v1 and broken files skipped); steps are not notes; the group lists titles, new ones marked')
 
   const at = () => { const e = vscode.window.activeTextEditor; return e ? `${path.relative(ws, e.document.uri.fsPath)}:${e.selection.active.line + 1}` : '' }
@@ -392,8 +391,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.openJourney', 'demo')
   // Opening a journey walks it (there is no Start): the map, and step 1's code with its card.
   await until('map open and drawn, walking at step 1', () => t().map === 'demo' && t().journey === 'demo' && t().mapBoxes === 5 && t().mapFocus === 'fa' && t().step === 1 && at() === 'src/flow.ts:2' && t().card?.title === 'a calls b', 10000)
-  await until('opened: no longer new', () => (snap().tree() as string[]).some((l: string) => /^journeys:Journeys( {collapsed})?$/.test(l)) && !(snap().tree() as string[]).some((l: string) => /· new/.test(l)))
-  assert.ok(!(snap().tree() as string[]).some((l: string) => /· new/.test(l)), 'seen once opened')
+  await until('opened: no longer new', () => !((api as any).journeysTree() as string[]).some((l: string) => /· new/.test(l)))
   assert.equal(t().touring, true, 'walking')
   const mapCol = t().mapColumn
   const c1 = t().card
@@ -517,16 +515,16 @@ export async function run(): Promise<void> {
   assert.deepEqual(an.extra?.journey ?? an.journey, { id: 'demo', step: 's-b', n: 2 }, 'the note carries the journey field the skill reads')
   assert.equal(an.session, undefined, 'a normal private note')
   assert.equal(an.unread, 0)
-  const qt = tree0(api) as string[]
-  const qi = qt.findIndex((l) => /^ {4}note:Step 2 · Why does b return 2\?/.test(l))
-  assert.ok(qi > 0 && /^ {2}journey:Demo\b/.test(qt[qi - 1]) && !/question/.test(qt[qi - 1]), `listed right under its journey, with its step; no count on the row:\n${qt.join('\n')}`)
+  const qt = (api as any).journeysTree() as string[]
+  const qi = qt.findIndex((l) => /^ {6}note:Step 2 · Why does b return 2\?/.test(l))
+  assert.ok(qi > 0 && /^ {4}journey:Demo\b/.test(qt[qi - 1]) && !/question/.test(qt[qi - 1]), `listed right under its journey, with its step; no count on the row:\n${qt.join('\n')}`)
   assert.ok(!qt.some((l) => /^note:Why does b return 2/.test(l)), 'not a loose row too')
   const askedThread = await until('the asked note\'s thread', () => api.thread(an.id))
   assert.ok(!/openStepLink|About the step/.test((askedThread.comments[0].body as vscode.MarkdownString).value), 'on that very step: no back-link')
   ok('Ask about this step: a normal note on the step\'s lines, listed under its journey with its step, linking back')
   // A reply to it shows on the folded journey row and on the step's card.
   reply(an.path, { author: 'claude', role: 'agent', body: 'Because it is the answer.', at: new Date().toISOString() })
-  await until('the journey row says 1 reply ("new" is only a new journey)', () => (tree0(api) as string[]).some((l) => /^ {2}journey:Demo · (\d+\/\d+ · )?1 reply/.test(l)))
+  await until('the journey row says 1 reply ("new" is only a new journey)', () => ((api as any).journeysTree() as string[]).some((l) => /journey:Demo · .*1 reply/.test(l)))
   await until('the card lists the question', () => /1 question · new reply ›\]\(command:codeNotes\.openNoteId/.test(t().card?.body ?? ''))
   await vscode.commands.executeCommand('codeNotes.markAllRead')
   ok('a reply to a step question: "1 reply" on the journey row, "1 question · new reply" on the card')
@@ -570,12 +568,12 @@ export async function run(): Promise<void> {
   // Not walking: the step question links back to its step, with the journey's name.
   await until('the back-link', () => /\[↩ Step 3 · Demo\]\(command:codeNotes\.openStepLink/.test((api.thread(an.id)!.comments[0].body as vscode.MarkdownString).value))
   assert.ok(vscode.window.tabGroups.all.some((g) => g.tabs.some((x) => x.input instanceof vscode.TabInputText && /flow\.ts$/.test(x.input.uri.path))), 'End keeps the code you were reading')
-  assert.ok(tree0(api).some((l: string) => /journey:Demo · 3\/4$/.test(l)), `the sidebar row: its title and, after End, where it was left:\n${tree0(api).join('\n')}`)
+  assert.ok((api as any).journeysTree().some((l: string) => /journey:Demo · step 3\/4$/.test(l)), `the sidebar row: its title and, after End, where it was left:\n${(api as any).journeysTree().join('\n')}`)
   await vscode.commands.executeCommand('codeNotes.notes.focus')
   await shotX('sidebar')
   await vscode.commands.executeCommand('codeNotes.nextStep') // resumes
   await until('resumed at 3', () => t().touring && t().step === 3)
-  assert.ok(tree0(api).some((l: string) => /journey:Demo( · [^[]*)? \[play-circle\]/.test(l) && !/3\/4/.test(l)), `the sidebar marks the running journey; the position is on the card and status bar:\n${tree0(api).join('\n')}`)
+  assert.ok((api as any).journeysTree().some((l: string) => /journey:Demo( · [^[]*)? \[play-circle\]/.test(l) && !/3\/4/.test(l)), `the sidebar marks the running journey; the position is on the card and status bar:\n${(api as any).journeysTree().join('\n')}`)
   await vscode.commands.executeCommand('codeNotes.endJourney')
   ok('End keeps a resumable place; Next resumes; the sidebar marks the running tour')
   fs.writeFileSync(demoPath, JSON.stringify(demo(demoSteps), null, 2))
@@ -682,7 +680,11 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await until('a function box opens its code', () => /^src\/flow\.ts:/.test(j.at() ?? ''), 8000)
   api.mapSend({ type: 'test', click: '.homeb' })
   await until('home ends the walk, its place kept', () => !tr().touring && snap().journeys.find((x: any) => x.id === 'demo').resume === 3, 8000)
+  // 0.24: a click selects (and previews); Enter walks.
   api.mapSend({ type: 'test', click: '.jrow' })
+  await sleep(300)
+  assert.ok(!tr().touring, 'a click on a row only selects it')
+  api.mapSend({ type: 'test', key: 'Enter' })
   await until('a journey from home walks again where it was left', () => tr().touring && tr().journey === 'demo' && tr().step === 3, 8000)
   await vscode.commands.executeCommand('codeNotes.endJourney')
   ok('whole map: step numbers walk, boxes open code; home lists journeys and walks one')
@@ -860,7 +862,7 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await until('grouped by file', () => snap().groupBy === 'file')
   const tf = snap().tree() as string[]
   assert.ok(!tf.some((l) => l.startsWith('session:Review')), 'no Review session in file mode')
-  assert.ok(tf.some((l) => l.startsWith('journeys:Journeys')), 'journeys stay their own group')
+  assert.ok(!tf.some((l) => l.startsWith('journeys:')) && ((api as any).journeysTree() as string[]).some((l) => l.startsWith('jgroup:All')), 'journeys stay in their own view')
   assert.ok(tf.some((l) => /^file:flow\.ts/.test(l)), 'flow.ts row')
   const solo = tf.find((l) => /^note:.* · .*renamed\.ts:\d+/.test(l)) ?? tf.find((l) => /^note:/.test(l) && /\.ts:\d+/.test(l))
   assert.ok(solo, `a single-note file is one row with file:line:\n${tf.join('\n')}`)
@@ -1037,7 +1039,7 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   const jSaving = () => snap().journeys.find((x: any) => x.id === 'saving')
   await until('repo journey read', () => jSaving())
   assert.equal(snap().journeys.filter((x: any) => x.id === 'saving').length, 1, 'one saving journey')
-  const rows = snap().tree() as string[]
+  const rows = (api2 as any).journeysTree() as string[]
   assert.ok(rows.some((l) => /journey:.*Saving a note/.test(l)) && !rows.some((l) => /Personal copy/.test(l)), `the repo copy wins: ${rows.join(' / ')}`)
   assert.deepEqual(jSaving().at.map((a: any) => [a.start, a.end, a.stale]), [[3, 8, false], [10, 13, false]])
   ok('journeys in <repo>/journeys/ (codeNotes.journeys.folder) are read; a same-id copy in the notes folder is not listed twice')

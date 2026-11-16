@@ -15,6 +15,7 @@ import { linkify } from './answerLinks'
 import { scoreJourney } from './match'
 import { clock, journeyPrompt, journeyRules, minutes, modelProblem, phaseOf } from './writing'
 import { Understanding } from './check'
+import { Group, ListItem, ListKind, ListModel, SORTS, Sort, buildList } from './journeyList'
 
 const CONTROLLER_ID = 'codeNotes'
 const SEEN_KEY = 'codeNotes.seenCount' // note id -> how many of its messages the person has seen
@@ -814,7 +815,9 @@ type Node =
   | { kind: 'note'; note: Note }
   | { kind: 'broken'; uri: string; why: string }
   | { kind: 'journeys' }
-  | { kind: 'journey'; lj: LoadedJourney }
+  | { kind: 'journey'; lj: LoadedJourney; group?: string }
+  | { kind: 'jgroup'; g: Group }
+  | { kind: 'checkRow'; key: string }
   | { kind: 'badJourney'; uri: vscode.Uri; why: string }
   | { kind: 'intro' }
   | { kind: 'questions'; lj: LoadedJourney; notes: Note[] }
@@ -912,7 +915,7 @@ const ownRow = (n: Note) => sameRow(n).length <= 1
 class NotesTree implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>()
   readonly onDidChangeTreeData = this.changed.event
-  refresh() { this.changed.fire(undefined) }
+  refresh() { this.changed.fire(undefined); journeysTree?.refresh() }
 
   getChildren(node?: Node): Node[] {
     if (node?.kind === 'file') return [...node.notes].sort(rowOrder).map(noteNode)
@@ -926,7 +929,8 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
     const broken: Node[] = [...store.broken].map(([uri, why]) => ({ kind: 'broken', uri, why }))
     // Journeys: one collapsed group (reading material, not an inbox:-), above the notes.
     // Notes first (they may need you), then the journeys; a notes filter hides the journeys.
-    const js: Node[] = hasJourneyRows() && filter === 'all' ? [journeysNode()] : []
+    // Journeys have their own view (JourneysTree).
+    const js: Node[] = []
     const grouped = visibleNotes.filter((n) => scopeOf(n) !== undefined)
     const loose = visibleNotes.filter((n) => scopeOf(n) === undefined)
     if (!grouped.length) return [...broken, ...fileGroups(loose), ...js]
@@ -941,7 +945,7 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
   }
 
   getParent(node: Node): Node | undefined {
-    if (node.kind === 'journey' || node.kind === 'intro' || node.kind === 'badJourney') return journeysNode()
+    if (node.kind === 'journey' || node.kind === 'intro' || node.kind === 'badJourney' || node.kind === 'jgroup' || node.kind === 'checkRow') return journeysTree.getParent(node)
     if (node.kind === 'questions') return journeyNode(node.lj)
     if (node.kind === 'note') { const lj = journeyOfNote(node.note); if (lj) return journeyNode(lj) }
     if (node.kind === 'file' && node.session !== undefined) {
@@ -1047,6 +1051,7 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
       item.tooltip = node.file
       return item
     }
+    if (node.kind === 'jgroup' || node.kind === 'checkRow') return journeysTree.getTreeItem(node)
     const n = node.note
     const d = n.data
     const u = unread(n)
@@ -1319,14 +1324,17 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
   // stale steps are the icon.
   // Where it was left, quietly (as in the panel's list); none while walking (the icon says it) or never opened.
   const left = !active ? resumeAt(lj) : 0
-  item.description = [left ? `${left}/${lj.j.steps.length}` : '', newReplies ? `${newReplies} repl${newReplies === 1 ? 'y' : 'ies'}` : '', lj.readError ? '⚠ unreadable' : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(' · ') || undefined
+  // Where it was left, else its area and age (journeyList.ts): muted, short.
+  const row = lastList?.rows[lj.key]
+  item.description = [left ? `step ${left}/${lj.j.steps.length}` : row ? [row.area, row.age].filter(Boolean).join(' · ') : '', staleCount(lj) ? '⚠' : '', newReplies ? `${newReplies} repl${newReplies === 1 ? 'y' : 'ies'}` : '', lj.readError ? '⚠ unreadable' : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(' · ') || undefined
 
   // The icon says state only: walking, or stale steps; a plain row otherwise.
   // No stale ⚠ here: the step card says it, the storyline marks the step.
   item.iconPath = active ? new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('codeNotes.noteRuler')) : newReplies ? new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('codeNotes.unreadForeground')) : undefined
   // The question only; the accessible name is what is seen.
   // "new" is only a new journey: an unread answer is "1 reply", said in full here.
-  item.tooltip = newReplies ? `${lj.j.question}\n${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'} from Claude` : lj.j.question
+  const prov = provenance(lj)
+  item.tooltip = [lj.j.question, lj.j.summary, prov.text, staleCount(lj) ? `${staleCount(lj)} step${staleCount(lj) === 1 ? '' : 's'} changed since` : '', newReplies ? `${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'} from Claude` : ''].filter(Boolean).join('\n')
   // the name read is the title and its state; the question is only the tooltip.
   item.accessibilityInformation = { label: [lj.j.title, active ? `walking, step ${tourStep} of ${lj.j.steps.length}` : left ? `left at step ${left} of ${lj.j.steps.length}` : '', newReplies ? `${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'}` : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ') }
   item.contextValue = 'journey'
@@ -1335,8 +1343,156 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
 }
 
 function revealJourneyRow(lj: LoadedJourney): void {
-  if (!treeView.visible) return
-  treeView.reveal(journeyNode(lj), { select: true, focus: false, expand: false }).then(undefined, () => { /* not listed */ })
+  if (!journeysView?.visible) return
+  const g = journeysTree.groupOf(lj.key)
+  if (!g) return
+  journeysView.reveal(cached(`journey:${g}:${lj.key}`, { kind: 'journey' as const, lj, group: g }), { select: true, focus: false, expand: false }).then(undefined, () => { /* not listed */ })
+}
+
+// ---------- finding journeys: one model (journeyList.ts) for the Journeys view and the panel's home ----------
+
+const SORT_KEY = 'codeNotes.journeySort'
+const listSort = (): Sort => state.get<Sort>(SORT_KEY) ?? 'area'
+/** The active editor's file, relative to its folder. */
+function activeRel(): string | undefined {
+  const e = vscode.window.activeTextEditor
+  const f = e && vscode.workspace.getWorkspaceFolder(e.document.uri)
+  return e && f && e.document.uri.scheme === 'file' ? relPath(f, e.document.uri) : undefined
+}
+function listItems(): ListItem[] {
+  const pos = positions()
+  const out: ListItem[] = journeyOrder().map((lj) => ({
+    key: lj.key, kind: 'journey' as const, title: lj.j.title, question: lj.j.question, summary: lj.j.summary, ...(lj.j.createdAt ? { createdAt: lj.j.createdAt } : {}),
+    files: lj.j.steps.map((s, i) => lj.at[i]?.file ?? s.file), stepTitles: lj.j.steps.map((s) => s.title), steps: lj.j.steps.length,
+    stale: staleCount(lj), isNew: isNewJourney(lj), resume: resumeAt(lj), walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined, ...(lj.j.start ? { start: true } : {}),
+  }))
+  const c = understanding?.listItem()
+  if (c) out.push(c)
+  return out
+}
+/** The last model the sidebar drew (rows' area and age for journeyItem). */
+let lastList: ListModel | undefined
+/** The panel home's own search, chips and sort (the sidebar searches with a picker). */
+let homeQuery: { query: string; kind: ListKind | 'all'; area: string } = { query: '', kind: 'all', area: '' }
+function listModel(o: { query?: string; kind?: ListKind | 'all'; area?: string } = {}): ListModel {
+  return buildList(listItems(), { activeFile: activeRel(), sort: listSort(), ...o })
+}
+
+class JourneysTree implements vscode.TreeDataProvider<Node> {
+  private readonly changed = new vscode.EventEmitter<Node | undefined>()
+  readonly onDidChangeTreeData = this.changed.event
+  private parents = new Map<string, Node>()
+  refresh() { this.changed.fire(undefined) }
+  /** The group a journey is listed under in "All" (for reveal). */
+  groupOf(key: string): string | undefined {
+    const m = lastList ?? listModel()
+    const all = m.groups.find((g) => g.id === 'all')
+    if (!all) return undefined
+    if (all.keys.includes(key)) return 'all'
+    return all.children?.find((c) => c.keys.includes(key))?.id
+  }
+  private rowsOf(g: Group, parent: Node): Node[] {
+    return g.keys.map((k) => {
+      const r = lastList!.rows[k]
+      const n: Node = r.kind === 'check' ? cached(`checkRow:${g.id}:${k}`, { kind: 'checkRow' as const, key: k })
+        : cached(`journey:${g.id}:${k}`, { kind: 'journey' as const, lj: journeys.list.get(k)!, group: g.id })
+      this.parents.set(`${g.id}:${k}`, parent)
+      return n
+    }).filter((n) => n.kind !== 'journey' || !!n.lj)
+  }
+  getChildren(node?: Node): Node[] {
+    if (!node) {
+      lastList = listModel()
+      this.parents.clear()
+      const bad = [...journeys.invalid.values()].sort((a, b) => a.uri.path.localeCompare(b.uri.path)).map((x) => cached(`badJourney:${x.uri}`, { kind: 'badJourney' as const, uri: x.uri, why: x.why }))
+      if (!lastList.total) return bad
+      return [...lastList.groups.map((g) => cached(`jgroup:${g.id}`, { kind: 'jgroup' as const, g })), ...bad]
+    }
+    if (node.kind === 'jgroup') {
+      if (node.g.children) return node.g.children.map((c) => { const n = cached(`jgroup:${c.id}`, { kind: 'jgroup' as const, g: c }); this.parents.set(`group:${c.id}`, node); return n })
+      return this.rowsOf(node.g, node)
+    }
+    // A journey's step questions: under its row in "All" only (a row is listed once there).
+    if (node.kind === 'journey' && (node.group === 'all' || node.group?.startsWith('area:'))) return tree.getChildren(node)
+    if (node.kind === 'questions') return tree.getChildren(node)
+    return []
+  }
+  getParent(node: Node): Node | undefined {
+    if (node.kind === 'jgroup') return this.parents.get(`group:${node.g.id}`)
+    if (node.kind === 'journey' && node.group) return this.parents.get(`${node.group}:${node.lj.key}`)
+    if (node.kind === 'checkRow') for (const [k, v] of this.parents) if (k.endsWith(`:${node.key}`)) return v
+    if (node.kind === 'questions') { const g = this.groupOf(node.lj.key); return g ? cached(`journey:${g}:${node.lj.key}`, { kind: 'journey' as const, lj: node.lj, group: g }) : undefined }
+    return undefined
+  }
+  getTreeItem(node: Node): vscode.TreeItem {
+    if (node.kind === 'jgroup') {
+      const g = node.g
+      const open = g.id !== 'all' || !lastList?.groups.some((x) => x.id === 'here' || x.id === 'continue')
+      // Areas fold when there are many of them; a handful stay open.
+      const areas = lastList?.groups.find((x) => x.id === 'all')?.children?.length ?? 0
+      const item = new vscode.TreeItem(g.label, g.id.startsWith('area:') ? (areas > 4 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded) : open ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed)
+      item.id = `jgroup:${g.id}`
+      const n = g.children ? g.children.reduce((a, c) => a + c.keys.length, 0) : g.keys.length
+      item.description = String(n)
+      item.contextValue = 'jgroup'
+      return item
+    }
+    if (node.kind === 'checkRow') {
+      const r = lastList?.rows[node.key]
+      const item = new vscode.TreeItem(r?.title ?? 'Check')
+      item.id = `checkRow:${node.key}`
+      item.iconPath = new vscode.ThemeIcon(r?.open === false ? 'pass' : 'checklist')
+      item.description = r?.progress
+      item.tooltip = r ? `${r.question}\n${r.stepTitles.join('\n')}` : undefined
+      item.command = { command: 'codeNotes.checkUnderstanding', title: 'Check my understanding' }
+      return item
+    }
+    const item = tree.getTreeItem(node)
+    if (node.kind === 'journey' && node.group) {
+      item.id = `${node.group}|${item.id}`
+      // Under its area's group the area is not said again.
+      const area = node.group.startsWith('area:') ? node.group.slice(5) : ''
+      if (area && typeof item.description === 'string') item.description = item.description.replace(new RegExp(`^${area.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( · |$)`), '') || undefined
+      if (!(node.group === 'all' || node.group.startsWith('area:'))) item.collapsibleState = vscode.TreeItemCollapsibleState.None
+    }
+    return item
+  }
+}
+let journeysTree: JourneysTree
+let journeysView: vscode.TreeView<Node>
+
+/** Search every journey (title, question, summary, step titles, files): a picker, best match first. */
+async function searchJourneys(): Promise<void> {
+  const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { key: string }>()
+  qp.placeholder = 'Search journeys: words of the title, question, steps or file paths'
+  qp.matchOnDescription = true
+  qp.matchOnDetail = true
+  const fill = () => {
+    const m = listModel({ query: qp.value })
+    const keys = m.sections.flatMap((s) => s.keys)
+    // The order is ours (best first): VS Code filters our results again by label/description/detail, so they carry the words.
+    qp.items = [...new Set(keys)].map((k) => { const r = m.rows[k]; return { key: k, label: r.title, description: r.meta, detail: [r.question, ...r.hits.length ? [r.stepTitles.find((t) => r.hits.some((h) => t.toLowerCase().includes(h))) ?? ''] : []].filter(Boolean).join(' · '), alwaysShow: true } })
+  }
+  qp.onDidChangeValue(fill)
+  qp.onDidAccept(() => {
+    const it = qp.selectedItems[0]
+    qp.hide()
+    if (!it) return
+    if (it.key.startsWith('check:')) void vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+    else { const lj = journeys.list.get(it.key); if (lj) void walkJourney(lj) }
+  })
+  qp.onDidHide(() => qp.dispose())
+  fill()
+  qp.show()
+}
+
+async function sortJourneys(): Promise<void> {
+  const cur = listSort()
+  const pick = await vscode.window.showQuickPick(SORTS.map((x) => ({ label: x.label, id: x.id, description: x.id === cur ? 'current' : undefined })), { title: 'Sort journeys' })
+  if (!pick) return
+  await state.update(SORT_KEY, pick.id)
+  journeysTree.refresh()
+  mapPanel.update()
 }
 
 function updateTour(): void {
@@ -2393,6 +2549,9 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'beat') void showBeat(lj, m.n, m.i)
   else if (m.type === 'closed') beats.clear()
   else if (m.type === 'mapWidth') void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined)
+  else if (m.type === 'list') { homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? '') }; if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }); else mapPanel.update() }
+  else if (m.type === 'preview') { const x = journeys.list.get(m.key); if (x) mapPanel.send({ type: 'preview', key: m.key, journey: x.j }) }
+  else if (m.type === 'walk' && m.key.startsWith('check:')) void vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   else if (m.type === 'walk') { const x = journeys.list.get(m.key); if (x) void walkJourney(x, { keepFocus: 'panel' }) }
   else if (m.type === 'details') { stepDetailsOpen = m.open; mapPanel.update() }
   else if (m.type === 'openFile') void vscode.window.showTextDocument(lj.uri, { viewColumn: codeColumn() })
@@ -3169,6 +3328,9 @@ export async function activate(context: vscode.ExtensionContext) {
   controller.commentingRangeProvider = rangeProvider
   controller.options = NOTE_OPTIONS
   tree = new NotesTree()
+  journeysTree = new JourneysTree()
+  journeysView = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree, showCollapseAll: true })
+  context.subscriptions.push(journeysView, vscode.window.onDidChangeActiveTextEditor(() => { journeysTree.refresh(); if (mapPanel) mapPanel.update() }))
   treeView = vscode.window.createTreeView('codeNotes.notes', { treeDataProvider: tree, showCollapseAll: false, canSelectMany: true, manageCheckboxStateManually: true })
   const folded = (e: vscode.TreeViewExpansionEvent<Node>, st: vscode.TreeItemCollapsibleState) => { const id = tree.getTreeItem(e.element).id; if (id) tree.folded.set(id, st) }
   context.subscriptions.push(treeView.onDidExpandElement((e) => folded(e, vscode.TreeItemCollapsibleState.Expanded)), treeView.onDidCollapseElement((e) => folded(e, vscode.TreeItemCollapsibleState.Collapsed)))
@@ -3216,6 +3378,7 @@ export async function activate(context: vscode.ExtensionContext) {
     ...(lj.key === tourKey && tourStep && cardInMap(lj, tourStep) ? { card: panelCard(lj, tourStep) } : {}),
     asked: askedOf(lj), prov: provenance(lj),
     list: journeyOrder().map((x) => ({ key: x.key, title: x.j.title, question: x.j.question, steps: x.j.steps.length, resume: resumeAt(x), ...(x.key === lj.key ? { here: true } : {}), ...(x.j.start ? { start: true } : {}) })),
+    home: listModel(homeQuery),
     ...(finishedKey === lj.key && !(lj.key === tourKey && tourStep) ? { done: true } : {}),
   }), state)
   refDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'), overviewRulerColor: new vscode.ThemeColor('textLink.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center })
@@ -3833,9 +3996,12 @@ export async function activate(context: vscode.ExtensionContext) {
     reveal: (n, col) => reveal(n, col ?? codeColumn()),
     refresh: () => refreshAll(),
     codeColumn,
+    listChanged: () => { journeysTree.refresh(); mapPanel.update() },
   })
   context.subscriptions.push(understanding)
   cmd('codeNotes.checkUnderstanding', () => understanding!.run())
+  cmd('codeNotes.searchJourneys', searchJourneys)
+  cmd('codeNotes.sortJourneys', sortJourneys)
   // Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded.
   cmd('codeNotes.answerCheck', async (r: vscode.CommentReply) => {
     const n = noteOfThread(r.thread)
@@ -3910,6 +4076,14 @@ export async function activate(context: vscode.ExtensionContext) {
         .map((x) => (x.kind === 'note' ? x.note.data.id : x.kind)),
     }),
     thread: (id: string) => threads.get(id),
+    /** The list model (journeyList.ts) as the sidebar draws it, and the Journeys view as text. */
+    journeyList: (o?: { query?: string }) => listModel(o),
+    journeysTree: () => {
+      const out: string[] = []
+      const walk = (ns: Node[], d: number) => { for (const x of ns) { const it = journeysTree.getTreeItem(x); const label = typeof it.label === 'string' ? it.label : it.label?.label; out.push(`${'  '.repeat(d)}${x.kind}:${label}${it.description ? ` · ${it.description}` : ''}${it.iconPath instanceof vscode.ThemeIcon ? ` [${it.iconPath.id}]` : ''}`); walk(journeysTree.getChildren(x), d + 1) } }
+      walk(journeysTree.getChildren(), 0)
+      return out
+    },
     /** The understanding check: status, status bar, panel view and what the panel reported. */
     check: () => understanding?.snapshot(),
     checkPanelSend: (m: unknown) => understanding?.panelSend(m),

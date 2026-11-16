@@ -59,7 +59,10 @@ const real = [...jsonIn(SAMPLES), ...extra]
 const list = (extra.length ? extra : ['place-order.json', 'other.json']).map((f, i) => ({ key: `k-${path.basename(f)}`, title: path.basename(f).replace(/\.json$/, ''), question: extra.length ? JSON.parse(fs.readFileSync(f, 'utf8')).question : `What is ${f}?`, steps: 13, resume: i === 1 ? 4 : 0, ...(i === 0 ? { here: true } : {}), ...(i === 1 ? { start: true } : {}) }))
 const failures = []
 const fail = (m) => { failures.push(m); console.log(`  ✗ ${m}`) }
-const tour = (x = {}) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list, ...x })
+// The home's model, as the extension builds it from the same journeys (journeyList.ts).
+const { buildList } = (await import(pathToFileURL(path.join(ROOT, 'out/src/journeyList.js')).href)).default
+const homeModel = buildList(list.map((x) => ({ key: x.key, kind: 'journey', title: x.title, question: x.question, summary: '', files: ['web/a.js'], stepTitles: [], steps: x.steps, stale: 0, isNew: false, resume: x.resume, ...(x.start ? { start: true } : {}) })))
+const tour = (x = {}) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list, home: homeModel, ...x })
 
 const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
 for (const width of [500, 1200]) for (const theme of ['light', 'dark']) {
@@ -559,15 +562,21 @@ for (const width of [500, 1200]) for (const theme of ['light', 'dark']) {
   await setJ(journey)
   await open(journey, { current: 2 })
   await clickPosts('.homeb', { type: 'home', on: true }, '‹ Journeys')
-  // Each row the title (+ "Start here" on one), where it was left, and the question under it.
-  const home = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.jrow .jtop')].map((r) => r.textContent), qs: [...document.querySelectorAll('.jrow .jq')].map((r) => r.textContent), start: [...document.querySelectorAll('.jrow .jstart')].map((r) => r.closest('.jrow').querySelector('.t').textContent), here: document.querySelector('.jrow.here .t')?.textContent, gap: (() => { const r = document.querySelector('.jrow .jat'); if (!r) return -1; return r.getBoundingClientRect().left - r.previousElementSibling.getBoundingClientRect().right })(), map: !!document.querySelector('.gmap'), h: document.querySelector('.home h1')?.textContent }))
-  if (home.rows.length !== list.length || home.map || home.here !== list[0].title || !home.rows.includes(`${list[1].title}Start here4/13`) || home.h !== 'Journeys') fail(`${tag}: home ${JSON.stringify(home)}`)
+  // Each row the title (+ "Start here" on one), where it was left right after it, the question under it (0.24: the
+  // list model, journeyList.ts; its own checks are in test/journey-list/shoot.mjs). A click selects; Enter walks.
+  const home = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.jrow .jtop')].map((r) => r.textContent), qs: [...document.querySelectorAll('.jrow .jq')].map((r) => r.textContent), start: [...document.querySelectorAll('.jrow .jstart')].map((r) => r.closest('.jrow').querySelector('.t').textContent), gap: (() => { const r = document.querySelector('.jrow .jat'); if (!r) return -1; return r.getBoundingClientRect().left - r.previousElementSibling.getBoundingClientRect().right })(), map: !!document.querySelector('.hbody > .hlist .gmap'), h: document.querySelector('.home h1')?.textContent }))
+  if (home.rows.length !== list.length || home.map || !home.rows.includes(`${list[1].title}Start here4/13`) || home.h !== 'Journeys') fail(`${tag}: home ${JSON.stringify(home)}`)
   if (home.start.join() !== list[1].title) fail(`${tag}: "Start here" on ${JSON.stringify(home.start)}, want only ${list[1].title}`)
-  if (home.qs.length !== list.length || home.qs[1] !== list[1].question) fail(`${tag}: home questions ${JSON.stringify(home.qs)}`)
+  if (home.qs.length !== list.length || !home.qs.includes(list[1].question)) fail(`${tag}: home questions ${JSON.stringify(home.qs)}`)
   if (home.gap < 0 || home.gap > 20) fail(`${tag}: home "n/N" is ${home.gap}px from its title (want right after it)`)
   await check('home', { current: false })
   await shot('10-home')
-  await clickPosts('.jlist li:nth-child(2) .jrow', { type: 'walk', key: list[1].key }, 'a journey row walks it')
+  const second = await page.$(`.jrow[data-key="${list[1].key}"]`)
+  if (!second) fail(`${tag}: no row for ${list[1].key}`)
+  else { await second.click(); await settle(); if ((await posted()).some((m) => m.type === 'walk')) fail(`${tag}: a click walked (it selects)`) }
+  await page.keyboard.press('Enter')
+  await settle()
+  if (!(await posted()).some((m) => m.type === 'walk' && m.key === list[1].key)) fail(`${tag}: Enter did not walk the selected journey`)
   if (await page.$('.home')) fail(`${tag}: home still shown after choosing a journey`)
   // The extension opens the list (a request without a question); a step opening closes it.
   await posted()

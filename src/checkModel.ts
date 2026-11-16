@@ -9,7 +9,7 @@ export type QState = 'todo' | 'ungraded' | 'pass' | 'retry' | 'explained'
 export interface Who { name?: string; email?: string }
 export interface Attempt { answer: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string }
 export interface Question { id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'; anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }; attempts?: Attempt[]; round?: number }
-export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; questions: Question[] }
+export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
 export interface Summary { total: number; passed: number; explained: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
 export interface Status {
   branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; small: boolean; exists: boolean

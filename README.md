@@ -27,7 +27,13 @@ Three things for understanding code you did not write, in VS Code:
 ## Code Journeys
 
 A journey is one JSON file in your repository (`journeys/` by default), reviewed in pull requests like code. Open one
-from the Code Notes sidebar, or run **Ask a Question About the Code…** and have Claude Code write one.
+from the **Journeys** view in the Code Notes sidebar, or run **Ask a Question About the Code…** and have Claude Code
+write one.
+
+- **Finding one:** the Journeys view groups them: **In this file** (journeys with a step in the file you are in),
+  **Continue**, **Checks**, then **All** by area (the top folder most steps visit). Search and sort are in its title
+  bar. The panel's **‹ Journeys** list has the same groups, a search field (it also searches step titles and file
+  paths), chips by kind and area, and a preview of the selected journey; Enter walks it.
 
 - **The panel** shows the storyline (the numbered steps) beside a map of the systems, modules and functions involved.
 - **In the editor**, a card above the step's lines says what happens there, with **Next**, **Ask** and **More**.

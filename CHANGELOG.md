@@ -7,6 +7,9 @@
   a second miss) the explanation. A small panel lists the questions; the status bar shows `2/4 ✓`. Answers are saved
   in `understanding/<branch>.json` for a merge request check that needs no model (`cli/understanding.mjs ci`, GitLab
   and GitHub recipes in the README). The bundled `understanding-check` skill writes the questions.
+- **Finding journeys:** journeys have their own **Journeys** view: In this file, Continue, Checks, then All by area,
+  with search and sort. The panel's Journeys list gets a search field, chips, the same sections and a preview of the
+  selected journey (its map, small, and its steps); a click selects, Enter or **Walk** starts it.
 
 ## 0.23.0
 

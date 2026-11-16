@@ -71,5 +71,5 @@ async function check() {
   })
 }
 
-const only = process.env.ONLY_UNTRUSTED ? untrusted() : process.env.ONLY_CHECK ? check() : main().then(untrusted).then(check)
+const only = process.env.ONLY_UNTRUSTED ? untrusted() : process.env.ONLY_CHECK ? check() : process.env.ONLY_MAIN ? main() : main().then(untrusted).then(check)
 only.catch((e) => { console.error(e); process.exit(1) })

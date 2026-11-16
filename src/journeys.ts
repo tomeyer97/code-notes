@@ -302,7 +302,7 @@ export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } 
   | { type: 'error'; message?: string; text?: string } | { type: 'legend'; hidden: boolean } | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
   | { type: 'ref'; i: number } | { type: 'ask'; update?: boolean } | { type: 'details'; open: boolean } | { type: 'authors' }
   | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string }
-  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
+  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]
@@ -314,6 +314,8 @@ export interface TourInfo {
   key: string; tutorial: boolean
   /** Every journey, for the panel's home list (0.21): title, steps, where it was left. */
   list?: { key: string; title: string; question: string; steps: number; resume: number; here?: boolean; start?: boolean }[]
+  /** The home's list model (journeyList.ts): sections, rows, chips, with the home's own search. */
+  home?: object
   /** The walk was just finished: the panel says Done, the summary, and offers the list. */
   done?: boolean
   /** Files the steps followed through a rename (old -> new path): box paths say where the code went. */

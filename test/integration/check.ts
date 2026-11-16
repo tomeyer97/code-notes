@@ -52,6 +52,8 @@ export async function run(): Promise<void> {
   assert.equal(noteOf('q3').target, 'file')
   assert.match(api.thread(n1.id).contextValue, /check/)
   await until('panel drawn with three rows', () => chk().panel.rows === 3)
+  // The check is a row of the Journeys view, in "Checks" while it is open.
+  await until('the check in the Journeys view', () => (api.journeysTree() as string[]).some((l) => /^ {2}checkRow:Check · feat\/limits · 0\/3 ✓ \[checklist\]$/.test(l)))
   assert.equal(chk().view.progress, '0 of 3 passed · 2 needed')
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, path.join(ws, 'api/limits.js'), 'the first question\'s code opened')
   await sleep(800)
@@ -106,7 +108,26 @@ export async function run(): Promise<void> {
   assert.match(out, /^✓ Understanding check passed: 2 of 3 \(2 needed\)/)
   ok('`ci` passes the committed file without calling a model')
 
-  // 7. The panel never showed an error or anything wider than itself.
+  // 7. Finding journeys (journeyList.ts): "In this file" follows the editor; search reads step text.
+  const tree = () => api.journeysTree() as string[]
+  const j = JSON.parse(fs.readFileSync(path.join(ws, 'journeys/place-order.json'), 'utf8'))
+  const stepFile = j.steps[0].file as string
+  await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, stepFile)))
+  await until('"In this file" for a file a step is in', () => tree()[0] === 'jgroup:In this file · 1' && /journey:/.test(tree()[1]))
+  await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'README.md')))
+  await until('no "In this file" for a file no step is in', () => !tree().some((l) => l.startsWith('jgroup:In this file')))
+  const words = (t: string) => t.toLowerCase().match(/[a-z]{5,}/g) ?? []
+  const own = new Set([...words(j.title), ...words(j.question), ...words(j.summary ?? '')])
+  const word = j.steps.flatMap((x: any) => words(x.title)).find((w: string) => !own.has(w))
+  assert.ok(word, 'a word only a step title has')
+  const found = api.journeyList({ query: word })
+  assert.ok(found.sections[0].keys.some((k: string) => found.rows[k].title === j.title), `"${word}" finds "${j.title}" by a step's title`)
+  await vscode.commands.executeCommand('codeNotes.journeys.focus')
+  await sleep(600)
+  shot('journeys-sidebar')
+  ok(`Journeys view: "In this file" follows the editor; the search finds "${word}" in a step's title; the check is listed while open`)
+
+  // 8. The panel never showed an error or anything wider than itself.
   const p = chk().panel
   assert.deepEqual(p.errors, []); assert.deepEqual(p.overflow, [])
   ok('panel: no errors, nothing cut or sticking out')
