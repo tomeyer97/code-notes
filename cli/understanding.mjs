@@ -42,6 +42,9 @@ export function slugOf(branch) {
   return String(branch).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'branch'
 }
 export const fileFor = (branch) => `${DIR}/${slugOf(branch)}.json`
+/** Where a branch's check waits while another branch is checked out (git-ignored): put in place on its return. */
+export const CACHE = '.code-notes/.cache/checks'
+export const cachedFor = (branch) => `${CACHE}/${slugOf(branch)}.json`
 
 export function currentBranch(repo, env = process.env) {
   return env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.GITHUB_HEAD_REF || gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'HEAD'
@@ -787,15 +790,16 @@ export function parseVerdict(text, attempt = 1, { restate = false } = {}) {
 }
 
 /**
- * Code links whose lines are in the repository: `{ phrase, file, start, end, text }` (`text`: the first line, to find
+ * Code links whose lines are in the repository (`read(file)`: its lines, the working tree's by default):
+ * `{ phrase, file, start, end, text }` (`text`: the first line, to find
  * them again after edits, as journey links do). Links to a missing file or past its end are dropped; the words stay.
  */
-export function codeLinksIn(repo, links) {
+export function codeLinksIn(repo, links, read = (f) => fs.readFileSync(path.join(repo, f), 'utf8').split(/\r?\n/)) {
   const out = []
   for (const l of Array.isArray(links) ? links : []) {
     if (!l || typeof l.file !== 'string' || path.isAbsolute(l.file) || l.file.split(/[\\/]/).includes('..')) continue
     let lines
-    try { lines = fs.readFileSync(path.join(repo, l.file), 'utf8').split(/\r?\n/) } catch { continue }
+    try { lines = read(l.file) } catch { continue }
     if (!Number.isInteger(l.start) || l.start < 1 || l.end > lines.length || l.end < l.start) continue
     out.push({ phrase: l.phrase, file: l.file, start: l.start, end: l.end, text: lines[l.start - 1] })
   }

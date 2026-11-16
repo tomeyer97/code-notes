@@ -14,6 +14,9 @@ if (start) {
   const script = start[1]
   const run = (...a) => { say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${script} ${a.join(' ')}` } }] } }); return execFileSync('node', [script, ...a], { encoding: 'utf8' }) }
   say({ type: 'system', subtype: 'init' })
+  // A test switches branches before Claude gets going (it can take seconds to start): it leaves this file to say so.
+  const slowStart = require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-slow-start')
+  if (fs.existsSync(slowStart)) { fs.writeFileSync(`${slowStart}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(slowStart) && Date.now() < until) execFileSync('sleep', ['0.1']) }
   run('start', ...start[2].trim().split(/\s+/))
   run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
   run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')

@@ -65,6 +65,8 @@ export interface Cli {
   stamp(c: Check, cfg: Config): Check
   fileFor(branch: string): string
   slugOf(branch: string): string
+  /** Where a branch's check waits while another branch is checked out. */
+  cachedFor(branch: string): string
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
   /** The code a question's concern is about (a link of the grade that raised it), if it named some. */
   concernLink(q: Question): Link | undefined
@@ -76,11 +78,13 @@ export interface Cli {
 }
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
-export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean }): string {
+export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean; head?: string }): string {
   const how = o.bundled
     ? `Read ${o.skill}/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool)`
     : 'Use the understanding-check skill'
-  const start = `${o.skill}/scripts/questions.mjs start ${o.topUp ? '--top-up' : `--base ${o.base}`}`
+  // The branch and commit are pinned: the person may switch branches while this runs.
+  const pin = o.head ? ` --branch ${o.branch} --head ${o.head}` : ''
+  const start = `${o.skill}/scripts/questions.mjs start ${o.topUp ? '--top-up' : `--base ${o.base}`}${pin}`
   return [
     `${how} to ${o.topUp ? 'add 1-2 questions about what changed since the understanding check of' : 'write the questions of an understanding check for'} this branch (${o.branch}, compared with ${o.baseRef}).`,
     `Start with: ${start}`,

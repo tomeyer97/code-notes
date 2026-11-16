@@ -32,7 +32,7 @@ function repo() {
   return d
 }
 const run = (d, args, env = {}) => { const out = []; return U.main(args, { cwd: d, env: { ...process.env, ...env }, print: (s) => out.push(s) }).then((code) => ({ code, out: out.join('\n') })) }
-const script = (d, ...args) => { try { return { code: 0, out: sh(d, 'node', [SCRIPT, ...args]) } } catch (e) { return { code: e.status, out: `${e.stdout}` } } }
+const script = (d, ...args) => { try { return { code: 0, out: sh(d, 'node', [SCRIPT, ...args]) } } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr ?? ""}` } } }
 
 /** A check written through the skill's script, as the agent does. */
 function writeQuestions(d) {
@@ -1167,4 +1167,21 @@ test('tour top-up: steps for the new part are appended; earlier steps and their 
   assert.equal(U.readCheck(of).journey, undefined)
   const res = await run(old, ['ci', '--no-comment', '--base', 'main'])
   assert.equal(res.code, 0, res.out)
+})
+
+test('a branch switch while the questions are written: start pins the branch and commit; files are read there; finish keeps them in the cache', () => {
+  const d = repo()
+  const head = gitIn(d, 'rev-parse', 'HEAD').trim()
+  // The person switched to main before the writer started: everything is still about feat/x at its commit.
+  gitIn(d, 'checkout', '-q', 'main')
+  assert.match(script(d, 'start', '--base', 'main', '--branch', 'feat/x', '--head', head).out, /CHANGE: branch feat\/x · 1 files · 7\d code lines/)
+  assert.equal(script(d, 'add', '--kind', 'failure', '--file', 'src/app.js', '--lines', '3-6', '--text', 'What happens when load() throws for one of the steps here?').code, 0, 'lines 3-6 exist at feat/x, not on main')
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '10-12', '--text', 'Why are the steps loaded one by one instead of all at once?', '--links', 'the steps@src/app.js:10-12').code, 0)
+  assert.equal(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--whole-file', '--text', 'What does main return when there are no steps to load at all?').code, 0)
+  const r = script(d, 'finish')
+  assert.match(r.out, /WROTE understanding\/feat-x\.json \(kept for feat\/x: it is not checked out\): 3 questions/)
+  assert.ok(!fs.existsSync(path.join(d, 'understanding')), 'nothing written to main')
+  const c = U.readCheck(path.join(d, '.code-notes/.cache/checks/feat-x.json'))
+  assert.deepEqual([c.branch, c.head, c.questions[1].links[0].text], ['feat/x', head, '  const v8 = load(8) // step 8'])
+  assert.equal(gitIn(d, 'status', '--porcelain').trim(), '', 'the cache is git-ignored')
 })

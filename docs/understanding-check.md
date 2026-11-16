@@ -40,8 +40,10 @@ will find a way around it, so every design choice below favours little friction.
    questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
    file). Questions cover committed code only: the check starts anyway, and one line in the Check view names every uncommitted
    or new file left out.
-   Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
-   checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
+   The branch and commit are pinned when the writing starts
+   (`start --branch <b> --head <sha>`): the script reads files at that commit and, when that branch is no longer checked
+   out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
+   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. The first check also runs `init` (nothing goes in the workspace's settings).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects

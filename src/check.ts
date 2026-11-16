@@ -196,7 +196,9 @@ export class Understanding implements vscode.Disposable {
 
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
-    const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
+    // Writing for another branch (switched meanwhile): said with its name, never as this branch's progress.
+    const w = this.writing
+    const busy = w ? (w.branch === this.st.branch ? `Writing questions · ${clock(Date.now() - w.started)} · ${w.phase}` : `Writing questions for ${w.branch} · ${clock(Date.now() - w.started)}`) : this.pushing ? 'Pushing…' : undefined
     const tourBusy = this.touring ? `Writing the tour · ${clock(Date.now() - this.touring.started)}` : undefined
     return checkView(this.st, this.words, { busy, tourBusy, tourFailed: this.tourFailed === this.st.branch, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(),
       notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
@@ -264,7 +266,7 @@ export class Understanding implements vscode.Disposable {
     if (!bg) await this.noteLoose(st.branch)
     const cli = this.host.cli()
     const { dir, bundled } = this.skill()
-    const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled })
+    const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled, head: st.head })
     if (!cli && bg) return false
     if (!cli) {
       await vscode.env.clipboard.writeText(prompt)
@@ -293,10 +295,15 @@ export class Understanding implements vscode.Disposable {
       })
     } finally { this.writing = undefined }
     const before = st.check?.questions.length ?? 0
-    // The branch was switched while Claude worked: its questions wait in the cache until it is checked out again.
+    // The branch was switched while Claude worked: its questions wait in the cache (the script writes them there; a
+    // file it wrote just before the switch is moved there) until it is checked out again. Nothing else happens here:
+    // nothing opens, nothing is written to the branch checked out now.
     const now = await gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
-    if (!res.cancelled && !res.error && now && now !== w.branch && this.park(w.branch)) {
-      if (!bg) void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
+    if (now && now !== w.branch) {
+      this.park(w.branch)
+      const kept = fs.existsSync(path.join(repo, this.U.cachedFor(w.branch)))
+      if (kept && !bg) void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
+      this.host.log.info(`understanding check: the branch changed to ${now} while writing for ${w.branch}${kept ? '; kept for it' : ''}`)
       await this.refresh()
       return false
     }
@@ -447,7 +454,7 @@ export class Understanding implements vscode.Disposable {
       // Tracked on this branch (it has a check of that name): leave it, it is not ours to move.
       const tracked = !!(execFileSyncQuiet(repo, ['ls-files', '--', rel]))
       if (tracked) return false
-      fs.renameSync(src, path.join(repo, CACHE, `${this.U.slugOf(branch)}.json`))
+      fs.renameSync(src, path.join(repo, this.U.cachedFor(branch)))
       this.host.log.info(`understanding check: questions for ${branch} kept in ${CACHE} until it is checked out`)
       return true
     } catch (e) { this.host.log.error(`understanding check: couldn't keep the questions for ${branch}: ${e}`); return false }
