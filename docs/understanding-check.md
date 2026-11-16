@@ -269,7 +269,8 @@ carry the text and a file link instead. Once done also: concerns nobody flagged,
 under "Also noticed while grading"; the tour line; and every answer in a collapsed `<details>` "All answers": each answer
 once, the grader's line ("Check: …", outside the quote) only when it corrects something. Wrong guesses and retries are
 never posted. In VS Code a concern's thread offers, quietly, **Mark fixed** (once flagged) and **Dismiss** (asks for a
-one-line reason; stored as `concern.dismissed = { reason, by, at }`); both take it off the merge request. An answer by
+one-line reason; stored as `concern.dismissed = { reason, by, at }`; when the concern's code changed since it was
+raised, or its suggested fix was applied, it first offers **I fixed it**, stored with the reason `fixed`); both take it off the merge request. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
 references (`#12`, `!3`, `~5`, …) are made inert. Answers, notes, topics and concerns are literal text: their markdown
 and HTML are escaped line by line (a `---` under a line, `### ✅ waived`, `</blockquote>`, a table row or `:emoji:` shows

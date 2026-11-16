@@ -801,6 +801,24 @@ export class Understanding implements vscode.Disposable {
     return { file: l.file, start, end: start + (l.end - l.start) }
   }
 
+  /**
+   * A concern's code changed since it was raised: its suggested fix was applied, the line its grade named is gone, or
+   * the file has uncommitted changes in the lines it is about.
+   */
+  private async concernChanged(q: Question, n: Note): Promise<boolean> {
+    if (this.commit?.applied?.includes(q.id) || q.id in this.fixes()) return true
+    const l = this.U.concernLink(q)
+    try {
+      if (l?.text) {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.folder!.uri, l.file))
+        if (!Array.from({ length: doc.lineCount }, (_, k) => doc.lineAt(k).text).includes(l.text)) return true
+      }
+      const at = await this.concernAt(q, n)
+      const diff = await gitOut(this.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
+      return (diff ?? '').split('\n').some((h) => { const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(h); if (!m) return false; const a = Number(m[1]), b = a + Math.max(0, Number(m[2] ?? 1) - 1); return a <= at.end && b >= at.start })
+    } catch { return false }
+  }
+
   /** Commit & push: exactly the files named in the view (the check file, the setup files, ticked TODO files), then the push. */
   async commitPush(): Promise<void> {
     if (!this.repo || !this.st || this.pushing) return
@@ -1134,7 +1152,14 @@ export class Understanding implements vscode.Disposable {
     // Dismiss (not a problem, with a short reason) or Mark fixed: the concern leaves the merge request.
     let reason: string | undefined
     if (action === 'dismiss') {
-      reason = (given ?? await vscode.window.showInputBox({ title: 'Dismiss this concern', prompt: 'Why is it not a problem? One line, kept in the check file.', placeHolder: 'e.g. the caller checks it first' }))?.trim()
+      // Its code changed since it was raised (or its suggested fix was applied): "I fixed it" first, else why it's fine.
+      let fixed = false
+      if (given === undefined && await this.concernChanged(q, n)) {
+        const pick = await vscode.window.showQuickPick([{ label: 'I fixed it', id: 'fixed' }, { label: "It isn't a problem…", id: 'why' }], { title: 'Dismiss this concern' })
+        if (!pick) return
+        fixed = pick.id === 'fixed'
+      }
+      reason = fixed ? 'fixed' : (given ?? await vscode.window.showInputBox({ title: 'Dismiss this concern', prompt: 'Why is it not a problem? One line, kept in the check file.', placeHolder: 'e.g. the caller checks it first' }))?.trim()
       if (!reason) return
     }
     // Flag for reviewer: on the merge request (toggles); independent of a TODO.
