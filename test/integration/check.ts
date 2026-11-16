@@ -125,6 +125,16 @@ export async function run(): Promise<void> {
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
   assert.ok(api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded, 'the thread stays open')
   assert.equal(chk().view.rows[1].word, 'try again')
+  // Code links: the hint names the code; a click lights those lines and brings them into view; Back returns to the question.
+  const q2n = noteOf('q2'), hintAt = q2n.messages.length - 1
+  const linked = (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink'))
+  assert.ok(linked, 'the hint carries a code link')
+  assert.match((linked!.body as vscode.MarkdownString).value, /background-color:var\(--vscode-toolbar-hoverBackground\);">reset /)
+  await vscode.commands.executeCommand('codeNotes.codeLink', `check|${q2n.id}|${hintAt}`, 0)
+  await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 && editorLine() === 10 })
+  await shoot('check-2a-code-link')
+  await vscode.commands.executeCommand('codeNotes.codeLinkBack')
+  await until('back at the question', () => api.snapshot().tour.codeLinks.active === -1 && editorLine() === 9 && api.snapshot().notes.find((n: any) => n.id === q2n.id)?.threadExpanded)
   await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.
@@ -136,7 +146,7 @@ export async function run(): Promise<void> {
   assert.deepEqual(read().questions[1].attempts.map((a: any) => a.verdict), ['retry', 'explained', 'restated'])
   assert.equal(chk().view.rows[1].word, 'in your words')
   await shoot('check-2-restated')
-  ok('a miss keeps the editor on the question (nothing selected, thread open); explained; said back rightly: restated, counts as passed')
+  ok('a miss keeps the editor on the question (nothing selected, thread open); the hint\'s code link lights the reset function and Back returns; explained; said back rightly: restated, counts as passed')
 
   // 5. Ctrl+' D goes to the open question; a concern from the grader: Flag for reviewer.
   await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'README.md')))

@@ -419,6 +419,9 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const link = (text: string, file: string, line?: string) =>
     `[${text.replace(/[[\]]/g, '\\$&')}](command:codeNotes.openAt?${encodeURIComponent(JSON.stringify([n.folder.uri.toString(), file, Number(line) || 1]))})`
   const home = require('os').homedir() as string
+  // A check thread's code links (the question's, a grade's): phrases marked here, the markup goes in after escapeTags.
+  const clinks = index !== undefined ? understanding?.linksIn(n, index) ?? [] : []
+  if (clinks.length) body = linkPhrases(body, clinks, new Set<number>(), PH)
   const parts = body.split(FENCE)
   let k = 0
   const out = parts.map((seg) => {
@@ -441,11 +444,27 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const linked = sl && onIt() ? out.replace(/\n*_About (step \d+ of the journey “[^”]*”: [^\n]*|the step “[^”]*” \(id [^)]*\) of the journey “[^”]*”)_\s*$/, '')
     : sl ? out.replace(/_About step (\d+) of the journey “([^”]*)”: ([^\n]*)_\s*$/, (_m, _k: string, t: string) => back(t))
     .replace(/_About the step “[^”]*” \(id [^)]*\) of the journey “([^”]*)”_\s*$/, (_m, t: string) => back(t)) : out
-  const md = new vscode.MarkdownString(linked)
-  md.isTrusted = { enabledCommands: ['codeNotes.openAt', 'codeNotes.expandThread', 'codeNotes.applySuggestion', 'codeNotes.openStepLink'] }
+  const key = `check|${n.data.id}|${index}`
+  const md = new vscode.MarkdownString(clinks.length ? escapeTags(linked).replace(PH_RE, (_m, i: string, phrase: string) => codeLinkMarkup(key, Number(i), clinks[Number(i)], phrase, undefined, 'show this code')) : linked)
+  md.isTrusted = { enabledCommands: ['codeNotes.openAt', 'codeNotes.expandThread', 'codeNotes.applySuggestion', 'codeNotes.openStepLink', 'codeNotes.codeLink'] }
+  if (clinks.length) md.supportHtml = true
   md.baseUri = n.folder.uri
   return md
 }
+
+/**
+ * A code link's markup: the phrase in the text's own colour on a faint tint, a command link that lights its lines.
+ * VS Code styles every span in a comment `white-space: pre`, so one span around the phrase can't wrap: a span per word
+ * (its space inside, so the tint has no gaps) and a zero-width space between them to break at.
+ */
+function codeLinkMarkup(key: string, i: number, l: { file: string; start: number; end: number }, phrase: string, tint = 'var(--vscode-toolbar-hoverBackground)', what = 'show the code that does this'): string {
+  const tip = `${l.file.split('/').pop()}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · ${what}`
+  const words = String(phrase).split(/ +/).filter(Boolean)
+  const tinted = words.map((w, k) => `<span style="color:var(--vscode-foreground);background-color:${tint};">${w}${k < words.length - 1 ? ' ' : ''}</span>`).join('\u200b')
+  return `[${tinted}](command:codeNotes.codeLink?${encodeURIComponent(JSON.stringify([key, i]))} "${tip}")`
+}
+const PH = (i: number, phrase: string) => `\u27E6${i}\u27E7${phrase}\u27E6/\u27E7`
+const PH_RE = /\u27E6(\d+)\u27E7([\s\S]*?)\u27E6\/\u27E7/g
 
 /** Notes whose whole thread the person asked to see; others hide older read replies (C86 C107). */
 const expanded = new Set<string>()
@@ -1831,7 +1850,7 @@ function stepMarkdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
   const links = readLinks(lj.j.steps[n - 1].links)
   const linkKey = `${lj.key}|${lj.j.steps[n - 1].id}`
   const usedLinks = new Set<number>()
-  const mark = (x: string) => linkPhrases(x, links, usedLinks, (i, phrase) => `\u27E6${i}\u27E7${phrase}\u27E6/\u27E7`)
+  const mark = (x: string) => linkPhrases(x, links, usedLinks, PH)
   if (t.lead) parts.push(mark(t.lead))
   parts.push(nav.join(' \u00a0 '))
   if (stepDetailsOpen && t.details) parts.push(mark(t.details))
@@ -1843,15 +1862,8 @@ function stepMarkdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
   // What just changed under the reader, once, on this step.
   if (cardNotice && cardNotice.id === lj.j.steps[n - 1].id) parts.push(`_ℹ ${cardNotice.text}_`)
   // `<name>` in the text is text: VS Code's renderer would drop it as an HTML tag.
-  const body = escapeTags(parts.join('\n\n')).replace(/\u27E6(\d+)\u27E7([\s\S]*?)\u27E6\/\u27E7/g, (_m, i: string, phrase: string) => {
-    const l = links[Number(i)]
-    const tip = `${l.file.split('/').pop()}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · show the code that does this`
-    // VS Code styles every span in a comment `white-space: pre`, so one span around the phrase can't wrap: a span
-    // per word (its space inside, so the tint has no gaps) and a zero-width space between them to break at.
-    const words = String(phrase).split(/ +/).filter(Boolean)
-    const tinted = words.map((w, k) => `<span style="color:var(--vscode-foreground);background-color:${tutorialMark === 'links' ? TUTORIAL_HI : 'var(--vscode-toolbar-hoverBackground)'};">${w}${k < words.length - 1 ? ' ' : ''}</span>`).join('\u200b')
-    return `[${tinted}](command:codeNotes.codeLink?${encodeURIComponent(JSON.stringify([linkKey, Number(i)]))} "${tip}")`
-  })
+  const body = escapeTags(parts.join('\n\n')).replace(PH_RE, (_m, i: string, phrase: string) =>
+    codeLinkMarkup(linkKey, Number(i), links[Number(i)], phrase, tutorialMark === 'links' ? TUTORIAL_HI : undefined))
   // The tutorial's card about this card: its buttons stand out while that card is up.
   const shown = tutorialMark !== 'card' ? body : body.replace(/\[([^\]]+)\]\(command:codeNotes\.(nextStep|previousStep|askStep|stepDetails)/g, (_m, label: string, c: string) => `[<span style="color:var(--vscode-foreground);background-color:${TUTORIAL_HI};">${label}</span>](command:codeNotes.${c}`)
   const md = new vscode.MarkdownString(shown)
@@ -3233,6 +3245,12 @@ async function stepUnread(dir: 1 | -1): Promise<void> {
   await reveal(ordered.find(after) ?? ordered[0])
 }
 const n0 = () => vscode.workspace.workspaceFolders![0]
+/** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
+function checkLinkNote(key: string): { n: Note; links: ReturnType<NonNullable<typeof understanding>['linksIn']> } | undefined {
+  const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
+  const n = m ? byId(m[1]) : undefined
+  return n && understanding ? { n, links: understanding.linksIn(n, Number(m![2])) } : undefined
+}
 /** D / A walk a check's open questions while it has some: when the thread shown is one of them, or nothing is unread. */
 const checkStepping = () => !!understanding?.hasOpen() && (!notes().some((n) => unread(n) > 0) || (!!revealedId && !!byId(revealedId) && understanding.isCheck(byId(revealedId)!)))
 
@@ -3394,6 +3412,14 @@ export async function activate(context: vscode.ExtensionContext) {
   codeLinks = new CodeLinks(log)
   valueHints = new ValueHints(log, () => codeLinks.backAt, codeLinks.onDidChange)
   context.subscriptions.push(beats, codeLinks, valueHints, vscode.commands.registerCommand('codeNotes.codeLink', async (key: string, i: number) => {
+    // A link in a check thread: its note's lines are the card; the way back is the question.
+    const cn = checkLinkNote(key)
+    if (cn) {
+      if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away) await reveal(cn.n, codeColumn()); return }
+      codeLinks.present(key, cn.n.folder.uri, cn.links, new Map(), cn.links.map((_l, k) => k))
+      await codeLinks.open(key, i, codeColumn, '$(arrow-left) Back to question', { uri: docUri(cn.n).toString(), line: cn.n.data.range.start - 1 })
+      return
+    }
     const lj = tourJourney()
     // A second click on the lit phrase turns it off; the step comes back if its card was out of sight.
     if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away && lj && tourStep) await goToStep(lj, tourStep); return }
@@ -3402,7 +3428,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // An icon and words, so it reads as a control and not as one more value.
     await codeLinks.open(key, i, codeColumn, tourStep ? `$(arrow-left) Back to step ${tourStep}` : '$(arrow-left) Back', card)
   }),
-    vscode.commands.registerCommand('codeNotes.codeLinkBack', async () => { codeLinks.unlight(); const lj = tourJourney(); if (lj && tourStep) await goToStep(lj, tourStep) }))
+    vscode.commands.registerCommand('codeNotes.codeLinkBack', async () => {
+      const cn = checkLinkNote(codeLinks.state.key ?? '')
+      codeLinks.unlight()
+      if (cn) { await reveal(cn.n, codeColumn()); return }
+      const lj = tourJourney(); if (lj && tourStep) await goToStep(lj, tourStep)
+    }))
   gstate = context.globalState
   KEY = gstate.get<string>(PREFIX_KEY) ?? KEY
   mapPanel = new MapPanel(context.extensionUri, log, onMapMessage, (lj) => ({

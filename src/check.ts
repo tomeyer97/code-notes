@@ -13,7 +13,7 @@ import { pathToFileURL } from 'url'
 import { Ask, AskResult } from './claude'
 import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
-import { Check, CheckView, Cli, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, questionBody, statusText } from './checkModel'
+import { Check, CheckView, Cli, Link, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from './checkModel'
 import { clock } from './writing'
 
 /** What the check needs from the rest of the extension (extension.ts). */
@@ -510,6 +510,8 @@ export class Understanding implements vscode.Disposable {
       if (res.error) { fail(res.error); return }
       let v: ReturnType<Cli['parseVerdict']>
       try { v = this.U.parseVerdict(res.text, mode.attempt, { restate: mode.explanation !== undefined }) } catch (e) { fail((e as Error).message); return }
+      // Links to lines that are really there (the words stay either way).
+      if (v.links) { v.links = this.U.codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
       // The file may have changed while Claude worked: read it again, grade the same answer.
       check = this.U.readCheck(abs)
       q = check.questions.find((x) => x.id === id)
@@ -539,6 +541,12 @@ export class Understanding implements vscode.Disposable {
     return c ? { concern: c } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
+  /** The code links of message `mi` of a check thread (with the line text to find them after edits). */
+  linksIn(n: Note, mi: number): (Link & { text: string })[] {
+    const q = this.questionOf(n)
+    if (!q) return []
+    return linksAt(q, n.data.messages.map((m) => m.role ?? ""), mi).map((l) => ({ ...l, text: l.text ?? '' }))
+  }
   /** The question behind a check thread (for Ask Claude about it). */
   questionOf(n: Note): Question | undefined { const l = linkOf(n); return l ? this.st?.check?.questions.find((x) => x.id === l.q) : undefined }
 

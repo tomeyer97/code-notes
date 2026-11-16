@@ -11,13 +11,15 @@ export interface Who { name?: string; email?: string }
 export interface Attempt {
   /** Missing on an answer that a later one superseded (not kept in the file). */
   answer?: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string
-  note?: string; topic?: string; concern?: string; flagged?: boolean
+  note?: string; topic?: string; concern?: string; flagged?: boolean; links?: Link[]
 }
 export interface Range { file: string; start: number; end: number }
+/** A code link: words of a text that light these lines when clicked (the same as a journey step's links). */
+export interface Link extends Range { phrase: string; text?: string }
 export interface Question {
   id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'
   anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
-  attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean
+  attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean; links?: Link[]
   /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
   concern?: { text: string; flagged?: boolean; at?: string }
 }
@@ -50,7 +52,7 @@ export interface Cli {
   attemptHash(q: Question, a: Attempt): string
   gradeMode(q: Question): { attempt: number; explanation?: string }
   graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean }): string
-  parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string }
+  parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string; links?: Link[] }
   diffText(repo: string, from: string, to?: string): string
   diffForGrader(diff: string, file: string): string
   codeWindow(repo: string, q: Question): string
@@ -60,6 +62,7 @@ export interface Cli {
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
   initRepo(repo: string): string[]
+  codeLinksIn(repo: string, links: Link[]): Link[]
 }
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
@@ -89,9 +92,22 @@ export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failur
 
 const range = (r: Range) => `${r.file}:${r.start}${r.end > r.start ? `-${r.end}` : ''}`
 
-/** The question as the first message of its thread; the unchanged code it depends on as links below it. */
+/** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {
-  return q.also?.length ? `${q.text}\n\nAlso read: ${q.also.map(range).join(', ')}` : q.text
+  const linked = (r: Range) => (q.links ?? []).some((l) => l.file === r.file && l.start <= r.end && r.start <= l.end)
+  const also = (q.also ?? []).filter((r) => !linked(r))
+  return also.length ? `${q.text}\n\nAlso read: ${also.map(range).join(', ')}` : q.text
+}
+
+/**
+ * The code links of message `mi` of a check thread (`roles`: each message's role): the question's for the first
+ * message, then each grade's own (the n-th agent reply is the n-th graded attempt). Answers have none.
+ */
+export function linksAt(q: Question, roles: string[], mi: number): Link[] {
+  if (roles[mi] !== 'agent') return []
+  const k = roles.slice(0, mi).filter((r) => r === 'agent').length
+  if (k === 0) return q.links ?? []
+  return (q.attempts ?? []).filter((a) => a.verdict)[k - 1]?.links ?? []
 }
 
 /**

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, questionBody, statusText } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -82,4 +82,17 @@ test('the status bar: the CLI\'s words with an icon; amber for a top-up; hidden 
   assert.deepEqual(statusText(st({ state: { phase: 'drift', grew: 46 } }), W({ tone: 'warn', bar: 'Needs top-up: +46 lines' })), { text: '$(warning) Needs top-up: +46 lines', tip: '2 of 3 done · Answer all 3 · 2 must pass.', warn: true })
   assert.equal(statusText(st({ state: { phase: 'nothing' } }), W({ bar: '' })), undefined)
   assert.equal(statusText(undefined, W()), undefined)
+})
+
+test('code links: the question\'s on the first message, each grade\'s own after; a linked "also" range needs no line', () => {
+  const ql = { phrase: 'the reset function', file: 'api/limits.js', start: 11, end: 13 }
+  const gl = { phrase: 'the window check', file: 'api/limits.js', start: 6, end: 6 }
+  const qq = { ...q('q1', 'failure'), links: [ql], also: [{ file: 'api/limits.js', start: 11, end: 13 }, { file: 'api/store.js', start: 2, end: 4 }],
+    attempts: [{ answer: 'a', verdict: 'retry' as const, links: [gl] }, { answer: 'b' }] }
+  const roles = ['agent', 'human', 'agent', 'human']
+  assert.deepEqual(linksAt(qq as never, roles, 0), [ql])
+  assert.deepEqual(linksAt(qq as never, roles, 1), [])
+  assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
+  assert.deepEqual(linksAt(qq as never, roles, 3), [])
+  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: api/store.js:2-4')
 })
