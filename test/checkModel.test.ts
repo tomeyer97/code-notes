@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -116,4 +116,26 @@ test('a TODO from the check is one short line (at most 80 characters, cut at a w
   assert.ok(t.length <= 80, `${t.length}`); assert.match(t, /^\/\/ TODO: The stock update in the refund loop adds every refunded unit back to\S*…$/)
   const h = todoLine(['<!--', ' -->'], long)
   assert.ok(h.length <= 80 && h.endsWith('… -->'), h)
+})
+
+test('the answer box: only for the selected question; open until done; its grade with code links; Next question once done', () => {
+  assert.deepEqual(linkParts('Look at the reset function and reset.', [{ phrase: 'the reset function' }, { phrase: 'nowhere' }]), [{ text: 'Look at ' }, { text: 'the reset function', link: 0 }, { text: ' and reset.' }])
+  assert.deepEqual(linkParts('plain'), [{ text: 'plain' }])
+  const base = q('q1', 'failure')
+  assert.deepEqual(answerBox(base as never, 1, 'todo', { draft: 'half an answer' }), { id: 'q1', n: 1, open: true, draft: 'half an answer' })
+  const miss = { ...base, attempts: [{ answer: 'a', verdict: 'retry' as const, feedback: 'Close.', hint: 'Read the loop.', links: [{ phrase: 'the loop', file: 'a.js', start: 1, end: 2 }] }] }
+  const b = answerBox(miss as never, 1, 'retry')
+  assert.equal(b.open, true)
+  assert.deepEqual(b.grade, { pass: false, feedback: [{ text: 'Not quite. Close.' }], hint: [{ text: 'Read ' }, { text: 'the loop', link: 0 }, { text: '.' }] })
+  assert.equal(answerBox(miss as never, 1, 'ungraded', { grading: true }).checking, true)
+  const passed = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, feedback: 'Right.' }] }
+  assert.deepEqual(answerBox(passed as never, 1, 'pass', { others: true }), { id: 'q1', n: 1, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right.' }] }, next: true })
+  assert.equal(answerBox(passed as never, 1, 'pass', { others: false }).next, undefined)
+  const ex = { ...base, attempts: [{ answer: 'a', verdict: 'explained' as const, feedback: 'It retries.' }] }
+  assert.deepEqual([answerBox(ex as never, 1, 'explained').open, answerBox(ex as never, 1, 'explained').grade?.say], [true, 'Got it? Say it back in one sentence (optional).'])
+  // In the view: only the selected question has one.
+  assert.equal(checkView(st(), W()).answer, undefined)
+  const v = checkView(st(), W(), { selected: 'q3', draft: 'x' })
+  assert.deepEqual([v.answer?.id, v.answer?.n, v.answer?.open, v.answer?.draft], ['q3', 3, true, 'x'])
+  assert.equal(checkView(st(), W(), { selected: 'q1' }).answer?.next, true, 'q1 passed, q3 open')
 })

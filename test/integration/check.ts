@@ -29,6 +29,17 @@ function ui(): Promise<import('playwright').Page> {
     return b.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools'))!
   })()
 }
+/** The Check view's frame (a webview: an iframe in an iframe), and which answer box has the keyboard ('' for none). */
+async function checkFrame(): Promise<import('playwright').Frame> {
+  const page = await ui()
+  return until('the Check view frame', async () => {
+    for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).checkAnswer)) return f } catch { /* detached */ } }
+    return undefined
+  })
+}
+async function boxFocused(): Promise<string> {
+  return (await checkFrame()).evaluate(() => { const d = (globalThis as any).document; const a = d.activeElement; return d.hasFocus() && a?.classList?.contains('box') ? a.closest('.answer').dataset.id : '' })
+}
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'))
 
 export async function run(): Promise<void> {
@@ -85,13 +96,19 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
   // One list of the questions: the Check view; the Code Notes tree doesn't repeat them.
   assert.ok(!(api.snapshot().tree() as string[]).some((l) => /What does allow\(\)|per customer rather|API process restarts/.test(l)), 'no check rows in the Code Notes tree')
+  await until('q1 selected: its answer box', () => view()?.answer?.id === 'q1' && view().answer.open)
   if (cdp) {
-    // The keyboard is in q1's thread, not in the code (typing there would edit limits.js).
+    // The keyboard is in q1's answer box in the Check view, not in the code (typing there would edit limits.js).
     const page = await ui()
-    await until('focus in the thread, not the code', async () => { const r = await page.evaluate(() => { const a = (globalThis as any).document.activeElement; return a?.closest?.('.review-widget') ? 'ok' : `${a?.tagName}.${a?.className} ${a?.getAttribute?.('aria-label') ?? ''}`.slice(0, 160) }); if (r !== 'ok') console.log('focus:', r); return r === 'ok' })
+    await until('focus in the answer box, not the code', async () => (await boxFocused()) === 'q1')
     await page.keyboard.type('typed')
     assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').includes('typed'), false)
     assert.ok(!vscode.window.activeTextEditor?.document.isDirty, 'the code is untouched')
+    // An unsent answer is kept (this workspace, not the file).
+    await until('the draft kept', () => view().answer?.draft === 'typed')
+    assert.ok(!fs.readFileSync(file, 'utf8').includes('typed'))
+    await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace')
+    await until('the draft gone', () => view().answer?.draft === '')
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
@@ -153,7 +170,13 @@ export async function run(): Promise<void> {
   ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the editor stays on q1 with the reply box cleared; "Next question ›" opens q2')
 
   // 4. A miss: feedback and a hint, the editor stays on the question's lines; the second miss explains; say it back.
-  await answer('q2', 'Not sure.')
+  if (cdp) {
+    // Answered in the Check view's box: real keys, Ctrl+Enter; the same attempt as a thread reply.
+    await until('focus in q2\'s box', async () => (await boxFocused()) === 'q2')
+    await (await ui()).keyboard.type('Not sure.')
+    await (await ui()).keyboard.press('Control+Enter')
+    await until('the answer in the thread too', () => noteOf('q2').messages.some((m: any) => m.role === 'human' && m.body === 'Not sure.'))
+  } else await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
   const e = vscode.window.activeTextEditor!
   assert.ok(e.selection.isEmpty, 'nothing selected'); assert.ok(inLines(9, 11), 'on the question')
@@ -186,7 +209,28 @@ export async function run(): Promise<void> {
   await typeAway('after a code link click')
   await vscode.commands.executeCommand('codeNotes.codeLinkBack')
   await until('back at the question', () => api.snapshot().tour.codeLinks.active === -1 && inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === q2n.id)?.threadExpanded)
+  if (cdp) await until('Back: the keyboard in q2\'s box', async () => { const b = await boxFocused(); if (b !== 'q2') console.log('focus after Back:', b, await (await ui()).evaluate(() => { const a = (globalThis as any).document.activeElement; return `${a?.tagName}.${a?.className}` })); return b === 'q2' })
   await typeAway('after Back')
+  if (cdp) {
+    // The grade under the box: its code link lights the code and the keyboard stays in the box.
+    await until('the grade under the box', () => view().answer?.grade?.hint?.some((p: any) => p.link === 0))
+    await shoot('check-2b-box-grade')
+    const fr = await checkFrame()
+    await fr.locator('.answer .codelink', { hasText: 'the reset function' }).click()
+    await until('lit from the view', () => api.snapshot().tour.codeLinks.active === 0)
+    await until('the keyboard still in the box', async () => (await boxFocused()) === 'q2')
+    await typeAway('after a code link in the view')
+    assert.match(view().answer.draft + (await fr.locator('.answer textarea').inputValue()), /my answer goes here/, 'the keys went into the box')
+    // The draft survives switching questions.
+    await vscode.commands.executeCommand('codeNotes.next')
+    await until('on q3', () => view().answer?.id === 'q3')
+    await vscode.commands.executeCommand('codeNotes.previous')
+    await until('back on q2 with its draft', async () => view().answer?.id === 'q2' && /my answer goes here/.test(view().answer.draft) && (await boxFocused()) === 'q2')
+    // Esc: back to the code.
+    await (await ui()).keyboard.press('Escape')
+    await until('Esc: the editor has the keyboard', async () => (await boxFocused()) === '' && (await (await ui()).evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.monaco-editor'))))
+    ok('the Check view\'s answer box: the keyboard is there on open; Ctrl+Enter answers; its grade\'s code link lights the code and keeps the keyboard; drafts survive switching; Esc goes back to the code')
+  }
   await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.

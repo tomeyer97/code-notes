@@ -1,0 +1,13 @@
+/* The Check view's answer box (media/checkAnswer.js): under the selected question, quiet until used. */
+.answer { margin: 2px 0 6px 26px; }
+.answer .box { box-sizing: border-box; width: 100%; resize: vertical; min-height: 3.6em; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 4px 6px; }
+.answer .box:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.answer .box::placeholder { color: var(--vscode-input-placeholderForeground); }
+.answer .grade p, .answer .checking { margin: 4px 0 0; overflow-wrap: anywhere; }
+.answer .checking, .answer .say { color: var(--vscode-descriptionForeground); font-style: italic; }
+.answer .grade.pass .mark { color: var(--vscode-testing-iconPassed, #73c991); }
+.answer .codelink { font: inherit; color: inherit; background: var(--vscode-toolbar-hoverBackground); border: 0; padding: 0 2px; border-radius: 2px; cursor: pointer; text-align: left; }
+.answer .codelink:hover { text-decoration: underline; }
+.answer .codelink:focus-visible, .answer .next:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.answer .next { margin-top: 4px; font: inherit; color: var(--vscode-textLink-foreground); background: none; border: 0; padding: 0; cursor: pointer; }
+.answer .next:hover { text-decoration: underline; }

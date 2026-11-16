@@ -3348,7 +3348,7 @@ function orphanMarkdown(n: Note): string {
     ...n.data.messages.flatMap((m) => [`**${m.author}** ${m.at ? m.at.slice(0, 16).replace('T', ' ') : ''}`, '', m.body, ''])].join('\n')
 }
 
-async function reveal(n: Note, column?: vscode.ViewColumn): Promise<void> {
+async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false): Promise<void> {
   revealInList(n)
   if (missing.has(n.data.id)) {
     const uri = vscode.Uri.from({ scheme: ORPHAN_SCHEME, path: `/${n.data.file.split('/').pop()} (note).md`, query: n.data.id })
@@ -3366,7 +3366,7 @@ async function reveal(n: Note, column?: vscode.ViewColumn): Promise<void> {
   // Never in the map's group: the code group, reusing its preview tab.
   const col = column ?? (vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === docUri(n).toString()) ? columnFor(docUri(n))
     : mapPanel.viewColumn !== undefined && vscode.window.tabGroups.activeTabGroup.viewColumn === mapPanel.viewColumn ? codeColumn() : undefined)
-  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, ...(col ? { viewColumn: col } : {}) })
+  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, ...(col ? { viewColumn: col } : {}) })
   const r = threadRange(n)
   editor.selection = new vscode.Selection(r.start, r.start)
   editor.revealRange(new vscode.Range(r.start, r.end.translate(4)), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
@@ -3430,8 +3430,10 @@ async function stepUnread(dir: 1 | -1): Promise<void> {
   await reveal(ordered.find(after) ?? ordered[0])
 }
 const n0 = () => vscode.workspace.workspaceFolders![0]
-/** Back from a check thread's code link: the question's thread, with the keyboard in it (never in the code). */
+/** Back from a check thread's code link: the question, with the keyboard in its answer box (never in the code). */
 async function backToQuestion(n: Note): Promise<void> {
+  const q = understanding?.qidOf(n)
+  if (q) { await understanding!.open(q); return }
   await reveal(n, codeColumn())
   await focusReply(n)
 }
@@ -4282,7 +4284,7 @@ export async function activate(context: vscode.ExtensionContext) {
     },
     addReply: (n, text) => addReply(n, text),
     resolve: (n) => resolve([n]),
-    reveal: (n, col) => reveal(n, col ?? codeColumn()),
+    reveal: (n, col, keep) => reveal(n, col ?? codeColumn(), keep),
     refresh: () => refreshAll(),
     codeColumn,
     listChanged: () => { journeysTree.refresh(); mapPanel.update(); lensChanged.fire() },

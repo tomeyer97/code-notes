@@ -43,7 +43,13 @@ will find a way around it, so every design choice below favours little friction.
    Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
    checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
-   with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar (the only list of them: the
+   with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
+   it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
+   it and focuses its box; ↑ ↓ on the rows select without taking the keyboard. Ctrl+Enter sends (the same attempt as a
+   reply in the thread, which keeps working), Esc goes back to the code; the grade shows under the box and in the
+   thread, its code links light the code and leave the keyboard in the box. After a pass the box closes and
+   **Next question ›** appears. An unsent answer is kept per question in the workspace's state (never in the file).
+   The list is the **Check** view in the Code Notes sidebar (the only list of them: the
    Code Notes tree doesn't repeat them): where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
    journey lenses step aside in a file with an open question; another branch's check threads (and notes made from them) are hidden. Threads

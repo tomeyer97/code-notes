@@ -1,6 +1,7 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'ready' } { type: 'open', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' } { type: 'include', file, on }
+// Out: { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' } { type: 'include', file, on }
+//      (and the answer box's: media/checkAnswer.js)
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
   const vscode = acquireVsCodeApi()
@@ -13,6 +14,7 @@
 
   function render() {
     const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : undefined
+    const keep = window.checkAnswer && window.checkAnswer.before()
     app.textContent = ''
     if (!V) { app.append(el('p', 'muted', 'Open a git repository to check your understanding of a change.')); report(); return }
     const h = el('header', `tone-${V.tone}`)
@@ -42,6 +44,8 @@
         b.setAttribute('aria-label', `${r.n}. ${r.text} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
         b.append(icon, body)
         li.append(b)
+        // The selected question's answer box (media/checkAnswer.js).
+        if (window.checkAnswer && V.answer && V.answer.id === r.id) li.append(window.checkAnswer.box(V.answer, r, post))
         ol.append(li)
       }
       app.append(ol)
@@ -59,6 +63,7 @@
       const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b); app.append(f)
     }
     if (focused) { const again = app.querySelector(`button.open[data-id="${focused}"]`); if (again) again.focus() }
+    if (window.checkAnswer) window.checkAnswer.after(keep)
     report()
   }
 
@@ -70,14 +75,17 @@
     const to = e.key === 'ArrowDown' ? i + 1 : e.key === 'ArrowUp' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : undefined
     if (to === undefined) return
     e.preventDefault()
-    rows[Math.max(0, Math.min(rows.length - 1, to))].focus()
+    const row = rows[Math.max(0, Math.min(rows.length - 1, to))]
+    row.focus()
+    // The arrows select a question: its answer box shows under it (Enter, a click or Tab goes into it).
+    post({ type: 'select', id: row.dataset.id })
   })
 
   // What a person would notice: anything wider than the view, or a cut line.
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, .commits, .also, button.primary, .busy')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }
@@ -90,6 +98,7 @@
     const m = ev.data
     if (m.type === 'check') { V = m.view; render() }
     else if (m.type === 'test' && m.click) { const t = document.querySelector(m.click); if (t) t.click() }
+    else if (window.checkAnswer) window.checkAnswer.message(m)
   })
   post({ type: 'ready' })
 })()

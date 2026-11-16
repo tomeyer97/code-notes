@@ -156,6 +156,56 @@ export interface CheckView {
   /** With Commit & push: what it commits ("feat-x.json, .gitattributes"), and files a TODO was added to, to tick. */
   commits?: string
   also?: { file: string; label: string; on: boolean }[]
+  /** The answer box: only for the selected question (checkAnswer.ts / media/checkAnswer.js). */
+  answer?: AnswerBox
+}
+
+/** Words of a grade, with the code-link phrases marked (`link`: its index in the grade's links). */
+export interface Part { text: string; link?: number }
+/** The selected question's answer box in the Check view, and its latest grade (short). */
+export interface AnswerBox {
+  id: string; n: number
+  /** The box is shown (not done yet, or explained: say it back); else only the grade and "Next question ›". */
+  open: boolean
+  draft: string
+  checking?: boolean
+  grade?: { pass: boolean; feedback: Part[]; hint?: Part[]; say?: string }
+  /** "Next question ›": this one is done and another is open. */
+  next?: boolean
+}
+
+/** A text split at the code links' phrases (each phrase once, the first time it appears). */
+export function linkParts(text: string, links: { phrase: string }[] = []): Part[] {
+  const hits = links.map((l, i) => ({ i, at: l.phrase ? text.indexOf(l.phrase) : -1, len: l.phrase.length })).filter((h) => h.at >= 0).sort((a, b) => a.at - b.at)
+  const out: Part[] = []
+  let pos = 0
+  for (const h of hits) {
+    if (h.at < pos) continue
+    if (h.at > pos) out.push({ text: text.slice(pos, h.at) })
+    out.push({ text: text.slice(h.at, h.at + h.len), link: h.i })
+    pos = h.at + h.len
+  }
+  if (pos < text.length) out.push({ text: text.slice(pos) })
+  return out
+}
+
+/**
+ * The answer box of question `q` (number `n`, state `state`): open while it is to be answered (or explained: say it
+ * back), its latest grade under it, "Next question ›" once it is done while `others` are open.
+ */
+export function answerBox(q: Question, n: number, state: QState, o: { draft?: string; grading?: boolean; others?: boolean } = {}): AnswerBox {
+  const a = [...(q.attempts ?? [])].reverse().find((x) => x.verdict)
+  const pass = state === 'pass' || state === 'restated'
+  const grade = a && !o.grading ? {
+    pass: a.verdict === 'pass' || a.verdict === 'restated',
+    feedback: linkParts(`${a.verdict === 'retry' && !/^not quite/i.test(a.feedback ?? '') ? 'Not quite. ' : ''}${a.feedback || (a.verdict === 'pass' ? 'Right.' : '')}`, a.links),
+    ...(a.verdict === 'retry' && a.hint ? { hint: linkParts(a.hint, a.links) } : {}),
+    ...(a.verdict === 'explained' && state === 'explained' ? { say: 'Got it? Say it back in one sentence (optional).' } : {}),
+  } : undefined
+  return {
+    id: q.id, n, open: !pass, draft: o.draft ?? '', ...(o.grading ? { checking: true } : {}), ...(grade ? { grade } : {}),
+    ...(pass && o.others ? { next: true } : {}),
+  }
 }
 
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
@@ -164,7 +214,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> } } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -190,12 +240,18 @@ export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Se
     ...(files.length ? { commits: `Commits ${files.map(base).join(', ')}` } : {}),
     ...(o.commit.todos.length ? { also: o.commit.todos.map((f) => ({ file: f, label: `also ${base(f)} (TODO added)`, on: o.commit!.include.has(f) })) } : {}),
   } : {}
+  // The selected question's answer box.
+  const qs = st.check?.questions ?? []
+  const si = o.selected ? qs.findIndex((x) => x.id === o.selected) : -1
+  const open = (k: number) => ['todo', 'retry', 'ungraded'].includes(rows[k]?.state)
+  const answer = si >= 0 ? answerBox(qs[si], si + 1, s?.states[si] ?? 'todo', { draft: o.draft, grading: !!o.grading?.has(qs[si].id), others: rows.some((_r, k) => k !== si && open(k)) }) : undefined
   const by = st.check?.answeredBy
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
     ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
+    ...(answer ? { answer } : {}),
   }
 }
 

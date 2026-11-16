@@ -64,7 +64,8 @@ it is built this way, how it fails. The first question opens as a thread on its 
 in the Code Notes sidebar. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
 replies in the thread, naming the code it means as links you can click. A miss gets a hint and a second try; a second
 miss gets the explanation, which you may say back in one sentence (a right one counts as passed). Ctrl+' D goes to
-the next open question.
+the next open question. You can also answer in the Check view: the selected question has a box there (Ctrl+Enter
+sends, Esc goes back to the code).
 
 Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
 questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and

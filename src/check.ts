@@ -36,7 +36,8 @@ export interface CheckHost {
   /** Adds the person's reply to a note (false: not saved). */
   addReply(n: Note, text: string): Promise<boolean>
   resolve(n: Note): Promise<void>
-  reveal(n: Note, column?: vscode.ViewColumn): Promise<void>
+  /** `preserveFocus`: the keyboard stays where it is (the answer box). */
+  reveal(n: Note, column?: vscode.ViewColumn, preserveFocus?: boolean): Promise<void>
   /** The note shown last (revealed), if any. */
   revealed(): string | undefined
   /** The caret in the note's reply box. */
@@ -68,6 +69,8 @@ const sameQuestion = (n: Note, q: Question) => { const h = linkOf(n)?.h; return 
 const BG_KEY = 'codeNotes.understanding.backgroundHeads'
 /** Per branch: files a TODO was added to from the check (offered, not committed, by Commit & push). */
 const TODO_KEY = 'codeNotes.understanding.todoFiles'
+/** Unsent answers typed in the Check view's box: per check file, per question (this workspace only, never the file). */
+const DRAFT_KEY = 'codeNotes.understanding.drafts'
 /** The parts of VS Code's git extension API used here. */
 interface GitRepo { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> } }
 interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
@@ -95,6 +98,8 @@ export class Understanding implements vscode.Disposable {
   /** What Commit & push would commit (refreshed while the check is done), and the TODO files ticked to go with it. */
   private commit: { files: string[]; todos: string[] } | undefined
   private include = new Set<string>()
+  /** The question selected in the Check view (its answer box is shown). */
+  private selected: string | undefined
   private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
   readonly grading = new Map<string, Ask | undefined>()
@@ -150,7 +155,7 @@ export class Understanding implements vscode.Disposable {
     if (!repo || !this.U) return
     const before = this.st?.branch
     try { this.st = this.U.localStatus(repo) } catch (e) { this.st = undefined; this.host.log.info(`understanding check: no status (${(e as Error).message.split('\n')[0]})`) }
-    if (this.st && this.st.branch !== before) this.pushed = undefined
+    if (this.st && this.st.branch !== before) { this.pushed = undefined; this.selected = undefined }
     if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh()
     this.words = this.st ? this.U.stateWords(this.st.state, this.st) : undefined
     // Pushed? Ahead of its upstream, or no upstream at all.
@@ -180,7 +185,8 @@ export class Understanding implements vscode.Disposable {
     const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
     return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(),
       notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
-      ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}) })
+      ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}),
+      ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}) })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -401,13 +407,50 @@ export class Understanding implements vscode.Disposable {
     await this.open(q.id)
   }
 
-  /** A question's thread, in the code's group, with the caret in its reply box (never in the code: typing there edits it). */
+  /**
+   * A question: its code and thread in the code's group, and the keyboard in its answer box in the Check view (never in
+   * the code: typing there edits it). Without the view, in the thread.
+   */
   async open(id: string): Promise<void> {
     const n = this.noteOf(id)
     if (!n) return
-    await this.host.reveal(n, this.host.codeColumn())
-    const st = this.st?.check?.questions.find((q) => q.id === id)
-    if (!st || notDone(this.U.stateOf(st)) || this.U.stateOf(st) === 'explained') await this.host.focusReply(n)
+    // The keyboard into the box first, then the code (shown without taking it): no moment where typing edits code.
+    this.selected = id
+    this.post()
+    let boxed = true
+    try { await this.view.focus(id) } catch { boxed = false }
+    await this.host.reveal(n, this.host.codeColumn(), boxed)
+    if (!boxed) await this.host.focusReply(n)
+  }
+
+  // ---------- the answer box in the Check view ----------
+
+  private drafts(): Record<string, string> { return (this.st && this.host.memento.get<Record<string, Record<string, string>>>(DRAFT_KEY)?.[this.st.file]) ?? {} }
+  private async setDraft(id: string, text: string): Promise<void> {
+    if (!this.st) return
+    const all = this.host.memento.get<Record<string, Record<string, string>>>(DRAFT_KEY) ?? {}
+    const mine = { ...(all[this.st.file] ?? {}) }
+    if (text.trim()) mine[id] = text; else delete mine[id]
+    await this.host.memento.update(DRAFT_KEY, { ...all, [this.st.file]: mine })
+  }
+  /** Sent from the box: the same path as a reply in the thread (the thread shows it, then its grade). */
+  private async answerFromView(id: string, text: string): Promise<void> {
+    const n = this.noteOf(id)
+    if (!n || !text.trim()) return
+    await this.setDraft(id, '')
+    await this.answer(n, text)
+    this.post()
+  }
+  /** A code link in the box's grade: the same link as in the thread (lit, the keyboard stays in the box). */
+  private async viewLink(id: string, i: number): Promise<void> {
+    const n = this.noteOf(id)
+    const q = this.st?.check?.questions.find((x) => x.id === id)
+    if (!n || !q) return
+    // The grade's message in the thread: the k-th agent message after the question for the k-th graded attempt.
+    const k = (q.attempts ?? []).filter((a) => a.verdict).length
+    let seen = 0
+    const mi = n.data.messages.findIndex((m, x) => x > 0 && m.role === 'agent' && ++seen === k)
+    if (mi > 0) await vscode.commands.executeCommand('codeNotes.codeLink', `check|${n.data.id}|${mi}`, i)
   }
 
   /** Ctrl+' D / A while questions are open: the next or previous one not done, from the one shown now. */
@@ -424,8 +467,14 @@ export class Understanding implements vscode.Disposable {
     return true
   }
 
-  private onView(m: { type: string; id?: string; file?: string; on?: boolean }): void {
+  private onView(m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number }): void {
     if (m.type === 'open' && m.id) void this.open(m.id)
+    else if (m.type === 'select' && m.id) { this.selected = m.id; this.post() }
+    else if (m.type === 'answer' && m.id && typeof m.text === 'string') void this.answerFromView(m.id, m.text)
+    else if (m.type === 'draft' && m.id && typeof m.text === 'string') void this.setDraft(m.id, m.text)
+    else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
+    else if (m.type === 'next') void this.step(1)
+    else if (m.type === 'escape') void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')
     else if (m.type === 'include' && m.file) { if (m.on) this.include.add(m.file); else this.include.delete(m.file); this.post() }
     else if (m.type === 'start') void this.write(false)
     else if (m.type === 'topUp') void this.write(true)
@@ -784,14 +833,14 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
   /** What the webview reported (integration test): rows drawn, layout problems, errors. */
   private reported: { rows?: number; overflow?: string[]; errors: string[]; height?: number } = { errors: [] }
 
-  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string; file?: string; on?: boolean }) => void) {}
+  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number }) => void) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.wv = view
     this.ready = false
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     view.webview.html = this.html(view.webview)
-    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
+    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
       if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
       else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
       else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }
@@ -806,6 +855,12 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     else void vscode.commands.executeCommand('codeNotes.check.focus').then(() => vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'))
   }
   update(v: CheckView | undefined): void { this.last = v; this.post() }
+  /** The keyboard into question `id`'s answer box (the view shown and focused first). */
+  async focus(id: string): Promise<void> {
+    if (this.wv) this.wv.show(false)
+    else await vscode.commands.executeCommand('codeNotes.check.focus')
+    this.send({ type: 'focus', id })
+  }
   private post(): void {
     if (!this.wv || !this.ready) return
     void this.wv.webview.postMessage({ type: 'check', view: this.last ?? null })
@@ -819,7 +874,7 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="${uri('check.css')}"></head>
-<body><div id="app"></div><script nonce="${nonce}" src="${uri('check.js')}"></script></body></html>`
+<link rel="stylesheet" href="${uri('check.css')}"><link rel="stylesheet" href="${uri('checkAnswer.css')}"></head>
+<body><div id="app"></div><script nonce="${nonce}" src="${uri('checkAnswer.js')}"></script><script nonce="${nonce}" src="${uri('check.js')}"></script></body></html>`
   }
 }

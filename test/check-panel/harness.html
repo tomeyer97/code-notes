@@ -3,19 +3,20 @@
      and sets VS Code's theme variables (?theme=dark|light). Driven by shoot.mjs. -->
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="../../media/check.css">
+<link rel="stylesheet" href="../../media/check.css"><link rel="stylesheet" href="../../media/checkAnswer.css">
+<style>html { background: var(--vscode-editor-background); }</style>
 <script>
   window.__posted = []
   window.acquireVsCodeApi = () => ({ postMessage: (m) => window.__posted.push(m), getState: () => undefined, setState: () => {} })
   const themes = {
     dark: { 'editor-background': '#1f1f1f', foreground: '#cccccc', descriptionForeground: '#9d9d9d', 'widget-border': '#454545', focusBorder: '#007fd4',
       'button-background': '#0e639c', 'button-foreground': '#ffffff', 'button-hoverBackground': '#1177bb', 'editorWarning-foreground': '#cca700',
-      'list-hoverBackground': '#2a2d2e', 'testing-iconPassed': '#73c991', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px' },
+      'list-hoverBackground': '#2a2d2e', 'testing-iconPassed': '#73c991', 'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'input-placeholderForeground': '#989898', 'toolbar-hoverBackground': '#5a5d5e50', 'textLink-foreground': '#4daafc', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px' },
     light: { 'editor-background': '#ffffff', foreground: '#3b3b3b', descriptionForeground: '#717171', 'widget-border': '#c8c8c8', focusBorder: '#0090f1',
       'button-background': '#007acc', 'button-foreground': '#ffffff', 'button-hoverBackground': '#0062a3', 'editorWarning-foreground': '#bf8803',
-      'list-hoverBackground': '#e8e8e8', 'testing-iconPassed': '#388a34', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px' },
+      'list-hoverBackground': '#e8e8e8', 'testing-iconPassed': '#388a34', 'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'input-placeholderForeground': '#767676', 'toolbar-hoverBackground': '#b8b8b850', 'textLink-foreground': '#005fb8', 'font-family': 'system-ui, Ubuntu, sans-serif', 'font-size': '13px' },
   }
   const t = themes[new URLSearchParams(location.search).get('theme') || 'dark']
   for (const k in t) document.documentElement.style.setProperty(`--vscode-${k}`, t[k])
 </script></head>
-<body><div id="app"></div><script src="../../media/check.js"></script></body></html>
+<body><div id="app"></div><script src="../../media/checkAnswer.js"></script><script src="../../media/check.js"></script></body></html>
