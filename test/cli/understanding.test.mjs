@@ -1207,7 +1207,7 @@ test('answers, notes and concerns are literal text in the MR comment: no heading
   assert.match(lines[start + 3], /^> &lt;img src=x onerror=alert\(1\)&gt; \\\[docs\\\]\(javascript\\:alert\(1\)\) &lt;\/details&gt;&lt;\/blockquote&gt;\\\| a \\\| b \\\|$/)
   assert.equal(lines[start + 4], '> 1\\. \\:white\\_check\\_mark\\: \\*done\\*')
 
-  assert.match(body, /\*\*Why \\`x\\` \\# here\?\*\*/)
+  assert.match(body, /\*\*Why `x` \\# here\?\*\*/, 'a question\'s `name` is code')
   assert.doesNotMatch(body, /<img|<\/blockquote>|^#/m)
 })
 

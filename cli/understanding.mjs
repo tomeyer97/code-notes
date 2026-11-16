@@ -1171,6 +1171,8 @@ export function refLink(ctx, q, diff) {
 
 /** Text from the grader or the author, safe on one markdown line. */
 const inline = (s) => literal(inert(String(s ?? '').replace(/\s+/g, ' ').trim()))
+/** A question's text for the comment: literal, its `names` as code spans (written by the question writer). */
+export const questionText = (t) => String(t ?? '').replace(/\s+/g, ' ').trim().split('`').map((part, k) => (k % 2 ? (part ? `\`${part}\`` : '') : literal(inert(part)))).join('')
 /** At most `n` words ("…" when cut). */
 export function clipWords(s, n) {
   const w = inline(s).split(' ').filter(Boolean)
@@ -1272,12 +1274,12 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
     const s = sum.states[i], as = q.attempts ?? []
     if (s === 'explained' || s === 'restated') {
       const a = as.find((x) => x.verdict === 'explained')
-      all.push('', `**${inline(q.text)}** · ${ref(q)}${by(a)}`, '', `Check: ${explanationOf(a)}`)
+      all.push('', `**${questionText(q.text)}** · ${ref(q)}${by(a)}`, '', `Check: ${explanationOf(a)}`)
       return
     }
     const good = as.findLast((x) => x.verdict === 'pass')
     const fix = good?.partial ? (explanationOf(good) || clipWords(String(good.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30)) : ''
-    all.push('', `**${inline(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(fix ? ['', `Check: ${fix}`] : []))
+    all.push('', `**${questionText(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(fix ? ['', `Check: ${fix}`] : []))
   })
   out.push('', '<details><summary>All answers</summary>', ...all, '', '</details>')
   return out.join('\n')
@@ -1595,7 +1597,8 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   const bad = hashProblems(check)
   if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
 
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${q.text.trim().slice(0, 70)}${q.text.trim().length > 70 ? '…' : ''}`)
+  const plainQ = (q) => q.text.replace(/`/g, '').trim()
+  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
   const rule = ruleText(sum)
   if (state.phase === 'answering') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],

@@ -33,7 +33,7 @@
         const t = el('textarea', 'box')
         t.placeholder = 'Answer in 1–3 sentences'
         t.rows = 3
-        t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text} (Ctrl+Enter sends it)`)
+        t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
         t.value = drafts[a.id] ?? a.draft
         t.disabled = !!a.checking
         t.oninput = () => { drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }

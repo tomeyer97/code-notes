@@ -57,9 +57,12 @@
         // File names only: lines are what a click shows.
         const name = (w) => w.split('/').pop().replace(/:\d+(-\d+)?$/, '')
         const meta = [r.kind, r.step ? `step ${r.step}` : '', name(r.where), ...r.also.map((a) => `+ ${name(a)}`), r.word].filter(Boolean).join(' · ')
-        body.append(el('span', 'text', r.text), el('span', 'meta', meta))
+        // `name` in a question: shown as code (textContent only).
+        const text = el('span', 'text')
+        r.text.split('`').forEach((part, k) => { if (part) text.append(k % 2 ? el('code', null, part) : part) })
+        body.append(text, el('span', 'meta', meta))
         if (r.flag) body.append(el('span', 'flag', `⚠ ${r.flag}`))
-        b.setAttribute('aria-label', `${r.n}. ${r.text} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
+        b.setAttribute('aria-label', `${r.n}. ${r.text.replace(/`/g, '')} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
         b.append(icon, body)
         li.append(b)
         // The selected question's answer box (media/checkAnswer.js).

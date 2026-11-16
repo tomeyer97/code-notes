@@ -25,7 +25,7 @@ const views = {
   answer: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again'),
-    row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
+    row('q3', 3, 'Edge case', 'What does `takeJob` return when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
     answer: { id: 'q2', n: 2, open: true, draft: 'It checks the idempotency key first, so', grade: { pass: false, feedback: [{ text: 'Not quite: right about the key; re-check when it is written.' }], hint: [{ text: 'What does ' }, { text: 'the INSERT after the charge', link: 0 }, { text: ' do on a retry?' }] } } },
   // A pass: the box is gone, the grade and "Next question ›".
   passed: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '2 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [

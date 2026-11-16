@@ -880,7 +880,7 @@ function syncThread(n: Note): void {
     n.data.target === 'folder' ? `Folder ${n.data.file}/` : n.data.target ? 'File note' : '',
     missing.has(n.data.id) ? `⚠ ${n.data.target === 'folder' ? 'folder' : 'file'} not found` : '',
     // The note's first line: never VS Code's "Start discussion".
-    shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*/g, ''), 80),
+    shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*|`/g, ''), 80),
   ].filter(Boolean).join(' · '))
 }
 
