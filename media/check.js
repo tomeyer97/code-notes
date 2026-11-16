@@ -81,7 +81,10 @@
         c.onchange = () => post({ type: 'include', file: a.file, on: c.checked })
         l.append(c, el('span', '', a.label)); f.append(l)
       }
-      const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b); app.append(f)
+      const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b)
+      // A conflict: beside Keep both answers, the file itself.
+      if (V.action.id === 'merge') { const o = el('button', 'link open-file', 'Open the file'); o.onclick = () => post({ type: 'openFile' }); f.append(' ', o) }
+      app.append(f)
     }
     if (focused) { const again = app.querySelector(`button.open[data-id="${focused}"]`); if (again) again.focus() }
     if (window.checkAnswer) window.checkAnswer.after(keep)

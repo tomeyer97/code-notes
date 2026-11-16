@@ -229,7 +229,8 @@ export class Understanding implements vscode.Disposable {
     // Questions written in the background: what they left out, now, as the person opens them.
     if (this.ready) { this.ready = 0; await this.noteLoose(st.branch); await this.refresh() }
     const p = st.state.phase
-    if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
+    // A file that can't be read: open it, at the first conflict marker.
+    if (p === 'invalid') { await this.openFile(); return }
     if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
     if (p === 'none') { await this.write(false); return }
     this.show()
@@ -503,6 +504,24 @@ export class Understanding implements vscode.Disposable {
     }
     await this.refresh()
   }
+  /** The check file, at its first conflict marker when it has one. */
+  private async openFile(): Promise<void> {
+    if (!this.abs) return
+    const line = Math.max(0, (this.st?.conflict?.line ?? 1) - 1)
+    const ed = await vscode.window.showTextDocument(vscode.Uri.file(this.abs), { preview: false })
+    ed.selection = new vscode.Selection(line, 0, line, 0)
+    ed.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter)
+  }
+  /** Keep both answers: each question once, from the side with more graded answers. */
+  private async mergeConflict(): Promise<void> {
+    const abs = this.abs
+    if (!abs) return
+    const c = this.U.conflictOf(fs.readFileSync(abs, 'utf8'))
+    if (!c?.merged) { await this.openFile(); return }
+    this.U.writeCheck(abs, this.U.stamp(c.merged, this.U.loadConfig(this.repo!)))
+    this.host.log.info(`understanding check: merge conflict in ${this.st?.file} resolved: both answers kept`)
+    await this.refresh()
+  }
   private setupHidden(): boolean { return !!this.repo && (this.host.memento.get<string[]>(SETUP_KEY) ?? []).includes(this.repo) }
 
   show(): void { this.view.reveal() }
@@ -586,6 +605,8 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'next') void this.step(1)
     else if (m.type === 'concern' && m.id && ['fix', 'todo', 'flag', 'dismiss'].includes(String(m.action))) { const n = this.noteOf(m.id); if (n) void this.concern(n, m.action as 'fix' | 'todo' | 'flag' | 'dismiss') }
     else if (m.type === 'setup') void this.setupRepo()
+    else if (m.type === 'openFile') void this.openFile()
+    else if (m.type === 'merge') void this.mergeConflict()
     else if (m.type === 'retry') { const t = !!this.failed?.topUp; this.failed = undefined; void this.write(t) }
     else if (m.type === 'modelSetting') void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model')
     else if (m.type === 'setupHide') void this.host.memento.update(SETUP_KEY, [...(this.host.memento.get<string[]>(SETUP_KEY) ?? []), this.repo!]).then(() => this.post())

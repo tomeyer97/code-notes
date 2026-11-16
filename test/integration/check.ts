@@ -423,6 +423,17 @@ export async function run(): Promise<void> {
   await until('and back', () => checkNotes().length === 3 && noteOf('q3'))
   ok('the check file rewritten on disk: a changed question gets a new thread, a removed one loses its thread')
 
+  // 12b2. A merge conflict in the check file: said so (not a parser error); Keep both answers merges it.
+  const whole = read()
+  const theirs = { ...whole, updatedAt: '2026-11-16T09:00:00.000Z' }
+  fs.writeFileSync(file, ['<<<<<<< HEAD', JSON.stringify(whole, null, 2), '=======', JSON.stringify(theirs, null, 2), '>>>>>>> pairing', ''].join('\n'))
+  await until('the conflict said', () => chk().view?.title === 'The check file has a merge conflict' && chk().view.action?.id === 'merge' && chk().item === '$(warning) Understanding: merge conflict')
+  await shoot('check-7-conflict')
+  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  await until('merged', () => !fs.readFileSync(file, 'utf8').includes('<<<<<<<') && chk().view?.title === '✓ Done' && checkNotes().length === 3)
+  fs.writeFileSync(file, kept)
+  ok('a merge conflict in the check file: "The check file has a merge conflict", Keep both answers merges it')
+
   // 12c. Pushed without a check: the questions are written in the background; nothing opens until clicked.
   git('checkout', '-q', '-b', 'feat/third')
   fs.writeFileSync(path.join(ws, 'api', 'third.js'), 'export const third = 3\n')

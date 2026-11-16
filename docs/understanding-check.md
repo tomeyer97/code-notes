@@ -275,6 +275,11 @@ Grading runs only locally (extension, or `grade` from a terminal). Grader backen
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
 answer, the diff and may read the code; it returns JSON `{verdict, feedback, hint}`.
 
+**Merge conflicts.** A check file with git conflict markers is "The check file has a merge conflict" (never a parser
+error): when both sides read as checks, **Keep both answers** merges them (each question once, from the side with more
+graded answers); else **Open** goes to the first marker (the status item too). `status` exits 1 for a file that can't
+be read.
+
 ## Config: `understanding/config.json` (optional, committed)
 
 ```jsonc

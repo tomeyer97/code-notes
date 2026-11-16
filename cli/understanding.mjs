@@ -102,6 +102,24 @@ export function globRe(glob) {
 }
 /** Documentation files: a change made only of these gets one question about what a reader sees differently. */
 export const isDoc = (file) => /\.(md|mdx|markdown|rst|adoc|txt)$/i.test(file) || /(^|\/)docs?\//i.test(file)
+/**
+ * Git conflict markers in a check file: the first marker's line, and (when both sides read as checks) the two merged:
+ * every question once, each with the side that has more graded attempts (the newer one when even). Else undefined.
+ */
+export function conflictOf(text) {
+  const lines = String(text).split('\n')
+  const first = lines.findIndex((l) => /^<{7}( |$)/.test(l))
+  if (first < 0) return undefined
+  const side = (keep) => { let at = 'both'; const out = []; for (const l of lines) { if (/^<{7}( |$)/.test(l)) at = 'ours'; else if (/^={7}$/.test(l) && at === 'ours') at = 'theirs'; else if (/^>{7}( |$)/.test(l)) at = 'both'; else if (at === 'both' || at === keep) out.push(l) } return out.join('\n') }
+  let ours, theirs
+  try { ours = JSON.parse(side('ours')); theirs = JSON.parse(side('theirs')) } catch { return { line: first + 1 } }
+  const graded = (q) => (q?.attempts ?? []).filter((a) => a.verdict).length
+  const last = (q) => String((q?.attempts ?? []).at(-1)?.gradedAt ?? (q?.attempts ?? []).at(-1)?.at ?? '')
+  const byId = new Map((theirs.questions ?? []).map((q) => [q.id, q]))
+  const questions = (ours.questions ?? []).map((q) => { const t = byId.get(q.id); byId.delete(q.id); return !t || graded(q) > graded(t) || (graded(q) === graded(t) && last(q) >= last(t)) ? q : t })
+  return { line: first + 1, merged: { ...ours, questions: [...questions, ...byId.values()] } }
+}
+
 /** Files that never count: the check itself, Code Notes' notes, and the repository lines `init` writes for them. */
 export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore'
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
@@ -659,6 +677,9 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}), ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}) }
   const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
   if (!st.exists) return done(st)
+  // Git conflict markers (a merge, two people answering on one branch): said so, with where, and whether both sides merge.
+  const conflict = conflictOf(fs.readFileSync(abs, 'utf8'))
+  if (conflict) return done({ ...st, errors: [`${rel} has a merge conflict`], conflict: { line: conflict.line, mergeable: !!conflict.merged } })
   let check
   try { check = readCheck(abs) } catch (e) { return done({ ...st, errors: [`${rel} is not valid JSON (${e.message})`] }) }
   const errors = validateCheck(check, { repo })
@@ -689,7 +710,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
   if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: st.change?.docsOnly ? 1 : questionsFor(st.changed, cfg), ...(st.change?.docsOnly ? { docs: true } : {}) }
-  if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid' }
+  if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid', ...(st.conflict ? { conflict: st.conflict } : {}) }
   const s = st.summary
   const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
   if ((st.drift?.lines ?? 0) > cfg.maxDrift) return { ...base, phase: 'drift', commitFirst: false }
@@ -710,7 +731,9 @@ export function stateWords(state, st = {}) {
     case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
       return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
     case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} changed${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
-    case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
+    case 'invalid': return state.conflict
+      ? { tone: 'warn', bar: 'Understanding: merge conflict', title: 'The check file has a merge conflict', line: state.conflict.mergeable ? 'Both sides of the conflict can be kept.' : 'Open it at the conflict.', rule }
+      : { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, '')}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
       line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
     case 'answering': return { tone: 'todo', bar: `Understanding ${state.done}/${state.total}`, title: `${state.done} of ${state.total} done`, line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`, rule }
@@ -1703,8 +1726,10 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
     if (s.state.phase === 'none') print('  Run "Code Notes: Check my understanding" in VS Code.')
     print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code lines changed`)
+    if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
     if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
-    return 0
+    // A file that can't be read is an error for scripts and hooks too.
+    return s.state.phase === 'invalid' ? 1 : 0
   }
   if (cmd === 'init') {
     const changed = initRepo(repo)

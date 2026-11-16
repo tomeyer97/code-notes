@@ -38,3 +38,4 @@ footer { margin-top: 8px; }
 .failed { margin: 2px 0 0; color: var(--vscode-editorWarning-foreground, #cca700); overflow-wrap: anywhere; }
 .failed .link { display: inline; }
 .text code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+.open-file { margin-left: 8px; }

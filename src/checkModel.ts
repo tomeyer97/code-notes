@@ -30,11 +30,11 @@ export interface Tour { title: string; steps: { id?: string; title: string; file
 export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[]; journey?: Tour }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
 export type Phase = 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
-export interface State { phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
+export interface State { conflict?: { line: number; mergeable: boolean }; phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
 export interface Words { tone: 'ok' | 'warn' | 'todo'; bar: string; title: string; line: string; rule: string }
 export interface Status {
   branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; exists: boolean
-  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean; untracked?: boolean
+  errors?: string[]; conflict?: { line: number; mergeable: boolean }; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean; untracked?: boolean
   state: State; next: string
 }
 export interface Config { questions: { min: number; max: number }; passRatio: number; maxDrift: number; model: string | null }
@@ -78,6 +78,8 @@ export interface Cli {
   setupMissing(repo: string): string[]
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
   initRepo(repo: string): string[]
+  /** Conflict markers in a check file: the first one's line, and both sides merged when they read. */
+  conflictOf(text: string): { line: number; merged?: Check } | undefined
   codeLinksIn(repo: string, links: Link[]): Link[]
 }
 
@@ -192,7 +194,7 @@ export interface CheckView {
   tone: Words['tone']; title: string; line: string
   rows: CheckRow[]
   /** The one button, when there is one. */
-  action?: { id: 'start' | 'topUp' | 'commitPush' | 'scm'; label: string }
+  action?: { id: 'start' | 'topUp' | 'commitPush' | 'scm' | 'openFile' | 'merge'; label: string }
   /** Someone else's check: whose, in one line. */
   who?: string
   /** Writing questions now: "Writing questions · 0:42 · reading the change". */
@@ -282,6 +284,8 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
   let line = w.line
   let action: CheckView['action']
   if (p === 'none') action = { id: 'start', label: 'Start' }
+  // A file that can't be read: open it (at the first conflict); a conflict whose sides both read: keep both answers.
+  else if (p === 'invalid') action = st.state.conflict?.mergeable ? { id: 'merge', label: 'Keep both answers' } : { id: 'openFile', label: 'Open' }
   else if (p === 'drift') action = st.state.commitFirst ? { id: 'scm', label: 'Commit…' } : { id: 'topUp', label: 'Add questions' }
   else if (p === 'done') {
     if (st.dirty || o.unpushed !== false) { action = { id: 'commitPush', label: 'Commit & push' }; if (!st.dirty) line = 'Not pushed yet.' }

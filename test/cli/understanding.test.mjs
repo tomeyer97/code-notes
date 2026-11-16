@@ -1433,3 +1433,25 @@ test('a docs-only change: one question about what a reader sees differently; "ju
   assert.equal(q.docs, true)
   assert.match(U.graderPrompt({ q, answer: "It's just wording.", attempt: 1, diff: '', code: '', canRead: true }), /documentation change: an honest answer that it is just wording[^.]*is a full pass/)
 })
+
+test('a check file with merge-conflict markers: said so, where, and both answers kept when both sides read', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  const c = U.readCheck(f)
+  const mine = structuredClone(c), theirs = structuredClone(c)
+  const pass = (check, i, text) => { const q = check.questions[i]; const a = U.addAttempt(check, q, text); Object.assign(a, { verdict: 'pass', feedback: 'Right.', gradedAt: '2026-11-16T10:00:00Z' }); a.hash = U.attemptHash(q, a) }
+  pass(mine, 0, 'mine on q1'); pass(theirs, 1, 'theirs on q2')
+  // A line-wise conflict, as git leaves it: the whole file differs between the sides here.
+  const text = ['<<<<<<< HEAD', JSON.stringify(mine, null, 2), '=======', JSON.stringify(theirs, null, 2), '>>>>>>> main', ''].join('\n')
+  fs.writeFileSync(f, text)
+  const st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.state.phase, st.conflict], ['invalid', { line: 1, mergeable: true }])
+  assert.deepEqual(U.stateWords(st.state, st), { tone: 'warn', bar: 'Understanding: merge conflict', title: 'The check file has a merge conflict', line: 'Both sides of the conflict can be kept.', rule: '' })
+  const r = await run(d, ['status'])
+  assert.equal(r.code, 1, 'status fails for scripts and hooks'); assert.match(r.out, /First conflict at understanding\/feat-x\.json:1\./)
+  const m = U.conflictOf(text).merged
+  assert.deepEqual(m.questions.map((q) => q.attempts?.at(-1)?.answer), ['mine on q1', 'theirs on q2', undefined])
+  assert.deepEqual([U.validateCheck(m), U.hashProblems(m)], [[], []])
+  // Not JSON on one side: open it, nothing to merge.
+  assert.deepEqual(U.conflictOf('{\n<<<<<<< HEAD\n  "a": 1\n=======\n  "a": 2,\n>>>>>>> x\n}'), { line: 2 })
+})
