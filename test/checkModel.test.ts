@@ -34,7 +34,10 @@ test('plain phases from the script\'s commands', () => {
 
 test('thread messages: the question (with the code it also needs), a pass, a miss with its hint, an explanation, a restatement', () => {
   assert.equal(questionBody(q('q1', 'failure') as never), 'Question q1?')
-  assert.equal(questionBody({ ...q('q1', 'failure'), also: [{ file: 'worker/queue.js', start: 84, end: 96 }] } as never), 'Question q1?\n\nAlso read: worker/queue.js:84-96')
+  const withAlso = { ...q('q1', 'failure'), also: [{ file: 'worker/queue.js', start: 84, end: 96 }, { file: 'worker/queue.js', start: 120, end: 124 }] }
+  assert.equal(questionBody(withAlso as never), 'Question q1?\n\nAlso read: queue.js, queue.js (2)')
+  // Named by file and linked to their lines: no line numbers in the text.
+  assert.deepEqual(linksAt(withAlso as never, ['agent'], 0).map((l) => [l.phrase, l.start]), [['queue.js', 84], ['queue.js (2)', 120]])
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Not quite: what then?', hint: '' }), 'Not quite: what then?')
   assert.equal(gradeBody({ answer: 'a', verdict: 'pass', feedback: 'Right. The key makes it safe.' }), '✓ Right. The key makes it safe.')
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Close.', hint: 'Look at report().' }), 'Not quite. Close.\n\n**Hint:** Look at report().')
@@ -102,11 +105,11 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   const qq = { ...q('q1', 'failure'), links: [ql], also: [{ file: 'api/limits.js', start: 11, end: 13 }, { file: 'api/store.js', start: 2, end: 4 }],
     attempts: [{ answer: 'a', verdict: 'retry' as const, links: [gl] }, { answer: 'b' }] }
   const roles = ['agent', 'human', 'agent', 'human']
-  assert.deepEqual(linksAt(qq as never, roles, 0), [ql])
+  assert.deepEqual(linksAt(qq as never, roles, 0), [ql, { phrase: 'store.js', file: 'api/store.js', start: 2, end: 4 }])
   assert.deepEqual(linksAt(qq as never, roles, 1), [])
   assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
   assert.deepEqual(linksAt(qq as never, roles, 3), [])
-  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: api/store.js:2-4')
+  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: store.js')
 })
 
 test('a TODO from the check is one short line (at most 80 characters, cut at a word)', () => {

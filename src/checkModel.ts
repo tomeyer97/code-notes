@@ -128,9 +128,22 @@ const range = (r: Range) => `${r.file}:${r.start}${r.end > r.start ? `-${r.end}`
 
 /** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {
+  const also = alsoLinks(q)
+  return also.length ? `${q.text}\n\nAlso read: ${also.map((l) => l.phrase).join(', ')}` : q.text
+}
+
+/**
+ * The unchanged code a question also depends on (not linked from its words already), as code links named by file
+ * ("queue.js"; "queue.js (2)" for a second range in it): a click lights the lines, never a line number.
+ */
+export function alsoLinks(q: Question): Link[] {
   const linked = (r: Range) => (q.links ?? []).some((l) => l.file === r.file && l.start <= r.end && r.start <= l.end)
-  const also = (q.also ?? []).filter((r) => !linked(r))
-  return also.length ? `${q.text}\n\nAlso read: ${also.map(range).join(', ')}` : q.text
+  const seen = new Map<string, number>()
+  return (q.also ?? []).filter((r) => !linked(r)).map((r) => {
+    const name = r.file.split('/').pop()!, k = (seen.get(name) ?? 0) + 1
+    seen.set(name, k)
+    return { phrase: k > 1 ? `${name} (${k})` : name, file: r.file, start: r.start, end: r.end }
+  })
 }
 
 /**
@@ -140,7 +153,8 @@ export function questionBody(q: Question): string {
 export function linksAt(q: Question, roles: string[], mi: number): Link[] {
   if (roles[mi] !== 'agent') return []
   const k = roles.slice(0, mi).filter((r) => r === 'agent').length
-  if (k === 0) return q.links ?? []
+  // The question's own links, then its "Also read" names (last in its text, so they are found there).
+  if (k === 0) return [...(q.links ?? []), ...alsoLinks(q)]
   return (q.attempts ?? []).filter((a) => a.verdict)[k - 1]?.links ?? []
 }
 
