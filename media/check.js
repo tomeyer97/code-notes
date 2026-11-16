@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
+// Out: { type: 'setup' | 'setupHide' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
 //      (and the answer box's: media/checkAnswer.js)
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
@@ -22,6 +22,21 @@
     if (V.line) h.append(el('p', 'line', V.line))
     if (V.who) h.append(el('p', 'who', V.who))
     if (V.notice) h.append(el('p', 'notice', V.notice))
+    // Writing the questions failed: why, and Retry (the model setting when it was the model).
+    if (V.failed) {
+      const p = el('p', 'failed'), r = el('button', 'link', 'Retry')
+      r.onclick = () => post({ type: 'retry' })
+      p.append(`${V.failed.text} `, r)
+      if (V.failed.setting) { const s = el('button', 'link', 'Settings'); s.onclick = () => post({ type: 'modelSetting' }); p.append(' · ', s) }
+      h.append(p)
+    }
+    // Once per repository, the person's choice: the lines that collapse check files in diffs, in a commit of their own.
+    if (V.setup) {
+      const p = el('p', 'setup'), b = el('button', 'link', 'Set up'), x = el('button', 'link hide', 'Hide')
+      b.onclick = () => post({ type: 'setup' }); x.onclick = () => post({ type: 'setupHide' }); x.title = "Don't show this again here"
+      b.title = 'Adds .gitattributes and .ignore lines in a commit of their own'
+      p.append(`${V.setup} `, b, ' · ', x); h.append(p)
+    }
     app.append(h)
     if (V.busy) app.append(el('p', 'busy', V.busy))
     // The tour of the change: one quiet link (walking it is optional; the rows go straight to a question).
@@ -42,9 +57,12 @@
         // File names only: lines are what a click shows.
         const name = (w) => w.split('/').pop().replace(/:\d+(-\d+)?$/, '')
         const meta = [r.kind, r.step ? `step ${r.step}` : '', name(r.where), ...r.also.map((a) => `+ ${name(a)}`), r.word].filter(Boolean).join(' · ')
-        body.append(el('span', 'text', r.text), el('span', 'meta', meta))
+        // `name` in a question: shown as code (textContent only).
+        const text = el('span', 'text')
+        r.text.split('`').forEach((part, k) => { if (part) text.append(k % 2 ? el('code', null, part) : part) })
+        body.append(text, el('span', 'meta', meta))
         if (r.flag) body.append(el('span', 'flag', `⚠ ${r.flag}`))
-        b.setAttribute('aria-label', `${r.n}. ${r.text} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
+        b.setAttribute('aria-label', `${r.n}. ${r.text.replace(/`/g, '')} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
         b.append(icon, body)
         li.append(b)
         // The selected question's answer box (media/checkAnswer.js).
@@ -63,7 +81,10 @@
         c.onchange = () => post({ type: 'include', file: a.file, on: c.checked })
         l.append(c, el('span', '', a.label)); f.append(l)
       }
-      const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b); app.append(f)
+      const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b)
+      // A conflict: beside Keep both answers, the file itself.
+      if (V.action.id === 'merge') { const o = el('button', 'link open-file', 'Open the file'); o.onclick = () => post({ type: 'openFile' }); f.append(' ', o) }
+      app.append(f)
     }
     if (focused) { const again = app.querySelector(`button.open[data-id="${focused}"]`); if (again) again.focus() }
     if (window.checkAnswer) window.checkAnswer.after(keep)
@@ -88,7 +109,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .setup, .failed, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

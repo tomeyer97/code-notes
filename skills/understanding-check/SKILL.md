@@ -22,7 +22,10 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 
 1. `questions.mjs start` (or `start --top-up` when asked to top up an existing check). It prints the change with the
    new file's line numbers and how many questions to write (1 for a small change, up to 5 for a big one; write that
-   many). `NOTHING` or `UNCOMMITTED`: write nothing, reply with that one line.
+   many). `NOTHING` or `UNCOMMITTED`: write nothing, reply with that one line. `REMOVED ONLY`: the change only removes
+   code; ask what the removal changes (what still used it, what now happens instead), on the lines where it was removed
+   or on the code that used it (any file). `RENAMED ONLY`: one question about what the move changes, `--whole-file`. `DOCS ONLY`: one question about what a reader now sees or
+   understands differently; never why a word was chosen.
 2. Read the diff. Open the changed files (Read) where the diff alone doesn't show what the code does, and the code
    that calls the changed functions. Find the places that matter most: where the behaviour is decided, where it can
    fail, what is new.
@@ -58,6 +61,9 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
   - `change`: "Which callers of `insertOrder` get a different result after this change?"
 - **Anchored on the lines that answer it** (`--lines`): the decision, the check, the catch, not the whole function.
   At most ~15 lines when you can.
+- **At most one computed value.** "What does `rule59` return for a 200-cent item at qty 61?" is a calculator drill
+  unless it says why it matters: ask it once at most, and say what is at stake ("… is that a valid price?"). Prefer why,
+  failure and edge questions.
 - **Prefer what the author is most likely to have skipped**: error paths, retries, ordering between two writes,
   what is shared between requests, limits, what happens with empty or duplicate input, a default that changed.
 

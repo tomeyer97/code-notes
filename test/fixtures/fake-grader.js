@@ -12,12 +12,35 @@ const say = (o) => process.stdout.write(JSON.stringify(o) + '\n')
 const start = /Start with: (\S+questions\.mjs) start (.*)/.exec(prompt)
 if (start) {
   const script = start[1]
-  const run = (...a) => { say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${script} ${a.join(' ')}` } }] } }); return execFileSync('node', [script, ...a], { encoding: 'utf8' }) }
+  const run = (...a) => {
+    say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${script} ${a.join(' ')}` } }] } })
+    try { return execFileSync('node', [script, ...a], { encoding: 'utf8' }) } catch (e) {
+      // What went wrong, where a failing test can read it.
+      fs.appendFileSync(require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-errors.log'), `${a.join(' ')}\n${e.stdout ?? ''}${e.stderr ?? ''}\n`)
+      throw e
+    }
+  }
   say({ type: 'system', subtype: 'init' })
-  run('start', ...start[2].trim().split(/\s+/))
-  run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
-  run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')
-  run('add', '--kind', 'edge', '--file', 'api/limits.js', '--whole-file', '--text', 'What happens to the counts when the API process restarts?')
+  // A test switches branches before Claude gets going (it can take seconds to start): it leaves this file to say so.
+  const slowStart = require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-slow-start')
+  if (fs.existsSync(slowStart)) { fs.writeFileSync(`${slowStart}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(slowStart) && Date.now() < until) execFileSync('sleep', ['0.1']) }
+  // A test makes Claude fail as with a model that doesn't exist.
+  if (fs.existsSync(require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-write-error'))) {
+    say({ type: 'result', result: "There's an issue with the selected model (bogus). It may not exist or you may not have access to it. Run --model to pick a different model.", is_error: true })
+    process.exit(1)
+  }
+  const began = run('start', ...start[2].trim().split(/\s+/))
+  if (/^CHANGE: branch feat\/(second|third) /m.test(began)) {
+    // Another branch (stacked on feat/limits's check): as many questions as asked, about its changed files only.
+    const want = Number(/WRITE: (\d+) question/.exec(began)[1])
+    const file = /Files: (\S+) \(/.exec(began)[1]
+    const texts = ['What does this new part of the change add for a caller of this file?', 'Why is the new part of the change kept in this file instead of a new one?', 'What happens to existing callers once the new part of this change ships?']
+    for (let k = 0; k < want; k++) run('add', '--kind', ['failure', 'why', 'edge'][k], '--file', file, '--whole-file', '--text', texts[k])
+  } else {
+    run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
+    run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')
+    run('add', '--kind', 'edge', '--file', 'api/limits.js', '--whole-file', '--text', 'What happens to the counts when the API process restarts?')
+  }
   // A test switches branches while the questions are being written: it leaves this file to say so.
   const slow = require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-slow')
   if (fs.existsSync(slow)) { fs.writeFileSync(`${slow}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(slow) && Date.now() < until) execFileSync('sleep', ['0.1']) }

@@ -40,8 +40,12 @@ will find a way around it, so every design choice below favours little friction.
    questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
    file). Questions cover committed code only: the check starts anyway, and one line in the Check view names every uncommitted
    or new file left out.
-   Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
-   checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
+   The branch and commit are pinned when the writing starts
+   (`start --branch <b> --head <sha>`): the script reads files at that commit and, when that branch is no longer checked
+   out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
+   place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
+   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide"; Set up runs `init` and commits
+   only those two files ("Add understanding check setup"). CI's log has a one-line tip while they are missing.
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
@@ -67,7 +71,7 @@ will find a way around it, so every design choice below favours little friction.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
 5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push**, naming what it
-   commits: the check file, with `.gitattributes`/`.ignore` when `init` changed them (`-u` without an upstream). A file
+   commits: the check file, with `.gitattributes`/`.ignore` when someone ran `init` by hand (`-u` without an upstream). A file
    a TODO was added to from the check is offered with a tick box; the person's other changes are left alone.
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
@@ -202,6 +206,11 @@ differently in a conflict count. If ≤ `maxDrift` new code lines (default 40) �
 same file, earlier answers kept). A top-up asks only about those new lines of the branch's own change, never about code
 that came in from the target branch, and records today's merge base.
 
+**Stacked branches.** When the branch holds another branch's committed check whose code commit lies between the merge
+base and the head (a branch made from a branch that did its check), the change starts at that commit: its code was
+checked in its own merge request, so it is never asked about again (status: "2 code lines changed since feat/x's
+check"; CI the same). Once the parent is merged, the merge base is past it and nothing special happens.
+
 When `base` or `head` is not in the clone (rebased or squashed branch, or a shallow clone), CI compares sizes instead:
 the change's code lines now against `diffStat` (code lines too). Lenient, but a rebase must not void the check. CI jobs fetch the full
 history (`GIT_DEPTH: 0`, `fetch-depth: 0`).
@@ -235,23 +244,44 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 The merge request comment follows the job and is found again by the marker `<!-- understanding-check -->` and updated
 in place. Its first line is the result or what is missing (no check yet, needs a top-up, file not valid). It never
 grades in public: while the check is in progress it is one line (`Understanding check in progress: 2 of 4 done.`), no ✗
-ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions and partial passes as `Worth discussing:
-<topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
-and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
+ever. It stays short: the status line, then one line per thread a reviewer can act on, each a link to its resolvable
+diff thread: flagged concerns first (`- ⚠ …`, "· possibly fixed" when the line the concern named is gone from the
+file), then, once done, explained questions and partial passes (`- 💬 Worth discussing: <topic>`, posted as threads on
+their question's first line with the correct point; resolved when the item goes). Without an API token, the same lines
+carry the text and a file link instead. Once done also: concerns nobody flagged, dismissed or fixed, one line each
+under "Also noticed while grading"; the tour line; and every answer in a collapsed `<details>` "All answers": each answer
+once, the grader's line ("Check: …", outside the quote) only when it corrects something. Wrong guesses and retries are
+never posted. In VS Code a concern's thread offers, quietly, **Mark fixed** (once flagged) and **Dismiss** (asks for a
+one-line reason; stored as `concern.dismissed = { reason, by, at }`); both take it off the merge request. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
-references (`#12`, `!3`, `~5`, …) are made inert.
+references (`#12`, `!3`, `~5`, …) are made inert. Answers, notes, topics and concerns are literal text: their markdown
+and HTML are escaped line by line (a `---` under a line, `### ✅ waived`, `</blockquote>`, a table row or `:emoji:` shows
+as typed), and every line of an answer stays inside its quote. Answers in the VS Code threads are shown as typed too.
 
 The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`, `add`, `list`, `remove`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
 questions that are not near a changed code line, on lines that hold only comments or blank lines, longer than 240
 characters, more than one question ("…, and could…", "what happens to X, Y and Z", "…, or does…"), or that name a line
-number; `--suspect` marks a question whose honest answer is "this is a bug". `finish` wants the count for the change's
+number; `--suspect` marks a question whose honest answer is "this is a bug". A change made only of documentation (`*.md`, `*.txt`, `docs/`, …) gets one question about what a reader now sees
+or understands differently ("4 lines changed (docs)"); the question carries `docs: true` and the grader passes an honest
+"it's just wording". A moved or renamed file is detected as a move (git `-M`, both paths passed to git): it counts no line, but a change
+that is only a move still gets one question about the move itself ("Renamed, 0 lines changed"), never about the
+content it kept. A change that only removes code gets questions too: on the lines where code was removed, or on the code that used
+it (any file). `finish` wants the count for the change's
 size (exactly 1 or 2 for a small change, 3–5 above; 1–2 for a top-up), from 3 questions on of at least two kinds, one
 of them why/failure/edge.
 
 Grading runs only locally (extension, or `grade` from a terminal). Grader backends: `claude` (the `claude -p` CLI, read-only tools, uses `CLAUDE_CODE_OAUTH_TOKEN` or the
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
 answer, the diff and may read the code; it returns JSON `{verdict, feedback, hint}`.
+
+**In a stash.** A check file that is not in the tree but in a git stash (`git stash -u`) is "Your check is in a git
+stash · Run git stash pop (stash@{0})." instead of Start; its threads are hidden until it is back.
+
+**Merge conflicts.** A check file with git conflict markers is "The check file has a merge conflict" (never a parser
+error): when both sides read as checks, **Keep both answers** merges them (each question once, from the side with more
+graded answers); else **Open** goes to the first marker (the status item too). `status` exits 1 for a file that can't
+be read.
 
 ## Config: `understanding/config.json` (optional, committed)
 
@@ -262,9 +292,14 @@ answer, the diff and may read the code; it returns JSON `{verdict, feedback, hin
 
 `backend` (`claude` | `anthropic`) and `model` apply to `grade` from a terminal (also `--backend`, `--model`,
 `UNDERSTANDING_BACKEND`). In VS Code, the Claude Code runner grades (setting `codeNotes.understanding.model`).
-Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
+The Check view, the status bar tooltip and the progress comment say the size: "3 questions, ~2 min", "~1 min left" (about 35 s a question). Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
 `questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
+
+**Settings changes are said.** A merge request that changes `understanding/config.json` gets a line at the top of the
+comment ("This merge request changes the understanding check's settings: mode required → advisory."), also when no code
+changed (then that line is the whole comment). After a self-approval the comment says "Your own approval doesn't count:
+ask a reviewer to approve, then re-run this job." The size is honest: "3 questions, ~2 min" (by the question count).
 
 ## Skipping
 
@@ -276,13 +311,13 @@ comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an 
 
 ## CI recipes (in the README)
 
-GitLab: a job on `merge_request_event` with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
+GitLab: a job on `merge_request_event` that runs on its own (`stage: .pre`, `needs: []`: a failing test never skips it) with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
 `api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. GitHub Actions: same CLI, `GITHUB_TOKEN`.
 
 **Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
 a month, then switch to required. Wherever `ci` would fail (exit 1) it exits 3, its first line starts "⚠ Advisory:", and
-the merge request comment is the same as in required mode plus one muted line "Advisory: this check doesn't block
-merging." GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
+the merge request comment starts with "Advisory: this check doesn't block merging." and never shows skip instructions
+(nothing to skip; the job log neither). GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
 GitHub Actions `ci` prints a `::warning::` annotation and exits 0 instead. "Can't check" (exit 2) stays 2.
 
 ## Out of scope for the prototype

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts, tourPrompt } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts, tourPrompt, writeFailure } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -34,7 +34,10 @@ test('plain phases from the script\'s commands', () => {
 
 test('thread messages: the question (with the code it also needs), a pass, a miss with its hint, an explanation, a restatement', () => {
   assert.equal(questionBody(q('q1', 'failure') as never), 'Question q1?')
-  assert.equal(questionBody({ ...q('q1', 'failure'), also: [{ file: 'worker/queue.js', start: 84, end: 96 }] } as never), 'Question q1?\n\nAlso read: worker/queue.js:84-96')
+  const withAlso = { ...q('q1', 'failure'), also: [{ file: 'worker/queue.js', start: 84, end: 96 }, { file: 'worker/queue.js', start: 120, end: 124 }] }
+  assert.equal(questionBody(withAlso as never), 'Question q1?\n\nAlso read: queue.js, queue.js (2)')
+  // Named by file and linked to their lines: no line numbers in the text.
+  assert.deepEqual(linksAt(withAlso as never, ['agent'], 0).map((l) => [l.phrase, l.start]), [['queue.js', 84], ['queue.js (2)', 120]])
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Not quite: what then?', hint: '' }), 'Not quite: what then?')
   assert.equal(gradeBody({ answer: 'a', verdict: 'pass', feedback: 'Right. The key makes it safe.' }), '✓ Right. The key makes it safe.')
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Close.', hint: 'Look at report().' }), 'Not quite. Close.\n\n**Hint:** Look at report().')
@@ -102,11 +105,11 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   const qq = { ...q('q1', 'failure'), links: [ql], also: [{ file: 'api/limits.js', start: 11, end: 13 }, { file: 'api/store.js', start: 2, end: 4 }],
     attempts: [{ answer: 'a', verdict: 'retry' as const, links: [gl] }, { answer: 'b' }] }
   const roles = ['agent', 'human', 'agent', 'human']
-  assert.deepEqual(linksAt(qq as never, roles, 0), [ql])
+  assert.deepEqual(linksAt(qq as never, roles, 0), [ql, { phrase: 'store.js', file: 'api/store.js', start: 2, end: 4 }])
   assert.deepEqual(linksAt(qq as never, roles, 1), [])
   assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
   assert.deepEqual(linksAt(qq as never, roles, 3), [])
-  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: api/store.js:2-4')
+  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: store.js')
 })
 
 test('a TODO from the check is one short line (at most 80 characters, cut at a word)', () => {
@@ -131,6 +134,8 @@ test('the answer box: only for the selected question; open until done; its grade
   const passed = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, feedback: 'Right.' }] }
   assert.deepEqual(answerBox(passed as never, 1, 'pass', { others: true }), { id: 'q1', n: 1, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right.' }] }, next: true })
   assert.equal(answerBox(passed as never, 1, 'pass', { others: false }).next, undefined)
+  // A concern stays in view with its actions, also after the box closes.
+  assert.deepEqual(answerBox({ ...passed, concern: { text: 'Install fails.', flagged: false } } as never, 1, 'pass').concern, { text: 'Install fails.', flagged: false })
   const ex = { ...base, attempts: [{ answer: 'a', verdict: 'explained' as const, feedback: 'It retries.' }] }
   assert.deepEqual([answerBox(ex as never, 1, 'explained').open, answerBox(ex as never, 1, 'explained').grade?.say], [true, 'Got it? Say it back in one sentence (optional).'])
   // In the view: only the selected question has one.
@@ -162,4 +167,13 @@ test('the tour: its prompt goes on in the questions\' session; phases; the view 
   assert.deepEqual(v.tour, { label: 'Walk the tour · 6 steps', action: 'walk' })
   assert.deepEqual(v.rows.map((r) => r.step), [2, undefined, 6])
   assert.equal(checkView(st({ state: { phase: 'none' }, check: undefined }), W()).tour, undefined)
+})
+
+test('a failed write in plain words: never the CLI\'s own advice', () => {
+  assert.deepEqual(writeFailure({ error: "There's an issue with the selected model (bogus). Run --model to pick a different model.", model: 'bogus' }), { text: 'Claude couldn\'t use the model "bogus".', setting: true })
+  assert.deepEqual(writeFailure({ error: 'Error 529: overloaded' }), { text: 'Claude is busy right now.' })
+  assert.equal(writeFailure({ error: 'The process exited. Run --verbose to see more.' }).text, "Claude couldn't write the questions: The process exited.")
+  assert.equal(writeFailure({ text: 'I could not write any questions. `questions.mjs add` rejects every file I give it.' }).text, "Claude couldn't write questions for this change.")
+  assert.equal(writeFailure({ text: 'UNCOMMITTED: this change is not committed yet' }).text, 'Commit your change first: questions are about committed code.')
+  assert.equal(checkView(st(), W(), { failed: { text: 'x' } }).failed?.text, 'x')
 })

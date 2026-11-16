@@ -23,18 +23,18 @@ export interface Question {
   /** The step of the check's tour after which its answer is visible. */
   step?: number
   /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
-  concern?: { text: string; flagged?: boolean; at?: string; by?: Who }
+  concern?: { text: string; flagged?: boolean; at?: string; by?: Who; dismissed?: { reason: string; by?: Who; at?: string }; fixed?: { by?: Who; at?: string } }
 }
 /** The check's tour: a journey of the change (the journey file format), its steps walked in the journey panel. */
 export interface Tour { title: string; steps: { id?: string; title: string; file: string; range: { start: number; end: number } }[]; [k: string]: unknown }
 export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[]; journey?: Tour }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
-export type Phase = 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
-export interface State { phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
+export type Phase = 'stashed' | 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
+export interface State { stash?: string; conflict?: { line: number; mergeable: boolean }; phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
 export interface Words { tone: 'ok' | 'warn' | 'todo'; bar: string; title: string; line: string; rule: string }
 export interface Status {
   branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; exists: boolean
-  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean
+  errors?: string[]; conflict?: { line: number; mergeable: boolean }; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean; untracked?: boolean
   state: State; next: string
 }
 export interface Config { questions: { min: number; max: number }; passRatio: number; maxDrift: number; model: string | null }
@@ -55,7 +55,9 @@ export interface Cli {
   gitIdentity(repo: string): Who | undefined
   attemptHash(q: Question, a: Attempt): string
   gradeMode(q: Question): { attempt: number; explanation?: string }
-  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean; tour?: string }): string
+  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean; tour?: string; others?: string[] }): string
+  /** The texts of the check's other questions not done yet. */
+  openOthers(check: Check, q: Question): string[]
   /** The tour as numbered lines (the grader's context): "3. The API refuses a used code (api/discounts.ts:40-52)". */
   tourText(c: Check): string
   parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string; links?: Link[] }
@@ -65,22 +67,30 @@ export interface Cli {
   stamp(c: Check, cfg: Config): Check
   fileFor(branch: string): string
   slugOf(branch: string): string
+  /** Where a branch's check waits while another branch is checked out. */
+  cachedFor(branch: string): string
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
   /** The code a question's concern is about (a link of the grade that raised it), if it named some. */
   concernLink(q: Question): Link | undefined
   /** The check file, Code Notes' notes and the setup files: never part of the change, never "uncommitted work". */
   own(file: string): boolean
+  /** The .gitattributes and .ignore lines for check files the repository doesn't have yet. */
+  setupMissing(repo: string): string[]
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
   initRepo(repo: string): string[]
+  /** Conflict markers in a check file: the first one's line, and both sides merged when they read. */
+  conflictOf(text: string): { line: number; merged?: Check } | undefined
   codeLinksIn(repo: string, links: Link[]): Link[]
 }
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
-export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean }): string {
+export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean; head?: string }): string {
   const how = o.bundled
     ? `Read ${o.skill}/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool)`
     : 'Use the understanding-check skill'
-  const start = `${o.skill}/scripts/questions.mjs start ${o.topUp ? '--top-up' : `--base ${o.base}`}`
+  // The branch and commit are pinned: the person may switch branches while this runs.
+  const pin = o.head ? ` --branch ${o.branch} --head ${o.head}` : ''
+  const start = `${o.skill}/scripts/questions.mjs start ${o.topUp ? '--top-up' : `--base ${o.base}`}${pin}`
   return [
     `${how} to ${o.topUp ? 'add 1-2 questions about what changed since the understanding check of' : 'write the questions of an understanding check for'} this branch (${o.branch}, compared with ${o.baseRef}).`,
     `Start with: ${start}`,
@@ -120,9 +130,22 @@ const range = (r: Range) => `${r.file}:${r.start}${r.end > r.start ? `-${r.end}`
 
 /** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {
+  const also = alsoLinks(q)
+  return also.length ? `${q.text}\n\nAlso read: ${also.map((l) => l.phrase).join(', ')}` : q.text
+}
+
+/**
+ * The unchanged code a question also depends on (not linked from its words already), as code links named by file
+ * ("queue.js"; "queue.js (2)" for a second range in it): a click lights the lines, never a line number.
+ */
+export function alsoLinks(q: Question): Link[] {
   const linked = (r: Range) => (q.links ?? []).some((l) => l.file === r.file && l.start <= r.end && r.start <= l.end)
-  const also = (q.also ?? []).filter((r) => !linked(r))
-  return also.length ? `${q.text}\n\nAlso read: ${also.map(range).join(', ')}` : q.text
+  const seen = new Map<string, number>()
+  return (q.also ?? []).filter((r) => !linked(r)).map((r) => {
+    const name = r.file.split('/').pop()!, k = (seen.get(name) ?? 0) + 1
+    seen.set(name, k)
+    return { phrase: k > 1 ? `${name} (${k})` : name, file: r.file, start: r.start, end: r.end }
+  })
 }
 
 /**
@@ -132,7 +155,8 @@ export function questionBody(q: Question): string {
 export function linksAt(q: Question, roles: string[], mi: number): Link[] {
   if (roles[mi] !== 'agent') return []
   const k = roles.slice(0, mi).filter((r) => r === 'agent').length
-  if (k === 0) return q.links ?? []
+  // The question's own links, then its "Also read" names (last in its text, so they are found there).
+  if (k === 0) return [...(q.links ?? []), ...alsoLinks(q)]
   return (q.attempts ?? []).filter((a) => a.verdict)[k - 1]?.links ?? []
 }
 
@@ -155,6 +179,8 @@ export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not gra
  * only once it has been answered (before, it would give the answer away).
  */
 export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean; by?: string } | undefined {
+  // Dismissed (with a reason) or marked fixed: done with; nothing more to do about it.
+  if (q.concern?.dismissed || q.concern?.fixed) return undefined
   if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && SUSPECTS.includes(q.concern.text), ...(q.concern.by ? { by: q.concern.by.name ?? q.concern.by.email } : {}) }
   return q.suspect && (q.attempts ?? []).some((a) => a.verdict) ? { text: SUSPECT, flagged: false, suspect: true } : undefined
 }
@@ -168,7 +194,7 @@ export interface CheckView {
   tone: Words['tone']; title: string; line: string
   rows: CheckRow[]
   /** The one button, when there is one. */
-  action?: { id: 'start' | 'topUp' | 'commitPush' | 'scm'; label: string }
+  action?: { id: 'start' | 'topUp' | 'commitPush' | 'scm' | 'openFile' | 'merge'; label: string }
   /** Someone else's check: whose, in one line. */
   who?: string
   /** Writing questions now: "Writing questions · 0:42 · reading the change". */
@@ -180,6 +206,10 @@ export interface CheckView {
   also?: { file: string; label: string; on: boolean }[]
   /** The answer box: only for the selected question (checkAnswer.ts / media/checkAnswer.js). */
   answer?: AnswerBox
+  /** Writing the questions failed: why, in plain words, with Retry (and the model setting when it was the model). */
+  failed?: { text: string; setting?: boolean }
+  /** The repository lacks the lines that collapse check files in diffs: a link that adds them in a commit of their own. */
+  setup?: string
   /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
   tour?: { label: string; action?: 'walk' | 'write' }
 }
@@ -196,6 +226,8 @@ export interface AnswerBox {
   grade?: { pass: boolean; feedback: Part[]; hint?: Part[]; say?: string }
   /** "Next question ›": this one is done and another is open. */
   next?: boolean
+  /** A concern about the code (found while grading, or "may be a bug" once answered), with its actions. */
+  concern?: { text: string; flagged: boolean }
 }
 
 /** A text split at the code links' phrases (each phrase once, the first time it appears). */
@@ -229,6 +261,7 @@ export function answerBox(q: Question, n: number, state: QState, o: { draft?: st
   return {
     id: q.id, n, open: !pass, draft: o.draft ?? '', ...(o.grading ? { checking: true } : {}), ...(grade ? { grade } : {}),
     ...(pass && o.others ? { next: true } : {}),
+    ...(concernOf(q) && !o.grading ? { concern: { text: concernOf(q)!.text, flagged: concernOf(q)!.flagged } } : {}),
   }
 }
 
@@ -238,7 +271,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean; failed?: { text: string; setting?: boolean } } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -251,6 +284,8 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
   let line = w.line
   let action: CheckView['action']
   if (p === 'none') action = { id: 'start', label: 'Start' }
+  // A file that can't be read: open it (at the first conflict); a conflict whose sides both read: keep both answers.
+  else if (p === 'invalid') action = st.state.conflict?.mergeable ? { id: 'merge', label: 'Keep both answers' } : { id: 'openFile', label: 'Open' }
   else if (p === 'drift') action = st.state.commitFirst ? { id: 'scm', label: 'Commit…' } : { id: 'topUp', label: 'Add questions' }
   else if (p === 'done') {
     if (st.dirty || o.unpushed !== false) { action = { id: 'commitPush', label: 'Commit & push' }; if (!st.dirty) line = 'Not pushed yet.' }
@@ -277,9 +312,13 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
-    ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
+    // A failed write: its Retry is the action.
+    ...(action && !o.busy && !o.failed ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
     ...(answer ? { answer } : {}),
+    ...(o.failed && !o.busy ? { failed: o.failed } : {}),
+    // Only with a check, and never while busy: the person decides; nothing is written to the repository by itself.
+    ...(o.setup && st.check && !o.busy ? { setup: 'Collapse check files in diffs:' } : {}),
   }
 }
 
@@ -298,4 +337,22 @@ export function statusText(st: Status | undefined, w: Words | undefined): { text
   const p = st.state.phase
   const icon = p === 'done' ? '$(pass)' : w.tone === 'warn' ? '$(warning)' : '$(checklist)'
   return { text: `${icon} ${w.bar.replace(/^✓\s*/, '')}`, tip: [w.title, w.line].filter(Boolean).join(' · '), warn: p === 'drift' }
+}
+
+/**
+ * Why writing the questions failed, in plain words for the Check view (never the script's or the CLI's own advice):
+ * `error` from Claude, or `text`, the writer's reply when it wrote nothing.
+ */
+export function writeFailure(o: { error?: string; text?: string; model?: string }): { text: string; setting?: boolean } {
+  const e = String(o.error ?? '')
+  if (e) {
+    if (/model/i.test(e)) return { text: `Claude couldn't use the model${o.model ? ` "${o.model}"` : ''}.`, setting: true }
+    if (/rate.?limit|overloaded|429|529/i.test(e)) return { text: 'Claude is busy right now.' }
+    if (/auth|log ?in|api key|401|403/i.test(e)) return { text: "Claude Code isn't signed in." }
+    return { text: `Claude couldn't write the questions: ${e.split(/(?<=[.!?])\s/)[0].replace(/\s*Run --?\S+.*$/i, '').slice(0, 120)}` }
+  }
+  const t = String(o.text ?? '')
+  if (/UNCOMMITTED/.test(t)) return { text: 'Commit your change first: questions are about committed code.' }
+  if (/NOTHING/.test(t)) return { text: 'No code lines changed: nothing to ask.' }
+  return { text: "Claude couldn't write questions for this change." }
 }

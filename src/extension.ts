@@ -423,6 +423,13 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const link = (text: string, file: string, line?: string) =>
     `[${text.replace(/[[\]]/g, '\\$&')}](command:codeNotes.openAt?${encodeURIComponent(JSON.stringify([n.folder.uri.toString(), file, Number(line) || 1]))})`
   const home = require('os').homedir() as string
+  // An answer in a check thread is shown as typed: its markdown and HTML never render (a "---" or "# …" in it).
+  if (index !== undefined && understanding?.isCheck(n) && n.data.messages[index] && !isAgent(n.data.messages[index])) {
+    // Markdown punctuation escaped, tags as text, each line its own (spaces kept, so long answers still wrap).
+    const lit = body.split('\n').map((l) => l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+      .replace(/[\\`*_{}[\]()#+\-!~|:]/g, '\\$&')).join('  \n')
+    return new vscode.MarkdownString(lit)
+  }
   // A check thread's code links (the question's, a grade's): phrases marked here, the markup goes in after escapeTags.
   const clinks = index !== undefined ? understanding?.linksIn(n, index) ?? [] : []
   if (clinks.length) body = linkPhrases(body, clinks, new Set<number>(), PH)
@@ -760,7 +767,9 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
   if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
   if (chk?.concern) {
     const c = chk.concern
-    const acts = [cmdLink('Suggest a fix', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
+    const acts = [cmdLink('Suggest a fix', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag'),
+      // Quiet: Mark fixed once it is flagged (it leaves the merge request), Dismiss with a reason when it is wrong.
+      ...(c.flagged ? [cmdLink('Mark fixed', 'codeNotes.checkConcern', n.data.id, 'fixed')] : []), cmdLink('Dismiss', 'codeNotes.checkConcern', n.data.id, 'dismiss')]
     out.push({ body: systemMarkdown(`⚠ ${c.text}\n\n${acts.join(' · ')}`), mode: vscode.CommentMode.Preview, author: { name: c.suspect ? 'Understanding check' : 'Found while grading' }, contextValue: 'system' })
   }
   // An open check question whose code a journey of the repository walks: one link to that step.
@@ -863,7 +872,8 @@ function syncThread(n: Note): void {
     asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
   setThread(t, 'canReply', true)
-  // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in view.
+  // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in
+  // view; and resolving a thread that has the keyboard selects its lines in the code, where typing would replace them.
   const st = n.data.status === 'resolved' && !understanding?.isCheck(n) ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
   if (t.state !== st) t.state = st
   setThread(t, 'contextValue', ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', understanding?.isCheck(n) ? 'check' : ''].filter(Boolean).join(';'))
@@ -873,7 +883,7 @@ function syncThread(n: Note): void {
     n.data.target === 'folder' ? `Folder ${n.data.file}/` : n.data.target ? 'File note' : '',
     missing.has(n.data.id) ? `⚠ ${n.data.target === 'folder' ? 'folder' : 'file'} not found` : '',
     // The note's first line: never VS Code's "Start discussion".
-    shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*/g, ''), 80),
+    shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*|`/g, ''), 80),
   ].filter(Boolean).join(' · '))
 }
 
@@ -3559,7 +3569,11 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, ...(col ? { viewColumn: col } : {}) })
   const r = threadRange(n)
   editor.selection = new vscode.Selection(r.start, r.start)
-  editor.revealRange(new vscode.Range(r.start, r.end.translate(4)), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+  // A long range: its thread hangs below its last line, so that end (and the thread) is what comes into view, not a
+  // screen of highlighted code with the question below the fold.
+  const tall = r.end.line - r.start.line > 12
+  editor.revealRange(tall ? new vscode.Range(Math.max(r.start.line, r.end.line - 3), 0, r.end.line, 0) : new vscode.Range(r.start, r.end.translate(4)),
+    tall ? vscode.TextEditorRevealType.AtTop : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
   syncThread(n)
   // Only this note's thread is open: others on the same lines collapse, so the one clicked is the one shown.
   for (const other of notesFor(docUri(n))) {
@@ -4523,9 +4537,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const pick = await vscode.window.showQuickPick(rows, { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
     if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n)
   })
-  cmd('codeNotes.checkConcern', async (id?: string, action?: string) => {
+  cmd('codeNotes.checkConcern', async (id?: string, action?: string, reason?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined
-    if (n && (action === 'fix' || action === 'todo' || action === 'flag')) await understanding!.concern(n, action)
+    if (n && (action === 'fix' || action === 'todo' || action === 'flag' || action === 'dismiss' || action === 'fixed')) await understanding!.concern(n, action, typeof reason === 'string' ? reason : undefined)
   })
   cmd('codeNotes.gradeCheck', async (id?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined

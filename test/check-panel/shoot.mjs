@@ -13,7 +13,7 @@ if (OUT) fs.mkdirSync(OUT, { recursive: true })
 const long = 'What happens to an already-charged order\'s result when the API answers the report with a 4xx other than 409, such as 401 for a wrong WORKER_KEY, while replayUnreportedResultsFromTheLocalFile is still running?'
 const row = (id, n, kind, text, where, state, word, extra = {}) => ({ id, n, kind, text, where, also: [], state, word, ...extra })
 const views = {
-  answering: { branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', notice: 'Answers are kept out of search.', rows: [
+  answering: { branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', notice: 'Not asked about (uncommitted): README.md, allowlist.js', setup: 'Collapse check files in diffs:', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws or the worker dies halfway through the loop?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again', { also: ['worker/queue.js:84-96'] }),
     row('q3', 3, 'Edge case', long, 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js:32', 'todo', '', { flag: 'may be a bug' })] },
@@ -25,14 +25,16 @@ const views = {
   answer: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again'),
-    row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
+    row('q3', 3, 'Edge case', 'What does `takeJob` return when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
     answer: { id: 'q2', n: 2, open: true, draft: 'It checks the idempotency key first, so', grade: { pass: false, feedback: [{ text: 'Not quite: right about the key; re-check when it is written.' }], hint: [{ text: 'What does ' }, { text: 'the INSERT after the charge', link: 0 }, { text: ' do on a retry?' }] } } },
   // A pass: the box is gone, the grade and "Next question ›".
   passed: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '2 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'pass', ''), row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
-    answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true } },
+    answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true,
+      concern: { text: 'The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.', flagged: false } } },
   drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
+  conflict: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'The check file has a merge conflict', line: 'Both sides of the conflict can be kept.', rows: [], action: { id: 'merge', label: 'Keep both answers' } },
   none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
   // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
   tour: { branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', tour: { label: 'Walk the tour · 9 steps', action: 'walk' }, rows: [
@@ -82,6 +84,10 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
     await page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
     await page.waitForTimeout(50)
     if (!(await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: a redraw took the keyboard out of the box`)
+  }
+  if (view.answer?.concern) {
+    await page.click('.answer .concern .link:last-child')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'concern' && m.action === 'dismiss')))) fails.push(`${tag}: a concern action didn't post`)
   }
   if (view.answer?.next) {
     if (await page.locator('.answer textarea').count()) fails.push(`${tag}: a passed question still has its box`)

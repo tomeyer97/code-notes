@@ -3,7 +3,7 @@
 // clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
 // Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' }
-//      { type: 'focused', id, ok } (whether the keyboard reached the box)
+//      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
@@ -33,7 +33,7 @@
         const t = el('textarea', 'box')
         t.placeholder = 'Answer in 1–3 sentences'
         t.rows = 3
-        t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text} (Ctrl+Enter sends it)`)
+        t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
         t.value = drafts[a.id] ?? a.draft
         t.disabled = !!a.checking
         t.oninput = () => { drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
@@ -60,6 +60,15 @@
         if (a.grade.say) g.append(el('p', 'say', a.grade.say))
         w.append(g)
       }
+      // A concern about the code: its actions here too (the box may be closed after a pass).
+      if (a.concern) {
+        const c = el('div', 'concern')
+        c.append(el('p', null, `⚠ ${a.concern.text}`))
+        const acts = el('p', 'acts')
+        const act = (label, action) => { const b = el('button', 'link', label); b.onclick = () => post({ type: 'concern', id: a.id, action }); return b }
+        acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
+        c.append(acts); w.append(c)
+      }
       if (a.next) { const n = el('button', 'next', 'Next question ›'); n.onclick = () => post({ type: 'next' }); w.append(n) }
       return w
     },
@@ -82,7 +91,7 @@
       setTimeout(() => {
         const a = document.activeElement
         post({ type: 'focused', id: m.id, ok: document.hasFocus() && !!a && !!a.closest && !!a.closest(`.answer[data-id="${CSS.escape(m.id)}"]`) })
-      }, 250)
+      }, 1200)
       const go = () => {
         const w = boxOf(m.id)
         if (!w) return false
@@ -92,8 +101,10 @@
         w.scrollIntoView({ block: 'nearest' })
         return true
       }
-      // The view may still be drawing this question's box.
-      if (!go()) requestAnimationFrame(() => { if (!go()) setTimeout(go, 100) })
+      // The view may still be drawing this question's box (its view update can come a moment later): keep trying, 1 s.
+      let tries = 0
+      const again = () => { if (!go() && ++tries < 10) setTimeout(again, 100) }
+      requestAnimationFrame(again)
       return true
     },
   }

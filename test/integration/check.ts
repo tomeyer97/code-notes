@@ -69,7 +69,9 @@ export async function run(): Promise<void> {
     await toast.locator('.monaco-button', { hasText: button }).first().click()
   }
   const view = () => chk().view
-  const editorLine = () => vscode.window.activeTextEditor?.selection.active.line
+  // The code editor's caret (the keyboard may be in the Check view's box, where there is no active editor).
+  const codeEditor = () => { const a = vscode.window.activeTextEditor; return a?.document.uri.scheme === 'file' ? a : vscode.window.visibleTextEditors.find((e) => e.document.uri.scheme === 'file') }
+  const editorLine = () => codeEditor()?.selection.active.line
   const inLines = (a: number, b: number) => { const l = editorLine(); return l !== undefined && l >= a && l <= b }
 
   // 1. A branch with a change and no check: the status bar says so; so does the Check view.
@@ -81,8 +83,15 @@ export async function run(): Promise<void> {
   // 2. Uncommitted work doesn't stop the start: one line in the view names every file left out (modified ones too).
   fs.writeFileSync(path.join(ws, 'api', 'allowlist.js'), 'export const allow = []\n')
   fs.appendFileSync(path.join(ws, 'README.md'), '\nMore.\n')
+  // Claude fails first (a model that doesn't exist): said in the view in plain words, Retry; no toast.
+  fs.writeFileSync(path.join(ws, '.git', 'fake-write-error'), '')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('the failure in the view', () => view()?.failed?.text === "Claude couldn't use the model." && view().failed.setting === true && !view().action)
+  await shoot('check-0-failed')
+  fs.rmSync(path.join(ws, '.git', 'fake-write-error'))
+  api.checkPanelSend({ type: 'test', click: '.failed button.link' })
   await until('three question threads', () => checkNotes().length === 3)
+  await until('Retry worked: the failure is gone', () => !view().failed)
   await until('what was left out', () => chk().view.notice === 'Not asked about (uncommitted): README.md, allowlist.js')
   await shoot('check-0-uncommitted')
   fs.rmSync(path.join(ws, 'api', 'allowlist.js')); git('checkout', '--', 'README.md')
@@ -93,7 +102,7 @@ export async function run(): Promise<void> {
   assert.deepEqual([n1.file, n1.range.start, n1.range.end], ['api/limits.js', 4, 7])
   assert.match(api.thread(n1.id).contextValue, /check/)
   // Only question 1 opens: its code and its thread. No editor group for a list: it is in the sidebar.
-  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, path.join(ws, 'api/limits.js'))
+  await until('q1\'s code on screen', () => vscode.window.visibleTextEditors.some((e) => e.document.uri.fsPath === path.join(ws, 'api/limits.js')))
   await until('q1 open on its lines', () => api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded && inLines(3, 6))
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
   // One list of the questions: the Check view; the Code Notes tree doesn't repeat them.
@@ -112,12 +121,23 @@ export async function run(): Promise<void> {
     await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace')
     await until('the draft gone', () => view().answer?.draft === '')
   }
-  await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
+  await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass · ~2 min left.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
-  // Quietly: .gitattributes and .ignore for check files; nothing in the workspace's settings.
-  await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json gitlab-generated linguist-generated\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
+  assert.match(chk().itemLabel, /^Understanding check: 0 of 3 done\. Answer all 3/, 'read out as words, never an icon id')
+  // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
+  // workspace's settings. The view offers the setup once, as a commit of its own.
+  assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
+  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
   await shoot('check-1-questions')
+  const headBefore = git('rev-parse', 'HEAD')
+  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
+  await until('the setup committed', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup)
+  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\n')
+  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
+  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
   if (cdp) {
     // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
     const probe = path.join(ws, 'api', 'search-probe.txt')
@@ -131,7 +151,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('codeNotes.check.focus')
     ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
   }
-  ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view; .gitattributes and .ignore set quietly')
+  ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view')
 
   const answer = async (q: string, text: string) => {
     const n = noteOf(q)
@@ -142,7 +162,7 @@ export async function run(): Promise<void> {
   // 3. A good answer typed in the real reply box: ✓ in the thread, the verdict in the file; on to question 2.
   if (cdp) {
     const page = await ui()
-    await page.locator('.statusbar-item[aria-label*="Understanding 0/3"]').first().click()
+    await page.locator('.statusbar-item[aria-label*="Understanding check: 0 of 3 done"]').first().click()
     await sleep(800)
     await page.locator('.review-widget .review-thread-reply-button').first().click()
     await sleep(400)
@@ -169,6 +189,9 @@ export async function run(): Promise<void> {
   } else await vscode.commands.executeCommand('codeNotes.nextCheckQuestion')
   await until('Next question opens q2', () => inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
   assert.ok(api.thread(n1.id), 'the passed thread stays where it is')
+  // A remark on a passed question with markdown in it: shown as typed in the thread (no heading, no rule).
+  await answer('q1', '# not a heading\n---\n<b>x</b> [link](https://example.com)')
+  await until('the remark shown as typed', () => (api.thread(n1.id).comments as vscode.Comment[]).some((c) => /^\\# not a heading/.test((c.body as vscode.MarkdownString).value) && (c.body as vscode.MarkdownString).value.includes('\\[link\\]') && !(c.body as vscode.MarkdownString).supportHtml))
   ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the editor stays on q1 with the reply box cleared; "Next question ›" opens q2')
 
   // 4. A miss: feedback and a hint, the editor stays on the question's lines; the second miss explains; say it back.
@@ -180,8 +203,8 @@ export async function run(): Promise<void> {
     await until('the answer in the thread too', () => noteOf('q2').messages.some((m: any) => m.role === 'human' && m.body === 'Not sure.'))
   } else await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
-  const e = vscode.window.activeTextEditor!
-  assert.ok(e.selection.isEmpty, 'nothing selected'); assert.ok(inLines(9, 11), 'on the question')
+  const e = vscode.window.visibleTextEditors.find((x) => x.document.uri.fsPath === path.join(ws, 'api/limits.js'))!
+  assert.ok(e.selection.isEmpty, `nothing selected: ${JSON.stringify(e.selection)}`); assert.ok(inLines(9, 11), 'on the question')
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
   assert.ok(api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded, 'the thread stays open')
   assert.equal(chk().view.rows[1].word, 'try again')
@@ -189,7 +212,7 @@ export async function run(): Promise<void> {
   const q2n = noteOf('q2'), hintAt = q2n.messages.length - 1
   const linked = await until('the hint carries a code link', () => (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink')))
   assert.match((linked!.body as vscode.MarkdownString).value, /background-color:var\(--vscode-toolbar-hoverBackground\);">reset /)
-  const caret = vscode.window.activeTextEditor!.selection
+  const caret = e.selection
   const limitsText = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
   /** Real keys, as someone answering would type them next: none of it may reach the code. */
   const typeAway = async (what: string) => {
@@ -199,14 +222,15 @@ export async function run(): Promise<void> {
     await page.keyboard.press('Enter'); await page.keyboard.press('Backspace')
     await sleep(300)
     assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8'), limitsText, `${what}: the file on disk is untouched`)
-    assert.ok(!vscode.window.activeTextEditor?.document.isDirty, `${what}: the code in the editor is untouched`)
-    assert.equal(vscode.window.activeTextEditor?.document.getText(), limitsText, `${what}: no keystroke in the code`)
+    const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(ws, 'api/limits.js'))
+    assert.ok(!doc?.isDirty, `${what}: the code in the editor is untouched`)
+    assert.equal(doc?.getText(), limitsText, `${what}: no keystroke in the code`)
   }
   if (cdp) await (await ui()).locator('.review-widget .comment-body a', { hasText: 'reset' }).first().click()
   else await vscode.commands.executeCommand('codeNotes.codeLink', `check|${q2n.id}|${hintAt}`, 0)
   await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 })
   // Only lit: nothing selected, the caret where it was.
-  assert.ok(vscode.window.activeTextEditor!.selection.isEqual(caret), 'a code link moves no caret and selects nothing')
+  assert.ok(e.selection.isEqual(caret), 'a code link moves no caret and selects nothing')
   await shoot('check-2a-code-link')
   await typeAway('after a code link click')
   await vscode.commands.executeCommand('codeNotes.codeLinkBack')
@@ -249,7 +273,7 @@ export async function run(): Promise<void> {
   // 5. Ctrl+' D goes to the open question; a concern from the grader: Flag for reviewer.
   await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'README.md')))
   await vscode.commands.executeCommand('codeNotes.next')
-  await until('D opens q3', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
+  await until('D opens q3', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
   await answer('q3', 'GOOD CONCERN: they are in memory, so a restart forgets them.')
   await until('q3 passed with a concern', () => chk().view?.rows[2].flag === 'concern')
   await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'flag')
@@ -263,24 +287,26 @@ export async function run(): Promise<void> {
   ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file; Add TODO keeps it and says where the TODO went')
 
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
-  await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush')
+  await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush' && chk().view.line === 'A new file: not committed yet.')
   await until('status bar done', () => chk().item === '$(pass) Understanding')
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
-  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json, .gitattributes, .ignore' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
+  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
   await shoot('check-3-done')
-  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  // The status item does what the button does (Commit & push), not a jump to question 1.
+  void vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore', 'understanding/feat-limits.json'])
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['understanding/feat-limits.json'])
   assert.deepEqual(git('status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? api/scratch.js', 'M api/limits.js'], 'the TODO and other work are left alone')
   fs.rmSync(path.join(ws, 'api', 'scratch.js')); git('checkout', '--', 'api/limits.js')
-  ok('done: "✓ Done", Commit & push names and commits exactly the check file, .gitattributes and .ignore (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
+  ok('done: "✓ Done", Commit & push names and commits exactly the check file (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
 
   // 7. The CLI agrees (no model): the committed file passes `ci`.
   const out = execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } })
   assert.match(out, /^✓ Understanding check done/)
   ok('`ci` passes the committed file without calling a model')
+
 
   // 8. Ask Claude on a check question: a note of its own (the check's thread is left alone).
   const before = noteOf('q1').messages.length
@@ -309,6 +335,15 @@ export async function run(): Promise<void> {
   await until('undone', () => limDoc.getText() === lim0)
   if (limDoc.isDirty) await limDoc.save()
   ok('Suggest a fix: a note asked to Claude; one sentence and a suggestion; Apply puts it in, Undo takes it back')
+
+  // 8c. A concern can be marked fixed (once flagged) or dismissed with a reason: it leaves the thread, the row and the comment.
+  assert.ok((api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /\[Mark fixed\]\(command:codeNotes\.checkConcern[^)]*\) · \[Dismiss\]/.test((c.body as vscode.MarkdownString).value)), 'the quiet actions are there')
+  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'dismiss', 'A restart is fine: counts are per hour anyway.')
+  await until('dismissed', () => read().questions[2].concern?.dismissed?.reason === 'A restart is fine: counts are per hour anyway.' && read().questions[2].concern.flagged === false && !chk().view.rows[2].flag)
+  await until('gone from the thread', () => !(api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /Found while grading/.test(String((c.author as any)?.name))))
+  assert.doesNotMatch(execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } }), /restart lets everyone/)
+  git('commit', '-qam', 'dismissed')
+  ok('a concern dismissed with a reason (Dismiss, beside Mark fixed): kept in the file, gone from the thread, the row and the merge request')
 
   // 9. Drift: 45 new lines (uncommitted) → amber "Needs top-up" before any push.
   const lim = path.join(ws, 'api/limits.js')
@@ -342,22 +377,32 @@ export async function run(): Promise<void> {
   api.checkRefresh()
   await until('no check yet on feat/second', () => chk().view?.title === 'No check yet for feat/second')
   const gitDir = path.join(ws, '.git')
-  fs.writeFileSync(path.join(gitDir, 'fake-slow'), '')
+  const secondHead = git('rev-parse', 'HEAD')
+  // Switched before the writer even starts (Claude takes seconds to get going): everything is still for feat/second.
+  fs.writeFileSync(path.join(gitDir, 'fake-slow-start'), '')
   const job = vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-  await until('the writer is waiting', () => fs.existsSync(path.join(gitDir, 'fake-slow-waiting')), 20000)
+  await until('the writer is waiting', () => fs.existsSync(path.join(gitDir, 'fake-slow-start-waiting')), 20000)
+  const limitsCheck = fs.readFileSync(path.join(ws, 'understanding/feat-limits.json'), 'utf8')
   git('checkout', '-q', 'feat/limits')
-  fs.rmSync(path.join(gitDir, 'fake-slow'))
+  api.checkRefresh()
+  await until('feat/limits\'s view names the other branch', () => /^Writing questions for feat\/second/.test(chk().view?.busy ?? ''))
+  fs.rmSync(path.join(gitDir, 'fake-slow-start'))
   await job
   const cached = path.join(ws, '.code-notes/.cache/checks/feat-second.json')
   await until('kept in the cache', () => fs.existsSync(cached) && !fs.existsSync(path.join(ws, 'understanding/feat-second.json')))
   assert.equal(fs.readFileSync(path.join(ws, '.code-notes/.cache/.gitignore'), 'utf8'), '*\n')
+  const kept2 = JSON.parse(fs.readFileSync(cached, 'utf8'))
+  assert.deepEqual([kept2.branch, kept2.head, kept2.questions.length], ['feat/second', secondHead, 2], 'written for feat/second at its commit, about its own 30 lines (stacked on feat/limits\'s check)')
+  // Nothing was written to the branch checked out meanwhile.
+  assert.equal(fs.readFileSync(path.join(ws, 'understanding/feat-limits.json'), 'utf8'), limitsCheck, 'feat/limits\'s check untouched')
+  assert.equal(git('status', '--porcelain'), '', 'feat/limits: nothing new in the working tree')
   git('checkout', '-q', 'feat/second')
   api.checkRefresh()
-  await until('put in place on return', () => fs.existsSync(path.join(ws, 'understanding/feat-second.json')) && !fs.existsSync(cached) && chk().view?.title === '0 of 3 done')
+  await until('put in place on return', () => fs.existsSync(path.join(ws, 'understanding/feat-second.json')) && !fs.existsSync(cached) && chk().view?.title === '0 of 2 done')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits again', () => chk().item === '$(pass) Understanding')
-  ok('questions finished after a branch switch wait in .code-notes/.cache (git-ignored) and are put in place on return')
+  ok('a branch switch while questions are written: they are written for the branch and commit they were started on, kept in .code-notes/.cache (git-ignored), nothing touches the branch checked out, and they are put in place on return')
 
   // 12. Someone else answering: one line in the view, nothing blocked.
   git('config', 'user.name', 'Bob'); git('config', 'user.email', 'bob@example.com')
@@ -378,6 +423,17 @@ export async function run(): Promise<void> {
   await until('and back', () => checkNotes().length === 3 && noteOf('q3'))
   ok('the check file rewritten on disk: a changed question gets a new thread, a removed one loses its thread')
 
+  // 12b2. A merge conflict in the check file: said so (not a parser error); Keep both answers merges it.
+  const whole = read()
+  const theirs = { ...whole, updatedAt: '2026-11-16T09:00:00.000Z' }
+  fs.writeFileSync(file, ['<<<<<<< HEAD', JSON.stringify(whole, null, 2), '=======', JSON.stringify(theirs, null, 2), '>>>>>>> pairing', ''].join('\n'))
+  await until('the conflict said', () => chk().view?.title === 'The check file has a merge conflict' && chk().view.action?.id === 'merge' && chk().item === '$(warning) Understanding: merge conflict')
+  await shoot('check-7-conflict')
+  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  await until('merged', () => !fs.readFileSync(file, 'utf8').includes('<<<<<<<') && chk().view?.title === '✓ Done' && checkNotes().length === 3)
+  fs.writeFileSync(file, kept)
+  ok('a merge conflict in the check file: "The check file has a merge conflict", Keep both answers merges it')
+
   // 12c. Pushed without a check: the questions are written in the background; nothing opens until clicked.
   git('checkout', '-q', '-b', 'feat/third')
   fs.writeFileSync(path.join(ws, 'api', 'third.js'), 'export const third = 3\n')
@@ -388,16 +444,16 @@ export async function run(): Promise<void> {
   // As in real use, VS Code's git has seen the branch before it is pushed.
   await until('git sees feat/third', () => (chk().bg as string[]).includes('feat/third unpushed (new)'), 20000)
   git('push', '-q', '-u', 'origin', 'feat/third')
-  await until('questions ready in the background', () => chk().item === '$(checklist) 3 questions ready', 40000)
+  await until('questions ready in the background', () => chk().item === '$(checklist) 1 question ready', 40000)
   assert.ok(fs.existsSync(path.join(ws, 'understanding/feat-third.json')))
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, where, 'nothing opened by itself')
   await shoot('check-5-ready')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-  await until('a click opens q1', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && chk().item === '$(checklist) Understanding 0/3')
+  await until('a click opens q1', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
-  ok('pushed without a check: questions written in the background, "3 questions ready", nothing opens; a click opens question 1')
+  ok('pushed without a check: questions written in the background, "1 question ready" (stacked: only its own line), nothing opens; a click opens question 1')
 
   // 13. The tour of the change: written right after the questions, walked in the journey panel with the questions as
   // stops between the steps; a pass stays, Next walks on; rows of the Check view and of the storyline go to their step and question.

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Writes the questions of an understanding check, one validated question at a time (SKILL.md says how to use it).
-//   questions.mjs start [--base <ref>] [--top-up] [--replace]   the change, with new-file line numbers; starts a draft
+//   questions.mjs start [--base <ref>] [--branch <name> --head <sha>] [--top-up] [--replace]   the change, with new-file
+//                     line numbers; starts a draft. --branch/--head: the branch and commit the check is for, whatever is
+//                     checked out by the time each command runs (the person may switch meanwhile)
 //   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect]
 //                     [--links "<phrase>@<path>:A-B;…"]   phrases of the text that become links to those lines
 //   questions.mjs list | remove <qN> | finish
@@ -41,27 +43,52 @@ const TOUR_STEPS = [6, 10], TOPUP_STEPS = [1, 4]
 const fmtRange = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
 const qLine = (q) => `${q.id} (${q.kind}) ${q.file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also?.length ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''}${q.step ? ` · step ${q.step}` : ''}: ${q.text}`
 
+/**
+ * Where `branch`'s check file is: in the working tree while it is checked out, else in the git-ignored cache the
+ * extension puts back in place when the branch returns (so a branch switch never writes into another branch).
+ */
+function checkPath(branch) {
+  if (U.currentBranch(repo) === branch) return path.join(repo, U.fileFor(branch))
+  const cache = path.join(repo, U.cachedFor(branch))
+  fs.mkdirSync(path.dirname(cache), { recursive: true })
+  const ignore = path.join(repo, '.code-notes/.cache/.gitignore')
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n')
+  return cache
+}
+/** A file's lines at the draft's commit (the working tree may be another branch by now). */
+function linesAt(head, file) {
+  try { return U.git(repo, ['show', `${head}:${file}`]).split('\n') } catch { return undefined }
+}
+
 /** How many questions a change gets: by its size in code lines (U.questionsFor); a top-up gets 1, or 2 when it grew a lot. */
 function wanted(lines, topUp) {
   return topUp ? (lines < 80 ? 1 : 2) : U.questionsFor(lines, cfg)
 }
 
 if (cmd === 'start') {
-  const head = U.git(repo, ['rev-parse', 'HEAD']).trim()
-  const branch = U.currentBranch(repo)
+  const branch = typeof o.branch === 'string' ? o.branch : U.currentBranch(repo)
+  const head = U.git(repo, ['rev-parse', typeof o.head === 'string' ? `${o.head}^{commit}` : 'HEAD']).trim()
   const rel = U.fileFor(branch)
-  const existing = fs.existsSync(path.join(repo, rel)) ? U.readCheck(path.join(repo, rel)) : undefined
+  const at = checkPath(branch)
+  // Its check: here, in the cache, else as committed on that branch.
+  const committed = () => { try { return JSON.parse(U.git(repo, ['show', `${head}:${rel}`])) } catch { return undefined } }
+  const existing = fs.existsSync(at) ? U.readCheck(at) : U.currentBranch(repo) === branch ? undefined : committed()
   const topUp = !!o['top-up']
   if (topUp && !existing) fail(`--top-up: ${rel} doesn't exist yet; run start without it`)
   if (!topUp && existing && !o.replace) fail(`${rel} exists already. Use --top-up to add questions about what changed since, or --replace to start over (its answers are lost)`)
   const baseRef = typeof o.base === 'string' ? o.base : U.defaultBase(repo)
-  const base = baseRef && U.mergeBase(repo, baseRef, head)
-  if (!base) fail('no base to compare with: pass --base <branch or commit>')
+  const mb = baseRef && U.mergeBase(repo, baseRef, head)
+  if (!mb) fail('no base to compare with: pass --base <branch or commit>')
+  // Stacked on a branch whose check is committed here: only what came after that check's code.
+  const stack = U.stackBase(repo, mb, head, rel)
+  const base = stack?.base ?? mb
+  if (stack) say(`STACKED: on ${stack.branch}, whose check covers its own code; this change starts after it.`)
   // Committed code only: the questions record the commit they were written for (uncommitted lines would count as drift).
   // Code lines only: blank and comment-only lines don't count, nor the config's exempt files.
   // Always the branch's OWN change (from today's merge base): code that came in from the target branch is never asked.
   let files = U.numstat(repo, base, head)
-  const loose = U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt))
+  // Uncommitted lines: only those of this branch's working tree (another branch may be checked out by now).
+  const loose = U.currentBranch(repo) === branch ? U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt)) : 0
   const st = U.codeStat(repo, base, head, cfg.exempt)
   let lines = U.linesOf(st), ranges
   if (topUp) {
@@ -73,16 +100,28 @@ if (cmd === 'start') {
     ranges = U.rangesOf(fresh)
     files = files.filter((f) => ranges.has(f.file))
   }
-  if (!topUp && !lines && loose) { say(`UNCOMMITTED: this change is not committed yet (${loose} code lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
-  if (!lines || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
+  if (!topUp && !lines && loose && U.currentBranch(repo) === branch) { say(`UNCOMMITTED: this change is not committed yet (${loose} code lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
+  const renamedOnly = !topUp && !lines && st.renamed?.length > 0
+  if ((!lines && !renamedOnly) || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
   const diff = U.diffText(repo, base, head, files, cfg.exempt)
   ranges ??= U.changedRanges(diff, { codeOnly: true })
-  const want = wanted(lines, topUp)
+  // Removed code is part of the change: a question may sit where code was removed, and when the change only removes
+  // code, also where the removed code was used (any file).
+  for (const [f, rs] of U.removalPoints(diff)) ranges.set(f, [...(ranges.get(f) ?? []), ...rs])
+  // A moved file: a question about the move itself (--whole-file), never about the content it kept.
+  if (renamedOnly) for (const r of st.renamed) if (!ranges.has(r.to)) ranges.set(r.to, [])
+  const removedOnly = !topUp && st.added === 0 && st.removed > 0
+  // Only documentation changed: one question about what a reader now sees or understands differently.
+  const docsOnly = !topUp && !!st.docsOnly
+  const want = docsOnly ? 1 : wanted(lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
   const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
-  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), questions: [] })
+  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), ...(docsOnly ? { docsOnly } : {}), questions: [] })
   say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (docsOnly) say('DOCS ONLY: only documentation changed. Write ONE question about what a reader now sees, can do or understands differently (never why a word was chosen, never about unchanged text). "It is just wording" is a full answer.')
+  if (renamedOnly) say(`RENAMED ONLY: ${st.renamed.map((r) => `${r.from} → ${r.to}`).join(', ')}, 0 lines changed. Ask only what the move changes (how a tool, an import or a convention treats the new name or place), with --whole-file; never about the content it kept.`)
+  if (removedOnly) say(`REMOVED ONLY: this change only removes code. Ask what the removal changes: put a question on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on the code that used what was removed (any file; find it with Grep).`)
   if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
   say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
   const numbered = U.numberDiff(diff).split('\n')
@@ -99,9 +138,11 @@ if (cmd === 'add') {
   const text = String(o.text ?? '').replace(/\s+/g, ' ').trim()
   if (!U.KINDS.includes(kind)) fail(`--kind must be one of ${U.KINDS.join(', ')}`)
   if (!file) fail('--file is missing')
-  const abs = path.join(repo, file)
-  if (!fs.existsSync(abs)) fail(`${file} doesn't exist`)
-  const ranges = d.ranges[file]
+  // The file as committed in the change (whatever is checked out now).
+  const lines = linesAt(d.head, file)
+  if (!lines) fail(`${file} doesn't exist`)
+  // A removal-only change: also the code that used what was removed (anywhere).
+  const ranges = d.ranges[file] ?? (d.removedOnly ? [] : undefined)
   if (!ranges) fail(`${file} is not part of this ${d.mode === 'top-up' ? 'new change' : 'change'}: ask about the changed files (${Object.keys(d.ranges).join(', ')})`)
   if (text.length < 25) fail('--text is too short: ask a real question about this change')
   if (text.length > U.MAX_TEXT) fail(`--text is ${text.length} characters: at most ${U.MAX_TEXT}. One question, plainly`)
@@ -110,10 +151,12 @@ if (cmd === 'add') {
   if (/(,?\s+(and|or)( also| then)?|;|\s+as well as)\s+(how|what|why|when|where|which|who|whose|does|do|did|is|are|was|were|can|could|would|should|will|has|have|if)\b/i.test(text)) fail('--text asks two things ("…, and could …"): keep the one that matters')
   // "what happens to X, Y and Z": three things to cover is three questions.
   if (/,\s+(?!(?:what|how|why|when|where|which|who|does|do|is|are|can|could|would|should|will|if|so|but|or)\b)[^,?]{1,60},?\s+(and|or)\s+[^?]+\?$/i.test(text)) fail('--text asks about a list of things ("X, Y and Z"): ask about the one that matters')
+  // "What does f(x) return for 200 at qty 61?": one computed value per check at most.
+  const computed = (t) => /^(what|which)\b[^?]*\b(return|returns|price|cost|total|result|value)\b[^?]*\d/i.test(t) || /^(what|which)\b[^?]*\d[^?]*\breturns?\b/i.test(t)
+  if (computed(text) && d.questions.some((x) => computed(x.text))) fail('a second "what does it return for <numbers>" question: one is enough; ask why, or what can go wrong, instead')
   if (/\bline\s+\d+/i.test(text)) fail('--text names a line number: name the function, value or case instead (the question is shown on its lines)')
   if (/^(what does|what is)\b/i.test(text) && kind === 'how' && text.length < 60) say('WARNING: "what does X do" questions are trivia; ask how it behaves in a case, or why')
   const q = { id: '', kind, text, file }
-  const lines = fs.readFileSync(abs, 'utf8').split('\n')
   if (o['whole-file']) q.target = 'file'
   else {
     const m = /^(\d+)(?:-(\d+))?$/.exec(String(o.lines ?? ''))
@@ -124,7 +167,7 @@ if (cmd === 'add') {
     if (q.end - q.start > 40) fail('--lines: more than 40 lines; point at the lines that matter (the question shows on them)')
     const cs = {}
     if (!lines.slice(q.start - 1, q.end).map((l) => U.isCode(l, file, cs)).some(Boolean)) fail(`--lines ${q.start}-${q.end} hold only comments or blank lines: ask about code`)
-    const near = ranges.some(([a, b]) => q.start <= b + 5 && q.end >= a - 5)
+    const near = (d.removedOnly && !d.ranges[file]) || ranges.some(([a, b]) => q.start <= b + 5 && q.end >= a - 5)
     if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed code line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
     q.anchor = U.compactOf(lines, q.start, q.end)
   }
@@ -137,9 +180,8 @@ if (cmd === 'add') {
       const m = /^(.+):(\d+)(?:-(\d+))?$/.exec(part)
       if (!m) fail(`--also ${part}: write it as path:A-B`)
       const f = m[1].replace(/^\.\//, ''), a = Number(m[2]), b = Number(m[3] ?? m[2])
-      const fa = path.join(repo, f)
-      if (path.isAbsolute(f) || f.split(/[\\/]/).includes('..') || !fs.existsSync(fa)) fail(`--also: ${f} doesn't exist`)
-      const fl = fs.readFileSync(fa, 'utf8').split('\n')
+      const fl = path.isAbsolute(f) || f.split(/[\\/]/).includes('..') ? undefined : linesAt(d.head, f)
+      if (!fl) fail(`--also: ${f} doesn't exist`)
       if (b < a || b > fl.length) fail(`--also ${part}: ${f} has ${fl.length} lines`)
       if (b - a > 40) fail(`--also ${part}: more than 40 lines; point at the lines that matter`)
       if (f === q.file && q.start && a <= q.end && q.start <= b) fail(`--also ${part}: overlaps the question's own lines`)
@@ -158,7 +200,7 @@ if (cmd === 'add') {
       raw.push({ phrase, file: m[2].replace(/^\.\//, ''), start: Number(m[3]), end: Number(m[4] ?? m[3]) })
     }
     if (raw.length > 3) fail('--links: at most 3')
-    const ok = U.codeLinksIn(repo, raw)
+    const ok = U.codeLinksIn(repo, raw, (f) => { const l = linesAt(d.head, f); if (!l) throw new Error(f); return l })
     const bad = raw.filter((l) => !ok.some((x) => x.phrase === l.phrase))
     if (bad.length) fail(`--links: ${bad.map((l) => `${l.file}:${l.start}-${l.end}`).join(', ')} is not a range of a file in the repository`)
     q.links = ok
@@ -198,11 +240,12 @@ if (cmd === 'finish') {
   if (d.mode !== 'top-up' && n >= 3 && kinds.size < 2) fail('all questions are of one kind: mix them (how, why, failure, edge, change)')
   if (d.mode !== 'top-up' && n >= 3 && ![...kinds].some((k) => ['why', 'failure', 'edge'].includes(k))) fail('ask at least one why, failure or edge question')
   const rel = U.fileFor(d.branch)
-  const abs = path.join(repo, rel)
+  // Its branch was switched away from meanwhile: into the cache, never into the branch checked out now.
+  const abs = checkPath(d.branch)
   const model = process.env.UNDERSTANDING_MODEL_LABEL || process.env.UNDERSTANDING_MODEL || undefined
   let check
   if (d.mode === 'top-up') {
-    check = U.readCheck(abs)
+    check = fs.existsSync(abs) ? U.readCheck(abs) : JSON.parse(U.git(repo, ['show', `${d.head}:${rel}`]))
     let k = Math.max(0, ...check.questions.map((q) => Number(q.id.slice(1)) || 0))
     const round = Math.max(1, ...check.questions.map((q) => q.round ?? 1)) + 1
     for (const q of d.questions) check.questions.push({ ...q, id: `q${++k}`, round })
@@ -213,20 +256,21 @@ if (cmd === 'finish') {
   } else {
     const who = U.gitIdentity(repo)
     check = { version: 1, branch: d.branch, base: d.base, head: d.head, diffStat: d.diffStat, ...(who ? { answeredBy: who } : {}), ...(model ? { model } : {}), createdAt: new Date().toISOString(),
-      questions: d.questions.map((q, i) => ({ ...q, id: `q${i + 1}` })) }
+      questions: d.questions.map((q, i) => ({ ...q, id: `q${i + 1}`, ...(d.docsOnly ? { docs: true } : {}) })) }
   }
-  const errs = U.validateCheck(check, { repo })
+  // Its files are checked in the working tree only while its branch is checked out (they were read at its commit).
+  const errs = U.validateCheck(check, U.currentBranch(repo) === d.branch ? { repo } : {})
   if (errs.length) fail(`the file would not be valid: ${errs.join('; ')}`)
   U.writeCheck(abs, U.stamp(check, cfg))
   fs.rmSync(draftPath, { force: true })
-  say(`WROTE ${rel}: ${check.questions.length} questions${d.mode === 'top-up' ? ` (${n} new)` : ''}. Done: reply with one line per new question.`)
+  say(`WROTE ${path.relative(repo, abs) === rel ? rel : `${rel} (kept for ${d.branch}: it is not checked out)`}: ${check.questions.length} questions${d.mode === 'top-up' ? ` (${n} new)` : ''}. Done: reply with one line per new question.`)
   process.exit(0)
 }
 
 if (cmd === 'tour') {
-  const branch = U.currentBranch(repo)
+  const branch = typeof o.branch === 'string' ? o.branch : U.currentBranch(repo)
   const rel = U.fileFor(branch)
-  const abs = path.join(repo, rel)
+  const abs = checkPath(branch)
   if (!fs.existsSync(abs)) fail(`${rel} doesn't exist: write the questions first (start, add, finish)`)
   const check = U.readCheck(abs)
   const J = journeyPy()
@@ -312,7 +356,8 @@ if (cmd === 'tour-finish') {
   if (problems.length) fail(problems.join('; '))
   const model = process.env.UNDERSTANDING_MODEL_LABEL || process.env.UNDERSTANDING_MODEL || undefined
   check.journey = { ...j, id: TOUR, commit: check.head, ...(before?.createdAt ? { createdAt: before.createdAt, updatedAt: new Date().toISOString() } : { createdAt: new Date().toISOString() }), ...(model ? { model } : {}) }
-  const errs = U.validateCheck(check, { repo })
+  // Its files are checked in the working tree only while its branch is checked out (they were read at its commit).
+  const errs = U.validateCheck(check, U.currentBranch(repo) === branch ? { repo } : {})
   if (errs.length) fail(`the file would not be valid: ${errs.join('; ')}`)
   U.writeCheck(abs, U.stamp(check, cfg))
   fs.rmSync(stageDir(), { recursive: true, force: true })
