@@ -69,6 +69,9 @@ export class Understanding implements vscode.Disposable {
   async init(): Promise<void> {
     const p = vscode.Uri.joinPath(this.host.extUri, 'cli', 'understanding.mjs')
     this.U = (await importFn(pathToFileURL(p.fsPath).href)) as Cli
+    // Claude runs the skill's script by its path: it must be executable (an unzip may have dropped the bit).
+    const script = vscode.Uri.joinPath(this.host.extUri, 'skills', SKILL, 'scripts', 'questions.mjs').fsPath
+    try { fs.accessSync(script, fs.constants.X_OK) } catch { try { fs.chmodSync(script, 0o755) } catch { /* read-only install */ } }
     if (!this.folder || this.folder.uri.scheme !== 'file') return
     const f = this.folder
     const later = () => this.refreshSoon()
