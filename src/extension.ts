@@ -541,7 +541,7 @@ function checkHint(n: Note): string {
   const x = n.data.extra as { checkAsk?: string; checkFix?: string } | undefined
   if (x?.checkFix && !n.data.target && !n.data.messages.some((m) => m.author === 'Claude')) {
     const { start, end } = n.data.range
-    return `\n\nSuggest the smallest change that fixes it. Reply with one sentence, then one \`\`\`suggestion block holding the new text of lines ${start}-${end} (the lines of this note: the block replaces exactly those lines, so repeat the ones that stay as they are). Nothing more: no headings, no lists, no other code blocks, no tests. If the fix is not in these lines, say in one sentence where it is instead, without a block.`
+    return `\n\nSuggest the smallest change that fixes it, and one that fits the problem: it must not rely on the thing that failed (no alert through the mail server that is down), and needs no new setting or environment variable unless there is no other way. Reply with one sentence (at most 25 words), then one \`\`\`suggestion block holding the new text of lines ${start}-${end} (the lines of this note: the block replaces exactly those lines, so repeat the ones that stay as they are). Nothing more: no headings, no lists, no other code blocks, no tests. If the fix is not in these lines, say in one sentence where it is instead, without a block.`
   }
   const q = x?.checkAsk
   return q ? `\n\nThe person is answering an understanding check about this code. Its question: "${q}". Explain the code they ask about; never write, or hint at, the answer to that check question: they answer it themselves.` : ''
