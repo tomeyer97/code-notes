@@ -61,6 +61,13 @@ test('the Check view: the CLI\'s words, rows with their state, one button', () =
   assert.deepEqual(checkView(st({ state: { phase: 'drift', grew: 52, commitFirst: true } }), W({ tone: 'warn' })).action, { id: 'scm', label: 'Commit…' })
   assert.deepEqual(checkView(st({ exists: false, check: undefined, summary: undefined, state: { phase: 'none', changed: 28 } }), W({ title: 'No check yet for feat/x', line: '28 code lines changed.' })).action, { id: 'start', label: 'Start' })
   assert.equal(checkView(done, ok, { busy: 'Pushing…' }).action, undefined)
+  // Commit & push names what it commits; a TODO the check added is offered, not taken.
+  const commit = { files: ['understanding/feat-x.json', '.gitattributes', '.ignore'], todos: ['api/refunds.js'], include: new Set<string>() }
+  const cv = checkView(done, ok, { commit })
+  assert.equal(cv.commits, 'Commits feat-x.json, .gitattributes, .ignore')
+  assert.deepEqual(cv.also, [{ file: 'api/refunds.js', label: 'also refunds.js (TODO added)', on: false }])
+  assert.equal(checkView(done, ok, { commit: { ...commit, include: new Set(['api/refunds.js']) } }).also?.[0].on, true)
+  assert.equal(checkView(clean, ok, { unpushed: true, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set() } }).commits, undefined, 'nothing to commit: only the push')
   // Someone else's check: one line, nothing blocked.
   assert.equal(checkView(st(), W(), { me: { name: 'Bob', email: 'bob@example.com' } }).who, "Ada's check: your answers are recorded as yours.")
   assert.equal(checkView(st(), W(), { me: { name: 'Ada', email: 'ada@example.com' } }).who, undefined)

@@ -65,8 +65,8 @@ export function globRe(glob) {
   }
   return new RegExp(`${g.includes('/') ? '^' : '(^|/)'}${re}$`)
 }
-/** Files that never count: the check itself and Code Notes' notes. */
-const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/')
+/** Files that never count: the check itself, Code Notes' notes, and the repository lines `init` writes for them. */
+export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore'
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
 export function counted(file, exempt = []) {
   return !own(file) && !exempt.some((g) => globRe(g).test(file))

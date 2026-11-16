@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'ready' } { type: 'open', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' }
+// Out: { type: 'ready' } { type: 'open', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' } { type: 'include', file, on }
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
   const vscode = acquireVsCodeApi()
@@ -46,7 +46,18 @@
       }
       app.append(ol)
     }
-    if (V.action) { const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); app.append(el('footer')); app.lastChild.append(b) }
+    if (V.action) {
+      const f = el('footer')
+      // Commit & push: what it commits, and a TODO the check added, only when ticked.
+      if (V.commits) f.append(el('p', 'commits', V.commits))
+      for (const a of V.also || []) {
+        const l = el('label', 'also'), c = el('input')
+        c.type = 'checkbox'; c.checked = a.on; c.dataset.file = a.file
+        c.onchange = () => post({ type: 'include', file: a.file, on: c.checked })
+        l.append(c, el('span', '', a.label)); f.append(l)
+      }
+      const b = el('button', 'primary', V.action.label); b.onclick = () => post({ type: V.action.id }); f.append(b); app.append(f)
+    }
     if (focused) { const again = app.querySelector(`button.open[data-id="${focused}"]`); if (again) again.focus() }
     report()
   }
@@ -66,7 +77,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, button.primary, .busy')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, .commits, .also, button.primary, .busy')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

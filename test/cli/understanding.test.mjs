@@ -56,6 +56,8 @@ test('slugs, counted paths, thresholds', () => {
   assert.equal(U.fileFor('fix/a__b'), 'understanding/fix-a__b.json')
   // Nothing is exempt by default but the check itself and notes; the config's globs add more.
   assert.ok(U.counted('src/a.ts') && U.counted('README.md') && U.counted('web/package-lock.json') && !U.counted('understanding/x.json') && !U.counted('.code-notes/a.json'))
+  // The lines `init` writes for the check are not part of the change (nor drift).
+  assert.ok(!U.counted('.gitattributes') && !U.counted('.ignore') && U.counted('web/.gitattributes'))
   const ex = ['docs/**', '*.md', 'package-lock.json']
   assert.deepEqual(['README.md', 'docs/a/b.ts', 'web/package-lock.json', 'src/a.ts', 'src/docs/x.ts', 'a.mdx'].map((f) => U.counted(f, ex)), [false, false, false, true, true, true])
   assert.ok(U.globRe('src/**/*.test.js').test('src/a/b/c.test.js') && U.globRe('src/**/*.test.js').test('src/c.test.js') && !U.globRe('src/*.js').test('src/a/b.js'))

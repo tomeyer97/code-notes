@@ -66,6 +66,8 @@ const textHash = (q: Question) => require('crypto').createHash('sha1').update(`$
 /** The thread was made for this question as it is now (an older thread without a hash: its first message says). */
 const sameQuestion = (n: Note, q: Question) => { const h = linkOf(n)?.h; return h ? h === textHash(q) : n.data.messages[0]?.body === questionBody(q) }
 const BG_KEY = 'codeNotes.understanding.backgroundHeads'
+/** Per branch: files a TODO was added to from the check (offered, not committed, by Commit & push). */
+const TODO_KEY = 'codeNotes.understanding.todoFiles'
 /** The parts of VS Code's git extension API used here. */
 interface GitRepo { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> } }
 interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
@@ -89,6 +91,9 @@ export class Understanding implements vscode.Disposable {
   /** What the push watcher saw last (integration test). */
   private bgTrace: string[] = []
   private notice: string | undefined
+  /** What Commit & push would commit (refreshed while the check is done), and the TODO files ticked to go with it. */
+  private commit: { files: string[]; todos: string[] } | undefined
+  private include = new Set<string>()
   private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
   readonly grading = new Map<string, Ask | undefined>()
@@ -150,6 +155,7 @@ export class Understanding implements vscode.Disposable {
     // Pushed? Ahead of its upstream, or no upstream at all.
     const ahead = this.st?.state.phase === 'done' ? await gitOut(repo, ['rev-list', '--count', '@{u}..HEAD'], true) : undefined
     this.unpushed = ahead === undefined ? undefined : ahead !== '0'
+    this.commit = this.st?.state.phase === 'done' ? await this.toCommit() : undefined
     if (!this.writing) {
       const t = statusText(this.st, this.words)
       if (t && this.ready && this.st?.state.phase === 'answering' && !this.st.summary?.done) { t.text = `$(checklist) ${this.ready} question${this.ready === 1 ? '' : 's'} ready`; t.tip = `Questions about ${this.st.branch} are ready · Check my understanding` }
@@ -171,7 +177,8 @@ export class Understanding implements vscode.Disposable {
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
     const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
-    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice })
+    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice,
+      ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}) })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -204,7 +211,7 @@ export class Understanding implements vscode.Disposable {
   /** Uncommitted and untracked (not ignored) changes the questions won't see: "1 uncommitted change and 1 new file (x.js)". */
   private async loose(): Promise<string | undefined> {
     const out = await gitOut(this.repo!, ['status', '--porcelain', '--untracked-files=all'], true)
-    const lines = (out ?? '').split('\n').filter(Boolean).filter((l) => !/^.. (understanding|\.code-notes)\//.test(l))
+    const lines = (out ?? '').split('\n').filter(Boolean).filter((l) => !this.U.own(l.slice(3)))
     const fresh = lines.filter((l) => l.startsWith('??')).map((l) => path.basename(l.slice(3)))
     const changed = lines.length - fresh.length
     const parts = [changed ? `${changed} uncommitted change${changed === 1 ? '' : 's'}` : '', fresh.length ? `${fresh.length} new file${fresh.length === 1 ? '' : 's'} (${fresh.slice(0, 2).join(', ')}${fresh.length > 2 ? ', …' : ''})` : '']
@@ -371,17 +378,11 @@ export class Understanding implements vscode.Disposable {
 
   /**
    * On the first check, quietly: the repository's lines for check files (.gitattributes collapses them in merge
-   * request diffs, .ignore keeps them out of search tools; committed with the check), and this workspace's
-   * search.exclude. Said once in the view.
+   * request diffs, .ignore keeps them out of search: VS Code's search reads it, search.useIgnoreFiles); committed with
+   * the check. Nothing in the workspace's settings.
    */
   private async initRepo(): Promise<void> {
     try { const added = this.U.initRepo(this.repo!); if (added.length) this.host.log.info(`understanding check: added ${added.join('; ')}`) } catch (e) { this.host.log.error(`understanding check: init: ${e}`) }
-    const conf = vscode.workspace.getConfiguration('search', this.folder!.uri)
-    const mine = conf.inspect<Record<string, boolean>>('exclude')?.workspaceValue ?? {}
-    if (mine['understanding/**'] !== true) {
-      await conf.update('exclude', { ...mine, 'understanding/**': true }, vscode.ConfigurationTarget.Workspace)
-      this.notice = 'Answers are kept out of search.'
-    }
     await this.refresh()
   }
 
@@ -418,8 +419,9 @@ export class Understanding implements vscode.Disposable {
     return true
   }
 
-  private onView(m: { type: string; id?: string }): void {
+  private onView(m: { type: string; id?: string; file?: string; on?: boolean }): void {
     if (m.type === 'open' && m.id) void this.open(m.id)
+    else if (m.type === 'include' && m.file) { if (m.on) this.include.add(m.file); else this.include.delete(m.file); this.post() }
     else if (m.type === 'start') void this.write(false)
     else if (m.type === 'topUp') void this.write(true)
     else if (m.type === 'scm') void openScm()
@@ -427,11 +429,32 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'ready') this.post()
   }
 
-  /** Commit & push: the check file (and .gitattributes when its line is new) in one commit, then the push. */
+  /**
+   * What Commit & push commits: the check file and the setup files `init` changed; `todos`: files a TODO was added to
+   * from the check (uncommitted), committed only when ticked. Nothing else the person changed.
+   */
+  private async toCommit(): Promise<{ files: string[]; todos: string[] }> {
+    const repo = this.repo!, st = this.st!
+    const dirty = async (f: string) => fs.existsSync(path.join(repo, f)) && !!(await gitOut(repo, ['status', '--porcelain', '--', f], true))
+    const files = [st.file]
+    for (const f of REPO_FILES) if (await dirty(f)) files.push(f)
+    const todos: string[] = []
+    for (const f of this.todoFiles()) if (await dirty(f)) todos.push(f)
+    return { files, todos }
+  }
+  /** Files a TODO was added to from this branch's check. */
+  private todoFiles(): string[] { return this.st ? this.host.memento.get<Record<string, string[]>>(TODO_KEY)?.[this.st.branch] ?? [] : [] }
+  private async addTodoFile(file: string): Promise<void> {
+    const all = this.host.memento.get<Record<string, string[]>>(TODO_KEY) ?? {}
+    const b = this.st!.branch
+    if (!(all[b] ?? []).includes(file)) await this.host.memento.update(TODO_KEY, { ...all, [b]: [...(all[b] ?? []), file] })
+  }
+
+  /** Commit & push: exactly the files named in the view (the check file, the setup files, ticked TODO files), then the push. */
   async commitPush(): Promise<void> {
     if (!this.repo || !this.st || this.pushing) return
-    const files = [this.st.file]
-    for (const f of REPO_FILES) if (fs.existsSync(path.join(this.repo, f)) && await gitOut(this.repo, ['status', '--porcelain', '--', f], true)) files.push(f)
+    const { files, todos } = await this.toCommit()
+    files.push(...todos.filter((f) => this.include.has(f)))
     this.pushing = true; this.post()
     try {
       const r = await this.U.commitAndPush(this.repo, files, `Understanding check: ${this.st.branch}`)
@@ -670,6 +693,7 @@ export class Understanding implements vscode.Disposable {
       edit.insert(uri, new vscode.Position(line.lineNumber, 0), `${indent}${mark[0]} TODO: ${c.suspect ? q.text : c.text}${mark[1]}\n`)
       await vscode.workspace.applyEdit(edit)
       await doc.save()
+      await this.addTodoFile(n.data.file)
     }
     // Flag for reviewer: on the merge request (toggles); a TODO in the code takes the place of the flag.
     const abs = this.abs!
@@ -725,14 +749,14 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
   /** What the webview reported (integration test): rows drawn, layout problems, errors. */
   private reported: { rows?: number; overflow?: string[]; errors: string[]; height?: number } = { errors: [] }
 
-  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string }) => void) {}
+  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string; file?: string; on?: boolean }) => void) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.wv = view
     this.ready = false
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     view.webview.html = this.html(view.webview)
-    view.webview.onDidReceiveMessage((m: { type: string; id?: string; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
+    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
       if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
       else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
       else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }

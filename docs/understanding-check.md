@@ -40,8 +40,7 @@ will find a way around it, so every design choice below favours little friction.
    questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
    file). Questions cover committed code only: uncommitted or new files get one line first (Commit first, Continue).
    Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
-   checked out again. The first check also runs `init` and adds `understanding/**` to the workspace's
-   `search.exclude`.
+   checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar: where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
@@ -55,8 +54,9 @@ will find a way around it, so every design choice below favours little friction.
    note of its own, asked to Claude), Add TODO, Flag for reviewer. A pass moves on to the next open question.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
-5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push** (the check file,
-   with `.gitattributes`/`.ignore` when `init` changed them; `-u` without an upstream).
+5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push**, naming what it
+   commits: the check file, with `.gitattributes`/`.ignore` when `init` changed them (`-u` without an upstream). A file
+   a TODO was added to from the check is offered with a tick box; the person's other changes are left alone.
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
 
@@ -129,15 +129,15 @@ A line outside the diff falls back to a plain merge request note with a file:lin
 `understanding.mjs init` (the extension runs it on the first check) adds, once and without duplicating lines:
 
 - `.gitattributes`: `understanding/*.json linguist-generated=true`. GitLab and GitHub collapse the files in diffs.
-- `.ignore`: `understanding/`. ripgrep (and editors that use it) skip the folder in search. `git grep` users can
-  exclude it with `git grep … -- ':!understanding'`.
+- `.ignore`: `understanding/`. ripgrep and VS Code's search (`search.useIgnoreFiles`, on by default) skip the folder.
+  `git grep` users can exclude it with `git grep … -- ':!understanding'`.
 
 The files stay in the tree: CI reads them from the merge request's commit.
 
 ## Belongs to this change? (staleness)
 
 Only **code lines** count: blank lines and whole-line comments (by file type: `//`, `#`, `/* */`, `--`, `<!-- -->`) don't,
-nor `understanding/`, `.code-notes/` and the config's `exempt` files. Drift is measured on the branch's **own** change:
+nor `understanding/`, `.code-notes/`, the root `.gitattributes` and `.ignore` (what `init` writes) and the config's `exempt` files. Drift is measured on the branch's **own** change:
 CI diffs the branch against today's merge base and compares it, line by line (file, + or −, code text), with the change
 the questions were written for (`base` → `head`). Merging or rebasing onto the target branch adds nothing; lines resolved
 differently in a conflict count. If ≤ `maxDrift` new code lines (default 40) → still valid. Otherwise: "Your change grew by N lines since the check. Run

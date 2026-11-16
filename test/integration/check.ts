@@ -88,19 +88,31 @@ export async function run(): Promise<void> {
   if (cdp) {
     // The keyboard is in q1's thread, not in the code (typing there would edit limits.js).
     const page = await ui()
-    await until('focus in the thread, not the code', async () => page.evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.review-widget')))
+    await until('focus in the thread, not the code', async () => { const r = await page.evaluate(() => { const a = (globalThis as any).document.activeElement; return a?.closest?.('.review-widget') ? 'ok' : `${a?.tagName}.${a?.className} ${a?.getAttribute?.('aria-label') ?? ''}`.slice(0, 160) }); if (r !== 'ok') console.log('focus:', r); return r === 'ok' })
     await page.keyboard.type('typed')
     assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').includes('typed'), false)
     assert.ok(!vscode.window.activeTextEditor?.document.isDirty, 'the code is untouched')
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
-  // Quietly: .gitattributes and .ignore for check files, search.exclude for this workspace; said once in the view.
+  // Quietly: .gitattributes and .ignore for check files; nothing in the workspace's settings.
   await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json linguist-generated=true\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
-  assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], true)
-  await until('said once', () => chk().view.notice === 'Answers are kept out of search.')
+  assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
   await shoot('check-1-questions')
-  ok('Start: a one-line notice about uncommitted work (Continue), then only question 1 opens (code + thread); the list is the Check view; .gitattributes, .ignore and search.exclude set quietly')
+  if (cdp) {
+    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
+    const probe = path.join(ws, 'api', 'search-probe.txt')
+    fs.writeFileSync(probe, 'already expired\n')
+    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
+    const page = await ui()
+    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
+    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
+    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
+    fs.rmSync(probe)
+    await vscode.commands.executeCommand('codeNotes.check.focus')
+    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
+  }
+  ok('Start: a one-line notice about uncommitted work (Continue), then only question 1 opens (code + thread); the list is the Check view; .gitattributes and .ignore set quietly')
 
   const answer = async (q: string, text: string) => {
     const n = noteOf(q)
@@ -181,6 +193,8 @@ export async function run(): Promise<void> {
   await until('D opens q3', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
   await answer('q3', 'GOOD CONCERN: they are in memory, so a restart forgets them.')
   await until('q3 passed with a concern', () => chk().view?.rows[2].flag === 'concern')
+  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'todo')
+  await until('a TODO in the code', () => /TODO/.test(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')))
   await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'flag')
   await until('flagged in the file', () => read().questions[2].concern?.flagged === true && chk().view.rows[2].flag === 'flagged for review')
   ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file')
@@ -188,12 +202,17 @@ export async function run(): Promise<void> {
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
   await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush')
   await until('status bar done', () => chk().item === '$(pass) Understanding')
+  // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
+  fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
+  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json, .gitattributes, .ignore' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
   await shoot('check-3-done')
   api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
   assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore', 'understanding/feat-limits.json'])
-  ok('done: "✓ Done", Commit & push commits the check file (with .gitattributes and .ignore) and pushes with -u; the view says "Pushed."')
+  assert.deepEqual(git('status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? api/scratch.js', 'M api/limits.js'], 'the TODO and other work are left alone')
+  fs.rmSync(path.join(ws, 'api', 'scratch.js')); git('checkout', '--', 'api/limits.js')
+  ok('done: "✓ Done", Commit & push names and commits exactly the check file, .gitattributes and .ignore (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
 
   // 7. The CLI agrees (no model): the committed file passes `ci`.
   const out = execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } })

@@ -60,6 +60,8 @@ export interface Cli {
   fileFor(branch: string): string
   slugOf(branch: string): string
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
+  /** The check file, Code Notes' notes and the setup files: never part of the change, never "uncommitted work". */
+  own(file: string): boolean
   /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
   initRepo(repo: string): string[]
   codeLinksIn(repo: string, links: Link[]): Link[]
@@ -142,8 +144,11 @@ export interface CheckView {
   who?: string
   /** Writing questions now: "Writing questions · 0:42 · reading the change". */
   busy?: string
-  /** Said once: "Answers are kept out of search." */
+  /** One line about what the questions left out. */
   notice?: string
+  /** With Commit & push: what it commits ("feat-x.json, .gitattributes"), and files a TODO was added to, to tick. */
+  commits?: string
+  also?: { file: string; label: string; on: boolean }[]
 }
 
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
@@ -152,7 +157,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> } } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -171,11 +176,18 @@ export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Se
     else line = 'Pushed.'
     if (o.pushed && o.pushed !== 'Pushed.') line = o.pushed
   }
+  // Commit & push names what it commits; a TODO added from the check is the person's choice.
+  const base = (f: string) => f.split('/').pop()!
+  const files = o.commit ? [...(st.dirty ? [st.file] : []), ...o.commit.files.filter((f) => f !== st.file)] : []
+  const commit = action?.id === 'commitPush' && o.commit ? {
+    ...(files.length ? { commits: `Commits ${files.map(base).join(', ')}` } : {}),
+    ...(o.commit.todos.length ? { also: o.commit.todos.map((f) => ({ file: f, label: `also ${base(f)} (TODO added)`, on: o.commit!.include.has(f) })) } : {}),
+  } : {}
   const by = st.check?.answeredBy
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
-    ...(action && !o.busy ? { action } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
+    ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
   }
 }

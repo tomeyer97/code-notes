@@ -19,7 +19,8 @@ const views = {
     row('q3', 3, 'Edge case', long, 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js:32', 'todo', '', { flag: 'may be a bug' })] },
   done: { branch: 'feat/a-branch-with-a-rather-long-name-for-testing', file: 'understanding/feat-a-branch-with-a-rather-long-name-for-testing.json', tone: 'ok', title: '✓ Done', line: 'Commit and push.',
     rows: ['pass', 'restated', 'explained', 'pass'].map((s, i) => row(`q${i + 1}`, i + 1, 'How', `Question ${i + 1}: how does the worker stop a second charge for the same job?`, 'api/orders.js:12', s, s === 'explained' ? 'explained · say it back' : s === 'restated' ? 'in your words' : '', i === 2 ? { flag: 'flagged for review' } : {})),
-    action: { id: 'commitPush', label: 'Commit & push' }, who: "Ada's check: your answers are recorded as yours." },
+    action: { id: 'commitPush', label: 'Commit & push' }, who: "Ada's check: your answers are recorded as yours.",
+    commits: 'Commits feat-a-branch-with-a-rather-long-name-for-testing.json, .gitattributes, .ignore', also: [{ file: 'services/api/src/refunds.js', label: 'also refunds.js (TODO added)', on: false }] },
   drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
   none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
   writing: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], busy: 'Writing questions · 0:42 · reading the change' },
@@ -46,6 +47,10 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
   if (view.rows.length) {
     await page.click('button.open[data-id="q2"]')
     if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'open' && m.id === 'q2')))) fails.push(`${tag}: a row click didn't open its question`)
+  }
+  if (view.also) {
+    await page.click('footer .also input')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'include' && m.file === 'services/api/src/refunds.js' && m.on === true)))) fails.push(`${tag}: ticking the TODO file didn't post`)
   }
   if (view.action) {
     await page.click('footer button.primary')
