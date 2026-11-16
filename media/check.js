@@ -98,7 +98,7 @@
     const m = ev.data
     if (m.type === 'check') { V = m.view; render() }
     else if (m.type === 'test' && m.click) { const t = document.querySelector(m.click); if (t) t.click() }
-    else if (window.checkAnswer) window.checkAnswer.message(m)
+    else if (window.checkAnswer) window.checkAnswer.message(m, post)
   })
   post({ type: 'ready' })
 })()

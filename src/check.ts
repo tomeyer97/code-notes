@@ -474,7 +474,7 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'draft' && m.id && typeof m.text === 'string') void this.setDraft(m.id, m.text)
     else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
     else if (m.type === 'next') void this.step(1)
-    else if (m.type === 'escape') void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')
+    else if (m.type === 'escape') { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') }
     else if (m.type === 'include' && m.file) { if (m.on) this.include.add(m.file); else this.include.delete(m.file); this.post() }
     else if (m.type === 'start') void this.write(false)
     else if (m.type === 'topUp') void this.write(true)
@@ -840,10 +840,11 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     this.ready = false
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     view.webview.html = this.html(view.webview)
-    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
+    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; ok?: boolean; text?: string; i?: number; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
       if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
       else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
       else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }
+      else if (m.type === 'focused' && m.id) this.focused(m.id, !!m.ok)
       this.onMessage(m)
     })
     view.onDidDispose(() => { this.wv = undefined; this.ready = false })
@@ -855,10 +856,26 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     else void vscode.commands.executeCommand('codeNotes.check.focus').then(() => vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'))
   }
   update(v: CheckView | undefined): void { this.last = v; this.post() }
-  /** The keyboard into question `id`'s answer box (the view shown and focused first). */
+  /** The keyboard into question `id`'s answer box (the view shown and focused first; once more if it didn't arrive). */
   async focus(id: string): Promise<void> {
+    const e = vscode.window.activeTextEditor
+    this.focusTries = { id, left: 1, sel: e ? `${e.document.uri}|${e.selection.active.line}:${e.selection.active.character}` : '' }
     if (this.wv) this.wv.show(false)
     else await vscode.commands.executeCommand('codeNotes.check.focus')
+    this.send({ type: 'focus', id })
+  }
+  private focusTries: { id: string; left: number; sel: string } | undefined
+  /** Esc, or anything else that moves on: no second try. */
+  cancelFocus(): void { this.focusTries = undefined }
+  private focused(id: string, ok: boolean): void {
+    const t = this.focusTries
+    if (ok || !t || t.id !== id || t.left <= 0 || !this.wv) { if (ok) this.focusTries = undefined; return }
+    // The person moved on meanwhile (the caret moved): leave the keyboard where they put it.
+    const e = vscode.window.activeTextEditor
+    if ((e ? `${e.document.uri}|${e.selection.active.line}:${e.selection.active.character}` : '') !== t.sel) { this.focusTries = undefined; return }
+    t.left--
+    this.log.info(`check view: the answer box didn't get the keyboard; again`)
+    this.wv.show(false)
     this.send({ type: 'focus', id })
   }
   private post(): void {

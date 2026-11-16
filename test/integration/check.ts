@@ -100,7 +100,7 @@ export async function run(): Promise<void> {
   if (cdp) {
     // The keyboard is in q1's answer box in the Check view, not in the code (typing there would edit limits.js).
     const page = await ui()
-    await until('focus in the answer box, not the code', async () => (await boxFocused()) === 'q1')
+    await until('focus in the answer box, not the code', async () => { const b = await boxFocused(); if (b !== 'q1') console.log('focus at start:', b, await page.evaluate(() => { const a = (globalThis as any).document.activeElement; return `${a?.tagName}.${a?.className}`.slice(0, 120) })); return b === 'q1' })
     await page.keyboard.type('typed')
     assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').includes('typed'), false)
     assert.ok(!vscode.window.activeTextEditor?.document.isDirty, 'the code is untouched')

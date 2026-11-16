@@ -3,6 +3,7 @@
 // clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
 // Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' }
+//      { type: 'focused', id, ok } (whether the keyboard reached the box)
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
@@ -75,8 +76,13 @@
       const t = w && w.querySelector('textarea:not([disabled])')
       if (t) { t.focus(); if (k.box) t.setSelectionRange(k.s, k.e) } else if (w && w.querySelector('.next')) w.querySelector('.next').focus()
     },
-    message(m) {
+    message(m, post) {
       if (m.type !== 'focus') return false
+      // Did the keyboard arrive? (The view may have been focused late, or not at all: then the extension tries again.)
+      setTimeout(() => {
+        const a = document.activeElement
+        post({ type: 'focused', id: m.id, ok: document.hasFocus() && !!a && !!a.closest && !!a.closest(`.answer[data-id="${CSS.escape(m.id)}"]`) })
+      }, 250)
       const go = () => {
         const w = boxOf(m.id)
         if (!w) return false
