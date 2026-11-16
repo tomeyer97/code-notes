@@ -13,7 +13,7 @@ import { pathToFileURL } from 'url'
 import { Ask, AskResult } from './claude'
 import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
-import { Check, CheckView, Cli, Link, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from './checkModel'
+import { Check, CheckView, Cli, Link, QState, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, tourPrompt } from './checkModel'
 import { clock } from './writing'
 
 /** What the check needs from the rest of the extension (extension.ts). */
@@ -48,6 +48,16 @@ export interface CheckHost {
   listChanged?(): void
   /** A new note on these lines with this question, asked to Claude (Ask Claude on a check question). */
   askAbout(file: string, start: number, end: number, question: string, extra: Record<string, unknown>): Promise<void>
+  /** The code-journey skill's folder (its journey.py writes the tour), or undefined. */
+  journeySkill?(): string | undefined
+  /** The check (or none) changed: its tour is shown and walked like a journey (absolute path of the check file). */
+  tourChanged?(check: Check | undefined, file: string | undefined, branch: string | undefined): Promise<void>
+  /** Walks the check's tour (where it was left, else step 1); false when there is none. */
+  walkTour?(): Promise<boolean>
+  /** A question of the tour: its step, then its thread; false when it has no step (then it opens on its own). */
+  openInTour?(id: string): Promise<boolean>
+  /** After a pass: the walk is at this question, so it goes on to the next stop; false when no walk is there. */
+  tourNext?(id: string): Promise<boolean>
 }
 
 export const SESSION = (branch: string) => `Check · ${branch}`
@@ -90,6 +100,9 @@ export class Understanding implements vscode.Disposable {
   private bgTrace: string[] = []
   private notice: string | undefined
   private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
+  /** The tour being written (after the questions: they can be answered meanwhile); the last try failed (branch). */
+  private touring: { started: number; phase: string; ask?: Ask } | undefined
+  private tourFailed: string | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
   readonly grading = new Map<string, Ask | undefined>()
   readonly gradeErrors = new Map<string, string>()
@@ -160,6 +173,7 @@ export class Understanding implements vscode.Disposable {
       } else this.item.hide()
     }
     if (this.st?.check) await this.syncThreads(this.st.check)
+    await this.host.tourChanged?.(this.st?.check, this.abs, this.st?.branch)
     this.post()
     this.host.listChanged?.()
   }
@@ -171,7 +185,8 @@ export class Understanding implements vscode.Disposable {
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
     const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
-    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice })
+    const tourBusy = this.touring ? `Writing the tour · ${clock(Date.now() - this.touring.started)}` : undefined
+    return checkView(this.st, this.words, { busy, tourBusy, tourFailed: this.tourFailed === this.st.branch, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -180,17 +195,22 @@ export class Understanding implements vscode.Disposable {
   /** Check my understanding: write the questions (or top them up), else show them. */
   async run(): Promise<void> {
     if (!this.repo) { void vscode.window.showInformationMessage('Open a folder (a git repository) to check your understanding of a change.'); return }
+    // Questions written in the background are being opened: the status bar no longer says they are ready.
+    const ready = this.ready
+    this.ready = 0
     await this.refresh()
     const st = this.st
     if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
     // Questions written in the background: the notice about uncommitted work now, as the person opens them.
-    if (this.ready) { this.ready = 0; const loose = await this.loose(); if (loose) void vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`) }
+    if (ready) { const loose = await this.loose(); if (loose) void vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`) }
     const p = st.state.phase
     if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
     if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
     if (p === 'none') { await this.write(false); return }
     this.show()
     if (p === 'drift') { if (st.state.commitFirst) await openScm(); else await this.write(true); return }
+    // A check with a tour opens it: the steps lead to the questions. Without one, the first open question.
+    if (st.check?.journey && (await this.host.walkTour?.())) return
     await this.openNext()
   }
 
@@ -275,11 +295,71 @@ export class Understanding implements vscode.Disposable {
     }
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
     if (!topUp) await this.initRepo()
+    // Then the tour, in the same session (the change is read already); the questions can be answered meanwhile. It
+    // starts once question 1 is open (its thread has the keyboard before anything else is drawn).
+    const tour = () => void this.writeTour(topUp, { session: res.sessionId, background: bg })
     // In the background: the status bar says so; nothing opens until the person clicks.
-    if (bg) { this.ready = after - before; await this.refresh(); return true }
+    if (bg) { this.ready = after - before; await this.refresh(); tour(); return true }
     // Only the first question opens: its code and its thread. The list is in the Check view.
     await this.openNext()
+    tour()
     return true
+  }
+
+  /**
+   * Claude writes the check's tour: a journey of the change through the code the questions are about, each question
+   * placed after the step that shows its answer (skills/understanding-check, "The tour"). No progress notification:
+   * the Check view says "Writing the tour · 1:20"; the questions stay open meanwhile. `topUp`: steps for the new part.
+   */
+  async writeTour(topUp: boolean, o: { session?: string; background?: boolean } = {}): Promise<boolean> {
+    const repo = this.repo, check = this.st?.check
+    if (!repo || !check || this.touring) return false
+    if (o.background ? !vscode.workspace.isTrusted : !this.host.allowed('write the tour of your change')) return false
+    const cli = this.host.cli()
+    const js = this.host.journeySkill?.()
+    if (!cli || !js) { this.host.log.info(`understanding check: no tour (${!cli ? 'no claude CLI' : 'no code-journey skill'})`); return false }
+    const { dir, bundled } = this.skill()
+    const model = this.host.model()
+    const before = check.journey?.steps.length ?? 0
+    const t = (this.touring = { started: Date.now(), phase: 'starting' } as NonNullable<Understanding['touring']>)
+    const branch = this.st!.branch
+    this.tourFailed = undefined
+    this.post()
+    const timer = setInterval(() => this.post(), 1000)
+    this.host.log.info(`understanding check: Claude (${model ?? 'default model'}) is writing the tour of ${this.st!.branch}${o.session ? ' (same session)' : ''}`)
+    let res: AskResult
+    try {
+      const ask = new Ask({
+        cli, cwd: repo, model, resume: o.session,
+        prompt: tourPrompt({ skill: dir, journeySkill: js, topUp: topUp && before > 0, bundled, resumed: !!o.session }),
+        extraTools: [`Bash(${dir}/scripts/*)`, `Bash(${js}/scripts/*)`], addDirs: [dir, js],
+        env: { UNDERSTANDING_CLI: vscode.Uri.joinPath(this.host.extUri, 'cli', 'understanding.mjs').fsPath, UNDERSTANDING_MODEL_LABEL: model ?? 'Claude Code default', JOURNEY_PY: path.join(js, 'scripts', 'journey.py'), JOURNEY_MODEL: model ?? 'Claude Code default' },
+        onProgress: (p) => { t.phase = checkPhase(p.tool, t.phase) },
+      })
+      t.ask = ask
+      res = await ask.done
+    } finally { clearInterval(timer); this.touring = undefined }
+    await this.refresh()
+    if (res.cancelled) return false
+    const after = this.st?.check?.journey?.steps.length ?? 0
+    if (res.error || after <= before) {
+      this.host.log.error(`understanding check: no tour: ${res.error ?? res.text.trim().split('\n').slice(-3).join(' ')}`)
+      this.tourFailed = branch
+      this.post()
+      return false
+    }
+    this.host.log.info(`understanding check: tour written (${after - before} steps) in ${clock(Date.now() - t.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+    if (!o.background && this.st?.state.phase !== 'done') {
+      void vscode.window.showInformationMessage('The tour of your change is ready.', 'Walk it').then((b) => { if (b) void this.host.walkTour?.() })
+    }
+    return true
+  }
+
+  /** The questions as stops of the tour: after which step, their state. */
+  tourStops(): { id: string; n: number; step: number; text: string; state: QState }[] {
+    const c = this.st?.check
+    if (!c?.journey || !this.U) return []
+    return c.questions.flatMap((q, i) => (q.step ? [{ id: q.id, n: i + 1, step: q.step, text: q.text, state: this.grading.has(q.id) ? 'ungraded' as QState : this.U.stateOf(q) }] : []))
   }
 
   /** Claude writes the questions without a progress notification (the background run). */
@@ -419,7 +499,9 @@ export class Understanding implements vscode.Disposable {
   }
 
   private onView(m: { type: string; id?: string }): void {
-    if (m.type === 'open' && m.id) void this.open(m.id)
+    if (m.type === 'open' && m.id) { const id = m.id; void (this.host.openInTour?.(id) ?? Promise.resolve(false)).then((ok) => { if (!ok) void this.open(id) }) }
+    else if (m.type === 'tour') void this.host.walkTour?.()
+    else if (m.type === 'writeTour') void this.writeTour(false)
     else if (m.type === 'start') void this.write(false)
     else if (m.type === 'topUp') void this.write(true)
     else if (m.type === 'scm') void openScm()
@@ -594,7 +676,7 @@ export class Understanding implements vscode.Disposable {
     const mode = this.U.gradeMode(q)
     let diff = ''
     try { diff = this.U.diffText(repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
-    const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true })
+    const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true, tour: this.U.tourText(check) })
     const ask = new Ask({ cli, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
     this.post(); this.host.refresh()
@@ -620,7 +702,10 @@ export class Understanding implements vscode.Disposable {
       this.host.log.info(`understanding check: ${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
       await this.refresh() // the grade reaches the thread through syncThreads
       // A pass: on to the next question, if the person is still on this one (the passed thread stays open).
-      if ((v.verdict === 'pass' || v.verdict === 'restated') && !v.concern && n && this.host.revealed() === n.data.id && this.hasOpen()) await this.step(1)
+      // On a walk of the tour, the walk goes on; else the next open question.
+      if ((v.verdict === 'pass' || v.verdict === 'restated') && !v.concern && n && this.host.revealed() === n.data.id) {
+        if (!(await this.host.tourNext?.(id)) && this.hasOpen()) await this.step(1)
+      }
     } finally { this.post(); this.host.refresh() }
   }
 
@@ -689,7 +774,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** For the integration test. */
-  snapshot() { return { bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
+  snapshot() { return { tourBusy: !!this.touring, bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
   panelSend(m: unknown): void { this.view.send(m) }
 
   dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer) }

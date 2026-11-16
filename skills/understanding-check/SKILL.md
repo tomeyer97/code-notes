@@ -87,6 +87,9 @@ instead of reading the code cold. Write it only when the request asks for the to
      the title true (≤ 15). Details and refs only where they save a click.
    - **Each question's answer must be visible by its step**: a step up to it shows the question's lines (or the code
      it depends on). Order the steps so the questions come along the way, not all at the end.
+   - **Show the way to an answer, never the answer**: the steps state what the code does, one fact each; the author
+     puts two facts together to answer. A title or lead that says what a question asks for ("so a failed refund is
+     not listed", "so a restart loses the job") gives it away: cut that clause.
    - Then 1-3 `link`s per step (a phrase of the lead to the lines doing it). No `value`, no `scene`.
    - `check <repo> tour quiet --dir …`: fix every PROBLEM and WARNING it prints.
 3. `questions.mjs tour-finish --steps q1=3,q2=5,…`: for each question, the step after which its answer can be seen.

@@ -18,8 +18,11 @@ export interface StepAt { start: number; end: number; stale: boolean; file?: str
   removed?: boolean; was?: string; now?: string }
 /** The file a step's code is in now. */
 export const fileOf = (lj: LoadedJourney, n: number) => lj.at[n - 1]?.file ?? lj.j.steps[n - 1].file
-/** `readError`: the file on disk can't be read now; this is the last good version. */
-export interface LoadedJourney { key: string; folder: vscode.WorkspaceFolder; uri: vscode.Uri; j: Journey; at: StepAt[]; readError?: string }
+/**
+ * `readError`: the file on disk can't be read now; this is the last good version. `check`: the tour of an
+ * understanding check (embedded in the check file `uri`): walked like any journey, never listed with them.
+ */
+export interface LoadedJourney { key: string; folder: vscode.WorkspaceFolder; uri: vscode.Uri; j: Journey; at: StepAt[]; readError?: string; check?: { branch: string } }
 
 const decoder = new TextDecoder()
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -73,12 +76,47 @@ export class Journeys implements vscode.Disposable {
     return f !== file ? f : undefined
   }
 
-  all(): LoadedJourney[] { return [...this.list.values()].sort((a, b) => a.j.title.localeCompare(b.j.title)) }
-  byPos(key: string | undefined): LoadedJourney | undefined { return key ? this.all().find((x) => posKey(x) === key) : undefined }
+  /** The journeys of the lists, lenses and search: never a check's tour (it is reached from the Check view). */
+  all(): LoadedJourney[] { return [...this.list.values()].filter((x) => !x.check).sort((a, b) => a.j.title.localeCompare(b.j.title)) }
+  byPos(key: string | undefined): LoadedJourney | undefined { return key ? [...this.list.values()].find((x) => posKey(x) === key) : undefined }
+
+  /** Checks' tours (by key), kept across a reload of the journeys folders. */
+  private tours = new Map<string, LoadedJourney>()
+  /**
+   * The tour of a check (its `journey`), shown and walked like a journey file; undefined removes it. Its id is made
+   * per branch, so where it was left is kept per branch. Returns it (unchanged when the same tour is set again).
+   */
+  async setTour(folder: vscode.WorkspaceFolder, uri: vscode.Uri, raw: unknown, branch: string): Promise<LoadedJourney | undefined> {
+    const key = `${uri.toString()}#tour`
+    const prev = this.tours.get(key)
+    if (!raw) {
+      if (prev) { this.tours.delete(key); this.list.delete(key); this.changed.fire() }
+      return undefined
+    }
+    const text = JSON.stringify(raw)
+    if (prev && this.tourText.get(key) === text && prev.check?.branch === branch) return prev
+    const j = parseJourney(text, 'tour')
+    if (typeof j === 'string') { this.log.warn(`check tour in ${uri.fsPath}: not shown: ${j}`); if (prev) { this.tours.delete(key); this.list.delete(key); this.changed.fire() } return undefined }
+    j.id = `check-${branch.replace(/[^\w.-]+/g, '-')}`
+    const lj: LoadedJourney = { key, folder, uri, j, at: j.steps.map((s) => ({ ...s.range, stale: false })), check: { branch } }
+    if (prev) j.steps.forEach((s, i) => {
+      const k = prev.j.steps.findIndex((p) => p.id === s.id)
+      const p = prev.j.steps[k]
+      if (p && p.file === s.file && p.range.start === s.range.start && JSON.stringify(p.anchor) === JSON.stringify(s.anchor)) lj.at[i] = prev.at[k]
+    })
+    this.tourText.set(key, text)
+    this.tours.set(key, lj)
+    this.list.set(key, lj)
+    await this.locate(lj)
+    this.changed.fire()
+    return lj
+  }
+  private tourText = new Map<string, string>()
 
   async load(): Promise<void> {
     this.list.clear()
     this.invalid.clear()
+    for (const [k, lj] of this.tours) this.list.set(k, lj)
     for (const w of this.watchers) w.dispose()
     this.watchers = []
     const old: string[] = []
@@ -315,8 +353,8 @@ export class Journeys implements vscode.Disposable {
 export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } | { type: 'end' } | { type: 'step'; n: number } | { type: 'view'; node: string } | { type: 'rendered'; boxes: number }
   | { type: 'error'; message?: string; text?: string } | { type: 'legend'; hidden: boolean } | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
   | { type: 'ref'; i: number } | { type: 'ask'; update?: boolean } | { type: 'details'; open: boolean } | { type: 'authors' }
-  | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string }
-  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
+  | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string } | { type: 'checkpoint'; id: string } | { type: 'nextStop' }
+  | { type: 'story'; steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]
@@ -340,6 +378,8 @@ export interface TourInfo {
   prov?: { text: string; tip: string; changed: number }
   /** Steps someone asked about. */
   asked?: Record<number, { id: string; state: 'q' | 'a'; unread: boolean }>
+  /** A check's tour: its questions, each a row after the step that shows its answer; `cur`: the walk is at it. */
+  stops?: { id: string; n: number; step: number; text: string; state: string; cur?: boolean }[]
 }
 
 export const MAP_VIEW = 'codeNotes.journey'
@@ -352,6 +392,8 @@ export class MapPanel implements vscode.Disposable {
   private subs: vscode.Disposable[] = []
   /** Boxes in the last render (for the integration test: the webview really draws). */
   rendered = -1
+  /** The storyline as drawn last (integration test): step rows, question rows, the current question, what is cut. */
+  story: { steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | undefined
   /** The box the map last centred on ('': the whole map), as the webview reported it (for the integration test). */
   focus = ''
   private ready = false
@@ -440,6 +482,7 @@ export class MapPanel implements vscode.Disposable {
         for (const q of this.queue.splice(0)) void panel.webview.postMessage(q)
       }
       else if (m?.type === 'rendered') this.rendered = m.boxes
+      else if (m?.type === 'story') this.story = { steps: m.steps, stops: m.stops, cur: m.cur, overflow: m.overflow, width: m.width }
       else if (m?.type === 'error') this.log.error(`journey map: ${m.text ?? m.message}`) // the webview's errors
       else if (m?.type === 'legend') void this.state.update('codeNotes.legendHidden', m.hidden)
       // Only the reader's own click on "‹ Journeys" ends the walk (the list the extension opens does not).

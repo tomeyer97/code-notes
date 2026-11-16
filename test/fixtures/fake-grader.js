@@ -26,7 +26,7 @@ if (start) {
   process.exit(0)
 }
 // Asked to write the tour ("questions.mjs tour" in the prompt): a journey of the feat/limits change with journey.py, as
-// Claude would, then tour-finish. FAKE_TOUR_FAIL: it stops after `tour` (no journey).
+// Claude would, then tour-finish. FAKE_TOUR_FAIL (or .git/fake-no-tour): it stops after `tour` (no journey).
 const tour = /Start with: (\S+questions\.mjs) tour( --top-up)?/.exec(prompt)
 if (tour) {
   const script = tour[1]
@@ -38,7 +38,9 @@ if (tour) {
   say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${script} tour` } }] } })
   const dir = /--dir (\S+)/.exec(out)[1]
   const j = (args, input) => { say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `${J} ${args[0]} …` } }] } }); return execFileSync('python3', [J, ...args, '--dir', dir], { encoding: 'utf8', input: input ?? '' }) }
-  if (process.env.FAKE_TOUR_FAIL) { say({ type: 'result', result: 'PROBLEM: gave up', session_id: 'tour-1', is_error: false }); process.exit(0) }
+  // A test that is not about the tour leaves .git/fake-no-tour: no tour is written (as when Claude gives up).
+  const noTour = fs.existsSync(path.join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-no-tour'))
+  if (process.env.FAKE_TOUR_FAIL || noTour) { say({ type: 'result', result: 'PROBLEM: gave up', session_id: 'tour-1', is_error: false }); process.exit(0) }
   if (process.env.FAKE_TOUR_SLOW) execFileSync('sleep', [process.env.FAKE_TOUR_SLOW])
   j(['new', repo, 'tour', 'What happens when a customer orders too often?', 'Order limits'], 'The API counts each customer\'s orders per hour. The sixth order in an hour is refused.')
   j(['node', repo, 'tour', 'api', 'system', 'API', '--blurb', 'Takes orders and hands charge jobs to the worker'], 'The HTTP API.')

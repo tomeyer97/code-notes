@@ -60,6 +60,45 @@ will find a way around it, so every design choice below favours little friction.
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
 
+## The tour of the change
+
+Answering a question about code you have not read is hard to start: you open the file and read it cold. So the check
+also comes with a **tour**: a short journey of the change (the journey format, docs/journey-format.md), 6-10 steps
+through the changed code AND the unchanged code it depends on, in the order a request or the data flows. Each question
+is placed after the step that shows its answer (`step` on the question), so the answer can be reached by clicking.
+
+- **Written right after the questions**, by the same agent in the same session (`claude --resume`: the change is read
+  already), with the skill's section "The tour": `questions.mjs tour` prints the questions, the changed lines and the
+  `journey.py` command line; the agent writes the journey with the code-journey skill's `journey.py` (one-line fact
+  steps on exact lines, a small map, 1-3 code links per step; no values, no animations) into a staging folder in the
+  git dir; `questions.mjs tour-finish --steps q1=3,q2=5,…` runs `journey.py check`, checks the count (6-10; a top-up
+  appends 1-4 and never changes the steps before), that a step up to each question's number shows its file (or the
+  code it also depends on), and puts the journey in the check file. Answers given meanwhile are kept (it reads the
+  file at the end). Measured on Sonnet (a 90-line change of the example shop): questions 21 s / $0.16, the tour 172 s /
+  $0.75 (58 turns). So the questions open as before and can be answered while the tour is written; the Check view says
+  "Writing the tour · 1:20", then one notification offers **Walk it**. A failed tour leaves the check as it was
+  ("Couldn't write the tour · Try again").
+- **Walking it.** Check my understanding (or **Walk the tour · 9 steps** in the Check view) opens the tour in the journey
+  panel like any journey (storyline, map, code links), where it was left. The questions are rows of the storyline after
+  their step ("? Why does …", ✓ when passed). Next past a step with an open question opens that question (the card's
+  Next says **Question ›**): its thread on its lines, the keyboard in it. A pass walks on; Previous goes back. A row of
+  the storyline or of the Check view (each says "step 3") goes to that step and question. Walking is optional: the
+  rows go straight to a question.
+- **Not a journey of the repository.** It is not in the Journeys view or list, has no code lenses, and lives only with
+  its check (another branch: it is gone from the panel).
+- **The grader** gets the tour as numbered lines and where this question's answer is; it may say "step 3", linked to
+  that step's lines like any code it names.
+- **See also.** When a journey of the repository walks the same code, a question's thread and the tour's last step say
+  "See also: Order and payment, step 3" (a link that walks it). Ranked like "In this file" (journeyList.ts `seeAlso`):
+  a step on the question's lines, then the journey with most steps in the file. No model call.
+- **Reviewers.** The merge request comment starts with one line: "A guided tour of this change: open it in VS Code with
+  Code Notes (Check view)". Nothing else changes in CI.
+- **Why in the check file** (`journey`, not a file of its own): one file is the whole check, so the steps the questions
+  point at can never disagree with the questions; Commit & push, the branch cache, `.gitattributes` and CI handle one
+  file as before; older files simply have none. A tour is never required: `validate` and `ci` check its shape and the
+  `step` references only when it is there, and never fail over the tour's code (a step whose file is gone later is
+  shown as stale by the extension).
+
 ## The file: `understanding/<branch-slug>.json` (committed)
 
 Named after the branch, not a commit: committing the file creates a new commit, so a commit-named file could
@@ -82,6 +121,7 @@ never match. The file records the code commit the questions were written for.
       "file": "api/discounts.ts", "start": 40, "end": 58,       // 1-based lines; or "target": "file"
       "anchor": { … same compact anchor as journeys/notes, so it survives edits … },
       "round": 2,                                                // set on questions added by a top-up
+      "step": 3,                             // optional: the tour step after which its answer is visible
       "suspect": true,                       // optional: the question writer thinks the honest answer is "a bug"
       "concern": { "text": "…", "flagged": true, "at": "…" },   // optional, see below
       "attempts": [
@@ -93,7 +133,9 @@ never match. The file records the code commit the questions were written for.
       ]
     }
   ],
-  "result": { "passed": 3, "total": 4, "needed": 3, "verdict": "pass", "at": "…" }   // informational only
+  "result": { "passed": 3, "total": 4, "needed": 3, "verdict": "pass", "at": "…" },  // informational only
+  "journey": { "version": 2, "id": "tour", "question": "…", "title": "…", "summary": "…", "nodes": […], "edges": […],
+               "steps": […], "commit": "<head>", "createdAt": "…", "model": "…" }   // optional: the tour (journey format)
 }
 ```
 

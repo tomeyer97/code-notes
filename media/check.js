@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'ready' } { type: 'open', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' }
+// Out: { type: 'ready' } { type: 'open', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' }
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
   const vscode = acquireVsCodeApi()
@@ -22,13 +22,16 @@
     if (V.notice) h.append(el('p', 'notice', V.notice))
     app.append(h)
     if (V.busy) app.append(el('p', 'busy', V.busy))
+    // The tour of the change: one quiet link (walking it is optional; the rows go straight to a question).
+    if (V.tour && V.tour.action) { const t = el('button', 'link tour', V.tour.label); t.onclick = () => post({ type: V.tour.action === 'walk' ? 'tour' : 'writeTour' }); app.append(t) }
+    else if (V.tour) app.append(el('p', 'busy tour', V.tour.label))
     if (V.rows.length) {
       const ol = el('ol', 'rows')
       ol.setAttribute('aria-label', 'Questions')
       for (const r of V.rows) {
         const li = el('li', `row ${r.state}`)
         const b = el('button', 'open')
-        b.title = `${r.text}\n${r.kind} · ${r.where}${r.also.length ? `\nAlso: ${r.also.join(', ')}` : ''}`
+        b.title = `${r.text}\n${r.kind}${r.step ? ` · after step ${r.step} of the tour` : ''} · ${r.where}${r.also.length ? `\nAlso: ${r.also.join(', ')}` : ''}`
         b.dataset.id = r.id
         b.onclick = () => post({ type: 'open', id: r.id })
         const icon = el('span', 'icon', ICON[r.state] || '○')
@@ -36,7 +39,7 @@
         const body = el('span', 'body')
         // File names only: lines are what a click shows.
         const name = (w) => w.split('/').pop().replace(/:\d+(-\d+)?$/, '')
-        const meta = [r.kind, name(r.where), ...r.also.map((a) => `+ ${name(a)}`), r.word].filter(Boolean).join(' · ')
+        const meta = [r.kind, r.step ? `step ${r.step}` : '', name(r.where), ...r.also.map((a) => `+ ${name(a)}`), r.word].filter(Boolean).join(' · ')
         body.append(el('span', 'text', r.text), el('span', 'meta', meta))
         if (r.flag) body.append(el('span', 'flag', `⚠ ${r.flag}`))
         b.setAttribute('aria-label', `${r.n}. ${r.text} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
@@ -66,7 +69,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, button.primary, .busy')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, button.primary, .busy, .tour')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

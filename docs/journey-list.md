@@ -79,3 +79,10 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
 - "‹ Journeys" from a walk lists over it: the walk keeps its place (card, status item), and its row is selected.
 - The panel heading is the short title; the question is under it (at most three lines, whole on hover).
 - The preview has no mini map: at that size it showed overlapping boxes and told less than the step list.
+
+## As built (the check's tour)
+
+- An understanding check's tour (a journey of the change, kept in the check file) is walked in the same panel but is
+  never a row of these lists, a code lens or a search hit; it is reached from the Check view. Its question rows and
+  "See also" are in docs/understanding-check.md ("The tour of the change"). "See also" ranks journeys as In this file
+  does (`seeAlso` in journeyList.ts).

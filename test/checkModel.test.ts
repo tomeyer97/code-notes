@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, tourPrompt } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -96,4 +96,28 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
   assert.deepEqual(linksAt(qq as never, roles, 3), [])
   assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: api/store.js:2-4')
+})
+
+test('the tour: its prompt goes on in the questions\' session; phases; the view walks it, writes one, or says it is being written; rows say their step', () => {
+  const p = tourPrompt({ skill: '/ext/skills/understanding-check', journeySkill: '/ext/skills/code-journey', topUp: false, bundled: true, resumed: true })
+  assert.match(p, /^Now write the tour of this change/)
+  assert.match(p, /section "The tour" of \/ext\/skills\/understanding-check\/SKILL\.md/)
+  assert.match(p, /Start with: \/ext\/skills\/understanding-check\/scripts\/questions\.mjs tour$/m)
+  assert.match(p, /\/ext\/skills\/code-journey\/scripts\/journey\.py/)
+  assert.match(tourPrompt({ skill: '/s', journeySkill: '/j', topUp: true, bundled: false, resumed: false }), /^Write the tour[\s\S]*questions\.mjs tour --top-up/)
+  assert.equal(checkPhase(bash('/s/scripts/questions.mjs tour'), 'starting'), 'writing the tour')
+  assert.equal(checkPhase(bash('/j/scripts/journey.py step /r tour api …'), 'reading the code'), 'writing the tour')
+  assert.equal(checkPhase({ name: 'Read', input: {} }, 'writing the tour'), 'writing the tour')
+  assert.equal(checkPhase(bash('/s/scripts/questions.mjs tour-finish --steps q1=2'), 'writing the tour'), 'checking')
+  // No tour yet: "Write a tour"; being written: one muted line; written: "Walk the tour · 6 steps"; rows say their step.
+  assert.deepEqual(checkView(st(), W()).tour, { label: 'Write a tour', action: 'write' })
+  assert.deepEqual(checkView(st(), W(), { tourBusy: 'Writing the tour · 1:02' }).tour, { label: 'Writing the tour · 1:02' })
+  assert.equal(checkView(st(), W(), { busy: 'Writing questions · 0:10' }).tour, undefined)
+  const s = st()
+  s.check!.journey = { title: 'Refunds', steps: Array.from({ length: 6 }, (_, i) => ({ title: `Step ${i + 1}`, file: 'api/orders.js', range: { start: i + 1, end: i + 1 } })) }
+  s.check!.questions[0].step = 2; s.check!.questions[2].step = 6
+  const v = checkView(s, W())
+  assert.deepEqual(v.tour, { label: 'Walk the tour · 6 steps', action: 'walk' })
+  assert.deepEqual(v.rows.map((r) => r.step), [2, undefined, 6])
+  assert.equal(checkView(st({ state: { phase: 'none' }, check: undefined }), W()).tour, undefined)
 })

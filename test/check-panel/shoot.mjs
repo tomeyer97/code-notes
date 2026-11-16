@@ -22,6 +22,13 @@ const views = {
     action: { id: 'commitPush', label: 'Commit & push' }, who: "Ada's check: your answers are recorded as yours." },
   drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
   none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
+  // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
+  tour: { branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', tour: { label: 'Walk the tour · 9 steps', action: 'walk' }, rows: [
+    row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts before the worker takes its refund job?', 'api/orders.js:44', 'todo', '', { step: 4 }),
+    row('q2', 2, 'Edge case', 'After a failed refund, what happens when the customer asks again for a different amount, given the idempotency key?', 'worker/refund.js:7', 'retry', 'try again', { step: 9, flag: 'may be a bug' }),
+    row('q3', 3, 'Why', 'Why does startRefund check the status inside its UPDATE instead of relying on the status read in refundOrder?', 'api/store.js:44', 'pass', '', { step: 2 })] },
+  tourWriting: { branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', title: '0 of 3 done', line: 'Answer all 3 · 2 must pass.', tour: { label: 'Writing the tour · 1:20' }, rows: [
+    row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts?', 'api/orders.js:44', 'todo', ''), row('q2', 2, 'Why', 'Why is the status checked in the UPDATE?', 'api/store.js:44', 'todo', '')] },
   writing: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], busy: 'Writing questions · 0:42 · reading the change' },
 }
 const fails = []
@@ -47,6 +54,13 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
     await page.click('button.open[data-id="q2"]')
     if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'open' && m.id === 'q2')))) fails.push(`${tag}: a row click didn't open its question`)
   }
+  if (view.tour?.action) {
+    await page.click('button.tour')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'tour')))) fails.push(`${tag}: the tour link didn't post`)
+    const meta = await page.evaluate(() => document.querySelector('button.open[data-id="q1"] .meta')?.textContent)
+    if (!/^Failure · step 4 · orders\.js/.test(meta ?? '')) fails.push(`${tag}: q1's row says "${meta}" (want its step)`)
+  }
+  if (view.tour && !view.tour.action && !(await page.evaluate(() => !document.querySelector('button.tour') && /Writing the tour/.test(document.querySelector('.tour')?.textContent ?? '')))) fails.push(`${tag}: the tour being written is not one muted line`)
   if (view.action) {
     await page.click('footer button.primary')
     if (!(await page.evaluate((id) => window.__posted.some((m) => m.type === id), view.action.id))) fails.push(`${tag}: ${view.action.label} didn't post`)
