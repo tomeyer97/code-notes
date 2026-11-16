@@ -37,7 +37,7 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
    `;`-separated; the phrase exactly as in the text). The author clicks the phrase to see the code. A phrase linked
    to an `--also` range is all the pointer that range needs.
    When the honest answer to a question is "this is a bug" (the code really does lose data, double-charge, race,
-   skip a check), still ask it neutrally and add `--suspect`: the author is then asked to fix it or explain it. Only
+   skip a check), still ask it neutrally and add `--suspect`: once they have answered, the author is offered a fix. Only
    when you read the code and are confident; never as a trick.
 4. `questions.mjs finish`. It writes `understanding/<branch>.json`. Reply with one line per question, nothing more.
 

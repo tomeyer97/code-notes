@@ -117,7 +117,8 @@ decides what happens to it; the extension then writes the question's `concern`:
 `answeredBy`). `flagged: true` (**Flag for reviewer**) puts it at the top of
 the merge request comment under "⚠ Found during the check"; `false` (e.g. **Add TODO**, or not decided) keeps it out of
 the comment. One concern per question; `text` may be edited by the author. `suspect: true` (set by the question
-writer) is shown as "may be a bug" next to the question in the comment.
+writer) is shown as "may be a bug" next to the question in the comment, and in VS Code only once the question has been
+answered (never before: it would give the answer away), with the same actions.
 
 CI also posts each flagged concern as a **thread on its line** that a reviewer can resolve: a GitLab discussion with a
 diff position (the merge request's `diff_refs`, the last line of the question's range, else the first code link of the

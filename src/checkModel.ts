@@ -126,12 +126,17 @@ export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string
 /** The words of a row's state (the icon says the rest). */
 export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not graded', pass: '', retry: 'try again', explained: 'explained · say it back', restated: 'in your words' }
 
-/** A question's concern: the one stored on it (found while grading), else the question's own "may be a bug". */
+/**
+ * A question's concern: the one stored on it (found while grading), else the question's own "may be a bug", shown
+ * only once it has been answered (before, it would give the answer away).
+ */
 export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean; by?: string } | undefined {
-  if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && q.concern.text === SUSPECT, ...(q.concern.by ? { by: q.concern.by.name ?? q.concern.by.email } : {}) }
-  return q.suspect ? { text: SUSPECT, flagged: false, suspect: true } : undefined
+  if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && SUSPECTS.includes(q.concern.text), ...(q.concern.by ? { by: q.concern.by.name ?? q.concern.by.email } : {}) }
+  return q.suspect && (q.attempts ?? []).some((a) => a.verdict) ? { text: SUSPECT, flagged: false, suspect: true } : undefined
 }
-const SUSPECT = 'May be a bug: fix it or explain.'
+export const SUSPECT = 'May be a bug.'
+/** Its words in files written before (kept as a concern's text when flagged). */
+const SUSPECTS = [SUSPECT, 'May be a bug: fix it or explain.']
 
 export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; also: string[]; state: QState; word: string; flag?: string }
 export interface CheckView {

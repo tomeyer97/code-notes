@@ -76,11 +76,15 @@ test('the Check view: the CLI\'s words, rows with their state, one button', () =
 test('concerns: the grader\'s latest, else the question\'s own "may be a bug"; shown on the row', () => {
   const base = q('q1', 'failure')
   assert.equal(concernOf(base as never), undefined)
-  assert.deepEqual(concernOf({ ...base, suspect: true } as never), { text: 'May be a bug: fix it or explain.', flagged: false, suspect: true })
+  // A suspect question says nothing before it is answered (that would give the answer away).
+  assert.equal(concernOf({ ...base, suspect: true } as never), undefined)
+  const answered = { ...base, suspect: true, attempts: [{ answer: 'a', verdict: 'pass' as const }] }
+  assert.deepEqual(concernOf(answered as never), { text: 'May be a bug.', flagged: false, suspect: true })
+  assert.equal(concernOf({ ...base, suspect: true, attempts: [{ answer: 'a' }] } as never), undefined, 'not graded yet')
   const c = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, concern: 'OPS_EMAIL is never set: alerts go nowhere.' }], concern: { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true } }
   assert.deepEqual(concernOf(c as never), { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true, suspect: false })
-  const v = checkView(st({ check: { ...st().check!, questions: [c as never, { ...base, id: 'q2', suspect: true } as never] }, summary: sum(['pass', 'todo']) }), W())
-  assert.deepEqual(v.rows.map((r) => r.flag), ['flagged for review', 'may be a bug'])
+  const v = checkView(st({ check: { ...st().check!, questions: [c as never, { ...answered, id: 'q2' } as never, { ...base, id: 'q3', suspect: true } as never] }, summary: sum(['pass', 'pass', 'todo']) }), W())
+  assert.deepEqual(v.rows.map((r) => r.flag), ['flagged for review', 'may be a bug', undefined])
   assert.equal(concernOf({ ...base, concern: { text: 'x', flagged: true, by: { name: 'Bob', email: 'bob@example.com' } } } as never)!.by, 'Bob')
 })
 

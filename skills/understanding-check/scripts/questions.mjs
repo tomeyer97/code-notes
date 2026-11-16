@@ -115,7 +115,7 @@ if (cmd === 'add') {
     if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed code line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
     q.anchor = U.compactOf(lines, q.start, q.end)
   }
-  // The honest answer is "this is a bug": the author is asked to fix it or explain it.
+  // The honest answer is "this is a bug": once answered, the author is offered a fix, a TODO or a flag.
   if (o.suspect) q.suspect = true
   // Unchanged code the answer depends on (a caller, a retry loop, a constraint): shown beside the question.
   if (typeof o.also === 'string' && o.also.trim()) {
