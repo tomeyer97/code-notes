@@ -706,6 +706,8 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
       })
     }
   }
+  // A check question done while others are open: "Next question ›" under its last grade.
+  const nextAt = understanding?.threadStatus(n)?.next ? n.data.messages.map((m) => isAgent(m)).lastIndexOf(true) : -1
   n.data.messages.forEach((m, i) => {
     const mt = m.at ? Date.parse(m.at) : NaN
     if (!Number.isNaN(mt)) flushEvents(mt)
@@ -718,8 +720,13 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
     const t = m.at ? Date.parse(m.at) : NaN
     const skewed = !Number.isNaN(t) && (t > Date.now() + 60_000 || t < prevAt - 60_000)
     if (!Number.isNaN(t) && !skewed) prevAt = Math.max(prevAt, t)
+    const md = messageMarkdown(n, m.body, isAgent(m) ? i : undefined, i)
+    if (i === nextAt) {
+      md.appendMarkdown(`\n\n${cmdLink('Next question ›', 'codeNotes.nextCheckQuestion')}`)
+      md.isTrusted = { enabledCommands: [...(typeof md.isTrusted === 'object' ? md.isTrusted.enabledCommands : []), 'codeNotes.nextCheckQuestion'] }
+    }
     out.push({
-    body: messageMarkdown(n, m.body, isAgent(m) ? i : undefined, i),
+    body: md,
     mode: vscode.CommentMode.Preview,
     author: { name: m.author }, // no placeholder avatar: the name says who
     timestamp: !Number.isNaN(t) && !skewed ? new Date(t) : undefined,
@@ -4239,6 +4246,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // No tour: D is the next unread reply, as the status bar says; resuming is the map's ▶ Resume.
     return stepUnread(1)
   })
+  cmd('codeNotes.nextCheckQuestion', () => understanding?.step(1))
   cmd('codeNotes.previous', (a?: unknown) => { prefixUsed(a); return touring() ? stepBy(-1) : checkStepping() ? understanding!.step(-1) : stepUnread(-1) })
   // R: resolve the note at the cursor, then on to the next unread one.
   cmd('codeNotes.resolveNext', async (a?: unknown) => {

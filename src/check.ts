@@ -646,14 +646,14 @@ export class Understanding implements vscode.Disposable {
       if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
       this.save(abs, check)
       this.host.log.info(`understanding check: ${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
-      await this.refresh() // the grade reaches the thread through syncThreads
-      // A pass: on to the next question, if the person is still on this one (the passed thread stays open).
-      if ((v.verdict === 'pass' || v.verdict === 'restated') && !v.concern && n && this.host.revealed() === n.data.id && this.hasOpen()) await this.step(1)
+      // The grade reaches the thread through syncThreads. The editor stays on this question: the feedback is the
+      // lesson. Moving on is the person's: "Next question ›" under the grade, or Ctrl+' D.
+      await this.refresh()
     } finally { this.post(); this.host.refresh() }
   }
 
   /** A thread's passing state for commentsOf: checking, why it couldn't be checked, a concern about the code. */
-  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string } } | undefined {
+  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string }; next?: boolean } | undefined {
     const l = linkOf(n)
     if (!l) return undefined
     if (this.grading.has(l.q)) return { checking: true }
@@ -661,7 +661,9 @@ export class Understanding implements vscode.Disposable {
     if (e) return { error: e }
     const q = this.st?.check?.questions.find((x) => x.id === l.q)
     const c = q && concernOf(q)
-    return c ? { concern: c } : undefined
+    // Done here and another one open: the way on, under the grade.
+    const next = !!q && !notDone(this.U.stateOf(q)) && this.hasOpen()
+    return c || next ? { ...(c ? { concern: c } : {}), ...(next ? { next } : {}) } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
   /** A check thread's row in the notes list: the question's text and its state. */

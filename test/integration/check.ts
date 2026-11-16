@@ -110,7 +110,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('codeNotes.check.focus')
     ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
   }
-  ok('Start: a one-line notice about uncommitted work (Continue), then only question 1 opens (code + thread); the list is the Check view; .gitattributes and .ignore set quietly')
+  ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view; .gitattributes and .ignore set quietly')
 
   const answer = async (q: string, text: string) => {
     const n = noteOf(q)
@@ -131,10 +131,24 @@ export async function run(): Promise<void> {
   await until('q1 passed in the thread', () => lastBody('q1').startsWith('✓ Right.'))
   const a1 = read().questions[0].attempts[0]
   assert.equal(a1.verdict, 'pass'); assert.match(a1.hash, /^[0-9a-f]{12}$/); assert.equal(a1.note, 'Kept and sent again.')
-  await until('focus moved to q2', () => inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
-  assert.ok(api.thread(n1.id), 'the passed thread stays where it is')
+  // The editor stays on the graded question (the feedback is the lesson); the reply box is empty again.
+  await sleep(600)
+  const codeEd = vscode.window.visibleTextEditors.find((x) => x.document.uri.fsPath === path.join(ws, 'api/limits.js'))
+  assert.ok(codeEd && codeEd.visibleRanges.some((r) => r.start.line <= 3 && r.end.line >= 6), 'still on q1: its lines in view')
+  assert.ok(api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded, 'q1 open with its grade')
   assert.equal(api.thread(n1.id).state, vscode.CommentThreadState.Unresolved, 'never collapsed as "resolved"')
-  ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the cursor moves to question 2; q1\'s thread stays open')
+  const graded = (api.thread(n1.id).comments as vscode.Comment[]).at(-1)!.body as vscode.MarkdownString
+  assert.match(graded.value, /^✓ Right\.[\s\S]*\[Next question ›\]\(command:codeNotes\.nextCheckQuestion\)$/)
+  if (cdp) {
+    const page = await ui()
+    const replies = await page.evaluate(() => [...(globalThis as any).document.querySelectorAll('.review-widget .comment-form .view-lines')].map((e: any) => e.textContent).join('|'))
+    assert.ok(!replies.includes('the window starts over'), `the reply box is cleared: ${replies}`)
+    await shoot('check-1b-graded')
+    await page.locator('.review-widget .comment-body a', { hasText: 'Next question' }).first().click()
+  } else await vscode.commands.executeCommand('codeNotes.nextCheckQuestion')
+  await until('Next question opens q2', () => inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
+  assert.ok(api.thread(n1.id), 'the passed thread stays where it is')
+  ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the editor stays on q1 with the reply box cleared; "Next question ›" opens q2')
 
   // 4. A miss: feedback and a hint, the editor stays on the question's lines; the second miss explains; say it back.
   await answer('q2', 'Not sure.')
@@ -146,8 +160,7 @@ export async function run(): Promise<void> {
   assert.equal(chk().view.rows[1].word, 'try again')
   // Code links: the hint names the code; a click lights those lines and brings them into view; Back returns to the question.
   const q2n = noteOf('q2'), hintAt = q2n.messages.length - 1
-  const linked = (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink'))
-  assert.ok(linked, 'the hint carries a code link')
+  const linked = await until('the hint carries a code link', () => (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink')))
   assert.match((linked!.body as vscode.MarkdownString).value, /background-color:var\(--vscode-toolbar-hoverBackground\);">reset /)
   const caret = vscode.window.activeTextEditor!.selection
   const limitsText = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')

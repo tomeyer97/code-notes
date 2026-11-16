@@ -52,7 +52,8 @@ will find a way around it, so every design choice below favours little friction.
    re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
    (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
    (click: the lines light up; "← Back to question"). It may raise a `concern` about the code itself: Fix now (a
-   note of its own, asked to Claude), Add TODO, Flag for reviewer. A pass moves on to the next open question.
+   note of its own, asked to Claude), Add TODO, Flag for reviewer. After a grade the editor stays on the question and the
+   reply box is empty; **Next question ›** under the grade (or Ctrl+' D) moves on.
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
 5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push**, naming what it
