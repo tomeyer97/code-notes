@@ -3864,8 +3864,9 @@ export async function activate(context: vscode.ExtensionContext) {
     if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away && lj && tourStep) await goToStep(lj, tourStep); return }
     tourCursorUntil = Date.now() + 1500
     const card = lj && tourStep && !cardInMap(lj, tourStep) ? { uri: stepUri(lj, tourStep).toString(), line: cardLine(lj, tourStep) } : undefined
-    // An icon and words, so it reads as a control and not as one more value.
-    await codeLinks.open(key, i, codeColumn, tourStep ? `$(arrow-left) Back to step ${tourStep}` : '$(arrow-left) Back', card)
+    // An icon and words, so it reads as a control and not as one more value. Only lit, as in a question's thread: the
+    // caret and the keyboard stay where the click was, so typing next never lands in the code.
+    await codeLinks.open(key, i, codeColumn, tourStep ? `$(arrow-left) Back to step ${tourStep}` : '$(arrow-left) Back', card, { keepFocus: true })
   }),
     vscode.commands.registerCommand('codeNotes.codeLinkBack', async () => {
       const cn = checkLinkNote(codeLinks.state.key ?? '')

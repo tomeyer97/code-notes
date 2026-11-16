@@ -515,6 +515,81 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.endJourney')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('Check my understanding walks the tour', () => tour().journey === 'check-feat-tour' && tour().step === 6 && tour().touring)
+
+  // 13b. A 1280 px window (zoom 0, the sidebar open): the walk keeps 80 columns of code (the step card only, no panel),
+  // and "Question ›" opens no panel. A code link in a step card only lights its lines: typing next changes nothing.
+  if (cdp) {
+    const page = await ui()
+    const s = await page.context().newCDPSession(page)
+    const zoom = vscode.workspace.getConfiguration('window').inspect<number>('zoomLevel')?.globalValue
+    await vscode.commands.executeCommand('codeNotes.endJourney')
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
+    // The window's size as the workbench sees it (Electron has no Browser.setWindowBounds over DevTools).
+    await s.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
+    await until('a 1280 px window', async () => (await page.evaluate('innerWidth')) === 1280)
+    await vscode.commands.executeCommand('codeNotes.check.focus')
+    await sleep(500)
+    /** The visible columns of each code editor: its text area (after the gutter, before the minimap and scrollbar) in characters. */
+    const columns = async (): Promise<number[]> => (await page.evaluate(`(() => {
+      const out = []
+      for (const e of document.querySelectorAll('.editor-group-container .monaco-editor')) {
+        if (e.closest('.zone-widget') || e.parentElement.closest('.monaco-editor')) continue
+        const r = e.getBoundingClientRect(); if (r.width < 50 || r.height < 50) continue
+        const sc = e.querySelector('.editor-scrollable'); if (!sc) continue
+        let right = r.right
+        for (const x of [e.querySelector('.minimap'), sc.querySelector(':scope > .scrollbar.vertical')]) { const b = x && x.getBoundingClientRect(); if (b && b.width > 0) right = Math.min(right, b.left) }
+        const line = [...e.querySelectorAll('.view-line')].find((l) => !l.closest('.zone-widget') && (l.textContent || '').trim().length > 10)
+        if (!line) continue
+        const span = line.firstElementChild
+        out.push(Math.floor((right - sc.getBoundingClientRect().left) / (span.getBoundingClientRect().width / span.textContent.length)))
+      }
+      return out
+    })()`)) as number[]
+    const was = dump
+    dump = () => ({ tour: { ...tour(), story: undefined }, width: 1280 })
+    await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+    await until('walking the tour at 1280 px: the step card only', () => tour().journey === 'check-feat-tour' && tour().touring && !!tour().card && !tour().map)
+    // Back from the last step to step 3: through the questions after step 4 (each opens its thread, never the panel).
+    for (const want of ['5', 'q3', 'q2', '4', '3']) {
+      await vscode.commands.executeCommand('codeNotes.previousStep')
+      await until(`back to ${want}`, () => (want.startsWith('q') ? tour().cp === want : tour().step === Number(want) && !tour().cp) && !tour().map)
+    }
+    await until('step 3, its card with the code link "the count"', () => tour().step === 3 && />count<\/span>\]\(command:codeNotes\.codeLink/.test(tour().card?.body ?? '') && !tour().map)
+    await sleep(600)
+    let cols = await columns()
+    assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns with the tour open: ${cols}`)
+    await shoot('tour-4-1280-step')
+    // The code link, clicked for real; then keys, as someone reading on would type them.
+    const limitsNow = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
+    await page.locator('.review-widget .comment-body a', { hasText: 'count' }).first().click()
+    await until('the link\'s lines lit', () => api.snapshot().tour.codeLinks.active === 0)
+    await page.keyboard.type('zz'); await page.keyboard.press('Enter')
+    await sleep(400)
+    const ldoc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(ws, 'api/limits.js'))
+    assert.ok(!ldoc?.isDirty && ldoc?.getText() === limitsNow, 'typing after a step\'s code link does not touch the code')
+    // "Question ›": the question's thread, still no panel.
+    await vscode.commands.executeCommand('codeNotes.nextStep')
+    await until('step 4', () => tour().step === 4 && !tour().cp)
+    await vscode.commands.executeCommand('codeNotes.nextStep')
+    await until('Question ›: q2, no panel', () => tour().cp === 'q2' && tourNote('q2')?.threadExpanded)
+    await sleep(800)
+    assert.ok(!tour().map, 'a question opens no panel')
+    cols = await columns()
+    assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns at a question: ${cols}`)
+    await shoot('tour-5-1280-question')
+    // Hovers and the status item (a Trusted Types error was reported around them): the console is checked at the end.
+    await page.locator('.review-widget .comment-body a').first().hover().catch(() => undefined)
+    await sleep(800)
+    const item = page.locator('.statusbar-item', { hasText: /Understanding/ }).first()
+    await item.hover(); await sleep(800); await item.click(); await sleep(800)
+    await vscode.commands.executeCommand('codeNotes.endJourney')
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', zoom, vscode.ConfigurationTarget.Global)
+    await s.send('Emulation.clearDeviceMetricsOverride')
+    dump = was
+    await sleep(500)
+    ok(`a 1280 px window: the tour walks with the step card only (${Math.min(...cols)} columns of code), "Question ›" opens no panel; typing after a step's code link changes nothing`)
+  }
   await vscode.commands.executeCommand('codeNotes.endJourney')
   // The first check on feat/tour wrote .gitattributes and .ignore (not committed there; feat/limits has them).
   for (const f of ['.gitattributes', '.ignore']) fs.rmSync(path.join(ws, f), { force: true })
