@@ -1338,7 +1338,8 @@
     "test:panel": "node test/journey-map/shoot.mjs",
     "test:cli": "node --test test/cli/*.test.mjs",
     "test:checkpanel": "node test/check-panel/shoot.mjs",
-    "test:journeylist": "node test/journey-list/shoot.mjs"
+    "test:journeylist": "node test/journey-list/shoot.mjs",
+    "test:grader": "node test/grader/eval.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
