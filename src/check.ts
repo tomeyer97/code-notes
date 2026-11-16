@@ -775,10 +775,12 @@ export class Understanding implements vscode.Disposable {
   /** Graded in this window: the thread stays open where it is. */
   pinned(n: Note): boolean { return this.graded.has(n.data.id) }
   /** A question not done yet is in this file: journey lenses step aside. */
-  hasOpenIn(uri: vscode.Uri): boolean {
-    if (!this.repo || !this.st?.check) return false
+  hasOpenIn(uri: vscode.Uri): boolean { return this.openIn(uri).length > 0 }
+  /** The ids of the questions not done yet in this file (journey lenses step aside around their lines). */
+  openIn(uri: vscode.Uri): string[] {
+    if (!this.repo || !this.st?.check) return []
     const rel = path.relative(this.repo, uri.fsPath).split(path.sep).join('/')
-    return this.st.check.questions.some((q) => q.file === rel && notDone(this.U.stateOf(q)))
+    return this.st.check.questions.filter((q) => q.file === rel && notDone(this.U.stateOf(q))).map((q) => q.id)
   }
 
   /** The person answered in a question's thread: the answer goes into the file, then it is graded. */

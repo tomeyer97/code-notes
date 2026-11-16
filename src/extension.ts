@@ -3255,8 +3255,6 @@ async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> 
     return [new vscode.CodeLens(new vscode.Range(refHere.start, 0, refHere.start, 0), { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
   }
   if (!cfg().get<boolean>('journeys.codeLens', true) || doc.uri.scheme !== 'file') return []
-  // While a check question is open in this file, the code it asks about is the only thing in view.
-  if (understanding?.hasOpenIn(doc.uri)) return []
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
   if (!folder || inNotesFolder(doc.uri)) return []
   const rel = relPath(folder, doc.uri)
@@ -3274,7 +3272,12 @@ async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> 
   const { blocks, fromText } = await blocksOf(doc)
   // The language's symbols were not ready: the text's blocks for now, the symbols' in a moment.
   if (fromText && !lensRetried.has(`${doc.uri}|${doc.version}`)) { lensRetried.add(`${doc.uri}|${doc.version}`); setTimeout(() => lensChanged.fire(), 2000) }
-  return groupSteps(hits, blocks).map((g) => {
+  // An open check question: the code it asks about is the only thing in view there (its function has no lens; the
+  // rest of the file keeps theirs).
+  const open = new Set(understanding?.openIn(doc.uri) ?? [])
+  const asked = open.size ? notesFor(doc.uri).filter((n) => open.has(understanding!.questionOf(n)?.id ?? '')).map((n) => n.data.range) : []
+  const quiet = (line: number) => asked.some((r) => { const b = blockAt(r.start - 1, blocks); return b ? b.start === line : Math.abs(r.start - 1 - line) <= 2 })
+  return groupSteps(hits, blocks).filter((g) => !quiet(g.line)).map((g) => {
     const r = new vscode.Range(g.line, 0, g.line, 0)
     const js = [...new Set(g.steps.map((x) => x.journey))]
     if (js.length === 1) {
