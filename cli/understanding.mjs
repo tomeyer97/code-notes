@@ -17,7 +17,7 @@ export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
 export const VERDICTS = ['pass', 'retry', 'explained', 'restated']
 export const MARKER = '<!-- understanding-check -->'
 export const DEFAULTS = {
-  questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [],
+  questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [], mode: 'required',
   skipLabel: 'skip-understanding', model: null, backend: null, mrComment: true,
 }
 /** At most this many questions in one file (the first set plus top-ups). */
@@ -1091,9 +1091,28 @@ export function noCheckLine(change) {
  * someone other than the author → waived. Else the file must exist, be valid, belong to this change (drift in code
  * lines), match its hashes, and meet the rule (checkState: every question done, enough passed). A skip label without a
  * valid approval only says how to waive when the check itself doesn't pass. The merge request comment follows the job:
- * its first line says the result or what is missing. Returns { code, lines, comment? }: 0 pass, 1 fail, 2 can't check.
+ * its first line says the result or what is missing. Returns { code, lines, comment?, mode }: 0 pass, 1 fail, 2 can't
+ * check, 3 a failure in advisory mode (on GitHub Actions: 0 with a warning annotation).
  */
-export async function runCi(repo, { env = process.env, comment = true, base: baseFlag } = {}) {
+export async function runCi(repo, opts = {}) {
+  const env = opts.env ?? process.env
+  const mode = ciMode(loadConfig(repo), env)
+  const res = await ciJob(repo, { ...opts, env, advisory: mode === 'advisory' })
+  res.mode = mode
+  if (mode !== 'advisory' || res.code !== 1) return res
+  // Advisory: never blocks. GitLab shows exit 3 as "passed with warnings" (allow_failure: exit_codes: [3]); GitHub
+  // can't allow one exit code, so there it is a warning annotation and exit 0.
+  res.lines[0] = `⚠ Advisory: ${res.lines[0].replace(/^[✗!]\s*/, '')}`
+  if (env.GITHUB_ACTIONS) { res.lines.push(`::warning title=Understanding check::${res.lines[0].replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`); res.code = 0 } else res.code = 3
+  return res
+}
+
+/** `required` (default) or `advisory`: UNDERSTANDING_MODE, else the config's "mode". */
+export function ciMode(cfg = DEFAULTS, env = process.env) {
+  return (env.UNDERSTANDING_MODE || cfg.mode) === 'advisory' ? 'advisory' : 'required'
+}
+
+async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, advisory = false } = {}) {
   const cfg = loadConfig(repo)
   const ctx = ciContext(env)
   const head = ctx.head || gitOk(repo, ['rev-parse', 'HEAD'])
@@ -1112,6 +1131,7 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   const rerun = ctx.platform === 'github' ? '' : ', then re-run this job'
   const post = async (res, body) => {
     if (!comment || !cfg.mrComment || !body) return res
+    if (advisory) body = `${body}\n\n<sub>Advisory: this check doesn't block merging.</sub>`
     res.comment = body
     if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
     return res
@@ -1339,7 +1359,8 @@ const HELP = `understanding.mjs: an understanding check for a change (docs: unde
   grade <file> [--question q2] [--answer "text"] [--write] [--backend claude|anthropic] [--model m]
                                           grade answers (local only): the ungraded ones, or one question
                                           (--answer adds an attempt first; --write saves the result)
-  ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check
+  ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check,
+                                          3 would fail but advisory (config "mode", UNDERSTANDING_MODE)
   init                                    keep understanding/ out of diffs and search (.gitattributes, .ignore)
 
 Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or claude when on PATH, else

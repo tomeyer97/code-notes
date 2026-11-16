@@ -965,3 +965,44 @@ test('flagged concerns on GitHub: a review comment on the line (RIGHT), never tw
     assert.equal(r.code, 0, r.lines.join('\n')); assert.ok(r.lines.some((l) => /couldn't read the review comments/.test(l)))
   } finally { api.close() }
 })
+
+test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a warning; the comment says it doesn\'t block; UNDERSTANDING_MODE overrides the config', async () => {
+  const d = repo()
+  assert.equal(U.ciMode({}, {}), 'required')
+  assert.equal(U.ciMode({ mode: 'advisory' }, {}), 'advisory')
+  assert.equal(U.ciMode({ mode: 'advisory' }, { UNDERSTANDING_MODE: 'required' }), 'required')
+  assert.equal(U.ciMode({}, { UNDERSTANDING_MODE: 'advisory' }), 'advisory')
+  // Required: no file → 1.
+  let r = await ci(d, gitlabEnv(d))
+  assert.deepEqual([r.code, r.mode], [1, 'required']); assert.match(r.lines[0], /^✗ No understanding check yet/)
+  // Advisory from the config: 3, the same message, the comment with one muted line.
+  fs.mkdirSync(path.join(d, 'understanding'))
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "mode": "advisory" }\n')
+  commitAll(d, 'advisory')
+  r = await ci(d, gitlabEnv(d))
+  assert.deepEqual([r.code, r.mode], [3, 'advisory']); assert.match(r.lines[0], /^⚠ Advisory: No understanding check yet: a few questions/)
+  assert.match(r.comment, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\*[\s\S]*\n\n<sub>Advisory: this check doesn't block merging\.<\/sub>$/)
+  // The env var wins over the file.
+  r = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_MODE: 'required' })
+  assert.equal(r.code, 1); assert.doesNotMatch(r.comment, /Advisory/)
+  // Can't check stays 2.
+  r = await ci(d, gitlabEnv(d, undefined, { CI_MERGE_REQUEST_DIFF_BASE_SHA: 'deadbeef00' }))
+  assert.equal(r.code, 2)
+  // A pass stays 0, with the muted line.
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d)
+  r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 0); assert.match(r.lines[0], /^✓ Understanding check done/); assert.match(r.comment, /doesn't block merging/)
+  // GitHub Actions: exit 0 and a warning annotation.
+  const c = U.readCheck(f); delete c.questions[2].attempts; U.writeCheck(f, c)
+  commitAll(d, 'one open')
+  const ev = path.join(d, '..', `event-adv-${path.basename(d)}.json`)
+  fs.writeFileSync(ev, JSON.stringify({ pull_request: { number: 5, head: { sha: gitIn(d, 'rev-parse', 'HEAD').trim(), ref: 'feat/x' }, base: { sha: gitIn(d, 'rev-parse', 'main').trim() }, user: { login: 'ada' }, labels: [] } }))
+  r = await ci(d, { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop' })
+  assert.equal(r.code, 0)
+  assert.match(r.lines[0], /^⚠ Advisory: Understanding check: 2 of 3 done/)
+  assert.match(r.lines.at(-1), /^::warning title=Understanding check::⚠ Advisory: Understanding check: 2 of 3 done/)
+  // Through main: the exit code is what the job sees.
+  assert.equal((await run(d, ['ci', '--no-comment'], { ...gitlabEnv(d), PATH: process.env.PATH })).code, 3)
+})

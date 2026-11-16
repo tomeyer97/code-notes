@@ -102,6 +102,8 @@ understanding:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
     GIT_DEPTH: "0"
+  allow_failure:
+    exit_codes: [3]   # advisory mode: "passed with warnings", never blocks
   script:
     - curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.24.0/cli/understanding.mjs -o /tmp/understanding.mjs
     - node /tmp/understanding.mjs ci
@@ -135,6 +137,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+**Advisory first.** Start with `"mode": "advisory"` in `understanding/config.json` for a month, then switch to
+`"required"` (the default; `UNDERSTANDING_MODE` overrides the file). In advisory mode the job and the merge request
+comment work as usual, but a failure doesn't block: on GitLab the job exits 3 and shows "passed with warnings" (the
+`allow_failure` above); on GitHub, where a step can't allow one exit code, it adds a warning annotation and passes.
 
 To review the script once and keep it, commit a copy (e.g. `tools/understanding.mjs`) and run that instead.
 

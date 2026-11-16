@@ -191,7 +191,7 @@ answer, the diff and may read the code; it returns JSON `{verdict, feedback, hin
 ## Config: `understanding/config.json` (optional, committed)
 
 ```jsonc
-{ "questions": { "min": 1, "max": 5 }, "exempt": [], "passRatio": 0.6, "maxDrift": 40,
+{ "questions": { "min": 1, "max": 5 }, "exempt": [], "passRatio": 0.6, "maxDrift": 40, "mode": "required",
   "skipLabel": "skip-understanding", "model": null, "backend": null, "mrComment": true }
 ```
 
@@ -212,7 +212,13 @@ comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an 
 ## CI recipes (in the README)
 
 GitLab: a job on `merge_request_event` with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
-`api` scope) for labels/approvals/comment. GitHub Actions: same CLI, `GITHUB_TOKEN`.
+`api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. GitHub Actions: same CLI, `GITHUB_TOKEN`.
+
+**Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
+a month, then switch to required. Wherever `ci` would fail (exit 1) it exits 3, its first line starts "⚠ Advisory:", and
+the merge request comment is the same as in required mode plus one muted line "Advisory: this check doesn't block
+merging." GitLab shows exit 3 as "passed with warnings". GitHub's `continue-on-error` can't target one exit code, so on
+GitHub Actions `ci` prints a `::warning::` annotation and exits 0 instead. "Can't check" (exit 2) stays 2.
 
 ## Out of scope for the prototype
 
