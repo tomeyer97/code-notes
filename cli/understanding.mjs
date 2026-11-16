@@ -681,7 +681,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
  */
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
-  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed }
+  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: questionsFor(st.changed, cfg) }
   if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid' }
   const s = st.summary
   const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
@@ -702,11 +702,11 @@ export function stateWords(state, st = {}) {
     // The default branch: one line, no change to speak of.
     case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
       return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: !state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')}).` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
+    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
       line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
-    case 'answering': return { tone: 'todo', bar: `Understanding ${state.done}/${state.total}`, title: `${state.done} of ${state.total} done`, line: `${rule}.`, rule }
+    case 'answering': return { tone: 'todo', bar: `Understanding ${state.done}/${state.total}`, title: `${state.done} of ${state.total} done`, line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`, rule }
     case 'short': return { tone: 'warn', bar: `Understanding ${state.passed}/${state.needed} passed`, title: `${state.passed} passed, ${state.needed} must pass`,
       line: 'Say an explained answer back in your own words.', rule }
     case 'done': return { tone: 'ok', bar: '✓ Understanding', title: '✓ Done', line: st.dirty ? 'Commit and push.' : 'Committed.', rule }
@@ -1570,7 +1570,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   const rule = ruleText(sum)
   if (state.phase === 'answering') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done.`) })
+      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (~${minutesFor(sum.total - sum.done)} min left).`) })
   }
   if (state.phase === 'short') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],

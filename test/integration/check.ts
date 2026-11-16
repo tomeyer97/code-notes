@@ -120,7 +120,7 @@ export async function run(): Promise<void> {
     await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace')
     await until('the draft gone', () => view().answer?.draft === '')
   }
-  await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
+  await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass · ~2 min left.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
   // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
   // workspace's settings. The view offers the setup once, as a commit of its own.

@@ -332,7 +332,7 @@ test('the MR comment never grades in public: one progress line until done; then 
     U.writeCheck(f, c); commitAll(d)
     let r = await ci(d, env())
     assert.equal(r.code, 1)
-    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done.')
+    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done (~1 min left).')
     // Done: an explained question, a flagged concern, a suspect question.
     c = U.readCheck(f)
     grade(c.questions[1], 'WRONG GUESS TWO', 'explained', { feedback: 'Each step waits for the one before it, so a slow load delays the rest. See src/app.js:3.', topic: 'loading steps one by one' })
@@ -397,7 +397,7 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
     const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop', GITHUB_API_URL: api.url, GITHUB_TOKEN: 't' }
     let r = await ci(d, env)
     assert.equal(r.code, 1, r.lines.join('\n')); assert.match(r.lines[0], /2 of 3 done/)
-    assert.equal(comments.length, 2); assert.equal(comments[1].body, '<!-- understanding-check -->\n**Understanding check in progress:** 2 of 3 done.')
+    assert.equal(comments.length, 2); assert.equal(comments[1].body, '<!-- understanding-check -->\n**Understanding check in progress:** 2 of 3 done (~1 min left).')
     assert.equal(api.calls.find((c) => c.key.startsWith('POST')).headers.authorization, 'Bearer t')
     r = await ci(d, env)
     assert.equal(comments.length, 2, 'updated, not a second comment')
@@ -412,9 +412,9 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
 
 test('status: what to do next, locally', async () => {
   const d = repo()
-  assert.equal(U.localStatus(d).next, '70 code lines changed.')
+  assert.equal(U.localStatus(d).next, '70 code lines changed · 3 questions, ~2 min.')
   const f = writeQuestions(d)
-  assert.equal(U.localStatus(d).next, 'Answer all 3 · 2 must pass.')
+  assert.equal(U.localStatus(d).next, 'Answer all 3 · 2 must pass · ~2 min left.')
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
   assert.equal(U.localStatus(d).next, 'Commit and push.')
   assert.match((await run(d, ['status'])).out, /^✓ Done · Commit and push\./)
@@ -1260,7 +1260,7 @@ test('stacked branches: the change starts after the parent\'s committed check; o
   commitAll(d, 'one line')
   let st = U.localStatus(d, { base: 'main' })
   assert.deepEqual([st.changed, st.stackedOn, st.state.phase], [2, 'feat/x', 'none'])
-  assert.equal(U.stateWords(st.state, st).line, "2 code lines changed since feat/x's check.")
+  assert.equal(U.stateWords(st.state, st).line, "2 code lines changed since feat/x's check · 1 question, ~1 min.")
   const out = script(d, 'start', '--base', 'main').out
   assert.match(out, /^STACKED: on feat\/x/m)
   assert.match(out, /CHANGE: branch fix\/y · 1 files · 2 code lines/)
@@ -1285,7 +1285,7 @@ test('a rename: detected as a move (0 lines changed, not new code); it gets one 
   commitAll(d, 'rename')
   const st = U.localStatus(d, { base: 'main' })
   assert.deepEqual([st.changed, st.change.renamed, st.state.phase], [0, [{ from: 'chart/templates/NOTES.txt', to: 'chart/templates/NOTES-old.txt' }], 'none'])
-  assert.equal(U.stateWords(st.state, st).line, 'Renamed, 0 lines changed (NOTES-old.txt).')
+  assert.equal(U.stateWords(st.state, st).line, 'Renamed, 0 lines changed (NOTES-old.txt) · 1 question, ~1 min.')
   const out = script(d, 'start', '--base', 'main').out
   assert.match(out, /^RENAMED ONLY: chart\/templates\/NOTES\.txt → chart\/templates\/NOTES-old\.txt, 0 lines changed/m)
   assert.match(out, /WRITE: 1 question/)

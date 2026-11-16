@@ -282,7 +282,7 @@ answer, the diff and may read the code; it returns JSON `{verdict, feedback, hin
 
 `backend` (`claude` | `anthropic`) and `model` apply to `grade` from a terminal (also `--backend`, `--model`,
 `UNDERSTANDING_BACKEND`). In VS Code, the Claude Code runner grades (setting `codeNotes.understanding.model`).
-Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
+The Check view, the status bar tooltip and the progress comment say the size: "3 questions, ~2 min", "~1 min left" (about 35 s a question). Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
 `questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
