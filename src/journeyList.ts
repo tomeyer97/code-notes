@@ -27,6 +27,8 @@ export interface ListItem {
   isNew: boolean
   /** Left at this step (0: not started or finished; 1 is not "Continue": nothing was read yet). */
   resume: number
+  /** The agent is refreshing its stale steps now. */
+  refreshing?: boolean
   /** It is being walked now (the step is `resume`). */
   walking?: boolean
   /** When it was last walked (ms). */
@@ -44,6 +46,8 @@ export interface ListRow extends ListItem {
   here: boolean
   hereSteps: number
   atCursor: boolean
+  /** Its steps in the function around the cursor. */
+  cursorSteps: number
   /** Muted metadata: "api · 9 steps · 2 wk". */
   meta: string
   /** In "In this file": "3 of 7 steps here". */
@@ -57,6 +61,8 @@ export interface Group { id: string; label: string; keys: string[]; children?: G
 export interface ListModel {
   rows: Record<string, ListRow>
   query: string; sort: Sort; kind: ListKind | 'all'
+  /** The order of search results: 'best' (relevance) or a sort. */
+  searchSort: Sort | 'best'
   /** The filter chip: '' (none), 'here' (in the active file), 'stale', or an area. */
   area: string
   /** The active editor's file (relative), when a journey has a step in it. */
@@ -130,6 +136,8 @@ export interface ListOptions {
   /** "In this file" in full (else HERE_CAP rows and "Show all"). */
   hereAll?: boolean
   query?: string; sort?: Sort; kind?: ListKind | 'all'; area?: string; now?: number
+  /** With a search: best match first (the default), or one of the sorts. */
+  searchSort?: Sort | 'best'
 }
 
 const quote = (ws: string[]) => ws.map((w) => `“${w}”`).join(', ')
@@ -143,10 +151,11 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   for (const it of items) {
     const a = areaOf(it.files), age = ageOf(it.createdAt, now)
     const hereIdx = o.activeFile ? it.files.flatMap((f, i) => (f === o.activeFile ? [i] : [])) : []
-    const atCursor = !!span && hereIdx.some((i) => { const r = it.ranges?.[i]; return !!r && r.start <= span.end && r.end >= span.start })
+    const cursorSteps = span ? hereIdx.filter((i) => { const r = it.ranges?.[i]; return !!r && r.start <= span.end && r.end >= span.start }).length : 0
+    const atCursor = cursorSteps > 0
     const meta = [a, `${it.steps} step${it.steps === 1 ? '' : 's'}`, age].filter(Boolean).join(' · ')
     const hereText = hereIdx.length ? `${hereIdx.length} of ${it.steps} step${it.steps === 1 ? '' : 's'} here` : ''
-    rows[it.key] = { ...it, area: a, age, here: hereIdx.length > 0, hereSteps: hereIdx.length, atCursor, meta, hereText, hits: [] }
+    rows[it.key] = { ...it, area: a, age, here: hereIdx.length > 0, hereSteps: hereIdx.length, atCursor, cursorSteps, meta, hereText, hits: [] }
   }
   const all = Object.values(rows)
   const inFilter = (r: ListRow) => (kind === 'all' || r.kind === kind) && (area === 'here' ? r.here : area === 'stale' ? r.stale > 0 : !area || r.area === area)
@@ -182,7 +191,7 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   const keys = (l: ListRow[]) => l.map((r) => r.key)
   const fileName = o.activeFile?.split('/').pop()
   // In this file, ranked: a step in the function under the cursor, then the most steps here, then the largest share.
-  const hereRows = sorted.filter((r) => r.here).sort((x, y) => Number(y.atCursor) - Number(x.atCursor) || y.hereSteps - x.hereSteps || y.hereSteps / y.steps - x.hereSteps / x.steps || byName(x, y))
+  const hereRows = sorted.filter((r) => r.here).sort((x, y) => y.cursorSteps - x.cursorSteps || y.hereSteps - x.hereSteps || y.hereSteps / y.steps - x.hereSteps / x.steps || byName(x, y))
   const capped = o.hereAll ? hereRows : hereRows.slice(0, HERE_CAP)
   const hereMore = hereRows.length - capped.length
   // Continue: past step 1 (opening a journey is not reading it), the one being walked first.
@@ -195,7 +204,8 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   }
   const hereSection = fileName && area !== 'here'
   let sections: Section[]
-  if (query) sections = [{ id: 'results', label: `${shown.length} found`, keys: keys([...shown].sort((x, y) => (scores.get(y.key)! - scores.get(x.key)!) || order[sort](x, y))) }]
+  const searchSort = o.searchSort ?? 'best'
+  if (query) sections = [{ id: 'results', label: `${shown.length} found`, keys: keys([...shown].sort(searchSort === 'best' ? (x, y) => (scores.get(y.key)! - scores.get(x.key)!) || order[sort](x, y) : order[searchSort])) }]
   else if (area === 'here') sections = [{ id: 'here', label: `In ${fileName ?? 'this file'}`, keys: keys(hereRows) }]
   else {
     const above = new Set([...cont, ...(hereSection ? capped : []), ...fresh].map((r) => r.key))
@@ -214,7 +224,7 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   ]
   const count = (pick: (r: ListRow) => string) => { const m = new Map<string, number>(); for (const r of all) m.set(pick(r), (m.get(pick(r)) ?? 0) + 1); return m }
   return {
-    rows, query, sort, kind, area, ...(all.some((r) => r.here) ? { file: o.activeFile } : {}),
+    rows, query, sort, searchSort, kind, area, ...(all.some((r) => r.here) ? { file: o.activeFile } : {}),
     kinds: [...count((r) => r.kind)].map(([id, c]) => ({ id: id as ListKind, count: c })),
     areas: [...count((r) => r.area)].map(([name, c]) => ({ name, count: c })).sort((x, y) => y.count - x.count || x.name.localeCompare(y.name)),
     staleCount: all.filter((r) => r.stale > 0).length,
