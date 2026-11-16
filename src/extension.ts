@@ -3414,6 +3414,11 @@ async function stepUnread(dir: 1 | -1): Promise<void> {
   await reveal(ordered.find(after) ?? ordered[0])
 }
 const n0 = () => vscode.workspace.workspaceFolders![0]
+/** Back from a check thread's code link: the question's thread, with the keyboard in it (never in the code). */
+async function backToQuestion(n: Note): Promise<void> {
+  await reveal(n, codeColumn())
+  await focusReply(n)
+}
 /** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
 function checkLinkNote(key: string): { n: Note; links: ReturnType<NonNullable<typeof understanding>['linksIn']> } | undefined {
   const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
@@ -3600,9 +3605,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // A link in a check thread: its note's lines are the card; the way back is the question.
     const cn = checkLinkNote(key)
     if (cn) {
-      if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away) await reveal(cn.n, codeColumn()); return }
+      // Only lit: no selection, the keyboard stays in the thread (an answer typed next must never edit the code).
+      if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away) await backToQuestion(cn.n); return }
       codeLinks.present(key, cn.n.folder.uri, cn.links, new Map(), cn.links.map((_l, k) => k))
-      await codeLinks.open(key, i, codeColumn, '$(arrow-left) Back to question', { uri: docUri(cn.n).toString(), line: cn.n.data.range.start - 1 })
+      await codeLinks.open(key, i, codeColumn, '$(arrow-left) Back to question', { uri: docUri(cn.n).toString(), line: cn.n.data.range.start - 1 }, { keepFocus: true })
       return
     }
     const lj = tourJourney()
@@ -3616,7 +3622,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('codeNotes.codeLinkBack', async () => {
       const cn = checkLinkNote(codeLinks.state.key ?? '')
       codeLinks.unlight()
-      if (cn) { await reveal(cn.n, codeColumn()); return }
+      if (cn) { await backToQuestion(cn.n); return }
       const lj = tourJourney(); if (lj && tourStep) await goToStep(lj, tourStep)
     }))
   gstate = context.globalState

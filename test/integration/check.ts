@@ -139,11 +139,29 @@ export async function run(): Promise<void> {
   const linked = (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink'))
   assert.ok(linked, 'the hint carries a code link')
   assert.match((linked!.body as vscode.MarkdownString).value, /background-color:var\(--vscode-toolbar-hoverBackground\);">reset /)
-  await vscode.commands.executeCommand('codeNotes.codeLink', `check|${q2n.id}|${hintAt}`, 0)
-  await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 && editorLine() === 10 })
+  const caret = vscode.window.activeTextEditor!.selection
+  const limitsText = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
+  /** Real keys, as someone answering would type them next: none of it may reach the code. */
+  const typeAway = async (what: string) => {
+    if (!cdp) return
+    const page = await ui()
+    await page.keyboard.type('my answer goes here')
+    await page.keyboard.press('Enter'); await page.keyboard.press('Backspace')
+    await sleep(300)
+    assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8'), limitsText, `${what}: the file on disk is untouched`)
+    assert.ok(!vscode.window.activeTextEditor?.document.isDirty, `${what}: the code in the editor is untouched`)
+    assert.equal(vscode.window.activeTextEditor?.document.getText(), limitsText, `${what}: no keystroke in the code`)
+  }
+  if (cdp) await (await ui()).locator('.review-widget .comment-body a', { hasText: 'reset' }).first().click()
+  else await vscode.commands.executeCommand('codeNotes.codeLink', `check|${q2n.id}|${hintAt}`, 0)
+  await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 })
+  // Only lit: nothing selected, the caret where it was.
+  assert.ok(vscode.window.activeTextEditor!.selection.isEqual(caret), 'a code link moves no caret and selects nothing')
   await shoot('check-2a-code-link')
+  await typeAway('after a code link click')
   await vscode.commands.executeCommand('codeNotes.codeLinkBack')
   await until('back at the question', () => api.snapshot().tour.codeLinks.active === -1 && inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === q2n.id)?.threadExpanded)
+  await typeAway('after Back')
   await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.

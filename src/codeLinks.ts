@@ -139,9 +139,11 @@ export class CodeLinks implements vscode.Disposable {
 
   /**
    * A click on phrase `i`: its lines lit and in view, in the code group. A link into the card's own file scrolls as
-   * little as it can, and needs no way back while the card is on screen with it.
+   * little as it can, and needs no way back while the card is on screen with it. `keepFocus`: the lines are only
+   * lit, the caret and the keyboard stay where they are (a link in a thread being answered: typing must never land in
+   * the code).
    */
-  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, backTitle: string, card?: CardAt): Promise<void> {
+  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, backTitle: string, card?: CardAt, o: { keepFocus?: boolean } = {}): Promise<void> {
     if (this.step?.key !== key) return
     const a = await this.locate(i)
     if (!a) { void vscode.window.setStatusBarMessage('The code this phrase points at changed.', 4000); return }
@@ -151,8 +153,8 @@ export class CodeLinks implements vscode.Disposable {
     this.back = false
     this.own = Date.now() + 400
     const col = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === a.uri.toString())?.viewColumn ?? column()
-    const ed = await vscode.window.showTextDocument(a.uri, { preview: true, preserveFocus: false, ...(col ? { viewColumn: col } : {}) })
-    ed.selection = new vscode.Selection(a.start, 0, a.start, 0)
+    const ed = await vscode.window.showTextDocument(a.uri, { preview: true, preserveFocus: !!o.keepFocus, ...(col ? { viewColumn: col } : {}) })
+    if (!o.keepFocus) ed.selection = new vscode.Selection(a.start, 0, a.start, 0)
     // Long enough for the events of this open and this caret to arrive; a move by the reader after counts.
     this.own = Date.now() + 150
     const same = !!card && card.uri === a.uri.toString()
