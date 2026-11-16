@@ -297,14 +297,15 @@ be read.
 
 `backend` (`claude` | `anthropic`) and `model` apply to `grade` from a terminal (also `--backend`, `--model`,
 `UNDERSTANDING_BACKEND`). In VS Code, the Claude Code runner grades (setting `codeNotes.understanding.model`).
-The Check view, the status bar tooltip and the progress comment say the size: "3 questions, ~2 min", "~1 min left" (about 35 s a question). Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
+The Check view and the status bar tooltip say the size: "3 questions, ~2 min", "~1 min left" (about 35 s a question); the
+merge request comment and the CI log say "about 2 min" (GitLab would read "~2" as a label). Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
 `questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
 **Settings changes are said.** A merge request that changes `understanding/config.json` gets a line at the top of the
 comment ("This merge request changes the understanding check's settings: mode required → advisory."), also when no code
 changed (then that line is the whole comment). After a self-approval the comment says "Your own approval doesn't count:
-ask a reviewer to approve, then re-run this job." The size is honest: "3 questions, ~2 min" (by the question count).
+ask a reviewer to approve, then re-run this job." The size is honest: "3 questions, about 2 min" (by the question count).
 
 ## Skipping
 

@@ -208,7 +208,7 @@ test('ci: nothing changed passes; no file fails with what to do; no model is eve
   const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
-  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(3 questions, ~2 min\)\. Run "Code Notes: Check my understanding"/)
+  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(3 questions, about 2 min\)\. Run "Code Notes: Check my understanding"/)
   assert.match(r2.lines[1], /Without VS Code: .*node understanding\.mjs grade --question q1/)
   assert.match(r2.lines[2], /skip-understanding.*then re-run this job/)
   const f = writeQuestions(d)
@@ -332,7 +332,7 @@ test('the MR comment never grades in public: one progress line until done; then 
     U.writeCheck(f, c); commitAll(d)
     let r = await ci(d, env())
     assert.equal(r.code, 1)
-    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done (~1 min left).')
+    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done (about 1 min left).')
     // Done: an explained question, a flagged concern, a suspect question.
     c = U.readCheck(f)
     grade(c.questions[1], 'WRONG GUESS TWO', 'explained', { feedback: 'Each step waits for the one before it, so a slow load delays the rest. See src/app.js:3.', topic: 'loading steps one by one' })
@@ -397,7 +397,7 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
     const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop', GITHUB_API_URL: api.url, GITHUB_TOKEN: 't' }
     let r = await ci(d, env)
     assert.equal(r.code, 1, r.lines.join('\n')); assert.match(r.lines[0], /2 of 3 done/)
-    assert.equal(comments.length, 2); assert.equal(comments[1].body, '<!-- understanding-check -->\n**Understanding check in progress:** 2 of 3 done (~1 min left).')
+    assert.equal(comments.length, 2); assert.equal(comments[1].body, '<!-- understanding-check -->\n**Understanding check in progress:** 2 of 3 done (about 1 min left).')
     assert.equal(api.calls.find((c) => c.key.startsWith('POST')).headers.authorization, 'Bearer t')
     r = await ci(d, env)
     assert.equal(comments.length, 2, 'updated, not a second comment')
@@ -475,7 +475,9 @@ test('ci: no check yet posts the MR comment (what and how, in two lines); a pass
     let r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
     assert.equal(r.code, 1); assert.match(r.lines.at(-1), /comment created/)
     assert.equal(notes[0].body.split('\n').length, 3)
-    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, ~2 min\)/)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, about 2 min\)/)
+    // GitLab reads "~2" as a label: the bot never writes a tilde.
+    assert.doesNotMatch(notes[0].body, /~/)
     assert.match(notes[0].body, /and get a reviewer's approval, then re-run the job\./)
     const f = writeQuestions(d)
     answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
@@ -1027,7 +1029,7 @@ test('advisory mode: a failure exits 3 ("⚠ Advisory:"), GitHub exits 0 with a 
   r = await ci(d, gitlabEnv(d))
   assert.deepEqual([r.code, r.mode], [3, 'advisory']); assert.match(r.lines[0], /^⚠ Advisory: No understanding check yet: a few questions/)
   // Advisory first; no skip instructions (nothing to skip); the settings change is called out.
-  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: mode required → advisory\.\n\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, ~2 min\)/)
+  assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: mode required → advisory\.\n\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(3 questions, about 2 min\)/)
   assert.doesNotMatch(r.comment + r.lines.join('\n'), /skip-understanding/)
   // The env var wins over the file.
   r = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_MODE: 'required' })

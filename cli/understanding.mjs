@@ -1325,6 +1325,8 @@ export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job'
 /** How long a check takes, honestly, by its number of questions: "3 questions, ~2 min". */
 export const minutesFor = (n) => Math.max(1, Math.round(n * 0.6))
 export const sizeText = (n) => `${n} question${n === 1 ? '' : 's'}, ~${minutesFor(n)} min`
+/** The same for the merge request and the CI log: "about 2 min" (GitLab reads "~2" as a label). */
+export const sizeWords = (n) => sizeText(n).replace('~', 'about ')
 
 /**
  * What this change does to the check's own settings (understanding/config.json at `base` vs `head`), as one sentence
@@ -1595,7 +1597,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   if (!fs.existsSync(abs)) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    const size = sizeText(change.docsOnly ? 1 : questionsFor(linesOf(change), cfg))
+    const size = sizeWords(change.docsOnly ? 1 : questionsFor(linesOf(change), cfg))
     return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
       `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
       // Advisory, or the label is there already: no skip instructions.
@@ -1633,7 +1635,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   const rule = ruleText(sum)
   if (state.phase === 'answering') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (~${minutesFor(sum.total - sum.done)} min left).`) })
+      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (about ${minutesFor(sum.total - sum.done)} min left).`) })
   }
   if (state.phase === 'short') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
