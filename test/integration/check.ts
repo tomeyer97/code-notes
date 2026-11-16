@@ -81,8 +81,15 @@ export async function run(): Promise<void> {
   // 2. Uncommitted work doesn't stop the start: one line in the view names every file left out (modified ones too).
   fs.writeFileSync(path.join(ws, 'api', 'allowlist.js'), 'export const allow = []\n')
   fs.appendFileSync(path.join(ws, 'README.md'), '\nMore.\n')
+  // Claude fails first (a model that doesn't exist): said in the view in plain words, Retry; no toast.
+  fs.writeFileSync(path.join(ws, '.git', 'fake-write-error'), '')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('the failure in the view', () => view()?.failed?.text === "Claude couldn't use the model." && view().failed.setting === true && !view().action)
+  await shoot('check-0-failed')
+  fs.rmSync(path.join(ws, '.git', 'fake-write-error'))
+  api.checkPanelSend({ type: 'test', click: '.failed button.link' })
   await until('three question threads', () => checkNotes().length === 3)
+  await until('Retry worked: the failure is gone', () => !view().failed)
   await until('what was left out', () => chk().view.notice === 'Not asked about (uncommitted): README.md, allowlist.js')
   await shoot('check-0-uncommitted')
   fs.rmSync(path.join(ws, 'api', 'allowlist.js')); git('checkout', '--', 'README.md')

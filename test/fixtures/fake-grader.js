@@ -17,6 +17,11 @@ if (start) {
   // A test switches branches before Claude gets going (it can take seconds to start): it leaves this file to say so.
   const slowStart = require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-slow-start')
   if (fs.existsSync(slowStart)) { fs.writeFileSync(`${slowStart}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(slowStart) && Date.now() < until) execFileSync('sleep', ['0.1']) }
+  // A test makes Claude fail as with a model that doesn't exist.
+  if (fs.existsSync(require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-write-error'))) {
+    say({ type: 'result', result: "There's an issue with the selected model (bogus). It may not exist or you may not have access to it. Run --model to pick a different model.", is_error: true })
+    process.exit(1)
+  }
   run('start', ...start[2].trim().split(/\s+/))
   run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
   run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')

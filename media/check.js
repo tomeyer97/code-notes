@@ -22,6 +22,14 @@
     if (V.line) h.append(el('p', 'line', V.line))
     if (V.who) h.append(el('p', 'who', V.who))
     if (V.notice) h.append(el('p', 'notice', V.notice))
+    // Writing the questions failed: why, and Retry (the model setting when it was the model).
+    if (V.failed) {
+      const p = el('p', 'failed'), r = el('button', 'link', 'Retry')
+      r.onclick = () => post({ type: 'retry' })
+      p.append(`${V.failed.text} `, r)
+      if (V.failed.setting) { const s = el('button', 'link', 'Settings'); s.onclick = () => post({ type: 'modelSetting' }); p.append(' · ', s) }
+      h.append(p)
+    }
     // Once per repository, the person's choice: the lines that collapse check files in diffs, in a commit of their own.
     if (V.setup) {
       const p = el('p', 'setup'), b = el('button', 'link', 'Set up'), x = el('button', 'link hide', 'Hide')
@@ -95,7 +103,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .setup, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .setup, .failed, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

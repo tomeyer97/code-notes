@@ -13,7 +13,7 @@ import { pathToFileURL } from 'url'
 import { Ask, AskResult } from './claude'
 import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
-import { Check, CheckView, Cli, Link, QState, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, tourPrompt } from './checkModel'
+import { Check, CheckView, Cli, Link, QState, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, writeFailure, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, tourPrompt } from './checkModel'
 import { clock } from './writing'
 
 /** What the check needs from the rest of the extension (extension.ts). */
@@ -105,6 +105,8 @@ export class Understanding implements vscode.Disposable {
   private ready = 0
   /** What the push watcher saw last (integration test). */
   private bgTrace: string[] = []
+  /** Writing the questions failed (said in the view with Retry until a retry works). */
+  private failed: { branch: string; topUp: boolean; text: string; setting?: boolean } | undefined
   /** One line about what the questions left out, for this branch. */
   private notice: { branch: string; text: string } | undefined
   /** What Commit & push would commit (refreshed while the check is done), and the TODO files ticked to go with it. */
@@ -206,6 +208,7 @@ export class Understanding implements vscode.Disposable {
       notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
       ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}),
       ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}),
+      ...(this.failed?.branch === this.st.branch ? { failed: { text: this.failed.text, ...(this.failed.setting ? { setting: true } : {}) } } : {}),
       setup: !!this.repo && !this.setupHidden() && this.U.setupMissing(this.repo).length > 0 })
   }
   private post(): void { this.view.update(this.current()) }
@@ -266,7 +269,7 @@ export class Understanding implements vscode.Disposable {
     // In the background nothing is said: no trust prompt, no notice, no progress, nothing opens.
     if (bg ? !vscode.workspace.isTrusted : !this.host.allowed('write understanding-check questions')) return false
     // Uncommitted work doesn't stop the start: the view names what the questions leave out.
-    if (!bg) await this.noteLoose(st.branch)
+    if (!bg) { this.failed = undefined; await this.noteLoose(st.branch) }
     const cli = this.host.cli()
     const { dir, bundled } = this.skill()
     const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled, head: st.head })
@@ -312,15 +315,16 @@ export class Understanding implements vscode.Disposable {
     }
     await this.refresh()
     if (res.cancelled) return false
-    if (res.error) { if (bg) this.host.log.error(`understanding check: background questions: ${res.error}`); else void vscode.window.showWarningMessage(`Code Notes: Claude couldn't write the questions: ${res.error}`); return false }
-    const after = this.st?.check?.questions.length ?? 0
-    if (after <= before && bg) { this.host.log.info(`understanding check: no background questions: ${res.text.trim().split('\n')[0]}`); return false }
-    if (after <= before) {
-      // NOTHING / UNCOMMITTED / PROBLEM: the script's own words.
-      const why = /(SMALL|NOTHING|UNCOMMITTED|PROBLEM):?\s*([^\n]+)/.exec(res.text)?.[2] ?? res.text.trim().split('\n')[0] ?? 'no questions were written'
-      void vscode.window.showInformationMessage(`No questions: ${why}`)
+    // A failure is said in the Check view, in plain words, with Retry (and logged); a success clears it.
+    const fail = (f: { text: string; setting?: boolean }, detail: string) => {
+      this.host.log.error(`understanding check: no questions for ${w.branch}: ${detail}`)
+      if (!bg) { this.failed = { branch: w.branch, topUp, ...f }; this.post() }
       return false
     }
+    if (res.error) return fail(writeFailure({ error: res.error, model }), res.error)
+    const after = this.st?.check?.questions.length ?? 0
+    if (after <= before) return fail(writeFailure({ text: res.text }), res.text.trim().split('\n').slice(-1)[0] ?? '')
+    this.failed = undefined
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
     // Then the tour, in the same session (the change is read already); the questions can be answered meanwhile. It
     // starts once question 1 is open (its thread has the keyboard before anything else is drawn).
@@ -576,6 +580,8 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
     else if (m.type === 'next') void this.step(1)
     else if (m.type === 'setup') void this.setupRepo()
+    else if (m.type === 'retry') { const t = !!this.failed?.topUp; this.failed = undefined; void this.write(t) }
+    else if (m.type === 'modelSetting') void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model')
     else if (m.type === 'setupHide') void this.host.memento.update(SETUP_KEY, [...(this.host.memento.get<string[]>(SETUP_KEY) ?? []), this.repo!]).then(() => this.post())
     else if (m.type === 'escape') { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') }
     else if (m.type === 'include' && m.file) { if (m.on) this.include.add(m.file); else this.include.delete(m.file); this.post() }

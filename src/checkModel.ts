@@ -186,6 +186,8 @@ export interface CheckView {
   also?: { file: string; label: string; on: boolean }[]
   /** The answer box: only for the selected question (checkAnswer.ts / media/checkAnswer.js). */
   answer?: AnswerBox
+  /** Writing the questions failed: why, in plain words, with Retry (and the model setting when it was the model). */
+  failed?: { text: string; setting?: boolean }
   /** The repository lacks the lines that collapse check files in diffs: a link that adds them in a commit of their own. */
   setup?: string
   /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
@@ -246,7 +248,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean; failed?: { text: string; setting?: boolean } } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -285,9 +287,11 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
-    ...(action && !o.busy ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
+    // A failed write: its Retry is the action.
+    ...(action && !o.busy && !o.failed ? { action, ...commit } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}), ...(tour ? { tour } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
     ...(answer ? { answer } : {}),
+    ...(o.failed && !o.busy ? { failed: o.failed } : {}),
     // Only with a check, and never while busy: the person decides; nothing is written to the repository by itself.
     ...(o.setup && st.check && !o.busy ? { setup: 'Collapse check files in diffs:' } : {}),
   }
@@ -308,4 +312,22 @@ export function statusText(st: Status | undefined, w: Words | undefined): { text
   const p = st.state.phase
   const icon = p === 'done' ? '$(pass)' : w.tone === 'warn' ? '$(warning)' : '$(checklist)'
   return { text: `${icon} ${w.bar.replace(/^✓\s*/, '')}`, tip: [w.title, w.line].filter(Boolean).join(' · '), warn: p === 'drift' }
+}
+
+/**
+ * Why writing the questions failed, in plain words for the Check view (never the script's or the CLI's own advice):
+ * `error` from Claude, or `text`, the writer's reply when it wrote nothing.
+ */
+export function writeFailure(o: { error?: string; text?: string; model?: string }): { text: string; setting?: boolean } {
+  const e = String(o.error ?? '')
+  if (e) {
+    if (/model/i.test(e)) return { text: `Claude couldn't use the model${o.model ? ` "${o.model}"` : ''}.`, setting: true }
+    if (/rate.?limit|overloaded|429|529/i.test(e)) return { text: 'Claude is busy right now.' }
+    if (/auth|log ?in|api key|401|403/i.test(e)) return { text: "Claude Code isn't signed in." }
+    return { text: `Claude couldn't write the questions: ${e.split(/(?<=[.!?])\s/)[0].replace(/\s*Run --?\S+.*$/i, '').slice(0, 120)}` }
+  }
+  const t = String(o.text ?? '')
+  if (/UNCOMMITTED/.test(t)) return { text: 'Commit your change first: questions are about committed code.' }
+  if (/NOTHING/.test(t)) return { text: 'No code lines changed: nothing to ask.' }
+  return { text: "Claude couldn't write questions for this change." }
 }

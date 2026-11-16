@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts, tourPrompt } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts, tourPrompt, writeFailure } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -162,4 +162,13 @@ test('the tour: its prompt goes on in the questions\' session; phases; the view 
   assert.deepEqual(v.tour, { label: 'Walk the tour · 6 steps', action: 'walk' })
   assert.deepEqual(v.rows.map((r) => r.step), [2, undefined, 6])
   assert.equal(checkView(st({ state: { phase: 'none' }, check: undefined }), W()).tour, undefined)
+})
+
+test('a failed write in plain words: never the CLI\'s own advice', () => {
+  assert.deepEqual(writeFailure({ error: "There's an issue with the selected model (bogus). Run --model to pick a different model.", model: 'bogus' }), { text: 'Claude couldn\'t use the model "bogus".', setting: true })
+  assert.deepEqual(writeFailure({ error: 'Error 529: overloaded' }), { text: 'Claude is busy right now.' })
+  assert.equal(writeFailure({ error: 'The process exited. Run --verbose to see more.' }).text, "Claude couldn't write the questions: The process exited.")
+  assert.equal(writeFailure({ text: 'I could not write any questions. `questions.mjs add` rejects every file I give it.' }).text, "Claude couldn't write questions for this change.")
+  assert.equal(writeFailure({ text: 'UNCOMMITTED: this change is not committed yet' }).text, 'Commit your change first: questions are about committed code.')
+  assert.equal(checkView(st(), W(), { failed: { text: 'x' } }).failed?.text, 'x')
 })

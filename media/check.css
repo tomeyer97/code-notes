@@ -35,3 +35,5 @@ footer { margin-top: 8px; }
 .setup { margin: 2px 0 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .setup .link { display: inline; }
 .setup .hide { color: var(--vscode-descriptionForeground); }
+.failed { margin: 2px 0 0; color: var(--vscode-editorWarning-foreground, #cca700); overflow-wrap: anywhere; }
+.failed .link { display: inline; }
