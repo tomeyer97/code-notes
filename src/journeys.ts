@@ -272,6 +272,20 @@ export class Journeys implements vscode.Disposable {
     return out
   }
 
+  /**
+   * Files changed on disk (git checkout, pull, an agent; not typed in an editor): re-find the steps in them. Without
+   * this a step stayed as it was found when the window opened: stale after a branch switch back, fresh after one away.
+   * No `paths`: every step (the branch changed).
+   */
+  async relocateOnDisk(paths?: Set<string>): Promise<void> {
+    for (const lj of [...this.list.values()]) {
+      const base = lj.folder.uri.path.replace(/\/?$/, '/')
+      const hit = (n: number) => !paths || paths.has(base + fileOf(lj, n))
+      if (!lj.j.steps.some((s) => hit(s.n))) continue
+      if (await this.locate(lj, hit)) this.moved.fire(lj)
+    }
+  }
+
   /** An edited document: re-find the steps in it, a moment after typing stops. */
   onDocument(doc: vscode.TextDocument): void {
     for (const lj of this.list.values()) {
@@ -302,7 +316,7 @@ export type MapMessage = { type: 'ready' } | { type: 'openPath'; path: string } 
   | { type: 'error'; message?: string; text?: string } | { type: 'legend'; hidden: boolean } | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
   | { type: 'ref'; i: number } | { type: 'ask'; update?: boolean } | { type: 'details'; open: boolean } | { type: 'authors' }
   | { type: 'restore' } | { type: 'close' } | { type: 'openFile' } | { type: 'pick' } | { type: 'finish' } | { type: 'question'; id: string }
-  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
+  | { type: 'home'; on?: boolean } | { type: 'walk'; key: string } | { type: 'list'; query?: string; kind?: 'all' | 'journey' | 'check' | 'review'; area?: string; sort?: 'area' | 'newest' | 'walked' | 'name' } | { type: 'preview'; key: string } | { type: 'refresh'; key: string } | { type: 'hereAll' } | { type: 'mapWidth'; w: number } | { type: 'beat'; n: number; i: number } | { type: 'closed' }
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]

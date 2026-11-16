@@ -85,7 +85,7 @@
       render()
     } else if (m.type === 'home') { tcard = 0; setHome(true); render() }
     else if (m.type === 'hello') post({ type: 'ready' })
-    else if (m.type === 'preview') { previews[m.key] = m.journey; if (home && m.key === sel) render() }
+    else if (m.type === 'preview') { previews[m.key] = m.journey; staleOf[m.key] = m.stale || []; if (home && m.key === sel) render() }
     else if (m.type === 'tour') { tour(m); render() }
     else if (m.type === 'deleted') { deleted = m.file || 'the file'; tcard = 0; offer = false; render() }
     else if (m.type === 'tutorial') startTutorial()
@@ -152,14 +152,15 @@
   function header() {
     const h = el('header')
     const top = el('div', 'top')
-    const q = el('h1', 'q', J.question)
-    q.title = J.question
+    // The short title, as in the lists and the tab; the question under it.
+    const q = el('h1', 'q', J.title || J.question)
     const hb = el('button', 'link homeb', '‹ Journeys')
     hb.title = 'All journeys'
     hb.onclick = goHome
     h.append(hb)
     top.append(q, stepControls())
     h.append(top)
+    if (J.title && J.question && J.question.toLowerCase() !== J.title.toLowerCase()) { const sq = el('p', 'qsub', J.question); sq.title = J.question; h.append(sq) }
     if (deleted) {
       // "Deleted · Restore": the tab closes like any tab, the picker is a command.
       const g = el('p', 'gone', 'Deleted')
@@ -353,26 +354,34 @@
     if (on) homeFocus = true
     post({ type: 'home', on })
   }
+  /** The list over the walk: the walk keeps its place; the journey it came from is selected (and in view). */
   function goHome() {
     if (tcard) return
+    const self = (list.find((x) => x.here) || {}).key
+    if (self) { sel = self; unfolded = self; fetchPreview(self) }
     setHome(true)
     window.scrollTo(0, 0)
     render()
+    const row = self && app.querySelector('.jrow.sel')
+    if (row) row.scrollIntoView({ block: 'nearest' })
   }
   // ---------- home (0.24): find a journey — search, chips, sections, select to preview (docs/journey-list.md) ----------
-  // The extension computes the list (journeyList.ts) with this home's search, kind, area and sort; we draw it.
+  // The extension computes the list (journeyList.ts) with this home's search, filter and sort; we draw it.
 
-  /** The list model; the home's query and chips (sent to the extension, which answers with a new model). */
+  /** The list model; the home's query and filter chip (sent to the extension, which answers with a new model). */
   let homeModel
   let hq = { query: '', kind: 'all', area: '' }
-  /** The selected row (previewed), rows unfolded in a narrow panel, journeys fetched for the preview. */
+  /** The selected row (previewed), rows unfolded in a narrow panel, journeys fetched for the preview (+ their stale steps). */
   let sel = ''
   const previews = {}
+  const staleOf = {}
   let searchEl
   let listTimer = 0
   const sendList = (extra) => { clearTimeout(listTimer); listTimer = setTimeout(() => post({ type: 'list', ...hq, ...(extra || {}) }), extra ? 0 : 90) }
   /** Visible keys in order (the keyboard moves through these). */
   const homeKeys = () => (homeModel ? [...new Set(homeModel.sections.flatMap((s) => s.keys))] : [])
+  /** The keyboard goes here after the next render (`data-f` of an element: "row:<key>", "chip:<id>", "search"). */
+  let focusNext = ''
   /** Text with the matched words marked. */
   function marked(text, hits) {
     const span = el('span', 't')
@@ -384,23 +393,57 @@
   function walkKey(k) { if (!k) return; setHome(false); toTop = true; post({ type: 'walk', key: k }); render() }
   /** Narrow panels: the row whose steps are unfolded (a click or →; ↑↓ only move). */
   let unfolded = ''
-  function select(k, scroll, unfold) {
-    if (!k || (k === sel && !unfold)) return
+  const fetchPreview = (k) => { const r = homeModel && homeModel.rows[k]; if (r && !previews[k]) post({ type: 'preview', key: k }) }
+  function select(k, focus, unfold) {
+    if (!k || (k === sel && !unfold && !focus)) return
     sel = k
     if (unfold) unfolded = k
-    const r = homeModel && homeModel.rows[k]
-    if (r && r.kind === 'journey' && !previews[k]) post({ type: 'preview', key: k })
+    fetchPreview(k)
+    if (focus) focusNext = `row:${k}`
     render()
-    if (scroll) { const b = app.querySelector('.jrow.sel'); if (b) b.scrollIntoView({ block: 'nearest' }) }
   }
-  function chip(label, on, fn, title) {
-    const b = el('button', `chip${on ? ' on' : ''}`, label)
-    b.setAttribute('aria-pressed', String(on))
-    if (title) b.title = title
-    b.onclick = fn
-    return b
+  /** "⚠ Step 4 changed" for a row's tooltip. */
+  const staleTip = (r) => { const n = r.staleSteps || []; return n.length ? `${n.length === 1 ? `Step ${n[0]}` : `Steps ${n.join(', ')}`} changed since it was written` : `${r.stale} step${r.stale === 1 ? '' : 's'} changed since it was written` }
+  /** Filter chips: one Tab stop, ← → move between them (a toolbar). */
+  function chipBar(m) {
+    const bar = el('div', 'chips')
+    bar.setAttribute('role', 'toolbar')
+    bar.setAttribute('aria-label', 'Filter')
+    const chips = []
+    const chip = (id, label, title) => {
+      const on = hq.area === id
+      const b = el('button', `chip${on ? ' on' : ''}`, label)
+      b.setAttribute('aria-pressed', String(on))
+      b.dataset.f = `chip:${id}`
+      if (title) b.title = title
+      b.onclick = () => { hq.area = on ? '' : id; focusNext = `chip:${id}`; sendList({}) }
+      chips.push(b)
+      bar.append(b)
+    }
+    if (m.file) chip('here', `In ${m.file.split('/').pop()}`, m.file)
+    if (m.staleCount) chip('stale', `Stale ${m.staleCount}`, 'Journeys whose code changed since they were written')
+    for (const a of m.areas.slice(0, 8)) chip(a.name, a.name, `${a.count} in ${a.name}`)
+    const tab = chips.find((b) => b.classList.contains('on')) || chips[0]
+    for (const b of chips) b.tabIndex = b === tab ? 0 : -1
+    bar.addEventListener('keydown', (e) => {
+      const i = chips.indexOf(document.activeElement)
+      if (i < 0) return
+      const j = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? chips.length - 1 : -2
+      if (j === -2) return
+      e.preventDefault(); e.stopPropagation()
+      const t = chips[Math.max(0, Math.min(chips.length - 1, j))]
+      for (const b of chips) b.tabIndex = b === t ? 0 : -1
+      t.focus()
+    })
+    const sortSel = el('select', 'hsort')
+    sortSel.setAttribute('aria-label', 'Sort')
+    sortSel.dataset.f = 'sort'
+    for (const [id, label] of [['area', 'By area'], ['newest', 'Newest'], ['walked', 'Recently walked'], ['name', 'A–Z']]) { const o = el('option', '', label); o.value = id; if (m.sort === id) o.selected = true; sortSel.append(o) }
+    sortSel.onchange = () => { focusNext = 'sort'; sendList({ sort: sortSel.value }) }
+    bar.append(sortSel)
+    if (!chips.length) bar.removeAttribute('role')
+    return bar
   }
-  const KIND_LABEL = { journey: 'Journeys', check: 'Checks', review: 'Reviews' }
   function homeView() {
     const m = homeModel
     const h = el('div', 'home')
@@ -408,38 +451,24 @@
     h.classList.toggle('wide', wide)
     const top = el('div', 'htop')
     top.append(el('h1', 'q', 'Journeys'))
-    if (m) top.append(el('span', 'hcount', m.query || m.kind !== 'all' || m.area ? `${m.count} of ${m.total}` : String(m.total)))
+    if (m) top.append(el('span', 'hcount', m.query || m.area ? `${m.count} of ${m.total}` : String(m.total)))
     h.append(top)
     if (!searchEl) {
       searchEl = el('input', 'hsearch')
       searchEl.type = 'search'
       searchEl.placeholder = 'Search journeys'
       searchEl.setAttribute('aria-label', 'Search journeys (/)')
+      searchEl.dataset.f = 'search'
       searchEl.addEventListener('input', () => { hq.query = searchEl.value; sendList() })
     }
     if (searchEl.value !== hq.query) searchEl.value = hq.query
     h.append(searchEl)
-    if (m) {
-      const chips = el('div', 'chips')
-      const kinds = m.kinds.filter((k) => k.count)
-      if (kinds.length > 1) {
-        chips.append(chip('All', hq.kind === 'all', () => { hq.kind = 'all'; sendList({}) }))
-        for (const k of kinds) chips.append(chip(KIND_LABEL[k.id] || k.id, hq.kind === k.id, () => { hq.kind = hq.kind === k.id ? 'all' : k.id; sendList({}) }))
-        chips.append(el('span', 'csep'))
-      }
-      if (m.file) chips.append(chip(`In ${m.file.split('/').pop()}`, hq.area === 'here', () => { hq.area = hq.area === 'here' ? '' : 'here'; sendList({}) }, m.file))
-      for (const a of m.areas.slice(0, 8)) chips.append(chip(a.name, hq.area === a.name, () => { hq.area = hq.area === a.name ? '' : a.name; sendList({}) }, `${a.count} in ${a.name}`))
-      const sortSel = el('select', 'hsort')
-      sortSel.setAttribute('aria-label', 'Sort')
-      for (const [id, label] of [['area', 'By area'], ['newest', 'Newest'], ['walked', 'Recently walked'], ['name', 'A–Z']]) { const o = el('option', '', label); o.value = id; if (m.sort === id) o.selected = true; sortSel.append(o) }
-      sortSel.onchange = () => sendList({ sort: sortSel.value })
-      chips.append(sortSel)
-      h.append(chips)
-    }
+    if (m) h.append(chipBar(m))
+    if (m && m.fallback) h.append(el('p', 'hnote', m.fallback.note))
     const body = el('div', 'hbody')
     const listEl = el('div', 'hlist')
     const keys = homeKeys()
-    if (!keys.includes(sel)) { sel = keys[0] || ''; if (sel && m.rows[sel].kind === 'journey' && !previews[sel]) post({ type: 'preview', key: sel }) }
+    if (!keys.includes(sel)) { sel = keys[0] || ''; if (sel) fetchPreview(sel) }
     for (const sec of m ? m.sections : []) {
       listEl.append(el('h2', 'hsec', sec.label))
       const ul = el('ul', 'jlist')
@@ -448,16 +477,18 @@
         const li = el('li')
         const b = el('button', `jrow${k === sel ? ' sel' : ''}${r.here ? ' here' : ''}`)
         b.dataset.key = k
+        b.dataset.f = `row:${k}`
+        b.tabIndex = k === sel ? 0 : -1
         b.setAttribute('aria-selected', String(k === sel))
         const t = el('span', 'jtop')
         t.append(marked(r.title, r.hits))
         if (r.start) t.append(el('span', 'jstart', 'Start here'))
         if (r.isNew) t.append(el('span', 'jnew', 'new'))
-        if (r.resume) { const x = el('span', 'jat', `${r.resume}/${r.steps}`); x.title = `Left at step ${r.resume} of ${r.steps}`; t.append(x) }
-        if (r.stale) { const x = el('span', 'jstale', '⚠'); x.title = `${r.stale} step${r.stale === 1 ? '' : 's'} changed since it was written`; t.append(x) }
+        if (r.walking || r.resume > 1) { const x = el('span', 'jat', `${r.resume}/${r.steps}`); x.title = r.walking ? `Walking: step ${r.resume} of ${r.steps}` : `Left at step ${r.resume} of ${r.steps}`; t.append(x) }
+        if (r.stale) { const x = el('span', 'jstale', '⚠'); x.title = staleTip(r); x.setAttribute('aria-label', `Stale: ${staleTip(r)}`); t.append(x) }
         b.append(t)
         if (r.question && r.question.toLowerCase() !== r.title.toLowerCase()) b.append(el('span', 'jq', r.question))
-        b.append(el('span', 'jmeta', r.meta))
+        b.append(el('span', 'jmeta', sec.id === 'here' && r.hereText ? r.hereText : r.meta))
         b.onclick = () => select(k, false, true)
         b.ondblclick = () => walkKey(k)
         li.append(b)
@@ -466,6 +497,7 @@
         ul.append(li)
       }
       listEl.append(ul)
+      if (sec.more) { const more = el('button', 'link hmore', `Show ${sec.more} more`); more.dataset.f = `more:${sec.id}`; more.onclick = () => post({ type: 'hereAll' }); listEl.append(more) }
     }
     if (m && !m.count) listEl.append(el('p', 'note', m.total ? 'Nothing matches.' : 'No journeys in this workspace.'))
     body.append(listEl)
@@ -473,50 +505,58 @@
     h.append(body)
     return h
   }
-  /** What a row holds: its question, a small map (wide), its steps, Walk / Resume. */
+  /** What a row holds: its question (wide), its steps with the stale ones marked, Walk / Resume, Refresh. */
   function previewEl(r, wide) {
     const p = el(wide ? 'aside' : 'div', wide ? 'hprev' : 'hunfold')
     if (wide) { p.append(el('h2', 'pt', r.title)); if (r.question) p.append(el('p', 'pq', r.question)) }
-    const j = previews[r.key]
-    if (wide && j && j.nodes && j.nodes.length) {
-      const mm = el('div', 'minimap')
-      // The whole map, small and still: laid out like the journey's own, fitted once it is drawn.
-      if (!miniGraph) miniGraph = window.JourneyGraph({ goStep() {}, open() {}, quiet: true, legend() {}, rendered() { requestAnimationFrame(() => miniGraph.fit()) }, view() {}, error: (message) => post({ type: 'error', message }) })
-      miniGraph.el.setAttribute('tabindex', '-1')
-      miniGraph.el.setAttribute('aria-hidden', 'true')
-      mm.append(miniGraph.el)
-      p.append(mm)
-      requestAnimationFrame(() => { miniGraph.set(j, 0, true); miniGraph.resized(); miniGraph.fit() })
-    }
+    const stale = new Set(r.staleSteps || [])
+    const when = {}
+    for (const s of staleOf[r.key] || []) when[s.n] = s.when
+    const max = wide ? 14 : 8
     const ol = el('ol', 'psteps')
-    for (const t of r.stepTitles.slice(0, wide ? 14 : 8)) ol.append(el('li', '', t))
-    if (r.stepTitles.length > (wide ? 14 : 8)) ol.append(el('li', 'more', `+${r.stepTitles.length - (wide ? 14 : 8)} more`))
+    r.stepTitles.forEach((t, i) => {
+      if (i >= max && !stale.has(i + 1)) return
+      const li = el('li', stale.has(i + 1) ? 'stale' : '', t)
+      li.value = i + 1
+      if (stale.has(i + 1)) li.append(el('span', 'pwhen', `⚠ changed${when[i + 1] ? ` · ${when[i + 1]}` : ''}`))
+      ol.append(li)
+    })
+    if (r.stepTitles.length > max) ol.append(el('li', 'more', `+${r.stepTitles.length - max} more`))
     p.append(ol)
-    const go = el('button', 'walkb', r.kind === 'check' ? 'Open' : r.resume ? `Resume at ${r.resume}` : 'Walk')
+    if (stale.size && stale.size < r.steps) p.append(el('p', 'pnote', `The other ${r.steps - stale.size} still match the code.`))
+    const acts = el('div', 'pacts')
+    const go = el('button', 'walkb', r.walking ? `Back to step ${r.resume}` : r.resume > 1 ? `Resume at ${r.resume}` : 'Walk')
+    go.dataset.f = 'walk'
     go.onclick = () => walkKey(r.key)
-    p.append(go)
+    acts.append(go)
+    if (stale.size) { const rf = el('button', 'link refreshb', 'Refresh'); rf.title = 'Ask the agent to update the stale steps'; rf.dataset.f = 'refresh'; rf.onclick = () => post({ type: 'refresh', key: r.key }); acts.append(rf) }
+    p.append(acts)
     return p
   }
-  let miniGraph
   document.addEventListener('keydown', (e) => {
     if (!home || tcard) return
     const inSearch = e.target === searchEl
+    const onRow = !!(e.target && e.target.classList && e.target.classList.contains('jrow'))
     if (e.key === '/' && !inSearch) { e.preventDefault(); searchEl && searchEl.focus(); return }
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (hq.query) { hq.query = ''; if (searchEl) searchEl.value = ''; sendList({}); return }
+      if (hq.query) { hq.query = ''; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
       if (J) { setHome(false); render() }
       return
     }
     const keys = homeKeys()
     const i = keys.indexOf(sel)
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // ↓ from the search goes into the rows (the selected one); ↑ from the first row back to the search.
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (inSearch || onRow || e.target === document || e.target === document.body)) {
       e.preventDefault()
+      if (inSearch) { if (e.key === 'ArrowDown') select(sel || keys[0], true); return }
+      if (e.key === 'ArrowUp' && i <= 0 && searchEl) { searchEl.focus(); return }
       select(keys[Math.max(0, Math.min(keys.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))], true)
       return
     }
-    if (e.key === 'ArrowRight' && !inSearch) { e.preventDefault(); if (sel) { unfolded = sel; if (homeModel.rows[sel].kind === 'journey' && !previews[sel]) post({ type: 'preview', key: sel }); render() } return }
-    if (e.key === 'Enter' && (inSearch || !e.target.closest || !e.target.closest('button:not(.jrow), select'))) { e.preventDefault(); walkKey(sel || keys[0]) }
+    if ((e.key === 'Home' || e.key === 'End') && onRow) { e.preventDefault(); select(keys[e.key === 'Home' ? 0 : keys.length - 1], true); return }
+    if (e.key === 'ArrowRight' && (onRow || e.target === document)) { e.preventDefault(); if (sel) { unfolded = sel; fetchPreview(sel); focusNext = `row:${sel}`; render() } return }
+    if (e.key === 'Enter' && (inSearch || onRow || !e.target.closest || !e.target.closest('button, select'))) { e.preventDefault(); walkKey(sel || keys[0]) }
   })
 
   // ---------- the splitter (0.21.1): the map column's width, dragged (wide panels only) ----------
@@ -580,9 +620,11 @@
 
   function render() {
     if (!J) return
-    // The home's search keeps the keyboard across a re-render (the list is drawn again under it).
+    // The home's search keeps the keyboard across a re-render (the list is drawn again under it); so do a row, a chip.
     const searchFocused = !!searchEl && document.activeElement === searchEl
     const caret = searchFocused ? searchEl.selectionStart : 0
+    const focusWas = focusNext || (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.f) || ''
+    focusNext = ''
     // The scene keeps the keyboard across a re-render (its element is taken out and put back).
     if (scene && scene.el.contains(document.activeElement)) focusScene = true
     // A re-render keeps the scroll; the first render after a reload goes back to where it was.
@@ -594,7 +636,9 @@
     app.classList.toggle('deleted', !!deleted)
     if (home) {
       app.append(homeView())
-      if (searchFocused || homeFocus) { searchEl.focus(); if (searchFocused) searchEl.setSelectionRange(caret, caret); homeFocus = false }
+      const back = focusWas && focusWas !== 'search' && [...app.querySelectorAll('[data-f]')].find((x) => x.dataset.f === focusWas)
+      if (back) { back.focus({ preventScroll: true }); back.scrollIntoView({ block: 'nearest' }); homeFocus = false }
+      else if (searchFocused || homeFocus || focusWas === 'search') { searchEl.focus(); if (searchFocused) searchEl.setSelectionRange(caret, caret); homeFocus = false }
       saveState(); return
     }
     if (offer && !tcard && !deleted) app.append(tutorialBar())

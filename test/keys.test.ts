@@ -11,7 +11,7 @@ test('no Alt keys are left', () => {
 })
 
 test('one chord scheme on two prefixes: Ctrl+< by scan code (ISO key) and Ctrl+\'', () => {
-  const want: Record<string, string> = { c: 'codeNotes.add', r: 'codeNotes.resolveNext', d: 'codeNotes.next', a: 'codeNotes.previous', v: 'codeNotes.showMap', p: 'codeNotes.toggleAnimation' }
+  const want: Record<string, string> = { c: 'codeNotes.add', r: 'codeNotes.resolveNext', d: 'codeNotes.next', a: 'codeNotes.previous', v: 'codeNotes.showMap', p: 'codeNotes.toggleAnimation', j: 'codeNotes.searchJourneys' }
   for (const prefix of ['ctrl+[IntlBackslash]', "ctrl+'"]) {
     for (const [k, command] of Object.entries(want)) {
       // With Ctrl released or still held for the second key.
@@ -24,7 +24,7 @@ test('one chord scheme on two prefixes: Ctrl+< by scan code (ISO key) and Ctrl+\
       }
     }
   }
-  assert.equal(keys.length, 2 * 6 * 2 + 1, 'nothing else but escape')
+  assert.equal(keys.length, 2 * 7 * 2 + 1, 'nothing else but escape')
   // VS Code shows the last binding of a command: the plain chord, "Ctrl+' D".
   for (const command of Object.values(want)) assert.equal(keys.filter((k) => k.command === command).pop()!.key.replace(/^\S+ /, ''), Object.keys(want).find((k) => want[k] === command))
   assert.ok(keys.some((k) => k.key === 'escape' && k.command === 'codeNotes.cancelMove'))

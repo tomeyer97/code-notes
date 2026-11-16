@@ -293,7 +293,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.journeys.focus')
   await sleep(600)
   shot('journeys-sidebar')
-  ok(`Journeys view: "In this file" follows the editor; the search finds "${word}" in a step's title; the check is listed while open`)
+  ok(`Journeys view: "In this file" follows the editor; the search finds "${word}" in a step's title`)
 
   // 14. The view never showed an error or anything wider than itself.
   const p = chk().panel

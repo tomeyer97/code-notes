@@ -194,20 +194,22 @@ for (const width of [500, 1200]) for (const theme of ['light', 'dark']) {
   const prov = { text: 'Written by Fable · 11 Nov', tip: 'claude-fable-5-2 · commit a1b2c3d', changed: 2 }
   const setJ = (j) => page.evaluate((x) => { window.__J = x }, j)
 
-  // 1. The question, one provenance line, the storyline; the map beside it (wide) or above it, foldable (narrow).
+  // 1. The short title, the question under it, one provenance line, the storyline; the map beside it (wide) or above it, foldable (narrow).
   await setJ(journey)
   await open(journey, { prov })
   const head = await page.evaluate(() => ({
     kids: [...document.querySelector('header').children].map((c) => c.className || c.tagName).join(),
     prov: document.querySelector('.prov')?.textContent, amber: getComputedStyle(document.querySelector('.prov .changed')).color, muted: getComputedStyle(document.querySelector('.prov')).color,
+    title: document.querySelector('h1.q').textContent, sub: document.querySelector('.qsub')?.textContent,
     q: (() => { const q = document.querySelector('h1.q'); return Math.round(q.clientHeight / parseFloat(getComputedStyle(q).lineHeight)) })(),
     sticky: getComputedStyle(document.querySelector('.head')).position,
     rows: document.querySelectorAll('.story .st').length, rowText: document.querySelector('.story .st').textContent,
     startBtn: [...document.querySelectorAll('button')].filter((x) => /Start/.test(x.textContent)).map((x) => x.textContent).join('|'),
   }))
-  if (head.kids !== 'link homeb,top,prov') fail(`${tag}: the header holds ${head.kids} (Journeys link, question + controls, one provenance line)`)
+  if (head.kids !== 'link homeb,top,qsub,prov') fail(`${tag}: the header holds ${head.kids} (Journeys link, short title + controls, the question, one provenance line)`)
+  if (head.title !== journey.title || head.sub !== journey.question) fail(`${tag}: the heading is "${head.title}" over "${head.sub}" (the short title, the question under it)`)
   if (head.prov !== 'Written by Fable · 11 Nov · ⚠ 2 steps out of date' || head.amber === head.muted) fail(`${tag}: provenance line ${JSON.stringify(head)}`)
-  if (head.q > 2) fail(`${tag}: the question takes ${head.q} lines`)
+  if (head.q > 2) fail(`${tag}: the title takes ${head.q} lines`)
   if (head.sticky !== 'sticky') fail(`${tag}: the header is not sticky`)
   if (head.rows !== journey.steps.length || head.rowText !== `1${journey.steps[0].title}`) fail(`${tag}: storyline ${head.rows} rows, first "${head.rowText}" (number + title only)`)
   if (head.startBtn) fail(`${tag}: a Start button (opening a journey walks it): ${head.startBtn}`)

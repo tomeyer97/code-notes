@@ -688,15 +688,6 @@ export class Understanding implements vscode.Disposable {
     this.host.refresh()
   }
 
-  /** The check as a row of the journeys list (journeyList.ts). */
-  listItem(): import('./journeyList').ListItem | undefined {
-    const c = this.st?.check, s = this.st?.summary
-    if (!c || !s || !this.st) return undefined
-    return { key: `check:${this.st.file}`, kind: 'check', title: `Check · ${this.st.branch}`, question: 'Questions about this branch\'s change', summary: '',
-      ...(c.createdAt ? { createdAt: c.createdAt } : {}), files: c.questions.map((q) => q.file), stepTitles: c.questions.map((q) => q.text), steps: c.questions.length,
-      stale: 0, isNew: false, resume: 0, progress: `${s.done}/${s.total} done`, open: this.st.state.phase !== 'done' }
-  }
-
   /** For the integration test. */
   snapshot() { return { bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
   panelSend(m: unknown): void { this.view.send(m) }

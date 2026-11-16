@@ -484,6 +484,17 @@
         "title": "Sort Journeys",
         "category": "Code Notes",
         "icon": "$(list-filter)"
+      },
+      {
+        "command": "codeNotes.refreshJourney",
+        "title": "Refresh Journey",
+        "category": "Code Notes",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "codeNotes.journeysHereAll",
+        "title": "Show All Journeys in This File",
+        "category": "Code Notes"
       }
     ],
     "keybindings": [
@@ -572,6 +583,20 @@
         }
       },
       {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+[IntlBackslash] ctrl+j",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+[IntlBackslash] j",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
         "command": "codeNotes.add",
         "key": "ctrl+' ctrl+c",
         "args": {
@@ -651,6 +676,20 @@
       {
         "command": "codeNotes.toggleAnimation",
         "key": "ctrl+' p",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+' ctrl+j",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+' j",
         "args": {
           "prefix": "'"
         }
@@ -909,6 +948,11 @@
           "command": "codeNotes.openBroken",
           "group": "1_broken@2",
           "when": "view == codeNotes.notes && viewItem =~ /^broken/"
+        },
+        {
+          "command": "codeNotes.refreshJourney",
+          "group": "inline@1",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey;stale/"
         }
       ],
       "commandPalette": [
@@ -1174,6 +1218,10 @@
         },
         {
           "command": "codeNotes.pickJourneyStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.journeysHereAll",
           "when": "false"
         }
       ],
