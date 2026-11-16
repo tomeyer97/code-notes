@@ -17,7 +17,7 @@ export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
 export const VERDICTS = ['pass', 'retry', 'explained', 'restated']
 export const MARKER = '<!-- understanding-check -->'
 export const DEFAULTS = {
-  questions: { min: 3, max: 5 }, minChangedLines: 20, passRatio: 0.6, maxDrift: 40,
+  questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [],
   skipLabel: 'skip-understanding', model: null, backend: null, mrComment: true,
 }
 /** At most this many questions in one file (the first set plus top-ups). */
@@ -52,11 +52,117 @@ export function defaultBase(repo) {
 }
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
 
-/** Paths that never count as "changed lines": the check itself, docs, lockfiles, notes. */
-export function counted(file) {
-  if (file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file.startsWith('docs/')) return false
-  if (/\.(md|markdown|txt|rst|adoc)$/i.test(file)) return false
-  return !/(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|go\.sum|poetry\.lock|uv\.lock|Pipfile\.lock|Gemfile\.lock|composer\.lock)$/.test(file)
+/** A glob as a RegExp: `**` any path, `*` and `?` within a name; a pattern without "/" matches the name in any folder. */
+export function globRe(glob) {
+  const g = String(glob).replace(/^\.?\//, '')
+  let re = ''
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i]
+    if (c === '*' && g[i + 1] === '*') { const dir = g[i + 2] === '/'; re += dir ? '(?:.*/)?' : '.*'; i += dir ? 2 : 1 }
+    else if (c === '*') re += '[^/]*'
+    else if (c === '?') re += '[^/]'
+    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`${g.includes('/') ? '^' : '(^|/)'}${re}$`)
+}
+/** Files that never count: the check itself and Code Notes' notes. */
+const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/')
+/** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
+export function counted(file, exempt = []) {
+  return !own(file) && !exempt.some((g) => globRe(g).test(file))
+}
+
+// Comment syntax by file extension (pragmatic: whole-line comments only; a block comment is followed within a hunk).
+const C_LIKE = { line: ['//'], block: [['/*', '*/']], star: true }
+const HASH = { line: ['#'] }
+const DASH = { line: ['--'] }
+const MARKUP = { block: [['<!--', '-->']] }
+const STYLES = {
+  js: C_LIKE, mjs: C_LIKE, cjs: C_LIKE, jsx: C_LIKE, ts: C_LIKE, mts: C_LIKE, cts: C_LIKE, tsx: C_LIKE, java: C_LIKE, kt: C_LIKE, kts: C_LIKE,
+  scala: C_LIKE, groovy: C_LIKE, gradle: C_LIKE, c: C_LIKE, h: C_LIKE, cc: C_LIKE, cpp: C_LIKE, cxx: C_LIKE, hpp: C_LIKE, m: C_LIKE, mm: C_LIKE,
+  cs: C_LIKE, go: C_LIKE, rs: C_LIKE, swift: C_LIKE, dart: C_LIKE, proto: C_LIKE, zig: C_LIKE, sol: C_LIKE, jsonc: C_LIKE, json5: C_LIKE,
+  css: { block: [['/*', '*/']], star: true }, scss: C_LIKE, less: C_LIKE,
+  php: { line: ['//', '#'], block: [['/*', '*/']], star: true },
+  py: HASH, pyi: HASH, rb: HASH, sh: HASH, bash: HASH, zsh: HASH, fish: HASH, ps1: HASH, pl: HASH, pm: HASH, r: HASH, ex: HASH, exs: HASH,
+  yml: HASH, yaml: HASH, toml: HASH, cfg: HASH, conf: HASH, ini: { line: ['#', ';'] }, properties: HASH, env: HASH, mk: HASH, cmake: HASH,
+  tf: { line: ['#', '//'], block: [['/*', '*/']] }, hcl: { line: ['#', '//'], block: [['/*', '*/']] }, nix: HASH, jl: HASH, nim: HASH,
+  sql: { line: ['--'], block: [['/*', '*/']] }, lua: DASH, hs: DASH, elm: DASH, ada: DASH,
+  html: MARKUP, htm: MARKUP, xml: MARKUP, svg: MARKUP, xhtml: MARKUP, md: MARKUP, markdown: MARKUP,
+  vue: { line: ['//'], block: [['<!--', '-->'], ['/*', '*/']], star: true }, svelte: { line: ['//'], block: [['<!--', '-->'], ['/*', '*/']], star: true },
+  erb: MARKUP, ejs: MARKUP, hbs: MARKUP, jsp: MARKUP,
+}
+const BY_NAME = { dockerfile: HASH, makefile: HASH, gemfile: HASH, rakefile: HASH, procfile: HASH, '.gitignore': HASH, '.dockerignore': HASH, '.gitattributes': HASH }
+/** How a file writes comments (undefined: no comments known; only blank lines don't count). */
+export function commentStyle(file) {
+  const name = path.posix.basename(String(file)).toLowerCase()
+  if (BY_NAME[name] || name.startsWith('dockerfile')) return BY_NAME[name] ?? HASH
+  const ext = /\.([a-z0-9]+)$/.exec(name)?.[1]
+  return ext ? STYLES[ext] : undefined
+}
+
+/**
+ * Whether a line is code: not blank, not a whole-line comment. `state.block`: the close marker of a block comment the
+ * previous line left open (pass the same object for consecutive lines; it is updated).
+ */
+export function isCode(line, file, state = {}) {
+  const t = String(line).trim()
+  if (!t) return false
+  const st = commentStyle(file)
+  if (!st) return true
+  if (state.block) {
+    const at = t.indexOf(state.block)
+    if (at < 0) return false
+    const rest = t.slice(at + state.block.length).trim()
+    state.block = undefined
+    return !!rest && isCode(rest, file, state)
+  }
+  if (st.line?.some((p) => t.startsWith(p))) return false
+  for (const [open, close] of st.block ?? []) {
+    if (!t.startsWith(open)) continue
+    const end = t.indexOf(close, open.length)
+    if (end < 0) { state.block = close; return false }
+    const rest = t.slice(end + close.length).trim()
+    return !!rest && isCode(rest, file, state)
+  }
+  // The middle and end lines of a /** … */ block written one "*" per line.
+  if (st.star && /^\*(\/|\s|$)/.test(t)) return false
+  return true
+}
+
+/**
+ * What changed in CODE lines between two commits (or a commit and the working tree when `to` is undefined): counted
+ * files only, blank and comment-only lines left out. `{ files, added, removed, exempt: [exempt files that changed] }`.
+ */
+export function codeStat(repo, from, to, exempt = []) {
+  const all = numstat(repo, from, to)
+  const out = { files: 0, added: 0, removed: 0, exempt: all.filter((f) => !own(f.file) && !counted(f.file, exempt)).map((f) => f.file) }
+  const list = all.filter((f) => counted(f.file, exempt) && !f.binary).map((f) => f.file)
+  if (!list.length) { out.exemptOnly = out.exempt.length > 0; return out }
+  const seen = new Set()
+  let file, plus = {}, minus = {}
+  for (const l of git(repo, ['diff', '--no-color', '--no-ext-diff', '-U0', '-M', from, ...(to ? [to] : []), '--', ...list]).split('\n')) {
+    if (l.startsWith('diff --git')) { file = undefined; continue }
+    if (l.startsWith('+++ ')) { const f = l.slice(4).replace(/^b\//, ''); if (f !== '/dev/null') file = f; continue }
+    if (l.startsWith('--- ')) { const f = l.slice(4).replace(/^a\//, ''); if (f !== '/dev/null') file = f; continue }
+    if (l.startsWith('@@')) { plus = {}; minus = {}; continue }
+    if (!file || (l[0] !== '+' && l[0] !== '-')) continue
+    if (!isCode(l.slice(1), file, l[0] === '+' ? plus : minus)) continue
+    if (l[0] === '+') out.added++; else out.removed++
+    seen.add(file)
+  }
+  out.files = seen.size
+  out.exemptOnly = !seen.size && !list.length && out.exempt.length > 0
+  return out
+}
+
+/**
+ * How many questions a change gets, by its size in code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5.
+ * Config `questions` bounds it: `{ "min": 3, "max": 5 }`, or a number for always that many.
+ */
+export function questionsFor(lines, cfg = DEFAULTS) {
+  const n = lines < 20 ? 1 : lines < 60 ? 2 : lines < 150 ? 3 : lines < 300 ? 4 : 5
+  const { min = 1, max = 5 } = cfg.questions ?? {}
+  return Math.max(1, Math.min(max, Math.max(min, n)))
 }
 
 /** `git diff --numstat` between two commits (or a commit and the working tree when `to` is undefined). */
@@ -75,15 +181,15 @@ export function numstat(repo, from, to) {
   }
   return files
 }
-export function stat(files) {
-  const c = files.filter((f) => counted(f.file))
+export function stat(files, exempt = []) {
+  const c = files.filter((f) => counted(f.file, exempt))
   return { files: c.length, added: c.reduce((s, f) => s + f.added, 0), removed: c.reduce((s, f) => s + f.removed, 0) }
 }
 export const linesOf = (s) => s.added + s.removed
 
 /** The unified diff of the counted files. */
-export function diffText(repo, from, to, files) {
-  const list = (files ?? numstat(repo, from, to)).filter((f) => counted(f.file) && !f.binary).map((f) => f.file)
+export function diffText(repo, from, to, files, exempt = []) {
+  const list = (files ?? numstat(repo, from, to)).filter((f) => counted(f.file, exempt) && !f.binary).map((f) => f.file)
   if (!list.length) return ''
   return git(repo, ['diff', '--no-color', '-U3', '-M', from, ...(to ? [to] : []), '--', ...list])
 }
@@ -104,18 +210,22 @@ export function numberDiff(diff) {
   return out.join('\n').trim()
 }
 
-/** file -> new-side line ranges that were added or changed: [[start, end], …]. */
-export function changedRanges(diff) {
+/** file -> new-side line ranges that were added or changed: [[start, end], …]. `codeOnly`: blank and comment lines left out. */
+export function changedRanges(diff, { codeOnly = false } = {}) {
   const map = new Map()
-  let file, n = 0, run
+  let file, n = 0, run, cs = {}
   const close = () => { if (run && file) { if (!map.has(file)) map.set(file, []); map.get(file).push(run) } run = undefined }
   for (const l of diff.split('\n')) {
     if (l.startsWith('+++ ')) { close(); file = l.slice(4).replace(/^b\//, ''); if (file === '/dev/null') file = undefined; continue }
     if (l.startsWith('--- ') || l.startsWith('diff --git')) { close(); continue }
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { close(); n = Number(h[1]); continue }
-    if (l.startsWith('+')) { if (run && run[1] === n - 1) run[1] = n; else { close(); run = [n, n] } n++ }
-    else if (l.startsWith('-')) { if (!run) run = [n, n] } // a deletion marks the line after it
+    if (h) { close(); n = Number(h[1]); cs = {}; continue }
+    if (l.startsWith('+')) {
+      if (codeOnly && !isCode(l.slice(1), file, cs)) { close(); n++; continue }
+      if (run && run[1] === n - 1) run[1] = n; else { close(); run = [n, n] }
+      n++
+    }
+    else if (l.startsWith('-')) { if (!run && !codeOnly) run = [n, n] } // a deletion marks the line after it
     else if (l.startsWith(' ')) { close(); n++ }
   }
   close()
@@ -127,7 +237,8 @@ export function changedRanges(diff) {
 export function loadConfig(repo) {
   let c = {}
   try { c = JSON.parse(fs.readFileSync(path.join(repo, DIR, 'config.json'), 'utf8')) } catch { /* none: defaults */ }
-  return { ...DEFAULTS, ...c, questions: { ...DEFAULTS.questions, ...(c.questions ?? {}) } }
+  const qs = typeof c.questions === 'number' ? { min: c.questions, max: c.questions } : c.questions ?? {}
+  return { ...DEFAULTS, ...c, questions: { ...DEFAULTS.questions, ...qs }, exempt: Array.isArray(c.exempt) ? c.exempt.filter((g) => typeof g === 'string' && g) : [] }
 }
 
 export function readCheck(file) {
@@ -191,6 +302,10 @@ export function validateCheck(c, { repo } = {}) {
     else if (q.target !== undefined) errs.push(`${at}: "target" must be "file" or left out`)
     else if (!Number.isInteger(q.start) || !Number.isInteger(q.end) || q.start < 1 || q.end < q.start) errs.push(`${at}: "start"/"end" must be 1-based lines (or "target": "file")`)
     if (q.anchor !== undefined && (typeof q.anchor !== 'object' || q.anchor === null || q.anchor.v !== 3 || typeof q.anchor.head !== 'string')) errs.push(`${at}: "anchor" must be a compact anchor ({ "v": 3, "head": … })`)
+    // The question writer thinks the honest answer is "this is a bug".
+    if (q.suspect !== undefined && typeof q.suspect !== 'boolean') errs.push(`${at}: "suspect" must be true or false`)
+    // A concern about the code found during the check; `flagged`: the author put it on the merge request.
+    if (q.concern !== undefined && (!q.concern || typeof q.concern !== 'object' || typeof q.concern.text !== 'string' || (q.concern.flagged !== undefined && typeof q.concern.flagged !== 'boolean'))) errs.push(`${at}: "concern" must be { "text": …, "flagged": true | false }`)
     // Unchanged code the answer depends on (shown beside the question).
     if (q.also !== undefined) {
       const okPath = (f) => typeof f === 'string' && !!f && !path.isAbsolute(f) && !f.split(/[\\/]/).includes('..')
@@ -361,8 +476,9 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const baseRef = base ?? defaultBase(repo)
   const head = gitOk(repo, ['rev-parse', 'HEAD'])
   const mb = baseRef && head ? mergeBase(repo, baseRef, head) : undefined
-  const change = mb ? stat(numstat(repo, mb)) : { files: 0, added: 0, removed: 0 } // committed and uncommitted
-  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), small: linesOf(change) < cfg.minChangedLines, exists: fs.existsSync(abs) }
+  // Code lines, committed and uncommitted.
+  const change = mb ? codeStat(repo, mb, undefined, cfg.exempt) : { files: 0, added: 0, removed: 0, exempt: [], exemptOnly: false }
+  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs) }
   const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
   if (!st.exists) return done(st)
   let check
@@ -370,9 +486,9 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const errors = validateCheck(check, { repo })
   if (errors.length) return done({ ...st, errors: [`${rel}: ${errors[0]}`] })
   relocate(repo, check) // today's line numbers (in memory: the file is rewritten only when it is saved anyway)
-  const drift = driftOf(repo, check, 'HEAD', change)
+  const drift = driftOf(repo, check, 'HEAD', change, cfg.exempt)
   // With uncommitted edits too: the drift CI will see once they are pushed.
-  const pending = driftOf(repo, check, undefined, change)
+  const pending = driftOf(repo, check, undefined, change, cfg.exempt)
   const dirty = !!gitOk(repo, ['status', '--porcelain', '--', rel])
   return done({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty })
 }
@@ -423,11 +539,11 @@ export function stateWords(state, st = {}) {
 }
 
 /**
- * Lines changed (counted files) between the commit the questions were written for and `to` (undefined: the working
+ * Code lines changed (counted files; blank and comment lines left out) between the commit the questions were written for and `to` (undefined: the working
  * tree). `approx`: that commit is not in this clone (rebased, squashed, or a shallow clone): sizes compared instead.
  */
-export function driftOf(repo, check, to, nowStat) {
-  if (hasCommit(repo, check.head)) return { lines: linesOf(stat(numstat(repo, check.head, to))), approx: false }
+export function driftOf(repo, check, to, nowStat, exempt = []) {
+  if (hasCommit(repo, check.head)) return { lines: linesOf(codeStat(repo, check.head, to, exempt)), approx: false }
   const was = check.diffStat ? linesOf(check.diffStat) : 0
   return { lines: nowStat ? Math.abs(linesOf(nowStat) - was) : 0, approx: true }
 }
@@ -726,16 +842,19 @@ export async function mrInfo(ctx) {
   return { labels: (p.labels ?? []).map((l) => l.name), author: p.user?.login }
 }
 
-/** Who approved, other than the author (GitLab approvals; GitHub reviews whose latest state is APPROVED). */
-export async function approvers(ctx, author) {
+/**
+ * Who approved, the author included (GitLab approvals; GitHub reviews whose latest state is APPROVED). Any approval
+ * counts, also one given before the skip label was added.
+ */
+export async function approvers(ctx) {
   if (ctx.platform === 'gitlab') {
     const a = await api(ctx, 'GET', `${glMr(ctx)}/approvals`)
-    return (a.approved_by ?? []).map((x) => x.user?.username).filter((u) => u && u !== author)
+    return (a.approved_by ?? []).map((x) => x.user?.username).filter(Boolean)
   }
   const reviews = await api(ctx, 'GET', `/repos/${ctx.project}/pulls/${ctx.mr}/reviews?per_page=100`)
   const last = new Map()
   for (const r of reviews ?? []) if (r.user?.login && r.state !== 'COMMENTED') last.set(r.user.login, r.state)
-  return [...last].filter(([u, s]) => s === 'APPROVED' && u !== author).map(([u]) => u)
+  return [...last].filter(([, s]) => s === 'APPROVED').map(([u]) => u)
 }
 
 /** Writes the comment, or updates the one this tool wrote before (found by its marker). Returns 'created' | 'updated'. */
@@ -754,8 +873,7 @@ export async function upsertComment(ctx, body) {
   return 'created'
 }
 
-const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '✗', ungraded: '?', todo: '○' }
-const STATE_WORD = { pass: 'passed', restated: 'passed in own words', explained: 'explained after 2 tries', retry: 'try again', ungraded: 'not graded', todo: 'not answered' }
+const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungraded: '?', todo: '○' }
 const quote = (s) => String(s).trim().replace(/<!--/g, '&lt;!--').split('\n').map((l) => `> ${l}`).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
@@ -794,24 +912,79 @@ export function refLink(ctx, q, diff) {
   return `${ctx.web}/-/merge_requests/${ctx.mr}/diffs#${h}${file ? '' : `_${old}_${q.start}`}`
 }
 
-/** The merge request comment: the verdict, then each question with the author's last answer. Compact markdown. `link(q)`: where its lines are. */
-export function commentBody(check, sum, headline, link = () => undefined) {
-  const out = [MARKER, `**Understanding check: ${headline}**`, '']
-  check.questions.forEach((q, i) => {
-    const s = sum.states[i]
-    const a = (q.attempts ?? []).at(-1)
-    const url = link(q)
-    out.push(`**${i + 1}. ${MARK[s]} ${q.text.trim()}**  `, `<sub>${q.kind} · ${url ? `[\`${loc(q)}\`](${url})` : `\`${loc(q)}\``} · ${STATE_WORD[s]}</sub>`, '')
-    if (a) out.push(quote(a.answer), '')
-  })
-  out.push('<sub>Answered in the editor and graded locally; see understanding/ in this change.</sub>')
-  return out.join('\n')
+/** Text from the grader or the author, safe on one markdown line. */
+const inline = (s) => String(s ?? '').replace(/<!--/g, '&lt;!--').replace(/\s+/g, ' ').trim()
+/** At most `n` words ("…" when cut). */
+export function clipWords(s, n) {
+  const w = inline(s).split(' ').filter(Boolean)
+  return w.length > n ? `${w.slice(0, n).join(' ').replace(/[,;:.]$/, '')}…` : w.join(' ')
+}
+/** The grader's reasoning for the reviewer, at most 15 words: its `note`, else its feedback without the "Right.". */
+export function reasonOf(a) {
+  if (!a) return ''
+  return clipWords(a.note || String(a.feedback ?? '').replace(/^\s*(right|correct|yes)[.!]\s*/i, ''), 15)
+}
+/** The one-line correct explanation of an explained question: the grader's `note`, else the first sentence of its explanation. */
+export function explanationOf(a) {
+  if (!a) return ''
+  return clipWords(a.note || (/^.*?[.!?](?=\s|$)/.exec(inline(a.feedback))?.[0] ?? a.feedback), 30)
+}
+
+/** Concerns the author flagged for the reviewer (`questions[].concern` with `flagged: true`). */
+export function flaggedConcerns(check) {
+  return (check.questions ?? []).filter((q) => q.concern?.flagged && inline(q.concern.text)).map((q) => ({ q, text: q.concern.text }))
 }
 
 /**
- * The CI job (no model calls): small change → pass; skip label → pass once someone other than the author approved;
- * else the file must exist, be valid, belong to this change, be fully answered and graded, meet the threshold, and its
- * graded attempts must match their hashes. Returns { code, lines, comment? }: code 0 pass, 1 fail, 2 can't check.
+ * The merge request comment. `head`: its first line (the result, or what is missing). Flagged concerns follow as
+ * "⚠ Found during the check". With `qa` (only once the check is done: it never grades in public) the questions follow:
+ * explained ones as "Worth discussing" with the correct point in one line (the author's wrong guesses and retries are
+ * never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning.
+ */
+export function commentBody(check, sum, head, link = () => undefined, { qa = false } = {}) {
+  const ref = (q) => { const u = link(q); return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\`` }
+  const out = [MARKER, head]
+  const flagged = flaggedConcerns(check)
+  if (flagged.length) out.push('', '**⚠ Found during the check**', ...flagged.map((c) => `- ${inline(c.text)} · ${ref(c.q)}`))
+  if (!qa) return out.join('\n')
+  const discuss = [], answered = []
+  check.questions.forEach((q, i) => {
+    const s = sum.states[i]
+    const as = q.attempts ?? []
+    if (s === 'explained' || s === 'restated') {
+      const ex = as.find((a) => a.verdict === 'explained')
+      const why = explanationOf(ex)
+      discuss.push('', `**Worth discussing: ${inline(ex?.topic || q.text)}** · ${ref(q)}`, ...(why ? [why] : []))
+      return
+    }
+    const good = as.find((a) => a.verdict === 'pass')
+    const why = reasonOf(good)
+    answered.push('', `**${q.text.trim()}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
+  })
+  return [...out, ...discuss, ...answered].join('\n')
+}
+
+/** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
+export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job') {
+  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (~5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
+    `<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`].join('\n')
+}
+
+/** Why no check is needed: only exempt files changed, or no code lines (comments, blank lines). */
+export function noCheckLine(change) {
+  if (change.exemptOnly) {
+    const f = change.exempt
+    return `✓ No check needed: only exempt files changed (${f.slice(0, 3).join(', ')}${f.length > 3 ? `, +${f.length - 3} more` : ''}).`
+  }
+  return '✓ No check needed: no code lines changed (only comments or blank lines).'
+}
+
+/**
+ * The CI job (no model calls). No code lines changed (or only exempt files) → pass. Skip label + an approval by
+ * someone other than the author → waived. Else the file must exist, be valid, belong to this change (drift in code
+ * lines), match its hashes, and meet the rule (checkState: every question done, enough passed). A skip label without a
+ * valid approval only says how to waive when the check itself doesn't pass. The merge request comment follows the job:
+ * its first line says the result or what is missing. Returns { code, lines, comment? }: 0 pass, 1 fail, 2 can't check.
  */
 export async function runCi(repo, { env = process.env, comment = true, base: baseFlag } = {}) {
   const cfg = loadConfig(repo)
@@ -824,70 +997,86 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
     return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
   }
-  const change = stat(numstat(repo, base, head))
-  if (linesOf(change) < cfg.minChangedLines) return { code: 0, lines: [`✓ Understanding check: not needed (${linesOf(change)} changed lines, under ${cfg.minChangedLines}).`] }
+  const change = codeStat(repo, base, head, cfg.exempt)
+  if (!linesOf(change)) return { code: 0, lines: [noCheckLine(change)] }
 
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
-  let info = { labels: ctx.labels ?? [], author: ctx.author }
-  if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] } } }
-  if (info.labels.includes(cfg.skipLabel)) {
-    if (!canApi) return { code: 1, lines: [`✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === 'github' ? 'GITHUB_TOKEN' : 'GITLAB_TOKEN'}).`] }
-    let who = []
-    try { who = await approvers(ctx, info.author) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read approvals: ${e.message}`] } }
-    if (who.length) return { code: 0, lines: [`✓ Understanding check skipped: label "${cfg.skipLabel}", approved by ${who.join(', ')}.`] }
-    return { code: 1, lines: [`✗ Label "${cfg.skipLabel}" is set: needs an approval from someone other than the author. Then re-run this job.`] }
-  }
-
-  const abs = path.join(repo, rel)
+  // GitHub runs the job again on a review (the recipe listens to it); GitLab doesn't.
+  const rerun = ctx.platform === 'github' ? '' : ', then re-run this job'
   const post = async (res, body) => {
-    if (!comment || !cfg.mrComment) return res
+    if (!comment || !cfg.mrComment || !body) return res
     res.comment = body
     if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
     return res
   }
+  let info = { labels: ctx.labels ?? [], author: ctx.author }
+  if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] } } }
+
+  // Skip: an approval by anyone but the author waives the check (good faith: no reason asked).
+  let skip
+  if (info.labels.includes(cfg.skipLabel)) {
+    if (!canApi) skip = { line: `✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === 'github' ? 'GITHUB_TOKEN' : 'GITLAB_TOKEN'}).` }
+    else {
+      let all = []
+      try { all = await approvers(ctx) } catch (e) { return { code: 2, lines: [`! Understanding check: couldn't read approvals: ${e.message}`] } }
+      const others = all.filter((u) => u !== info.author)
+      if (others.length) {
+        const line = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(', ')})`
+        return post({ code: 0, lines: [line] }, `${MARKER}\n${line}`)
+      }
+      const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`
+      skip = { line: all.length ? `✗ Approved only by ${info.author} (the author). Ask a reviewer to approve${rerun}.` : asked, body: `${MARKER}\n${asked}` }
+    }
+  }
+  const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun })
+  if (res.code !== 0 && skip) return post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body)
+  return post({ code: res.code, lines: res.lines }, res.body)
+}
+
+/** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
+async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
+  const abs = path.join(repo, rel)
   if (!fs.existsSync(abs)) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    return post({ code: 1, lines: [`✗ No understanding check yet: a few questions about your change (~5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (~5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
       `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
-      `  Or add the label "${cfg.skipLabel}", get a reviewer's approval, then re-run this job.`] }, missingBody(rel, cfg))
+      `  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`], body: missingBody(rel, cfg, rerun.replace('this job', 'the job')) }
   }
+  const short = (line, head) => ({ code: 1, lines: [line], body: `${MARKER}\n${head}` })
   let check
-  try { check = readCheck(abs) } catch (e) { return { code: 1, lines: [`✗ ${rel} is not valid JSON (${e.message}).`] } }
+  try { check = readCheck(abs) } catch (e) { return short(`✗ ${rel} is not valid JSON (${e.message}).`, `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.`) }
   const errs = validateCheck(check, { repo })
-  if (errs.length) return { code: 1, lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
+  if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
 
-  const drift = driftOf(repo, check, head, change)
-  if (drift.lines > cfg.maxDrift) {
-    return { code: 1, lines: [`✗ Your change grew by ${drift.lines} lines since the check${drift.approx ? ' (compared by size: its commit is not in this history)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`] }
-  }
-  const bad = hashProblems(check)
-  if (bad.length) return { code: 1, lines: [`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`] }
-
+  const drift = driftOf(repo, check, head, change, cfg.exempt)
   relocate(repo, check) // the lines as they are in this commit
   const sum = summarize(check, cfg)
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${q.text.trim().slice(0, 70)}${q.text.trim().length > 70 ? '…' : ''}`)
-  let res
-  // The shared rule (checkState): every question done (a "try again" is not), and enough passed.
-  if (sum.open) {
-    const n = sum.open
-    res = { code: 1, headline: `${n} of ${sum.total} not done`, lines: [`✗ Understanding check: ${n} of ${sum.total} questions not answered or graded yet. Finish them in VS Code, commit ${rel} and push.`, ...qLines] }
-  } else if (!sum.met) {
-    res = { code: 1, headline: `${sum.passed} of ${sum.total} passed (${sum.needed} needed)`, lines: [`✗ Understanding check: ${sum.passed} of ${sum.total} passed, ${sum.needed} needed. Run "Check my understanding" again to get new questions, or ask a reviewer for "${cfg.skipLabel}".`, ...qLines] }
-  } else {
-    // How much room is left before a top-up is needed.
-    const room = drift.lines ? ` ${drift.lines} line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-    res = { code: 0, headline: `passed, ${sum.passed} of ${sum.total}`, lines: [`✓ Understanding check passed: ${sum.passed} of ${sum.total} (${sum.needed} needed).${room}`, ...qLines] }
-  }
+  const state = checkState({ exists: true, summary: sum, drift }, cfg)
   let diff = ''
-  try { diff = diffText(repo, base, head) } catch { /* links fall back to the file */ }
-  return post(res, commentBody(check, sum, res.headline, (q) => refLink({ ...ctx, head }, q, diff)))
-}
+  try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
+  const link = (q) => refLink({ ...ctx, head }, q, diff)
+  if (state.phase === 'drift') {
+    return { code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
+      body: commentBody(check, sum, `**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, link, { qa: sum.met }) }
+  }
+  const bad = hashProblems(check)
+  if (bad.length) return short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.')
 
-/** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
-export function missingBody(rel, cfg = DEFAULTS) {
-  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (~5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
-    `<sub>Or add the label \`${cfg.skipLabel}\`, get a reviewer's approval, then re-run the job.</sub>`].join('\n')
+  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${q.text.trim().slice(0, 70)}${q.text.trim().length > 70 ? '…' : ''}`)
+  const rule = ruleText(sum)
+  if (state.phase === 'answering') {
+    return { code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
+      body: commentBody(check, sum, `**Understanding check in progress:** ${sum.done} of ${sum.total} done.`, link) }
+  }
+  if (state.phase === 'short') {
+    return { code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
+      body: commentBody(check, sum, `**Understanding check in progress:** all ${sum.total} answered, not finished yet.`, link) }
+  }
+  // How much room is left before a top-up is needed.
+  const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
+  return { code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
+    body: commentBody(check, sum, `**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, link, { qa: true }) }
 }
 
 // ---------- the command line ----------
@@ -911,7 +1100,7 @@ export function parseArgs(argv) {
     if (!a.startsWith('--')) { o._.push(a); continue }
     const [k, v] = a.slice(2).split(/=(.*)/s)
     if (v !== undefined) o[k] = v
-    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && !['json', 'write', 'no-comment'].includes(k)) o[k] = argv[++i]
+    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && !['json', 'write', 'no-comment', 'suspect', 'whole-file', 'top-up', 'replace'].includes(k)) o[k] = argv[++i]
     else o[k] = true
   }
   return o
@@ -928,7 +1117,7 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     const w = stateWords(s.state, s)
     print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
     if (s.state.phase === 'none') print('  Run "Code Notes: Check my understanding" in VS Code.')
-    print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} changed lines`)
+    print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code lines changed`)
     if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
     return 0
   }

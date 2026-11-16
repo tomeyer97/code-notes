@@ -17,7 +17,7 @@ const ID = { GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.com', GIT_CO
 const sh = (cwd, cmd, args, env = {}) => execFileSync(cmd, args, { cwd, encoding: 'utf8', env: { ...process.env, ...ID, ...env } })
 const gitIn = (cwd, ...args) => sh(cwd, 'git', args)
 
-/** main: a small file; feat/x: a 30-line change in src/app.js. */
+/** main: a small file; feat/x: a 70-code-line change in src/app.js (3 questions). */
 function repo() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-'))
   gitIn(d, 'init', '-q', '-b', 'main')
@@ -26,7 +26,7 @@ function repo() {
   fs.writeFileSync(path.join(d, 'src/app.js'), 'export function main() {\n  return 0\n}\n')
   gitIn(d, 'add', '-A'); gitIn(d, 'commit', '-qm', 'init')
   gitIn(d, 'checkout', '-qb', 'feat/x')
-  const body = Array.from({ length: 30 }, (_, i) => `  const v${i} = load(${i}) // step ${i}`).join('\n')
+  const body = Array.from({ length: 70 }, (_, i) => `  const v${i} = load(${i}) // step ${i}`).join('\n')
   fs.writeFileSync(path.join(d, 'src/app.js'), `export function main() {\n${body}\n  return 0\n}\n`)
   gitIn(d, 'commit', '-qam', 'change')
   return d
@@ -54,7 +54,11 @@ const commitAll = (d, msg = 'check') => { gitIn(d, 'add', '-A'); gitIn(d, 'commi
 test('slugs, counted paths, thresholds', () => {
   assert.equal(U.slugOf('feat/Discount codes!'), 'feat-discount-codes')
   assert.equal(U.fileFor('fix/a__b'), 'understanding/fix-a__b.json')
-  assert.ok(U.counted('src/a.ts') && !U.counted('README.md') && !U.counted('docs/x.ts') && !U.counted('web/package-lock.json') && !U.counted('understanding/x.json'))
+  // Nothing is exempt by default but the check itself and notes; the config's globs add more.
+  assert.ok(U.counted('src/a.ts') && U.counted('README.md') && U.counted('web/package-lock.json') && !U.counted('understanding/x.json') && !U.counted('.code-notes/a.json'))
+  const ex = ['docs/**', '*.md', 'package-lock.json']
+  assert.deepEqual(['README.md', 'docs/a/b.ts', 'web/package-lock.json', 'src/a.ts', 'src/docs/x.ts', 'a.mdx'].map((f) => U.counted(f, ex)), [false, false, false, true, true, true])
+  assert.ok(U.globRe('src/**/*.test.js').test('src/a/b/c.test.js') && U.globRe('src/**/*.test.js').test('src/c.test.js') && !U.globRe('src/*.js').test('src/a/b.js'))
   assert.deepEqual([3, 4, 5].map((n) => U.needed(n, 0.6)), [2, 3, 3])
   assert.equal(U.needed(5, 1), 5)
 })
@@ -91,7 +95,7 @@ test('skill script: start, add (refusals), finish; answeredBy from git', () => {
   assert.match(script(d, 'add', '--kind', 'how', '--file', 'src/app.js', '--lines', '3-4', '--text', 'How does it work? And why?').out, /more than one question/)
   assert.match(script(d, 'add', '--kind', 'how', '--file', 'src/app.js', '--lines', '3-4', '--text', 'How does this work when it runs').out, /ending with "\?"/)
   assert.equal(script(d, 'add', '--kind', 'how', '--file', 'src/app.js', '--lines', '3-4', '--text', 'How does main behave when it is called twice in a row?').code, 0)
-  assert.match(script(d, 'finish').out, /1 questions: write 3-5/)
+  assert.match(script(d, 'finish').out, /1 question: write 3-5 for this change \(3 suggested\)/)
   script(d, 'add', '--kind', 'how', '--file', 'src/app.js', '--lines', '5-6', '--text', 'How are the loaded values used after the loop finishes?')
   script(d, 'add', '--kind', 'how', '--file', 'src/app.js', '--lines', '7-8', '--text', 'How is the order of the steps decided in this function?')
   assert.match(script(d, 'finish').out, /one kind/)
@@ -115,8 +119,8 @@ test('top-up adds questions about the new lines only, keeping answers', () => {
   fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 50 }, (_, i) => `export const extra${i} = ${i}`).join('\n') + '\n')
   commitAll(d, 'more')
   assert.match(script(d, 'start', '--top-up').out, /TOP-UP[\s\S]*WRITE: 1 question about these new lines only/)
-  assert.match(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '3-4', '--text', 'Why are the steps loaded one at a time here again?').out, /not near a changed line/)
-  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '40-42', '--text', 'Why are the extra values exported one constant at a time?').code, 0)
+  assert.match(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '3-4', '--text', 'Why are the steps loaded one at a time here again?').out, /not near a changed code line/)
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '80-82', '--text', 'Why are the extra values exported one constant at a time?').code, 0)
   assert.match(script(d, 'finish').out, /4 questions \(1 new\)/)
   const c = U.readCheck(f)
   assert.equal(c.questions[3].id, 'q4'); assert.equal(c.questions[3].round, 2)
@@ -195,10 +199,10 @@ const gitlabEnv = (d, api, extra = {}) => ({
 })
 const ci = (d, env) => U.runCi(d, { env: { PATH: process.env.PATH, ...env } })
 
-test('ci: small change passes; no file fails with what to do; no model is ever called', async () => {
+test('ci: nothing changed passes; no file fails with what to do; no model is ever called', async () => {
   const d = repo()
   const res = await ci(d, gitlabEnv(d, undefined, { CI_MERGE_REQUEST_DIFF_BASE_SHA: gitIn(d, 'rev-parse', 'HEAD').trim() }))
-  assert.equal(res.code, 0); assert.match(res.lines[0], /not needed \(0 changed lines/)
+  assert.equal(res.code, 0); assert.equal(res.lines[0], '✓ No check needed: no code lines changed (only comments or blank lines).')
   const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
@@ -219,11 +223,11 @@ test('ci: unanswered, below the threshold, damaged hashes, drift, an invalid fil
   answerAll(f, [{ text: 'a', verdict: 'pass' }])
   commitAll(d)
   let r = await ci(d, gitlabEnv(d))
-  assert.equal(r.code, 1); assert.match(r.lines[0], /2 of 3 questions not answered or graded yet/)
+  assert.equal(r.code, 1); assert.match(r.lines[0], /^✗ Understanding check: 1 of 3 done \(Answer all 3 · 2 must pass\)/)
   answerAll(f, [undefined, { text: 'b', verdict: 'explained' }, { text: 'c', verdict: 'explained' }])
   commitAll(d)
   r = await ci(d, gitlabEnv(d))
-  assert.equal(r.code, 1); assert.match(r.lines[0], /1 of 3 passed, 2 needed/)
+  assert.equal(r.code, 1); assert.match(r.lines[0], /1 passed, 2 must pass\. In VS Code, say an explained answer back in your own words/)
   // A merge that kept another answer under the same verdict.
   const c = U.readCheck(f)
   c.questions[1].attempts[0].verdict = 'pass'; c.questions[2].attempts[0].answer = 'changed later'
@@ -234,15 +238,18 @@ test('ci: unanswered, below the threshold, damaged hashes, drift, an invalid fil
   c.questions[2].attempts[0].hash = U.attemptHash(c.questions[2], c.questions[2].attempts[0])
   U.writeCheck(f, c); commitAll(d)
   r = await ci(d, gitlabEnv(d))
-  assert.equal(r.code, 0, r.lines.join('\n')); assert.match(r.lines[0], /passed: 2 of 3 \(2 needed\)/)
-  // Edits to understanding/ and docs never count; code does.
+  assert.equal(r.code, 0, r.lines.join('\n')); assert.match(r.lines[0], /done: 2 of 3 passed \(Answer all 3 · 2 must pass\)/)
+  // Comments and blank lines never count as drift; exempt files neither; code does.
+  fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 50 }, (_, i) => `// note ${i}: audited monthly\n`).join('') + '/*\n block\n*/\n\n')
   fs.writeFileSync(path.join(d, 'NOTES.md'), Array.from({ length: 80 }, () => 'x').join('\n'))
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "exempt": ["*.md"] }\n')
   commitAll(d)
-  assert.equal((await ci(d, gitlabEnv(d))).code, 0)
+  r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 0, r.lines.join('\n')); assert.doesNotMatch(r.lines[0], /since the check/)
   fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
   commitAll(d)
   r = await ci(d, gitlabEnv(d))
-  assert.equal(r.code, 1); assert.match(r.lines[0], /grew by 45 lines since the check/)
+  assert.equal(r.code, 1); assert.match(r.lines[0], /grew by 45 code lines since the check/)
   fs.writeFileSync(f, '{ "version": 1, ')
   commitAll(d)
   r = await ci(d, gitlabEnv(d))
@@ -259,13 +266,13 @@ test('ci: the questions\' commit is gone (rebased): compared by size', async () 
   assert.equal(r.code, 0, r.lines.join('\n'))
 })
 
-test('ci on GitLab: skip label needs an approval by someone else; the MR comment is created, then updated', async () => {
+test('ci on GitLab: skip label + an approval by a non-author waives; self-approval and no approval say what to do; the comment is updated in place', async () => {
   const d = repo()
-  let approvals = [{ user: { username: 'ada' } }]
+  let approvals = []
   const notes = []
   const mr = '/projects/grp%2Fshop/merge_requests/7'
   const api = await fakeApi({
-    [`GET ${mr}`]: () => ({ labels: ['skip-understanding'], author: { username: 'ada' } }),
+    [`GET ${mr}`]: () => ({ labels: ['skip-understanding'], author: { username: 'alice' } }),
     [`GET ${mr}/approvals`]: () => ({ approved_by: approvals }),
     [`GET ${mr}/notes`]: () => notes,
     [`POST ${mr}/notes`]: (b) => { notes.push({ id: 11, body: b.body }); return notes[0] },
@@ -273,34 +280,91 @@ test('ci on GitLab: skip label needs an approval by someone else; the MR comment
   })
   try {
     const env = { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok' }
+    // Label, no approval yet.
     let r = await ci(d, env)
-    assert.equal(r.code, 1); assert.match(r.lines[0], /needs an approval from someone other than the author\. Then re-run this job/)
+    assert.equal(r.code, 1)
+    assert.equal(r.lines[0], 'Skip requested: an approval from a reviewer waives the understanding check, then re-run this job.')
+    assert.equal(notes[0].body, '<!-- understanding-check -->\nSkip requested: an approval from a reviewer waives the understanding check, then re-run this job.')
     assert.equal(api.calls[0].headers['private-token'], 'tok')
-    approvals = [{ user: { username: 'ada' } }, { user: { username: 'bo' } }]
+    // The author approved their own merge request.
+    approvals = [{ user: { username: 'alice' } }]
     r = await ci(d, env)
-    assert.equal(r.code, 0); assert.match(r.lines[0], /skipped: label "skip-understanding", approved by bo/)
-    // Without the label: the check itself, and its comment.
-    api.calls.length = 0
+    assert.equal(r.code, 1)
+    assert.equal(r.lines[0], '✗ Approved only by alice (the author). Ask a reviewer to approve, then re-run this job.')
+    assert.doesNotMatch(notes[0].body, /✗/, 'no ✗ in the comment')
+    // A reviewer's approval (any, also one given before the label) waives it.
+    approvals = [{ user: { username: 'alice' } }, { user: { username: 'bob' } }]
+    r = await ci(d, env)
+    assert.equal(r.code, 0)
+    assert.equal(r.lines[0], '✓ Understanding check waived (approved by @bob)')
+    assert.equal(notes.length, 1)
+    assert.equal(notes[0].body, '<!-- understanding-check -->\n✓ Understanding check waived (approved by @bob)')
+    // Label set, no approval, but the check itself passes: it passes, no skip message.
+    approvals = []
     const f = writeQuestions(d)
-    answerAll(f, [{ text: 'It is kept in\na file.', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
+    answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
     commitAll(d)
-    const noLabel = await fakeApi({
-      [`GET ${mr}`]: () => ({ labels: [], author: { username: 'ada' } }), [`GET ${mr}/notes`]: () => notes,
-      [`POST ${mr}/notes`]: (b) => { notes.push({ id: 11, body: b.body }); return notes[0] }, [`PUT ${mr}/notes/11`]: (b) => { notes[0].body = b.body; return notes[0] },
-    })
-    try {
-      const env2 = { ...gitlabEnv(d, noLabel.url), GITLAB_TOKEN: 'tok' }
-      r = await ci(d, env2)
-      assert.equal(r.code, 0, r.lines.join('\n')); assert.match(r.lines.at(-1), /comment created/)
-      assert.equal(notes.length, 1)
-      assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: passed, 2 of 3\*\*/)
-      assert.match(notes[0].body, /> It is kept in\n> a file\./)
-      assert.match(notes[0].body, /explained after 2 tries/)
-      r = await ci(d, env2)
-      assert.match(r.lines.at(-1), /comment updated/)
-      assert.equal(notes.length, 1, 'one comment, updated in place')
-      assert.ok(noLabel.calls.some((c) => c.key === `PUT ${mr}/notes/11`))
-    } finally { noLabel.close() }
+    r = await ci(d, env)
+    assert.equal(r.code, 0, r.lines.join('\n')); assert.match(r.lines[0], /^✓ Understanding check done/)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*✓ Understanding check done\*\* · 3 questions/)
+    assert.equal(notes.length, 1, 'one comment, updated in place')
+  } finally { api.close() }
+})
+
+test('the MR comment never grades in public: one progress line until done; then Q&A, worth discussing, flagged concerns, short reasoning', async () => {
+  const d = repo()
+  const notes = []
+  const mr = '/projects/grp%2Fshop/merge_requests/7'
+  const api = await fakeApi({
+    [`GET ${mr}`]: () => ({ labels: [], author: { username: 'alice' } }), [`GET ${mr}/notes`]: () => notes,
+    [`POST ${mr}/notes`]: (b) => { notes.push({ id: 11, body: b.body }); return notes[0] }, [`PUT ${mr}/notes/11`]: (b) => { notes[0].body = b.body; return notes[0] },
+  })
+  const env = () => ({ ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
+  const grade = (q, answer, verdict, extra = {}) => { const a = U.addAttempt({ answeredBy: { name: 'Ada' } }, q, answer); Object.assign(a, { verdict, feedback: '', ...extra }); a.hash = U.attemptHash(q, a) }
+  try {
+    const f = writeQuestions(d)
+    let c = U.readCheck(f)
+    grade(c.questions[0], 'It is kept in\na file.', 'pass', { feedback: 'Right. Also the file is rewritten atomically, so a crash leaves the old one in place for readers.' })
+    grade(c.questions[1], 'WRONG GUESS ONE', 'retry', { feedback: 'Not quite.', hint: 'Look at 12' })
+    U.writeCheck(f, c); commitAll(d)
+    let r = await ci(d, env())
+    assert.equal(r.code, 1)
+    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check in progress:** 1 of 3 done.')
+    // Done: an explained question, a flagged concern, a suspect question.
+    c = U.readCheck(f)
+    grade(c.questions[1], 'WRONG GUESS TWO', 'explained', { feedback: 'Each step waits for the one before it, so a slow load delays the rest. See src/app.js:3.', topic: 'loading steps one by one' })
+    grade(c.questions[2], 'It returns 0.', 'pass', { feedback: 'Right.', note: 'Returns 0 with no steps: the loop body never runs.' })
+    c.questions[2].suspect = true
+    c.questions[1].concern = { text: 'load() errors are swallowed: a failed step\nlooks like a success.', flagged: true }
+    c.questions[0].concern = { text: 'Not flagged: stays in the editor.', flagged: false }
+    U.writeCheck(f, c); commitAll(d)
+    r = await ci(d, env())
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    const body = notes[0].body
+    const lines = body.split('\n')
+    assert.equal(lines[1], '**✓ Understanding check done** · 3 questions')
+    assert.equal(lines[3], '**⚠ Found during the check**')
+    assert.match(lines[4], /^- load\(\) errors are swallowed: a failed step looks like a success\. · \[`src\/app\.js:10-12`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#/)
+    assert.match(body, /\*\*Worth discussing: loading steps one by one\*\* · \[`src\/app\.js:10-12`\]\([^)]+\)\nEach step waits for the one before it, so a slow load delays the rest\./)
+    assert.match(body, /> It is kept in\n> a file\.\n<sub>Also the file is rewritten atomically, so a crash leaves the old one in place…<\/sub>/)
+    assert.match(body, /<sub>Returns 0 with no steps: the loop body never runs\.<\/sub>/)
+    assert.match(body, /no steps to load at all\?\*\* · \[`src\/app\.js`\]\([^)]+\) · may be a bug/)
+    for (const w of ['WRONG GUESS', 'Not flagged', 'try again', 'retry', '✗', 'Not quite', 'Look at 12']) assert.ok(!body.includes(w), `the comment must not show "${w}"`)
+    assert.ok(body.indexOf('Worth discussing') < body.indexOf('It is kept in'), 'worth discussing comes first')
+    // The reasoning line is at most 15 words.
+    assert.ok(U.reasonOf({ feedback: 'Right. ' + 'word '.repeat(30) }).split(' ').length <= 15)
+    // Drift: the first line says what is missing, the answers stay below.
+    fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const z${i} = ${i}`).join('\n') + '\n')
+    commitAll(d, 'more')
+    r = await ci(d, env())
+    assert.equal(r.code, 1)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: needs a top-up\.\*\* The change grew by 45 code lines since the questions; 1–2 questions about the new part are missing\./)
+    assert.match(notes[0].body, /Worth discussing/)
+    // A damaged file: one line, what is wrong.
+    fs.writeFileSync(f, '{ "version": 1, '); commitAll(d)
+    r = await ci(d, env())
+    assert.equal(notes[0].body, '<!-- understanding-check -->\n**Understanding check:** `understanding/feat-x.json` is not valid JSON. Run **Check my understanding** again.')
+    assert.equal(notes.length, 1)
   } finally { api.close() }
 })
 
@@ -323,20 +387,23 @@ test('ci on GitHub: labels and reviews from the API, the comment on the pull req
   try {
     const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_PATH: ev, GITHUB_REPOSITORY: 'o/shop', GITHUB_API_URL: api.url, GITHUB_TOKEN: 't' }
     let r = await ci(d, env)
-    assert.equal(r.code, 1, r.lines.join('\n')); assert.match(r.lines[0], /1 of 3 questions not answered or graded yet/)
-    assert.equal(comments.length, 2); assert.match(comments[1].body, /1 of 3 not done/)
+    assert.equal(r.code, 1, r.lines.join('\n')); assert.match(r.lines[0], /2 of 3 done/)
+    assert.equal(comments.length, 2); assert.equal(comments[1].body, '<!-- understanding-check -->\n**Understanding check in progress:** 2 of 3 done.')
     assert.equal(api.calls.find((c) => c.key.startsWith('POST')).headers.authorization, 'Bearer t')
     r = await ci(d, env)
     assert.equal(comments.length, 2, 'updated, not a second comment')
     labels = ['skip-understanding']
     r = await ci(d, env)
     assert.equal(r.code, 1, 'bo\'s latest review is not an approval; the author\'s own does not count')
+    // GitHub re-runs the job on the review event: no "re-run" in the messages.
+    assert.equal(r.lines[0], '✗ Approved only by ada (the author). Ask a reviewer to approve.')
+    assert.equal(comments[1].body, '<!-- understanding-check -->\nSkip requested: an approval from a reviewer waives the understanding check.')
   } finally { api.close() }
 })
 
 test('status: what to do next, locally', async () => {
   const d = repo()
-  assert.equal(U.localStatus(d).next, '30 code lines changed.')
+  assert.equal(U.localStatus(d).next, '70 code lines changed.')
   const f = writeQuestions(d)
   assert.equal(U.localStatus(d).next, 'Answer all 3 · 2 must pass.')
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'explained' }])
@@ -400,7 +467,7 @@ test('ci: no check yet posts the MR comment (what and how, in two lines); a pass
     assert.equal(r.code, 1); assert.match(r.lines.at(-1), /comment created/)
     assert.equal(notes[0].body.split('\n').length, 3)
     assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(~5 min\)/)
-    assert.match(notes[0].body, /then re-run the job/)
+    assert.match(notes[0].body, /and get a reviewer's approval, then re-run the job\./)
     const f = writeQuestions(d)
     answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
     commitAll(d)
@@ -408,7 +475,7 @@ test('ci: no check yet posts the MR comment (what and how, in two lines); a pass
     commitAll(d, 'two more')
     r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
     assert.equal(r.code, 0, r.lines.join('\n'))
-    assert.match(r.lines[0], /passed: 3 of 3 \(2 needed\)\. 2 lines since the check \(top-up at 40\)\.$/)
+    assert.match(r.lines[0], /done: 3 of 3 passed \(Answer all 3 · 2 must pass\)\. 2 code lines since the check \(top-up at 40\)\.$/)
     assert.equal(notes.length, 1, 'the same comment, now the result')
     assert.match(notes[0].body, /\[`src\/app\.js:3-6`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#[0-9a-f]{40}_\d+_3\)/)
   } finally { api.close() }
@@ -508,4 +575,98 @@ test('the rule: every question done (pass, explained, restated; not "try again")
   assert.deepEqual(U.parseVerdict('{"verdict":"explained","feedback":"It…","note":"The second fails on UNIQUE.","topic":"same-key refunds","concern":"api/refunds.js:11 looks up before the lock."}', 2),
     { verdict: 'explained', feedback: 'It…', hint: '', note: 'The second fails on UNIQUE.', topic: 'same-key refunds', concern: 'api/refunds.js:11 looks up before the lock.' })
   assert.deepEqual(U.parseVerdict('{"verdict":"retry","feedback":"Re-check.","hint":"Look.","note":"x","concern":""}', 1), { verdict: 'retry', feedback: 'Re-check.', hint: 'Look.' })
+})
+
+test('code lines: comments and blank lines never count, by file type', () => {
+  const code = (file, lines) => { const st = {}; return lines.map((l) => U.isCode(l, file, st)) }
+  assert.deepEqual(code('a.js', ['  // x', '/* a', ' * b', ' */', 'x()', '/** one */ y()', '', '  ']), [false, false, false, false, true, true, false, false])
+  assert.deepEqual(code('a.py', ['# x', 'x = 1  # y', '#include']), [false, true, false])
+  assert.deepEqual(code('a.c', ['#include <x.h>', '// c']), [true, false])
+  assert.deepEqual(code('q.sql', ['-- x', 'select 1']), [false, true])
+  assert.deepEqual(code('a.html', ['<!-- a', 'b -->', '<p>x</p>', '<!-- c --> <b>']), [false, false, true, true])
+  assert.deepEqual(code('Dockerfile', ['# x', 'RUN y']), [false, true])
+  assert.deepEqual(code('data.json', ['// not a comment here', '{}']), [true, true])
+  assert.deepEqual(code('x.unknown', ['# anything', '']), [true, false])
+})
+
+test('size: question count scales with code lines; config bounds it', () => {
+  assert.deepEqual([1, 10, 19, 20, 59, 60, 149, 150, 299, 300, 2000].map((n) => U.questionsFor(n)), [1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
+  assert.equal(U.questionsFor(5, { questions: { min: 3, max: 5 } }), 3)
+  assert.equal(U.questionsFor(500, { questions: { min: 1, max: 3 } }), 3)
+  const d = repo()
+  fs.mkdirSync(path.join(d, 'understanding'), { recursive: true })
+  fs.writeFileSync(path.join(d, 'understanding/config.json'), '{ "questions": 2, "exempt": ["docs/**"] }')
+  const cfg = U.loadConfig(d)
+  assert.deepEqual([cfg.questions, cfg.exempt, cfg.minChangedLines], [{ min: 2, max: 2 }, ['docs/**'], undefined])
+  assert.equal(U.questionsFor(1000, cfg), 2)
+})
+
+/** main: app.js; feat/x: `lines` (an array) appended to it. */
+function smallRepo(lines, file = 'src/app.js') {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-'))
+  gitIn(d, 'init', '-q', '-b', 'main')
+  gitIn(d, 'config', 'user.name', 'Ada'); gitIn(d, 'config', 'user.email', 'ada@example.com')
+  fs.mkdirSync(path.join(d, 'src')); fs.mkdirSync(path.join(d, 'docs'))
+  fs.writeFileSync(path.join(d, 'src/app.js'), 'export function main() {\n  return 0\n}\n')
+  gitIn(d, 'add', '-A'); gitIn(d, 'commit', '-qm', 'init')
+  gitIn(d, 'checkout', '-qb', 'feat/x')
+  fs.appendFileSync(path.join(d, file), lines.join('\n') + '\n')
+  gitIn(d, 'add', '-A'); gitIn(d, 'commit', '-qm', 'change')
+  return d
+}
+
+test('no size limit: a 1-line code change needs a check with 1 question; the skill enforces the count', async () => {
+  const d = smallRepo(['export const rate = Math.round(price * 0.2)'])
+  assert.equal(U.localStatus(d).state.phase, 'none')
+  const r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 1); assert.match(r.lines[0], /No understanding check yet/)
+  assert.match(script(d, 'start', '--base', 'main').out, /1 code lines \(\+1 −0\)[\s\S]*WRITE: 1 question, about code lines/)
+  assert.equal(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '4-4', '--text', 'What does rate become for a price of 0.025, and why that value?').code, 1)
+  assert.equal(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '4-4', '--text', 'What value does rate get for a price that ends in half a cent?').code, 0)
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '4-4', '--text', 'Why is the rate rounded here rather than when it is shown?').code, 0)
+  assert.match(script(d, 'finish').out, /2 questions: write 1 for this change/)
+  script(d, 'remove', '2')
+  assert.match(script(d, 'finish').out, /WROTE understanding\/feat-x\.json: 1 questions/)
+})
+
+test('a comment-only change: nothing to check, nothing to ask; exempt files only: says which', async () => {
+  const d = smallRepo(['// the rate is reviewed monthly by finance', '/*', ' * see the runbook', ' */', ''])
+  let r = await ci(d, gitlabEnv(d))
+  assert.equal(r.code, 0); assert.equal(r.lines[0], '✓ No check needed: no code lines changed (only comments or blank lines).')
+  assert.equal(U.localStatus(d).state.phase, 'nothing')
+  assert.match(script(d, 'start', '--base', 'main').out, /^NOTHING: no code lines changed/)
+  const e = smallRepo(['# Guide', '', 'Some words.'], 'docs/guide.md')
+  r = await ci(e, gitlabEnv(e))
+  assert.equal(r.code, 1, 'docs count unless the config exempts them')
+  fs.mkdirSync(path.join(e, 'understanding'))
+  fs.writeFileSync(path.join(e, 'understanding/config.json'), '{ "exempt": ["docs/**", "*.md", "package-lock.json"] }\n')
+  commitAll(e, 'config')
+  r = await ci(e, gitlabEnv(e))
+  assert.equal(r.code, 0); assert.equal(r.lines[0], '✓ No check needed: only exempt files changed (docs/guide.md).')
+  assert.deepEqual([U.localStatus(e).state.phase, U.localStatus(e).state.exemptOnly], ['nothing', true])
+})
+
+test('skill script: never asks about comment lines; --suspect; two-in-one questions refused', () => {
+  const d = smallRepo(['// how the rate is computed', '// (finance asked for it)', 'export const rate = (p) => Math.round(p * 0.2)', 'export const fee = (p) => p > 100 ? 2 : 1'].concat(Array.from({ length: 20 }, (_, i) => `export const k${i} = ${i}`)))
+  assert.match(script(d, 'start', '--base', 'main').out, /WRITE: 2 questions/)
+  assert.match(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '4-5', '--text', 'Why does finance need the rate computed this way here?').out, /only comments or blank lines: ask about code/)
+  for (const t of ['What does fee return for exactly 100, or does it throw for that price?', 'What does rate return for a negative price; what does fee return then?', 'What happens to fee at 100 and what happens to rate at 0 then?']) assert.match(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '7-7', '--text', t).out, /asks two things/, t)
+  assert.equal(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '7-7', '--text', 'What fee does an order of exactly 100 pay, and is that intended?', '--suspect').code, 1, 'still two things')
+  const ok = script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '7-7', '--suspect', '--text', 'Which fee does an order of exactly 100 pay with this check?')
+  assert.equal(ok.code, 0, ok.out)
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '6-6', '--text', 'Why is the rate rounded before it is returned instead of later?').code, 0)
+  assert.match(script(d, 'finish').out, /WROTE/)
+  const c = U.readCheck(path.join(d, 'understanding/feat-x.json'))
+  assert.deepEqual(c.questions.map((q) => q.suspect), [true, undefined])
+  assert.deepEqual(c.diffStat, { files: 1, added: 22, removed: 0 }, 'code lines only')
+})
+
+test('validate: suspect and concern', () => {
+  const base = { version: 1, branch: 'b', head: 'abcdef1' }
+  const q = (x) => ({ ...base, questions: [{ id: 'q1', kind: 'why', text: 'Why is this so here?', file: 'a.js', start: 1, end: 2, ...x }] })
+  assert.deepEqual(U.validateCheck(q({ suspect: true, concern: { text: 'x is never released', flagged: true } })), [])
+  assert.deepEqual(U.validateCheck(q({ concern: { text: 'y' } })), [])
+  assert.match(U.validateCheck(q({ suspect: 'yes' })).join(), /"suspect" must be true or false/)
+  assert.match(U.validateCheck(q({ concern: 'x' })).join(), /"concern" must be/)
+  assert.match(U.validateCheck(q({ concern: { text: 'x', flagged: 'yes' } })).join(), /"concern" must be/)
 })
