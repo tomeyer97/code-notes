@@ -578,7 +578,7 @@ async function askClaude(n: Note, text?: string): Promise<void> {
     const q = understanding.questionOf(n)
     const ask = text?.trim() || await vscode.window.showInputBox({ title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' })
     if (!ask?.trim()) return
-    await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), q ? { checkAsk: q.text } : {})
+    await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), { ...(q ? { checkAsk: q.text } : {}), ...understanding.branchOf(n) })
     return
   }
   if (asking.has(n.data.id) || askQueue.includes(n.data.id)) return

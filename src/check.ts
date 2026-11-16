@@ -576,8 +576,16 @@ export class Understanding implements vscode.Disposable {
   // ---------- answering and grading ----------
 
   isCheck(n: Note): boolean { return isCheck(n) }
-  /** A check thread of another branch's check: not shown (its file and lines belong to that branch). */
-  offBranch(n: Note): boolean { const l = linkOf(n); return !!l && !!this.st && l.file !== this.st.file }
+  /**
+   * A check thread of another branch's check, or a note made from one (Suggest a fix, Ask Claude): not shown (its file
+   * and lines belong to that branch).
+   */
+  offBranch(n: Note): boolean {
+    const f = linkOf(n)?.file ?? (n.data.extra as { checkFile?: string } | undefined)?.checkFile
+    return !!f && !!this.st && f !== this.st.file
+  }
+  /** For a note made from a check thread: the check it belongs to (hidden with it on other branches). */
+  branchOf(n: Note): { checkFile?: string } { const f = linkOf(n)?.file; return f ? { checkFile: f } : {} }
   /** Graded in this window: the thread stays open where it is. */
   pinned(n: Note): boolean { return this.graded.has(n.data.id) }
   /** A question not done yet is in this file: journey lenses step aside. */
@@ -703,7 +711,7 @@ export class Understanding implements vscode.Disposable {
     if (action === 'fix') {
       // A note on the code the concern names, asked to Claude for a short fix that Apply puts in.
       const at = await this.concernAt(q, n)
-      await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id })
+      await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id, ...this.branchOf(n) })
       return
     }
     if (action === 'todo') {

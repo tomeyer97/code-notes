@@ -46,7 +46,7 @@ will find a way around it, so every design choice below favours little friction.
    with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar (the only list of them: the
    Code Notes tree doesn't repeat them): where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
-   journey lenses step aside in a file with an open question; another branch's check threads are hidden. Threads
+   journey lenses step aside in a file with an open question; another branch's check threads (and notes made from them) are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
    only for the question text it was shown with.
 4. Each reply is graded on submit: ✓ "Right." with at most one new fact, or "Not quite" (what is right, what to

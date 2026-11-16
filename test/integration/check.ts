@@ -281,10 +281,13 @@ export async function run(): Promise<void> {
   git('checkout', '-q', 'main')
   api.checkRefresh()
   await until('check threads hidden on main', () => checkNotes().length === 0 && !api.thread(n1.id))
+  // Notes made from the check (Ask Claude on a question, Suggest a fix) belong to the branch too: hidden, never "file not found".
+  await until('notes from the check hidden on main', () => !(api.snapshot().notes as any[]).some((n) => n.extra?.checkFix || n.extra?.checkAsk) && !api.thread(asked.id) && !api.thread(fixNote.id))
+  assert.equal(asked.extra?.checkFile, 'understanding/feat-limits.json')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
-  await until('back on the branch', () => checkNotes().length === 3)
-  ok('on another branch the check\'s threads are hidden; back on the branch they return')
+  await until('back on the branch', () => checkNotes().length === 3 && (api.snapshot().notes as any[]).filter((n) => n.extra?.checkFix || n.extra?.checkAsk).every((n) => !n.missing))
+  ok('on another branch the check\'s threads and the notes made from them are hidden; back on the branch they return')
 
   // 11. Questions written while the branch is switched: kept, then put in place on return.
   git('checkout', '-q', '-b', 'feat/second')
