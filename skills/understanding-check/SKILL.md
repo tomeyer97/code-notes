@@ -64,6 +64,9 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 - **At most one computed value.** "What does `rule59` return for a 200-cent item at qty 61?" is a calculator drill
   unless it says why it matters: ask it once at most, and say what is at stake ("… is that a valid price?"). Prefer why,
   failure and edge questions.
+- **Riskiest first.** Before anything clever, ask about what can hurt most: who may call a new endpoint or run a new
+  action (an auth gate, a token that may be unset), money moving, data leaving (a field now returned to a client),
+  data lost. When the change has such a surface, one question is about it, and it comes first.
 - **Prefer what the author is most likely to have skipped**: error paths, retries, ordering between two writes,
   what is shared between requests, limits, what happens with empty or duplicate input, a default that changed.
 
@@ -82,11 +85,16 @@ instead of reading the code cold. Write it only when the request asks for the to
 1. `questions.mjs tour` (`tour --top-up` when topping up). It prints the questions, the changed lines and the exact
    `journey.py` path and `--dir` to use (always that `--dir`; the slug is `tour`).
 2. Write the journey with `journey.py` (the code-journey skill's script; `journey.py help <command>` gives its rules):
-   - **6-10 steps** through the changed code AND the unchanged code it depends on (the caller, the table, the retry
-     loop), in the order a request or the data actually flows. A top-up adds 1-4 steps after the last one, about
-     the new part only; never change the earlier steps.
+   - **As many steps as the change needs** (`tour` prints the range: 2-4 for a small change, up to 6-10 for a big
+     one) through the changed code AND the unchanged code it depends on (the caller, the table, the retry loop), in
+     the order a request or the data actually flows. Every step is about the change or what it relies on: no step
+     that only says something stayed the same. A top-up adds 1-4 steps after the last one, about the new part
+     only; never change the earlier steps.
+   - **A change that mostly removes code** (`REMOVAL`): what was removed, what used it before (or that nothing does
+     now, and how you know), and the few lines that changed besides. Not a tour of the code around it.
    - `new <repo> tour "<question>" "<title>" --dir … < summary`: the question one developer would ask about this
-     change ("What happens when a shopper asks for a refund?"), a short topic title ("Refunds"), a 2-sentence summary.
+     change ("What happens when a shopper asks for a refund?"), a short title that names the change ("Refunds by
+     staff", "Dropping refundReport"), a 2-sentence summary.
    - A small map: 1-3 `system` boxes (reuse the names of the repo's journeys in `journeys/` when there are some), a
      `function` box per function a step is in (`range` prints its lines), and an `edge` for each hop between them.
    - Each `step`: a title that is one fact (≤ 70 chars), a lead of one plain sentence (≤ 25 words), lines that make

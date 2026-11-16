@@ -40,8 +40,10 @@ const stageDir = () => process.env.UNDERSTANDING_TOUR_DIR || path.join(gitDir(),
 const TOUR = 'tour'
 /** The code-journey skill's journey.py: JOURNEY_PY, the repository's copy, else the one shipped beside this skill. */
 const journeyPy = () => [process.env.JOURNEY_PY, path.join(repo, '.claude/skills/code-journey/scripts/journey.py'), path.join(here, '../../code-journey/scripts/journey.py')].find((p) => p && fs.existsSync(p))
-/** Steps a new tour has, and a top-up adds. */
-const TOUR_STEPS = [6, 10], TOPUP_STEPS = [1, 4]
+/** Steps a new tour has (by the change's size in code lines: a small change gets a short tour), and a top-up adds. */
+const tourSteps = (lines) => (lines < 20 ? [2, 4] : lines < 60 ? [4, 7] : [6, 10])
+const TOPUP_STEPS = [1, 4]
+const sizeOf = (check) => (check.diffStat ? U.linesOf(check.diffStat) : Infinity)
 const fmtRange = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
 const qLine = (q) => `${q.id} (${q.kind}) ${q.file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also?.length ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''}${q.step ? ` · step ${q.step}` : ''}: ${q.text}`
 
@@ -294,9 +296,13 @@ if (cmd === 'tour') {
     if (!ranges.size) for (const q of check.questions.filter((x) => !x.step)) if (!known.has(q.file)) ranges.set(q.file, [[q.start ?? 1, q.end ?? 1]])
   } else ranges = base ? U.changedRanges(U.diffText(repo, base, check.head, U.numstat(repo, base, check.head), cfg.exempt), { codeOnly: true }) : new Map()
   const want = topUp ? check.questions.filter((q) => !q.step) : check.questions
-  const [lo, hi] = topUp ? TOPUP_STEPS : TOUR_STEPS
+  const [lo, hi] = topUp ? TOPUP_STEPS : tourSteps(sizeOf(check))
   const n0 = topUp ? check.journey.steps.length : 0
-  say(topUp ? `TOUR TOP-UP: the tour of ${branch} has ${n0} steps; add ${lo}-${hi} after step ${n0}, through the new part only` : `TOUR: a journey of this change (${branch}): ${lo}-${hi} steps through the changed code and the unchanged code it depends on, in the order a request or the data flows`)
+  // A change that mostly removes code: the tour shows what went and why that is safe, not the code around it.
+  const st = check.diffStat
+  const removing = !topUp && st && st.removed > 2 * st.added
+  say(topUp ? `TOUR TOP-UP: the tour of ${branch} has ${n0} steps; add ${lo}-${hi} after step ${n0}, through the new part only` : `TOUR: a journey of this change (${branch}, ${st ? `+${st.added} −${st.removed} code lines` : 'its size unknown'}): ${lo}-${hi} steps through the changed code and the unchanged code it depends on, in the order a request or the data flows. Its title names the change ("Dropping refundReport", "Bumping the version"), not the area`)
+  if (removing) say('REMOVAL: this change mostly removes code. Steps: what was removed (on the lines where it was), what used it before (or that nothing does now: say how you checked), and the one or two lines that changed besides; nothing else')
   say(`JOURNEY: ${J} <command> <repo> ${TOUR} … --dir ${stage}   (repo: ${repo}; always --dir; slug ${TOUR})`)
   if (topUp) { say('STEPS SO FAR (keep them as they are):'); check.journey.steps.forEach((s, i) => say(`  ${i + 1}. ${s.title} (${s.file}:${s.range.start}-${s.range.end})`)) }
   say(`QUESTIONS ${topUp ? 'that need a step' : '(each needs the step after which its answer is visible)'}:`)
@@ -334,7 +340,7 @@ if (cmd === 'tour-finish') {
     const same = before.steps.every((s, i) => steps[i] && steps[i].id === s.id && steps[i].title === s.title && steps[i].file === s.file)
     if (!same) fail(`the first ${n0} steps changed: a top-up only adds steps after step ${n0} (journey.py restore, or rmstep the new ones and add them again)`)
     if (added < TOPUP_STEPS[0] || added > TOPUP_STEPS[1]) fail(`${added} new steps: add ${TOPUP_STEPS[0]}-${TOPUP_STEPS[1]} after step ${n0}`)
-  } else if (steps.length < TOUR_STEPS[0] || steps.length > TOUR_STEPS[1]) fail(`${steps.length} steps: a tour of a change has ${TOUR_STEPS[0]}-${TOUR_STEPS[1]}`)
+  } else { const [lo, hi] = tourSteps(sizeOf(check)); if (steps.length < lo || steps.length > hi) fail(`${steps.length} steps: a tour of this change has ${lo}-${hi} (its size)`) }
   // No animations in a check's tour (time and cost): dropped if any.
   for (const s of steps) delete s.scene
   const given = new Map()

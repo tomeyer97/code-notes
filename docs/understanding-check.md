@@ -13,7 +13,8 @@ will find a way around it, so every design choice below favours little friction.
 
 1. **Few, good questions.** Every change with code gets a check; the count follows its size in code lines: 1 under
    20, 2 under 60, 3–5 above. Each one is
-   about *this* change: a specific function, a design choice, a failure mode, an edge case. No trivia, no
+   about *this* change: a specific function, a design choice, a failure mode, an edge case. Riskiest first: when the
+   change opens who may call something, moves money or exposes data, one question is about that. No trivia, no
    "what does line 12 do".
 2. **Never stuck.** Wrong answer → feedback + one hint → second try → if still wrong, the grader explains
    the answer and the dev moves on. Passing needs a share of the questions (default 60 %), not all.
@@ -80,15 +81,18 @@ will find a way around it, so every design choice below favours little friction.
 ## The tour of the change
 
 Answering a question about code you have not read is hard to start: you open the file and read it cold. So the check
-also comes with a **tour**: a short journey of the change (the journey format, docs/journey-format.md), 6-10 steps
-through the changed code AND the unchanged code it depends on, in the order a request or the data flows. Each question
+also comes with a **tour**: a short journey of the change (the journey format, docs/journey-format.md), through the
+changed code AND the unchanged code it depends on, in the order a request or the data flows. Its length follows the
+change: 2-4 steps under 20 code lines, 4-7 under 60, else 6-10; no step only says something stayed the same. Its title
+names the change ("Dropping refundReport"), not the area. A change that mostly removes code gets a tour of what was
+removed, what used it (or that nothing does now) and the few lines that changed besides. Each question
 is placed after the step that shows its answer (`step` on the question), so the answer can be reached by clicking.
 
 - **Written right after the questions**, by the same agent in the same session (`claude --resume`: the change is read
   already), with the skill's section "The tour": `questions.mjs tour` prints the questions, the changed lines and the
   `journey.py` command line; the agent writes the journey with the code-journey skill's `journey.py` (one-line fact
   steps on exact lines, a small map, 1-3 code links per step; no values, no animations) into a staging folder in the
-  git dir; `questions.mjs tour-finish --steps q1=3,q2=5,…` runs `journey.py check`, checks the count (6-10; a top-up
+  git dir; `questions.mjs tour-finish --steps q1=3,q2=5,…` runs `journey.py check`, checks the count (by the change's size; a top-up
   appends 1-4 and never changes the steps before), that a step up to each question's number shows its file (or the
   code it also depends on), and puts the journey in the check file. Answers given meanwhile are kept (it reads the
   file at the end). Measured on Sonnet (a 90-line change of the example shop): questions 21 s / $0.16, the tour 172 s /

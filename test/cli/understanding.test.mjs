@@ -1132,7 +1132,7 @@ test('tour: written after the questions; each question placed after a step; vali
   const f = writeQuestions(d)
   assert.match(script(d, 'tour-finish', '--steps', 'q1=1').out, /no tour in .*run `questions\.mjs tour`/)
   const { out, dir } = tourStage(d)
-  assert.match(out, /^TOUR: a journey of this change \(feat\/x\): 6-10 steps/m)
+  assert.match(out, /^TOUR: a journey of this change \(feat\/x, \+70 −0 code lines\): 6-10 steps[^\n]*Its title names the change/m)
   assert.match(out, /q1 \(failure\) src\/app\.js:3-6: What happens when load\(\) throws/)
   assert.match(out, /^CHANGED: src\/app\.js:/m)
   assert.ok(dir.includes('understanding-tour') && !dir.startsWith(d + '/understanding'), 'staged in the git folder, never in the tree')
@@ -1645,4 +1645,19 @@ test('stacked branches: commits the parent made after its check are the parent\'
   const out = script(d, 'start', '--base', 'main').out
   assert.match(out, /CHANGE: branch cleanup\/y · 1 files · 2 code lines/)
   assert.doesNotMatch(out, /worker\.js/)
+})
+
+test('tour: its length follows the change; a change that mostly removes code gets a tour of what went', () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  const size = (st) => { const c = U.readCheck(f); c.diffStat = { files: 1, ...st }; U.writeCheck(f, c) }
+  size({ added: 2, removed: 0 })
+  let { out, dir } = tourStage(d)
+  assert.match(out, /: 2-4 steps through/); assert.doesNotMatch(out, /REMOVAL/)
+  writeTourSteps(d, dir)
+  assert.match(script(d, 'tour-finish', '--steps', 'q1=1,q2=2,q3=6').out, /PROBLEM: 6 steps: a tour of this change has 2-4 \(its size\)/)
+  size({ added: 1, removed: 40 })
+  ;({ out } = tourStage(d))
+  assert.match(out, /: 4-7 steps through/)
+  assert.match(out, /^REMOVAL: this change mostly removes code\. Steps: what was removed/m)
 })
