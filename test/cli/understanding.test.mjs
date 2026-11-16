@@ -888,6 +888,15 @@ function concernRepo() {
   return { d, f, set }
 }
 
+test('concernPlace: the line the concern names (found again by its text), else the question\'s last line', () => {
+  const q = { id: 'q1', file: 'api/r.js', start: 50, end: 62, concern: { text: 'The stock update adds every unit back.', flagged: true },
+    attempts: [{ verdict: 'pass', concern: 'The stock update adds every unit back.', links: [{ phrase: 'The stock update', file: 'api/r.js', start: 61, end: 61, text: '    await stock()' }] }] }
+  assert.deepEqual(U.concernPlace(q), { file: 'api/r.js', line: 61 })
+  const moved = Array.from({ length: 70 }, (_, i) => (i === 63 ? '    await stock()' : `x${i}`))
+  assert.deepEqual(U.concernPlace(q, () => moved), { file: 'api/r.js', line: 64 })
+  assert.deepEqual(U.concernPlace({ ...q, attempts: [] }), { file: 'api/r.js', line: 62 })
+})
+
 test('flagged concerns on GitLab: a thread on the line, never twice, updated, resolved when un-flagged, a note when the line is not in the diff', async () => {
   const { d, set } = concernRepo()
   const mr = '/projects/grp%2Fshop/merge_requests/7'
@@ -915,7 +924,8 @@ test('flagged concerns on GitLab: a thread on the line, never twice, updated, re
     assert.equal(discussions.length, 1)
     assert.deepEqual(discussions[0].notes[0].position, { position_type: 'text', base_sha: 'b1', start_sha: 's1', head_sha: 'h1', new_path: 'src/app.js', new_line: 6 })
     assert.equal(discussions[0].notes[0].body, '<!-- understanding-concern:q1 -->\n⚠ **Found during the understanding check** (flagged by Bob)\nload() errors are swallowed; tell @⁠carol')
-    assert.match(r.comment, /\*\*⚠ Found during the check\*\*/, 'still at the top of the bot comment')
+    assert.match(r.comment, /\*\*⚠ Found during the check\*\*\n- \[load\(\) errors are swallowed; tell @\u2060carol\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7#note_1\)\n/, 'at the top of the bot comment, as a link to its thread')
+    assert.equal(r.comment.split('load() errors').length, 2, 'said once in the comment')
     // A re-run: nothing new.
     r = await ci(d, env())
     assert.equal(discussions.length, 1); assert.ok(!r.lines.some((l) => /Concern/.test(l)), r.lines.join('\n'))

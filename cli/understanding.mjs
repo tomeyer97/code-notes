@@ -1063,11 +1063,13 @@ export function flaggedConcerns(check) {
  * and retries are never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning. An answer
  * by someone other than the check's `answeredBy` says "answered by <name>".
  */
-export function commentBody(check, sum, head, link = () => undefined, { qa = false } = {}) {
+export function commentBody(check, sum, head, link = () => undefined, { qa = false, threads = new Map() } = {}) {
   const ref = (q) => { const u = link(q); return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\`` }
   const out = [MARKER, head]
   const flagged = flaggedConcerns(check)
-  if (flagged.length) out.push('', '**⚠ Found during the check**', ...flagged.map((c) => `- ${inline(c.text)} · ${ref(c.q)}`))
+  // Each concern once where it can be acted on: its thread on the line; here a one-line link to it.
+  const item = (c) => (threads.has(c.q.id) ? `- [${clipWords(c.text, 12).replace(/[[\]]/g, '')}](${threads.get(c.q.id)})` : `- ${inline(c.text)} · ${ref(c.q)}`)
+  if (flagged.length) out.push('', '**⚠ Found during the check**', ...flagged.map(item))
   if (!qa) return out.join('\n')
   const discuss = [], answered = []
   // Someone other than the check's author answered (a teammate): said, never blocking.
@@ -1179,9 +1181,16 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
     }
   }
   const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun })
+  // Flagged concerns go on their lines first, as threads a reviewer can resolve (never fails the job); the comment
+  // then lists them as one-line links to those threads.
+  let synced = []
+  if (res.check && canApi && comment && cfg.mrComment) {
+    const urls = new Map()
+    synced = await syncConcerns(ctx, res.check, { head, link: res.link, urls, repo })
+    if (urls.size && res.remake) res.body = res.remake(urls)
+  }
   const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
-  // Flagged concerns also go on their lines, as threads a reviewer can resolve. Never fails the job.
-  if (res.check && canApi && comment && cfg.mrComment) done.lines.push(...await syncConcerns(ctx, res.check, { head, link: res.link }))
+  done.lines.push(...synced)
   return done
 }
 
@@ -1193,10 +1202,21 @@ const concernIdOf = (body) => /<!-- understanding-concern:([\w-]+) -->/.exec(Str
 const closedIdOf = (body) => /<!-- understanding-concern-closed:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
 
 /**
- * Where a flagged concern goes: the last line of its question's range, else the first code link of the attempt that
- * raised it (or of the question). `{ file, line }`, or undefined (then a plain note).
+ * Where a flagged concern goes: the code the concern names (its grade's link, found again by its line's text when it
+ * moved: `lines(file)` gives the file at the commit), else the last line of its question's range, else the first code
+ * link of the attempt that raised it (or of the question). `{ file, line }`, or undefined (then a plain note).
  */
-export function concernPlace(q) {
+export function concernPlace(q, lines) {
+  const own = concernLink(q)
+  if (own) {
+    const ls = lines?.(own.file)
+    let line = own.start
+    if (ls && typeof own.text === 'string' && ls[line - 1] !== own.text) {
+      const hits = ls.map((t, i) => (t === own.text ? i + 1 : 0)).filter(Boolean)
+      if (hits.length) line = hits.reduce((a, b) => (Math.abs(b - own.start) < Math.abs(a - own.start) ? b : a))
+    }
+    return { file: own.file, line }
+  }
   if (q.target !== 'file' && Number.isInteger(q.end)) return { file: q.file, line: q.end }
   const as = [...(q.attempts ?? [])].reverse()
   const l = (as.find((x) => x.concern && x.links?.length) ?? as.find((x) => x.links?.length))?.links?.[0] ?? q.links?.[0]
@@ -1219,13 +1239,16 @@ export function concernBody(check, q, where) {
  * (review threads can only be resolved through GraphQL). A line the diff doesn't have (the position is rejected) falls
  * back to a plain merge request note with a file:line link. Returns log lines; never throws.
  */
-export async function syncConcerns(ctx, check, { head, link = () => undefined } = {}) {
+export async function syncConcerns(ctx, check, { head, link = () => undefined, urls = new Map(), repo } = {}) {
   const lines = []
+  // The file at the head commit, for a concern's line that moved since it was graded.
+  const fileAt = (f) => { try { return repo && head ? git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) : undefined } catch { return undefined } }
+  const placeOf = (q) => concernPlace(q, fileAt)
   const say = (s) => { lines.push(`  ${s}`); return true }
   const safe = async (what, fn) => { try { return await fn() } catch (e) { lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`); return undefined } }
   const want = new Map(flaggedConcerns(check).map((c) => [c.q.id, c.q]))
   const whereOf = (q) => {
-    const p = concernPlace(q)
+    const p = placeOf(q)
     if (!p) return undefined
     const u = link({ file: p.file, start: p.line, end: p.line })
     return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\``
@@ -1241,20 +1264,23 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined } 
     let refs
     for (const [id, q] of want) {
       const had = mine.get(id)
+      const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
       if (had) {
+        urls.set(id, noteUrl(had.n.id))
         const body = noted(had.n.body) ? concernBody(check, q, whereOf(q)) : concernBody(check, q)
         if (had.n.body !== body && await safe('update a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
         if (had.n.resolved && await safe('reopen a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true))) say(`Concern reopened (${id}).`)
         continue
       }
-      const p = concernPlace(q)
+      const p = placeOf(q)
       if (p && refs === undefined) refs = await safe('read the diff refs', async () => (await api(ctx, 'GET', mr))?.diff_refs ?? null) ?? null
       const position = p && refs?.base_sha ? { position_type: 'text', base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line } : undefined
       // A line outside the diff is rejected: then a plain note, quietly (no error in the log).
       let ok = false
-      if (position) { try { await api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q), position }); ok = true } catch { /* not in the diff */ } }
+      const posted = (d) => { const nid = d?.notes?.[0]?.id; if (nid !== undefined) urls.set(id, noteUrl(nid)); return true }
+      if (position) { try { posted(await api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q), position })); ok = true } catch { /* not in the diff */ } }
       if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
-      if (await safe('post a concern', () => api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q, whereOf(q)) }).then(() => true))) say(`Concern posted as a note (${id}).`)
+      if (await safe('post a concern', () => api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q, whereOf(q)) }).then(posted))) say(`Concern posted as a note (${id}).`)
     }
     for (const [id, { d, n }] of mine) {
       if (want.has(id) || n.resolved) continue
@@ -1276,7 +1302,9 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined } 
   for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c) }
   for (const [id, q] of want) {
     const had = mine.get(id)
+    const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
     if (had) {
+      urls.set(id, ghUrl(had.c, had.review))
       const body = had.review ? concernBody(check, q) : concernBody(check, q, whereOf(q))
       if (had.c.body !== body && await safe('update a concern', () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
       // Flagged again: the "No longer flagged." reply goes.
@@ -1284,11 +1312,11 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined } 
       if (gone && had.review && await safe('remove a reply', () => api(ctx, 'DELETE', `${repoUrl}/pulls/comments/${gone.id}`).then(() => true))) say(`Concern flagged again (${id}).`)
       continue
     }
-    const p = concernPlace(q)
+    const p = placeOf(q)
     let ok = false
-    if (p && head) { try { await api(ctx, 'POST', `${pr}/comments`, { body: concernBody(check, q), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); ok = true } catch { /* not in the diff */ } }
+    if (p && head) { try { const c = await api(ctx, 'POST', `${pr}/comments`, { body: concernBody(check, q), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); if (c?.id !== undefined) urls.set(id, ghUrl(c, true)); ok = true } catch { /* not in the diff */ } }
     if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
-    if (await safe('post a concern', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: concernBody(check, q, whereOf(q)) }).then(() => true))) say(`Concern posted as a comment (${id}).`)
+    if (await safe('post a concern', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: concernBody(check, q, whereOf(q)) }).then((c) => { if (c?.id !== undefined) urls.set(id, ghUrl(c, false)); return true }))) say(`Concern posted as a comment (${id}).`)
   }
   for (const [id, { c, review: rv }] of mine) {
     if (want.has(id) || (rv && closed.has(id)) || (!rv && closedIdOf(c.body))) continue
@@ -1323,11 +1351,13 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   let diff = ''
   try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
   const link = (q) => refLink({ ...ctx, head }, q, diff)
+  // The comment, and the same again once the concern threads are known (`remake(threads)`).
+  const made = (line, o = {}) => ({ body: commentBody(check, sum, line, link, o), remake: (threads) => commentBody(check, sum, line, link, { ...o, threads }) })
   // The check and its links go along: runCi posts the flagged concerns on their lines.
   const out = (r) => Object.assign(r, { check, link, diff })
   if (state.phase === 'drift') {
     return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
-      body: commentBody(check, sum, `**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, link, { qa: sum.met }) })
+      ...made(`**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, { qa: sum.met }) })
   }
   const bad = hashProblems(check)
   if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
@@ -1336,16 +1366,16 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   const rule = ruleText(sum)
   if (state.phase === 'answering') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      body: commentBody(check, sum, `**Understanding check in progress:** ${sum.done} of ${sum.total} done.`, link) })
+      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done.`) })
   }
   if (state.phase === 'short') {
     return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
-      body: commentBody(check, sum, `**Understanding check in progress:** all ${sum.total} answered, not finished yet.`, link) })
+      ...made(`**Understanding check in progress:** all ${sum.total} answered, not finished yet.`) })
   }
   // How much room is left before a top-up is needed.
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
   return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    body: commentBody(check, sum, `**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, link, { qa: true }) })
+    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
 }
 
 // ---------- init ----------

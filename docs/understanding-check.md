@@ -118,14 +118,14 @@ Files written before this (every attempt with its answer and hash) still validat
 decides what happens to it; the extension then writes the question's `concern`:
 `{ "text": string, "flagged": boolean, "at"?: ISO time, "by"?: { "name", "email" } }` (`by`: who flagged it, else
 `answeredBy`). `flagged: true` (**Flag for reviewer**) puts it at the top of
-the merge request comment under "⚠ Found during the check"; `false` (e.g. **Add TODO**, or not decided) keeps it out of
+the merge request comment under "⚠ Found during the check" (a one-line link to its thread on the line); `false` (not decided, or un-flagged) keeps it out of
 the comment. One concern per question; `text` may be edited by the author. `suspect: true` (set by the question
 writer) is shown as "may be a bug" next to the question in the comment, and in VS Code only once the question has been
 answered (never before: it would give the answer away), with the same actions.
 
 CI also posts each flagged concern as a **thread on its line** that a reviewer can resolve: a GitLab discussion with a
-diff position (the merge request's `diff_refs`, the last line of the question's range, else the first code link of the
-attempt that raised it), a GitHub review comment (`side: RIGHT`). The text is short: "⚠ **Found during the understanding
+diff position (the merge request's `diff_refs`; the line the concern names: its grade's code link, found again by its
+text, else the last line of the question's range), a GitHub review comment (`side: RIGHT`). The text is short: "⚠ **Found during the understanding
 check** (flagged by Bob)" and the concern, mentions made inert. A hidden marker with the question's id finds it again:
 never posted twice, its text updated when it changed. Un-flagged, or its question gone: GitLab resolves the discussion
 (and reopens it when flagged again); GitHub gets one "No longer flagged." reply (resolving a review thread needs GraphQL).
