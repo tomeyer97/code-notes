@@ -70,7 +70,8 @@ export async function run(): Promise<void> {
   }
   const view = () => chk().view
   // The code editor's caret (the keyboard may be in the Check view's box, where there is no active editor).
-  const editorLine = () => (vscode.window.activeTextEditor ?? vscode.window.visibleTextEditors.find((e) => e.document.uri.scheme === 'file'))?.selection.active.line
+  const codeEditor = () => { const a = vscode.window.activeTextEditor; return a?.document.uri.scheme === 'file' ? a : vscode.window.visibleTextEditors.find((e) => e.document.uri.scheme === 'file') }
+  const editorLine = () => codeEditor()?.selection.active.line
   const inLines = (a: number, b: number) => { const l = editorLine(); return l !== undefined && l >= a && l <= b }
 
   // 1. A branch with a change and no check: the status bar says so; so does the Check view.
@@ -201,8 +202,8 @@ export async function run(): Promise<void> {
     await until('the answer in the thread too', () => noteOf('q2').messages.some((m: any) => m.role === 'human' && m.body === 'Not sure.'))
   } else await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
-  const e = vscode.window.activeTextEditor!
-  assert.ok(e.selection.isEmpty, 'nothing selected'); assert.ok(inLines(9, 11), 'on the question')
+  const e = vscode.window.visibleTextEditors.find((x) => x.document.uri.fsPath === path.join(ws, 'api/limits.js'))!
+  assert.ok(e.selection.isEmpty, `nothing selected: ${JSON.stringify(e.selection)}`); assert.ok(inLines(9, 11), 'on the question')
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
   assert.ok(api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded, 'the thread stays open')
   assert.equal(chk().view.rows[1].word, 'try again')
@@ -210,7 +211,7 @@ export async function run(): Promise<void> {
   const q2n = noteOf('q2'), hintAt = q2n.messages.length - 1
   const linked = await until('the hint carries a code link', () => (api.thread(q2n.id).comments as vscode.Comment[]).find((c) => (c.body as vscode.MarkdownString).value?.includes('command:codeNotes.codeLink')))
   assert.match((linked!.body as vscode.MarkdownString).value, /background-color:var\(--vscode-toolbar-hoverBackground\);">reset /)
-  const caret = vscode.window.activeTextEditor!.selection
+  const caret = e.selection
   const limitsText = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
   /** Real keys, as someone answering would type them next: none of it may reach the code. */
   const typeAway = async (what: string) => {
@@ -220,14 +221,15 @@ export async function run(): Promise<void> {
     await page.keyboard.press('Enter'); await page.keyboard.press('Backspace')
     await sleep(300)
     assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8'), limitsText, `${what}: the file on disk is untouched`)
-    assert.ok(!vscode.window.activeTextEditor?.document.isDirty, `${what}: the code in the editor is untouched`)
-    assert.equal(vscode.window.activeTextEditor?.document.getText(), limitsText, `${what}: no keystroke in the code`)
+    const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(ws, 'api/limits.js'))
+    assert.ok(!doc?.isDirty, `${what}: the code in the editor is untouched`)
+    assert.equal(doc?.getText(), limitsText, `${what}: no keystroke in the code`)
   }
   if (cdp) await (await ui()).locator('.review-widget .comment-body a', { hasText: 'reset' }).first().click()
   else await vscode.commands.executeCommand('codeNotes.codeLink', `check|${q2n.id}|${hintAt}`, 0)
   await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 })
   // Only lit: nothing selected, the caret where it was.
-  assert.ok(vscode.window.activeTextEditor!.selection.isEqual(caret), 'a code link moves no caret and selects nothing')
+  assert.ok(e.selection.isEqual(caret), 'a code link moves no caret and selects nothing')
   await shoot('check-2a-code-link')
   await typeAway('after a code link click')
   await vscode.commands.executeCommand('codeNotes.codeLinkBack')
@@ -270,7 +272,7 @@ export async function run(): Promise<void> {
   // 5. Ctrl+' D goes to the open question; a concern from the grader: Flag for reviewer.
   await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'README.md')))
   await vscode.commands.executeCommand('codeNotes.next')
-  await until('D opens q3', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
+  await until('D opens q3', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/limits.js') && api.snapshot().notes.find((n: any) => n.id === noteOf('q3').id)?.threadExpanded)
   await answer('q3', 'GOOD CONCERN: they are in memory, so a restart forgets them.')
   await until('q3 passed with a concern', () => chk().view?.rows[2].flag === 'concern')
   await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'flag')
@@ -434,7 +436,7 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, where, 'nothing opened by itself')
   await shoot('check-5-ready')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-  await until('a click opens q1', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
+  await until('a click opens q1', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits once more', () => chk().item === '$(pass) Understanding')

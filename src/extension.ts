@@ -870,7 +870,8 @@ function syncThread(n: Note): void {
     asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
   setThread(t, 'canReply', true)
-  // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in view.
+  // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in
+  // view; and resolving a thread that has the keyboard selects its lines in the code, where typing would replace them.
   const st = n.data.status === 'resolved' && !understanding?.isCheck(n) ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
   if (t.state !== st) t.state = st
   setThread(t, 'contextValue', ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', understanding?.isCheck(n) ? 'check' : ''].filter(Boolean).join(';'))
