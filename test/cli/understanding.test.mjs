@@ -738,3 +738,65 @@ test('drift after a rebase onto main: none locally (old commits known), none in 
   r = await ciAt(d)
   assert.equal(r.code, 1); assert.match(r.lines[0], /grew by 45 code lines since the check \(compared by size/)
 })
+
+test('only the final answer stays: earlier attempts lose their text and hash; CI verifies the last one; older files still validate', async () => {
+  const q = { id: 'q1', kind: 'why', text: 'Why is this so here?', file: 'a.js', start: 1, end: 2 }
+  const check = { version: 1, branch: 'b', head: 'abcdef1', answeredBy: { name: 'Ada' }, questions: [q] }
+  const a1 = U.addAttempt(check, q, 'a wrong guess', { name: 'Ada' })
+  Object.assign(a1, { verdict: 'retry', feedback: 'Re-check the loop.', hint: 'Look at a.js:2', gradedAt: 't1' }); a1.hash = U.attemptHash(q, a1)
+  const a2 = U.addAttempt(check, q, 'still wrong', { name: 'Ada' })
+  Object.assign(a2, { verdict: 'explained', feedback: 'It retries.', topic: 'retries', note: 'It retries.' }); a2.hash = U.attemptHash(q, a2)
+  U.addAttempt(check, q, 'It retries until it works.', { name: 'Bo' })
+  assert.deepEqual(q.attempts.map((a) => [a.answer, a.hash, a.verdict]), [[undefined, undefined, 'retry'], [undefined, undefined, 'explained'], ['It retries until it works.', undefined, undefined]])
+  assert.deepEqual([q.attempts[0].feedback, q.attempts[0].hint, q.attempts[0].at !== undefined, q.attempts[1].topic, q.attempts[2].by], ['Re-check the loop.', 'Look at a.js:2', true, 'retries', { name: 'Bo' }])
+  assert.ok(!JSON.stringify(check).includes('wrong'), 'no wrong guess in the file')
+  const last = q.attempts[2]; last.verdict = 'restated'; last.hash = U.attemptHash(q, last)
+  assert.deepEqual(U.validateCheck(check), [])
+  assert.deepEqual(U.hashProblems(check), [])
+  assert.equal(U.stateOf(q), 'restated')
+  last.answer = 'edited by hand'
+  assert.deepEqual(U.hashProblems(check), ['q1 attempt 3'])
+  // The last attempt must keep its answer.
+  delete last.answer
+  assert.match(U.validateCheck(check).join(), /attempt 3: "answer" must be a string/)
+  // The older format (every attempt with its answer and hash) still validates; a bad old hash is not checked.
+  const old = { ...check, questions: [{ ...q, attempts: [{ answer: 'x', verdict: 'retry', hash: 'nothash' }, { answer: 'y', verdict: 'pass' }] }] }
+  old.questions[0].attempts[1].hash = U.attemptHash(old.questions[0], old.questions[0].attempts[1])
+  assert.deepEqual([U.validateCheck(old), U.hashProblems(old)], [[], []])
+  assert.equal(U.pruneAttempts(old.questions[0]).attempts[0].answer, undefined)
+  // `grade --answer` prunes too.
+  const d = repo()
+  const f = writeQuestions(d)
+  const env = { UNDERSTANDING_BACKEND: 'claude', UNDERSTANDING_CLAUDE: FAKE }
+  await run(d, ['grade', f, '--question', 'q2', '--answer', 'no idea', '--write'], env)
+  await run(d, ['grade', f, '--question', 'q2', '--answer', 'GOOD: now I see', '--write'], env)
+  const c = U.readCheck(f)
+  assert.deepEqual(c.questions[1].attempts.map((a) => a.answer), [undefined, 'GOOD: now I see'])
+  assert.deepEqual([U.validateCheck(c), U.hashProblems(c)], [[], []])
+})
+
+test('init: .gitattributes and .ignore, idempotent, never duplicated, existing lines kept', async () => {
+  const d = repo()
+  fs.writeFileSync(path.join(d, '.gitattributes'), '*.png binary')
+  let r = await run(d, ['init'])
+  assert.equal(r.out, 'Added: .gitattributes: understanding/*.json linguist-generated=true; .ignore: understanding/.')
+  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json linguist-generated=true\n')
+  assert.equal(fs.readFileSync(path.join(d, '.ignore'), 'utf8'), 'understanding/\n')
+  r = await run(d, ['init'])
+  assert.equal(r.out, 'Already set up.')
+  fs.writeFileSync(path.join(d, '.ignore'), 'dist/\n  understanding/  \n')
+  assert.deepEqual(U.initRepo(d), [])
+  assert.equal(fs.readFileSync(path.join(d, '.ignore'), 'utf8'), 'dist/\n  understanding/  \n')
+  // From a subfolder: the repository's root.
+  fs.rmSync(path.join(d, '.ignore'))
+  assert.equal((await U.main(['init'], { cwd: path.join(d, 'src'), print: () => {} })), 0)
+  assert.ok(fs.existsSync(path.join(d, '.ignore')))
+})
+
+test('validate: optional code links on questions and attempts, checked lightly', () => {
+  const link = { phrase: 'the retry loop', file: 'w.js', start: 4, end: 9 }
+  const c = (qx, ax) => ({ version: 1, branch: 'b', head: 'abcdef1', questions: [{ id: 'q1', kind: 'why', text: 'Why is this so here?', file: 'a.js', start: 1, end: 2, ...qx, attempts: [{ answer: 'x', ...ax }] }] })
+  assert.deepEqual(U.validateCheck(c({ links: [link] }, { links: [link], extra: 1 })), [])
+  assert.match(U.validateCheck(c({ links: [{ ...link, start: 0 }] })).join(), /"links" must be a list/)
+  assert.match(U.validateCheck(c({}, { links: 'x' })).join(), /attempt 1: "links" must be a list/)
+})

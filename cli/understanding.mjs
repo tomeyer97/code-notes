@@ -300,12 +300,27 @@ export function gitIdentity(repo) {
 }
 const sameWho = (a, b) => !!a && !!b && (a.email && b.email ? a.email === b.email : a.name === b.name)
 
-/** Adds an answer to a question; `by` only when someone other than the check's `answeredBy` answers. */
+/**
+ * Adds an answer to a question; `by` only when someone other than the check's `answeredBy` answers. The earlier
+ * attempts lose their answer text (pruneAttempts): only the final answer stays in the file.
+ */
 export function addAttempt(check, q, answer, who) {
   const a = { answer, at: new Date().toISOString() }
   if (who && !sameWho(who, check.answeredBy)) { if (!check.answeredBy) check.answeredBy = who; else a.by = who }
   ;(q.attempts ??= []).push(a)
+  pruneAttempts(q)
   return a
+}
+
+/**
+ * Only the final answer's text stays in the file: every attempt but the last loses `answer` and `hash` (a wrong guess
+ * is never kept); its verdict, times, `by` and the grader's feedback, note, topic and concern stay. Call it whenever a
+ * new attempt is added. Returns the question.
+ */
+export function pruneAttempts(q) {
+  const as = Array.isArray(q?.attempts) ? q.attempts : []
+  for (const a of as.slice(0, -1)) { if (a && typeof a === 'object') { delete a.answer; delete a.hash } }
+  return q
 }
 
 /** The short hash a graded attempt carries: CI notices an answer or verdict changed after grading (a bad merge). */
@@ -314,6 +329,14 @@ export function attemptHash(question, attempt) {
 }
 
 const isHex = (s, min = 7) => typeof s === 'string' && new RegExp(`^[0-9a-f]{${min},64}$`).test(s)
+
+/** Optional code links in a question's or a reply's text: `[{ phrase, file, start, end }]`, checked lightly. */
+function linksBad(links, at, errs) {
+  if (links === undefined) return
+  const ok = Array.isArray(links) && links.every((l) => l && typeof l === 'object' && typeof l.phrase === 'string' && typeof l.file === 'string'
+    && Number.isInteger(l.start) && Number.isInteger(l.end) && l.start > 0 && l.end > 0)
+  if (!ok) errs.push(`${at} must be a list of { "phrase", "file", "start", "end" }`)
+}
 
 /** What is wrong with a check file (an empty list: nothing). `repo`: also check that each question's file exists. */
 export function validateCheck(c, { repo } = {}) {
@@ -354,9 +377,13 @@ export function validateCheck(c, { repo } = {}) {
       else if (q.also.some((x) => !x || !okPath(x.file) || !Number.isInteger(x.start) || !Number.isInteger(x.end) || x.start < 1 || x.end < x.start)) errs.push(`${at}: each "also" needs a file inside the repository and 1-based start/end`)
       else if (repo) for (const x of q.also) if (!fs.existsSync(path.join(repo, x.file))) errs.push(`${at}: ${x.file} doesn't exist`)
     }
+    linksBad(q.links, `${at}: "links"`, errs)
     if (q.attempts !== undefined && !Array.isArray(q.attempts)) errs.push(`${at}: "attempts" must be an array`)
     for (const [k, a] of (Array.isArray(q.attempts) ? q.attempts : []).entries()) {
-      if (!a || typeof a.answer !== 'string') { errs.push(`${at}, attempt ${k + 1}: "answer" must be a string`); continue }
+      // Only the last attempt must keep its answer (earlier ones may have had it pruned; older files still have it).
+      const last = k === q.attempts.length - 1
+      if (!a || typeof a !== 'object' || (last ? typeof a.answer !== 'string' : a.answer !== undefined && typeof a.answer !== 'string')) { errs.push(`${at}, attempt ${k + 1}: "answer" must be a string`); continue }
+      linksBad(a.links, `${at}, attempt ${k + 1}: "links"`, errs)
       if (a.by !== undefined && whoBad(a.by)) errs.push(`${at}, attempt ${k + 1}: "by" must be { "name": …, "email": … }`)
       if (a.verdict !== undefined && !VERDICTS.includes(a.verdict)) errs.push(`${at}, attempt ${k + 1}: "verdict" must be one of ${VERDICTS.join(', ')}`)
     }
@@ -404,10 +431,13 @@ export const ruleText = (s) => `Answer all ${s.total} · ${s.needed} must pass`
 
 /** Graded attempts whose hash doesn't match (or is missing): "q2 attempt 1". */
 export function hashProblems(check) {
+  // Only each question's last attempt keeps its answer, so only it can be verified; earlier hashes are not checked.
   const out = []
-  for (const q of check.questions) (q.attempts ?? []).forEach((a, i) => {
-    if (a.verdict && a.hash !== attemptHash(q, a)) out.push(`${q.id} attempt ${i + 1}`)
-  })
+  for (const q of check.questions) {
+    const as = q.attempts ?? []
+    const a = as[as.length - 1]
+    if (a?.verdict && a.hash !== attemptHash(q, a)) out.push(`${q.id} attempt ${as.length}`)
+  }
   return out
 }
 
@@ -1005,7 +1035,7 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
       discuss.push('', `**Worth discussing: ${inline(ex?.topic || q.text)}** · ${ref(q)}${by(ex)}`, ...(why ? [why] : []))
       return
     }
-    const good = as.find((a) => a.verdict === 'pass')
+    const good = as.findLast((a) => a.verdict === 'pass')
     const why = reasonOf(good)
     answered.push('', `**${q.text.trim()}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
   })
@@ -1127,6 +1157,31 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
     body: commentBody(check, sum, `**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, link, { qa: true }) }
 }
 
+// ---------- init ----------
+
+/** What `init` makes sure of: the check files collapsed in GitLab/GitHub diffs, and skipped by ripgrep and similar. */
+export const INIT_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`], '.ignore': [`${DIR}/`] }
+
+/**
+ * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
+ * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice. Returns what it added,
+ * as "file: line".
+ */
+export function initRepo(repo) {
+  const added = []
+  for (const [name, want] of Object.entries(INIT_LINES)) {
+    const file = path.join(repo, name)
+    let text = ''
+    try { text = fs.readFileSync(file, 'utf8') } catch { /* a new file */ }
+    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
+    const missing = want.filter((l) => !have.has(l))
+    if (!missing.length) continue
+    fs.writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`)
+    added.push(...missing.map((l) => `${name}: ${l}`))
+  }
+  return added
+}
+
 // ---------- the command line ----------
 
 const HELP = `understanding.mjs: an understanding check for a change (docs: understanding-check.md)
@@ -1137,6 +1192,7 @@ const HELP = `understanding.mjs: an understanding check for a change (docs: unde
                                           grade answers (local only): the ungraded ones, or one question
                                           (--answer adds an attempt first; --write saves the result)
   ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check
+  init                                    keep understanding/ out of diffs and search (.gitattributes, .ignore)
 
 Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or claude when on PATH, else
 ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.`
@@ -1167,6 +1223,11 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     if (s.state.phase === 'none') print('  Run "Code Notes: Check my understanding" in VS Code.')
     print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code lines changed`)
     if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
+    return 0
+  }
+  if (cmd === 'init') {
+    const changed = initRepo(repo)
+    print(changed.length ? `Added: ${changed.join('; ')}.` : 'Already set up.')
     return 0
   }
   if (cmd === 'validate') {
