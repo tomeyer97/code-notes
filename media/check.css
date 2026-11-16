@@ -1,23 +1,27 @@
-/* The understanding check's panel: VS Code's theme colours, nothing loud. */
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 12px 14px; }
-header h1 { font-size: 1em; font-weight: 600; margin: 0 0 2px; }
-.progress { margin: 0 0 10px; color: var(--vscode-descriptionForeground); }
-.progress.met { color: var(--vscode-testing-iconPassed, #73c991); }
-.busy { margin: 0 0 10px; color: var(--vscode-descriptionForeground); font-style: italic; }
-.rows { list-style: none; margin: 0; padding: 0; }
-.row { margin: 0 0 2px; }
-.open { display: flex; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 6px 6px; border-radius: 3px; cursor: pointer; }
+/* The Check view: VS Code's theme colours, nothing loud. */
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: transparent; margin: 0; padding: 4px 12px 10px 20px; }
+header { margin: 0 0 6px; }
+header p { margin: 0; overflow-wrap: anywhere; }
+.title { font-weight: 600; }
+.tone-ok .title { color: var(--vscode-testing-iconPassed, #73c991); }
+.tone-warn .title { color: var(--vscode-editorWarning-foreground, #cca700); }
+.line, .who, .muted, .busy { color: var(--vscode-descriptionForeground); }
+.who { font-style: italic; }
+.busy { margin: 0 0 6px; font-style: italic; }
+.rows { list-style: none; margin: 0 -6px; padding: 0; }
+.row { margin: 0; }
+.open { display: flex; gap: 6px; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 4px 6px; border-radius: 3px; cursor: pointer; }
 .open:hover { background: var(--vscode-list-hoverBackground); }
-.open:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
-.icon { flex: 0 0 1.1em; text-align: center; color: var(--vscode-descriptionForeground); }
-.row.pass .icon { color: var(--vscode-testing-iconPassed, #73c991); }
+.open:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.icon { flex: 0 0 1em; text-align: center; color: var(--vscode-descriptionForeground); }
+.row.pass .icon, .row.restated .icon { color: var(--vscode-testing-iconPassed, #73c991); }
 .row.retry .icon { color: var(--vscode-editorWarning-foreground); }
 .body { display: flex; flex-direction: column; min-width: 0; }
 .text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.row.pass .text, .row.explained .text { color: var(--vscode-descriptionForeground); }
+.row.pass .text, .row.explained .text, .row.restated .text { color: var(--vscode-descriptionForeground); }
 .meta { font-size: 0.9em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, transparent); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-footer p { margin: 0; flex: 1 1 12em; overflow-wrap: anywhere; }
-.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 12px; border-radius: 2px; font: inherit; cursor: pointer; }
+.flag { font-size: 0.9em; color: var(--vscode-editorWarning-foreground, #cca700); }
+footer { margin-top: 8px; }
+.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 12px; border-radius: 2px; font: inherit; cursor: pointer; max-width: 100%; }
 .primary:hover { background: var(--vscode-button-hoverBackground); }
-.muted { color: var(--vscode-descriptionForeground); }
+.primary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }

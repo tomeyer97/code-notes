@@ -120,7 +120,8 @@ const evMine = (e: NoteEvent) => e.by === me() || e.by === 'me' || e.by === 'You
 const isAgent = (m: Message) => m.role === 'agent' || (!m.role && !mine(m))
 const now = () => new Date().toISOString()
 const setCtx = (k: string, v: unknown) => vscode.commands.executeCommand('setContext', k, v)
-const notes = () => store.all()
+/** The notes shown: all, except check threads of another branch's check (their lines belong to that branch). */
+const notes = () => store.all().filter((n) => !understanding?.offBranch(n))
 const byId = (id: string) => store.get(id)
 
 // ---------- identity ----------
@@ -483,7 +484,7 @@ function showError(text: string, ...items: string[]): Thenable<string | undefine
 /** Markdown the extension writes itself, allowed to run its own commands. */
 function systemMarkdown(text: string): vscode.MarkdownString {
   const md = new vscode.MarkdownString(text)
-  md.isTrusted = { enabledCommands: ['codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck'] }
+  md.isTrusted = { enabledCommands: ['codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck', 'codeNotes.checkConcern'] }
   return md
 }
 const cmdLink = (label: string, command: string, ...args: unknown[]) => `[${label}](command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''})`
@@ -500,6 +501,12 @@ function skillAccess(): { tools: string[]; dirs: string[]; hint: string } {
     tools, dirs,
     hint: `\n\nIf the note asks for something one of these skills does, use it: ${names.join(', ')}. Run a skill's scripts by their full path (${home}/.claude/skills/<skill>/scripts/…), one command per call: no shell variables, no && or pipes (anything else is refused). When you are done, reply with a short summary; findings you wrote as notes don't need repeating.`,
   }
+}
+
+/** A question asked about the code of an understanding-check question: explain the code, never write that answer. */
+function checkHint(n: Note): string {
+  const q = (n.data.extra as { checkAsk?: string } | undefined)?.checkAsk
+  return q ? `\n\nThe person is answering an understanding check about this code. Its question: "${q}". Explain the code they ask about; never write, or hint at, the answer to that check question: they answer it themselves.` : ''
 }
 
 function claudePrompt(n: Note, code: string[] | undefined): string {
@@ -524,11 +531,29 @@ function claudePrompt(n: Note, code: string[] | undefined): string {
   ].filter(Boolean).join('\n\n')
 }
 
+/** A new note on lines of a file with this question, asked to Claude, and shown. */
+async function askAbout(file: string, start: number, end: number, question: string, extra: Record<string, unknown>): Promise<void> {
+  const folder = n0()
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folder.uri, file))
+  const n = await createNote(doc, { start: start - 1, end: end - 1 }, question, undefined, extra)
+  if (!n) return
+  await reveal(n, codeColumn())
+  await askClaude(n)
+}
+
 /** Failures survive a reload: kept per workspace until retried or dismissed. */
 const ASK_ERR_KEY = 'codeNotes.askErrors'
 const saveAskErrors = () => state.update(ASK_ERR_KEY, Object.fromEntries(askErrors))
 
-async function askClaude(n: Note): Promise<void> {
+async function askClaude(n: Note, text?: string): Promise<void> {
+  // A check question: what do you want to know? The answer goes in a note of its own, never in the check's thread.
+  if (understanding?.isCheck(n)) {
+    const q = understanding.questionOf(n)
+    const ask = text?.trim() || await vscode.window.showInputBox({ title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' })
+    if (!ask?.trim()) return
+    await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), q ? { checkAsk: q.text } : {})
+    return
+  }
   if (asking.has(n.data.id) || askQueue.includes(n.data.id)) return
   if (!claudeAllowed('answer notes')) return
   if (askErrors.delete(n.data.id)) void saveAskErrors()
@@ -566,7 +591,7 @@ async function runAsk(id: string): Promise<void> {
   const code = n.data.target ? undefined : await linesOfUri(docUri(n))
   const skills = skillAccess()
   const ask = new Ask({
-    cli, cwd: n.folder.uri.fsPath, prompt: claudePrompt(n, code) + skills.hint, resume: n.data.claudeSession,
+    cli, cwd: n.folder.uri.fsPath, prompt: claudePrompt(n, code) + checkHint(n) + skills.hint, resume: n.data.claudeSession,
     extraTools: skills.tools, addDirs: skills.dirs,
     model: cfg().get<string>('claude.model') || undefined,
     onProgress: (p) => { entry.text = p.text; entry.activity = p.activity; const x = byId(id); if (x) syncThread(x) },
@@ -695,6 +720,11 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
   }
   const chk = understanding?.threadStatus(n)
   if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
+  if (chk?.concern) {
+    const c = chk.concern
+    const acts = [cmdLink('Fix now', 'codeNotes.checkConcern', n.data.id, 'fix'), cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
+    out.push({ body: systemMarkdown(`⚠ ${c.suspect ? 'May be a bug: fix it or explain.' : c.text}\n\n${acts.join(' · ')}`), mode: vscode.CommentMode.Preview, author: { name: c.suspect ? 'Understanding check' : 'Found while grading' }, contextValue: 'system' })
+  }
   if (chk?.error) out.push({ body: systemMarkdown(`⚠ Couldn't check this answer: ${chk.error}\n\n${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
   const err = askErrors.get(n.data.id)
   // A failure is a passing status, not a message from Claude: Try again, or Dismiss; never saved.
@@ -762,7 +792,7 @@ const shown = new Map<string, string>()
 function syncThread(n: Note): void {
   const showResolvedInEditor = cfg().get<boolean>('showResolvedInEditor', false)
   let t = threads.get(n.data.id)
-  const wanted = ((n.data.status === 'open' || showResolvedInEditor || unread(n) > 0 || revealedId === n.data.id) && !hiddenInEditor(n)) || asking.has(n.data.id) || askErrors.has(n.data.id) || !!understanding?.threadStatus(n)
+  const wanted = ((n.data.status === 'open' || showResolvedInEditor || unread(n) > 0 || revealedId === n.data.id || !!understanding?.pinned(n)) && !hiddenInEditor(n)) || asking.has(n.data.id) || askErrors.has(n.data.id) || !!understanding?.threadStatus(n)?.checking || !!understanding?.threadStatus(n)?.error
   if (!wanted) {
     if (t) { t.dispose(); threads.delete(n.data.id); shown.delete(n.data.id) }
     return
@@ -789,7 +819,8 @@ function syncThread(n: Note): void {
     asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
   setThread(t, 'canReply', true)
-  const st = n.data.status === 'resolved' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
+  // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in view.
+  const st = n.data.status === 'resolved' && !understanding?.isCheck(n) ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
   if (t.state !== st) t.state = st
   setThread(t, 'contextValue', ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', understanding?.isCheck(n) ? 'check' : ''].filter(Boolean).join(';'))
   // Question, replies, Reply: the header says only what the gutter can't — a file or folder note,
@@ -2837,6 +2868,8 @@ function stepLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
     return [new vscode.CodeLens(new vscode.Range(refHere.start, 0, refHere.start, 0), { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
   }
   if (!cfg().get<boolean>('journeys.codeLens', true) || doc.uri.scheme !== 'file') return []
+  // While a check question is open in this file, the code it asks about is the only thing in view.
+  if (understanding?.hasOpenIn(doc.uri)) return []
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
   if (!folder || inNotesFolder(doc.uri)) return []
   const rel = relPath(folder, doc.uri)
@@ -3200,6 +3233,8 @@ async function stepUnread(dir: 1 | -1): Promise<void> {
   await reveal(ordered.find(after) ?? ordered[0])
 }
 const n0 = () => vscode.workspace.workspaceFolders![0]
+/** D / A walk a check's open questions while it has some: when the thread shown is one of them, or nothing is unread. */
+const checkStepping = () => !!understanding?.hasOpen() && (!notes().some((n) => unread(n) > 0) || (!!revealedId && !!byId(revealedId) && understanding.isCheck(byId(revealedId)!)))
 
 async function startMove(n: Note): Promise<void> {
   pendingMove = n.data.id
@@ -3663,6 +3698,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const reply = arg as vscode.CommentReply
       const existing = noteOfThread(reply.thread)
       if (!existing) { const n = await noteFromNewThread(reply); if (n) await askClaude(n); return }
+      if (understanding?.isCheck(existing)) { await askClaude(existing, reply.text); return }
       if (reply.text.trim() && !(await addReply(existing, reply.text.trim()))) return
       await askClaude(existing)
       return
@@ -3962,10 +3998,12 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.next', (a?: unknown) => {
     prefixUsed(a)
     if (touring()) return stepBy(1)
+    // Questions of a check still open: D goes to the next one (unread replies wait until the check is done).
+    if (checkStepping()) return understanding!.step(1)
     // No tour: D is the next unread reply, as the status bar says; resuming is the map's ▶ Resume.
     return stepUnread(1)
   })
-  cmd('codeNotes.previous', (a?: unknown) => { prefixUsed(a); return touring() ? stepBy(-1) : stepUnread(-1) })
+  cmd('codeNotes.previous', (a?: unknown) => { prefixUsed(a); return touring() ? stepBy(-1) : checkStepping() ? understanding!.step(-1) : stepUnread(-1) })
   // R: resolve the note at the cursor, then on to the next unread one.
   cmd('codeNotes.resolveNext', async (a?: unknown) => {
     prefixUsed(a)
@@ -3981,7 +4019,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // The understanding check: questions about this branch's change, answered in their threads (check.ts).
   understanding = new Understanding({
-    log, store, extUri: context.extensionUri, me, now, newId,
+    log, store, extUri: context.extensionUri, memento: state, me, now, newId,
+    revealed: () => revealedId,
+    askAbout,
     cli: () => findCli(cfg().get<string>('claude.path') || undefined),
     allowed: (what) => claudeAllowed(what),
     model: () => cfg().get<string>('understanding.model') || cfg().get<string>('claude.model') || undefined,
@@ -3996,7 +4036,7 @@ export async function activate(context: vscode.ExtensionContext) {
     reveal: (n, col) => reveal(n, col ?? codeColumn()),
     refresh: () => refreshAll(),
     codeColumn,
-    listChanged: () => { journeysTree.refresh(); mapPanel.update() },
+    listChanged: () => { journeysTree.refresh(); mapPanel.update(); lensChanged.fire() },
   })
   context.subscriptions.push(understanding)
   cmd('codeNotes.checkUnderstanding', () => understanding!.run())
@@ -4006,6 +4046,10 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.answerCheck', async (r: vscode.CommentReply) => {
     const n = noteOfThread(r.thread)
     if (n && r.text.trim()) await understanding!.answer(n, r.text)
+  })
+  cmd('codeNotes.checkConcern', async (id?: string, action?: string) => {
+    const n = typeof id === 'string' ? byId(id) : undefined
+    if (n && (action === 'fix' || action === 'todo' || action === 'flag')) await understanding!.concern(n, action)
   })
   cmd('codeNotes.gradeCheck', async (id?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined

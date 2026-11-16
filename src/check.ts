@@ -1,7 +1,9 @@
-// The understanding check in VS Code (docs/understanding-check.md): Claude writes 3-5 questions about the branch's
-// change (skills/understanding-check), they show as note threads on their lines and as rows in a small panel; an
-// answer in a thread is graded by Claude (read-only) and the reply lands in the same thread. The file
-// understanding/<branch>.json is the source of truth; the threads are a view of it, kept in sync both ways.
+// The understanding check in VS Code (docs/understanding-check.md): Claude writes a few questions about the branch's
+// change (skills/understanding-check); they show as note threads on their lines and as rows in the Check view (in
+// the Code Notes sidebar); an answer in a thread is graded by Claude (read-only) and the reply lands in the same
+// thread. The file understanding/<branch>.json is the source of truth; the threads are a view of it, kept in sync
+// both ways. Where the check stands comes from the CLI (checkState / stateWords): the status bar, the view, `status`
+// and CI say the same thing.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -11,7 +13,7 @@ import { pathToFileURL } from 'url'
 import { Ask, AskResult } from './claude'
 import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
-import { Check, CheckView, Cli, Question, Status, checkPhase, checkPrompt, checkView, gradeBody, questionBody, statusText } from './checkModel'
+import { Check, CheckView, Cli, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, questionBody, statusText } from './checkModel'
 import { clock } from './writing'
 
 /** What the check needs from the rest of the extension (extension.ts). */
@@ -19,6 +21,8 @@ export interface CheckHost {
   log: vscode.LogOutputChannel
   store: Store
   extUri: vscode.Uri
+  /** Per-workspace memory (the .gitattributes offer). */
+  memento: vscode.Memento
   me(): string
   now(): string
   newId(): string
@@ -33,39 +37,55 @@ export interface CheckHost {
   addReply(n: Note, text: string): Promise<boolean>
   resolve(n: Note): Promise<void>
   reveal(n: Note, column?: vscode.ViewColumn): Promise<void>
+  /** The note shown last (revealed), if any. */
+  revealed(): string | undefined
   refresh(): void
-  /** The view column the code is shown in (never the panel's). */
+  /** The view column the code is shown in. */
   codeColumn(): vscode.ViewColumn | undefined
-  /** The check's row in the journeys list changed. */
+  /** The check's row in the journeys list changed (and what the editor shows around it: lenses). */
   listChanged?(): void
+  /** A new note on these lines with this question, asked to Claude (Ask Claude on a check question). */
+  askAbout(file: string, start: number, end: number, question: string, extra: Record<string, unknown>): Promise<void>
 }
 
 export const SESSION = (branch: string) => `Check · ${branch}`
 const AUTHOR = 'Understanding check'
 const SKILL = 'understanding-check'
+const ATTR_LINE = 'understanding/*.json linguist-generated=true'
+const ATTR_KEY = 'codeNotes.understanding.attributesOffered'
+/** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
+const CACHE = '.code-notes/.cache/checks'
 const isCheck = (n: Note) => !!(n.data.extra as { check?: unknown } | undefined)?.check
 const linkOf = (n: Note) => (n.data.extra as { check?: { file: string; q: string } } | undefined)?.check
 const importFn = new Function('u', 'return import(u)') as (u: string) => Promise<unknown>
+const notDone = (s: string) => s === 'todo' || s === 'retry' || s === 'ungraded'
 
 export class Understanding implements vscode.Disposable {
   private U!: Cli
   private item: vscode.StatusBarItem
-  private panel: CheckPanel
+  readonly view: CheckViewProvider
   private subs: vscode.Disposable[] = []
   /** The workspace folder (its repository) the check is about: the first one. */
   private folder = vscode.workspace.workspaceFolders?.[0]
   st: Status | undefined
-  private staged = false
-  private writing: { started: number; phase: string; ask?: Ask } | undefined
+  words: Words | undefined
+  private unpushed: boolean | undefined
+  private pushed: string | undefined
+  private pushing = false
+  private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
   readonly grading = new Map<string, Ask | undefined>()
   readonly gradeErrors = new Map<string, string>()
+  /** Check threads graded in this window: they stay open where they are (the reply is read next to the code). */
+  private graded = new Set<string>()
   private timer: NodeJS.Timeout | undefined
 
   constructor(private host: CheckHost) {
-    this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 48)
+    this.item = vscode.window.createStatusBarItem('codeNotes.understanding', vscode.StatusBarAlignment.Left, 48)
+    this.item.name = 'Understanding check'
     this.item.command = 'codeNotes.checkUnderstanding'
-    this.panel = new CheckPanel(host.extUri, host.log, (m) => this.onPanel(m))
+    this.view = new CheckViewProvider(host.extUri, host.log, (m) => this.onView(m))
+    this.subs.push(vscode.window.registerWebviewViewProvider('codeNotes.check', this.view, { webviewOptions: { retainContextWhenHidden: true } }))
   }
 
   async init(): Promise<void> {
@@ -77,7 +97,8 @@ export class Understanding implements vscode.Disposable {
     if (!this.folder || this.folder.uri.scheme !== 'file') return
     const f = this.folder
     const later = () => this.refreshSoon()
-    for (const glob of ['understanding/*.json', '.git/{HEAD,index}']) {
+    // A commit moves the branch (logs/HEAD), not .git/HEAD; a checkout changes both.
+    for (const glob of ['understanding/*.json', '.git/{HEAD,index}', '.git/logs/HEAD', '.git/refs/remotes/**']) {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, glob))
       w.onDidChange(later); w.onDidCreate(later); w.onDidDelete(later)
       this.subs.push(w)
@@ -95,7 +116,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   private chain: Promise<void> = Promise.resolve()
-  /** Reads where the branch stands, then the status bar, the threads and the panel follow (one at a time). */
+  /** Reads where the branch stands, then the status bar, the threads and the view follow (one at a time). */
   refresh(): Promise<void> {
     this.chain = this.chain.then(() => this.doRefresh(), (e) => this.host.log.error(`understanding check: ${e}`))
     return this.chain
@@ -103,23 +124,37 @@ export class Understanding implements vscode.Disposable {
   private async doRefresh(): Promise<void> {
     const repo = this.repo
     if (!repo || !this.U) return
+    const before = this.st?.branch
     try { this.st = this.U.localStatus(repo) } catch (e) { this.st = undefined; this.host.log.info(`understanding check: no status (${(e as Error).message.split('\n')[0]})`) }
-    this.staged = !!this.st?.exists && !!(await gitOut(repo, ['diff', '--cached', '--name-only', '--', this.st.file]))
-    const t = statusText(this.st, this.cfg().maxDrift)
-    if (t && !this.writing) { this.item.text = t.text; this.item.tooltip = t.tip; this.item.show() }
-    else if (!this.writing) this.item.hide()
+    if (this.st && this.st.branch !== before) this.pushed = undefined
+    if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh()
+    this.words = this.st ? this.U.stateWords(this.st.state, this.st) : undefined
+    // Pushed? Ahead of its upstream, or no upstream at all.
+    const ahead = this.st?.state.phase === 'done' ? await gitOut(repo, ['rev-list', '--count', '@{u}..HEAD'], true) : undefined
+    this.unpushed = ahead === undefined ? undefined : ahead !== '0'
+    if (!this.writing) {
+      const t = statusText(this.st, this.words)
+      if (t) {
+        this.item.text = t.text; this.item.tooltip = t.tip
+        this.item.backgroundColor = t.warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined
+        this.item.show()
+      } else this.item.hide()
+    }
     if (this.st?.check) await this.syncThreads(this.st.check)
     this.post()
     this.host.listChanged?.()
   }
 
-  private cfg() { return this.repo && this.U ? this.U.loadConfig(this.repo) : { maxDrift: 40, minChangedLines: 20, passRatio: 0.6, questions: { min: 3, max: 5 }, model: null } }
+  private cfg() { return this.repo && this.U ? this.U.loadConfig(this.repo) : { maxDrift: 40, passRatio: 0.6, questions: { min: 1, max: 5 }, model: null } }
 
-  view(): CheckView | undefined {
-    if (!this.st) return undefined
-    return checkView(this.st, { maxDrift: this.cfg().maxDrift, staged: this.staged, grading: new Set(this.grading.keys()), busy: this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : undefined })
+  private me(): Who | undefined { return this.repo && this.U ? this.U.gitIdentity(this.repo) : undefined }
+
+  current(): CheckView | undefined {
+    if (!this.st || !this.words) return undefined
+    const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
+    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me() })
   }
-  private post(): void { const v = this.view(); if (v) this.panel.update(v) }
+  private post(): void { this.view.update(this.current()) }
 
   // ---------- the command ----------
 
@@ -129,14 +164,13 @@ export class Understanding implements vscode.Disposable {
     await this.refresh()
     const st = this.st
     if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
-    if (st.errors) { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
-    if (st.exists && st.check) {
-      const drift = st.drift && st.drift.lines > this.cfg().maxDrift
-      if (drift) { this.show(); await this.write(true) } else await this.openNext()
-      return
-    }
-    if (st.small) { void vscode.window.showInformationMessage(st.next); return }
-    await this.write(false)
+    const p = st.state.phase
+    if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
+    if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
+    if (p === 'none') { await this.write(false); return }
+    this.show()
+    if (p === 'drift') { if (st.state.commitFirst) await openScm(); else await this.write(true); return }
+    await this.openNext()
   }
 
   /** The skill: the repository's copy, the home folder's, else the one inside the extension. */
@@ -146,11 +180,27 @@ export class Understanding implements vscode.Disposable {
     return { dir, bundled: dir === bundled }
   }
 
-  /** Claude writes the questions with the skill; then the panel and the first question open. */
+  /** Uncommitted and untracked (not ignored) changes the questions won't see: "1 uncommitted change and 1 new file (x.js)". */
+  private async loose(): Promise<string | undefined> {
+    const out = await gitOut(this.repo!, ['status', '--porcelain', '--untracked-files=all'], true)
+    const lines = (out ?? '').split('\n').filter(Boolean).filter((l) => !/^.. (understanding|\.code-notes)\//.test(l))
+    const fresh = lines.filter((l) => l.startsWith('??')).map((l) => path.basename(l.slice(3)))
+    const changed = lines.length - fresh.length
+    const parts = [changed ? `${changed} uncommitted change${changed === 1 ? '' : 's'}` : '', fresh.length ? `${fresh.length} new file${fresh.length === 1 ? '' : 's'} (${fresh.slice(0, 2).join(', ')}${fresh.length > 2 ? ', …' : ''})` : '']
+    return parts.filter(Boolean).join(' and ') || undefined
+  }
+
+  /** Claude writes the questions with the skill, for the branch checked out now; then question 1 opens. */
   async write(topUp: boolean): Promise<boolean> {
     const repo = this.repo!, st = this.st!
     if (this.writing) { this.show(); return false }
     if (!this.host.allowed('write understanding-check questions')) return false
+    const loose = await this.loose()
+    if (loose) {
+      const pick = await vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`, 'Commit first', 'Continue')
+      if (pick === 'Commit first') { await openScm(); return false }
+      if (pick !== 'Continue') return false
+    }
     const cli = this.host.cli()
     const { dir, bundled } = this.skill()
     const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled })
@@ -160,8 +210,8 @@ export class Understanding implements vscode.Disposable {
       return false
     }
     const model = this.host.model()
-    const w = (this.writing = { started: Date.now(), phase: 'starting' } as { started: number; phase: string; ask?: Ask })
-    this.item.text = '$(sync~spin) Check'
+    const w = (this.writing = { started: Date.now(), phase: 'starting', branch: st.branch } as NonNullable<Understanding['writing']>)
+    this.item.text = '$(sync~spin) Understanding'
     this.item.show()
     this.host.log.info(`understanding check: Claude (${model ?? 'default model'}) is ${topUp ? 'topping up' : 'writing'} the questions for ${st.branch}`)
     let res: AskResult
@@ -181,53 +231,128 @@ export class Understanding implements vscode.Disposable {
       })
     } finally { this.writing = undefined }
     const before = st.check?.questions.length ?? 0
+    // The branch was switched while Claude worked: its questions wait in the cache until it is checked out again.
+    const now = await gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    if (!res.cancelled && !res.error && now && now !== w.branch && this.park(w.branch)) {
+      void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
+      await this.refresh()
+      return false
+    }
     await this.refresh()
     if (res.cancelled) return false
     if (res.error) { void vscode.window.showWarningMessage(`Code Notes: Claude couldn't write the questions: ${res.error}`); return false }
     const after = this.st?.check?.questions.length ?? 0
     if (after <= before) {
-      // SMALL / NOTHING / UNCOMMITTED: the script's own words.
+      // NOTHING / UNCOMMITTED / PROBLEM: the script's own words.
       const why = /(SMALL|NOTHING|UNCOMMITTED|PROBLEM):?\s*([^\n]+)/.exec(res.text)?.[2] ?? res.text.trim().split('\n')[0] ?? 'no questions were written'
       void vscode.window.showInformationMessage(`No questions: ${why}`)
       return false
     }
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+    // Only the first question opens: its code and its thread. The list is in the Check view.
     await this.openNext()
+    if (!topUp) void this.offerAttributes()
     return true
   }
 
-  show(): void { const v = this.view(); this.panel.show(v ?? { branch: this.st?.branch ?? '', file: this.st?.file ?? '', progress: '', rows: [], met: false }) }
+  /** Moves the questions written for `branch` out of a working tree that has another branch now. */
+  private park(branch: string): boolean {
+    const repo = this.repo!
+    const rel = this.U.fileFor(branch)
+    const src = path.join(repo, rel)
+    if (!fs.existsSync(src)) return false
+    try {
+      fs.mkdirSync(path.join(repo, CACHE), { recursive: true })
+      const ignore = path.join(repo, '.code-notes/.cache/.gitignore')
+      if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n')
+      // Tracked on this branch (it has a check of that name): leave it, it is not ours to move.
+      const tracked = !!(execFileSyncQuiet(repo, ['ls-files', '--', rel]))
+      if (tracked) return false
+      fs.renameSync(src, path.join(repo, CACHE, `${this.U.slugOf(branch)}.json`))
+      this.host.log.info(`understanding check: questions for ${branch} kept in ${CACHE} until it is checked out`)
+      return true
+    } catch (e) { this.host.log.error(`understanding check: couldn't keep the questions for ${branch}: ${e}`); return false }
+  }
 
-  /** The first question still to answer (or try again), else the first one; the panel beside it. */
+  /** Back on a branch whose questions were parked: they go in place, and question 1 opens. */
+  private async restoreCached(): Promise<boolean> {
+    const repo = this.repo!, st = this.st!
+    const cached = path.join(repo, CACHE, `${this.U.slugOf(st.branch)}.json`)
+    if (!fs.existsSync(cached)) return false
+    try {
+      fs.mkdirSync(path.dirname(path.join(repo, st.file)), { recursive: true })
+      fs.renameSync(cached, path.join(repo, st.file))
+    } catch (e) { this.host.log.error(`understanding check: couldn't put back the questions for ${st.branch}: ${e}`); return false }
+    void vscode.window.showInformationMessage(`Your questions for ${st.branch} are here.`)
+    setTimeout(() => void this.openNext(), 300)
+    return true
+  }
+
+  /** On the first check: collapse the check files in merge request diffs (GitLab and GitHub read .gitattributes). */
+  private async offerAttributes(): Promise<void> {
+    const file = path.join(this.repo!, '.gitattributes')
+    let text = ''
+    try { text = fs.readFileSync(file, 'utf8') } catch { /* none yet */ }
+    if (text.includes('understanding/*.json') || this.host.memento.get(ATTR_KEY)) return
+    await this.host.memento.update(ATTR_KEY, true)
+    const pick = await vscode.window.showInformationMessage('Collapse check files in merge request diffs?', 'Add to .gitattributes', 'No')
+    if (pick !== 'Add to .gitattributes') return
+    fs.writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ATTR_LINE}\n`)
+    await this.refresh()
+  }
+
+  show(): void { this.view.reveal() }
+
+  /** The first question not done yet, else the first one. */
   async openNext(): Promise<void> {
     const c = this.st?.check
     if (!c) return
-    const q = c.questions.find((x) => ['todo', 'retry'].includes(this.U.stateOf(x))) ?? c.questions[0]
+    const q = c.questions.find((x) => notDone(this.U.stateOf(x))) ?? c.questions[0]
     await this.open(q.id)
-    this.show()
   }
 
-  /** A question's thread, in the code's group: never the panel's. */
+  /** A question's thread, in the code's group. */
   async open(id: string): Promise<void> {
     const n = this.noteOf(id)
-    if (!n) return
-    const pc = this.panel.column
-    const col = pc === undefined ? undefined : vscode.window.visibleTextEditors.find((e) => e.viewColumn !== undefined && e.viewColumn !== pc)?.viewColumn
-      ?? (pc === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One)
-    await this.host.reveal(n, col)
+    if (n) await this.host.reveal(n, this.host.codeColumn())
   }
 
-  private onPanel(m: { type: string; id?: string }): void {
+  /** Ctrl+' D / A while questions are open: the next or previous one not done, from the one shown now. */
+  hasOpen(): boolean { return !!this.st?.check?.questions.some((q) => notDone(this.U.stateOf(q))) }
+  async step(dir: 1 | -1): Promise<boolean> {
+    const qs = this.st?.check?.questions ?? []
+    const open = qs.filter((q) => notDone(this.U.stateOf(q)))
+    if (!open.length) return false
+    const cur = this.host.revealed()
+    const at = qs.findIndex((q) => this.noteOf(q.id)?.data.id === cur)
+    const order = dir === 1 ? [...qs.slice(at + 1), ...qs.slice(0, at + 1)] : [...qs.slice(0, Math.max(0, at)).reverse(), ...qs.slice(Math.max(0, at)).reverse()]
+    const next = order.find((q) => open.includes(q) && this.noteOf(q.id)?.data.id !== cur) ?? open[0]
+    await this.open(next.id)
+    return true
+  }
+
+  private onView(m: { type: string; id?: string }): void {
     if (m.type === 'open' && m.id) void this.open(m.id)
-    else if (m.type === 'stage') void this.stage()
+    else if (m.type === 'start') void this.write(false)
     else if (m.type === 'topUp') void this.write(true)
+    else if (m.type === 'scm') void openScm()
+    else if (m.type === 'commitPush') void this.commitPush()
     else if (m.type === 'ready') this.post()
   }
 
-  async stage(): Promise<void> {
-    if (!this.repo || !this.st) return
-    const out = await gitOut(this.repo, ['add', '--', this.st.file], true)
-    if (out === undefined) void vscode.window.showWarningMessage(`Code Notes: couldn't stage ${this.st.file}.`)
+  /** Commit & push: the check file (and .gitattributes when its line is new) in one commit, then the push. */
+  async commitPush(): Promise<void> {
+    if (!this.repo || !this.st || this.pushing) return
+    const files = [this.st.file]
+    const attr = await gitOut(this.repo, ['status', '--porcelain', '--', '.gitattributes'], true)
+    if (attr) { try { if (fs.readFileSync(path.join(this.repo, '.gitattributes'), 'utf8').includes(ATTR_LINE)) files.push('.gitattributes') } catch { /* gone */ } }
+    this.pushing = true; this.post()
+    try {
+      const r = await this.U.commitAndPush(this.repo, files, `Understanding check: ${this.st.branch}`)
+      this.pushed = r.line
+      this.host.log.info(`understanding check: commit & push: ${r.line}`)
+      if (!r.ok) void vscode.window.showWarningMessage(`Code Notes: ${r.line}`)
+    } finally { this.pushing = false }
     await this.refresh()
   }
 
@@ -241,9 +366,11 @@ export class Understanding implements vscode.Disposable {
   /** The thread messages a question's file entry stands for: the question, then each answer and its grade. */
   private messagesOf(q: Question, check: Check): NoteData['messages'] {
     const out: NoteData['messages'] = [{ author: AUTHOR, role: 'agent', body: questionBody(q) }]
+    let explained = false
     for (const a of q.attempts ?? []) {
       out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer, ...(a.at ? { at: a.at } : {}) })
-      if (a.verdict) out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
+      if (a.verdict) out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
+      if (a.verdict === 'explained') explained = true
     }
     return out
   }
@@ -267,7 +394,8 @@ export class Understanding implements vscode.Disposable {
       if (!missing.length) continue
       n.data.messages.push(...missing.map((m) => ({ ...m, at: m.at ?? this.host.now() })))
       const st = this.U.stateOf(q)
-      if ((st === 'pass' || st === 'explained') && n.data.status === 'open') { n.data.status = 'resolved'; (n.data.events ??= []).push({ type: 'resolved', by: AUTHOR, role: 'agent', at: this.host.now() }) }
+      // Done: resolved quietly (the ✓ in the thread says it; no "Resolved" line under it).
+      if (!notDone(st) && n.data.status === 'open') n.data.status = 'resolved'
       if (await this.host.store.save(n)) await this.host.changed(n, false)
     }
   }
@@ -284,7 +412,7 @@ export class Understanding implements vscode.Disposable {
     start = Math.min(Math.max(1, start), lines.length); end = Math.min(Math.max(start, end), lines.length)
     const at = this.host.now()
     const id = this.host.newId()
-    const done = ['pass', 'explained'].includes(this.U.stateOf(q))
+    const done = !notDone(this.U.stateOf(q))
     const n: Note = {
       folder, uri: this.host.store.uriFor(folder, id),
       data: {
@@ -302,6 +430,16 @@ export class Understanding implements vscode.Disposable {
   // ---------- answering and grading ----------
 
   isCheck(n: Note): boolean { return isCheck(n) }
+  /** A check thread of another branch's check: not shown (its file and lines belong to that branch). */
+  offBranch(n: Note): boolean { const l = linkOf(n); return !!l && !!this.st && l.file !== this.st.file }
+  /** Graded in this window: the thread stays open where it is. */
+  pinned(n: Note): boolean { return this.graded.has(n.data.id) }
+  /** A question not done yet is in this file: journey lenses step aside. */
+  hasOpenIn(uri: vscode.Uri): boolean {
+    if (!this.repo || !this.st?.check) return false
+    const rel = path.relative(this.repo, uri.fsPath).split(path.sep).join('/')
+    return this.st.check.questions.some((q) => q.file === rel && notDone(this.U.stateOf(q)))
+  }
 
   /** The person answered in a question's thread: the answer goes into the file, then it is graded. */
   async answer(n: Note, text: string): Promise<void> {
@@ -316,13 +454,20 @@ export class Understanding implements vscode.Disposable {
     const q = check.questions.find((x) => x.id === link.q)
     if (!q) { await this.host.addReply(n, body); return }
     const state = this.U.stateOf(q)
-    if (state === 'pass' || state === 'explained') { await this.host.addReply(n, body); return } // done: a remark, not graded
+    // Passed: a remark, not graded. Explained: a restatement, graded against the explanation.
+    if (state === 'pass' || state === 'restated') { await this.host.addReply(n, body); return }
     if (this.grading.has(q.id)) return
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
     if (!(await this.host.addReply(n, body))) return
     this.U.addAttempt(check, q, body, this.U.gitIdentity(this.repo))
-    this.U.writeCheck(abs, this.U.stamp(check, this.U.loadConfig(this.repo)))
+    this.save(abs, check)
     await this.grade(q.id)
+  }
+
+  /** Writes the check file with today's line numbers and its result. */
+  private save(abs: string, check: Check): void {
+    this.U.relocate(this.repo!, check)
+    this.U.writeCheck(abs, this.U.stamp(check, this.U.loadConfig(this.repo!)))
   }
 
   /** Grades a question's latest answer with Claude (read-only), writes the verdict, replies in the thread. */
@@ -331,7 +476,7 @@ export class Understanding implements vscode.Disposable {
     if (!repo || !this.st?.exists || this.grading.has(id)) return
     const abs = this.abs!
     const n = this.noteOf(id)
-    if (n) this.gradeErrors.delete(n.data.id)
+    if (n) { this.gradeErrors.delete(n.data.id); this.graded.add(n.data.id) }
     if (!this.host.allowed('grade answers')) return
     const cli = this.host.cli()
     const fail = (why: string) => { if (n) this.gradeErrors.set(n.data.id, why); this.host.log.error(`understanding check: ${id}: ${why}`) }
@@ -340,10 +485,10 @@ export class Understanding implements vscode.Disposable {
     let q = check.questions.find((x) => x.id === id)
     const last = q?.attempts?.at(-1)
     if (!q || !last) return
-    const attempt = (q.attempts ?? []).filter((x) => x !== last && x.verdict).length + 1
+    const mode = this.U.gradeMode(q)
     let diff = ''
     try { diff = this.U.diffText(repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
-    const prompt = this.U.graderPrompt({ q, answer: last.answer, attempt, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true })
+    const prompt = this.U.graderPrompt({ q, answer: last.answer, ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true })
     const ask = new Ask({ cli, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
     this.post(); this.host.refresh()
@@ -352,8 +497,8 @@ export class Understanding implements vscode.Disposable {
     try {
       if (res.cancelled) return
       if (res.error) { fail(res.error); return }
-      let v: { verdict: 'pass' | 'retry' | 'explained'; feedback: string; hint: string }
-      try { v = this.U.parseVerdict(res.text, attempt) } catch (e) { fail((e as Error).message); return }
+      let v: ReturnType<Cli['parseVerdict']>
+      try { v = this.U.parseVerdict(res.text, mode.attempt, { restate: mode.explanation !== undefined }) } catch (e) { fail((e as Error).message); return }
       // The file may have changed while Claude worked: read it again, grade the same answer.
       check = this.U.readCheck(abs)
       q = check.questions.find((x) => x.id === id)
@@ -361,23 +506,63 @@ export class Understanding implements vscode.Disposable {
       if (!q || !a) return
       Object.assign(a, v, { gradedAt: this.host.now() })
       a.hash = this.U.attemptHash(q, a)
-      this.U.writeCheck(abs, this.U.stamp(check, this.U.loadConfig(repo)))
-      this.host.log.info(`understanding check: ${id} ${v.verdict}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+      this.save(abs, check)
+      this.host.log.info(`understanding check: ${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
       await this.refresh() // the grade reaches the thread through syncThreads
-      const st = this.st?.summary
-      if (st && v.verdict !== 'retry' && st.met && !st.todo && !st.ungraded && !this.grading.size) this.show()
+      // A pass: on to the next question, if the person is still on this one (the passed thread stays open).
+      if ((v.verdict === 'pass' || v.verdict === 'restated') && !v.concern && n && this.host.revealed() === n.data.id && this.hasOpen()) await this.step(1)
     } finally { this.post(); this.host.refresh() }
   }
 
-  /** A thread's passing state for commentsOf: "checking your answer", or why it couldn't be checked. */
-  threadStatus(n: Note): { checking?: boolean; error?: string } | undefined {
+  /** A thread's passing state for commentsOf: checking, why it couldn't be checked, a concern about the code. */
+  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean } } | undefined {
     const l = linkOf(n)
     if (!l) return undefined
     if (this.grading.has(l.q)) return { checking: true }
     const e = this.gradeErrors.get(n.data.id)
-    return e ? { error: e } : undefined
+    if (e) return { error: e }
+    const q = this.st?.check?.questions.find((x) => x.id === l.q)
+    const c = q && concernOf(q)
+    return c ? { concern: c } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
+  /** The question behind a check thread (for Ask Claude about it). */
+  questionOf(n: Note): Question | undefined { const l = linkOf(n); return l ? this.st?.check?.questions.find((x) => x.id === l.q) : undefined }
+
+  /** What to do about a concern: Fix now (Ask Claude, a new note), Add TODO (a comment above the lines), Flag for review. */
+  async concern(n: Note, action: 'fix' | 'todo' | 'flag'): Promise<void> {
+    const q = this.questionOf(n)
+    const c = q && concernOf(q)
+    if (!q || !c || !this.repo) return
+    const start = n.data.range.start, end = n.data.range.end
+    if (action === 'fix') {
+      await this.host.askAbout(n.data.file, start, end, c.suspect ? `Is this a bug? ${q.text} If it is, fix it.` : `Fix this: ${c.text}`, { checkFix: q.id })
+      return
+    }
+    if (action === 'todo') {
+      const uri = vscode.Uri.joinPath(this.folder!.uri, n.data.file)
+      const doc = await vscode.workspace.openTextDocument(uri)
+      const line = doc.lineAt(Math.max(0, start - 1))
+      const indent = line.text.slice(0, line.firstNonWhitespaceCharacterIndex)
+      const mark = commentMark(n.data.file)
+      const edit = new vscode.WorkspaceEdit()
+      edit.insert(uri, new vscode.Position(line.lineNumber, 0), `${indent}${mark[0]} TODO: ${c.suspect ? q.text : c.text}${mark[1]}\n`)
+      await vscode.workspace.applyEdit(edit)
+      await doc.save()
+      return
+    }
+    // Flag: on the grader's concern (the question's own "may be a bug" has no attempt: flag its latest graded one).
+    const abs = this.abs!
+    const check = this.U.readCheck(abs)
+    const fq = check.questions.find((x) => x.id === q.id)
+    const a = fq?.attempts?.filter((x) => x.concern).at(-1) ?? fq?.attempts?.filter((x) => x.verdict).at(-1)
+    if (!fq || !a) { void vscode.window.showInformationMessage('Answer it first: a flag goes with an answer.'); return }
+    a.flagged = !a.flagged
+    if (!a.concern) a.concern = c.text
+    this.save(abs, check)
+    await this.refresh()
+    this.host.refresh()
+  }
 
   /** The check as a row of the journeys list (journeyList.ts). */
   listItem(): import('./journeyList').ListItem | undefined {
@@ -385,59 +570,74 @@ export class Understanding implements vscode.Disposable {
     if (!c || !s || !this.st) return undefined
     return { key: `check:${this.st.file}`, kind: 'check', title: `Check · ${this.st.branch}`, question: 'Questions about this branch\'s change', summary: '',
       ...(c.createdAt ? { createdAt: c.createdAt } : {}), files: c.questions.map((q) => q.file), stepTitles: c.questions.map((q) => q.text), steps: c.questions.length,
-      stale: 0, isNew: false, resume: 0, progress: `${s.passed}/${s.total} ✓`, open: !(s.met && !s.todo && !s.ungraded) }
+      stale: 0, isNew: false, resume: 0, progress: `${s.done}/${s.total} done`, open: this.st.state.phase !== 'done' }
   }
 
   /** For the integration test. */
-  snapshot() { return { status: this.st && { ...this.st, check: undefined }, item: this.item.text, itemShown: !!this.item.text, view: this.view(), panel: this.panel.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
-  panelSend(m: unknown): void { this.panel.send(m) }
+  snapshot() { return { status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
+  panelSend(m: unknown): void { this.view.send(m) }
 
-  dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); this.panel.dispose(); clearTimeout(this.timer) }
+  dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer) }
 }
 
 function gitOut(repo: string, args: string[], allowEmpty = false): Promise<string | undefined> {
   return new Promise((resolve) => execFile('git', args, { cwd: repo, timeout: 5000 }, (err, out) => resolve(err ? undefined : out.trim() || (allowEmpty ? '' : undefined))))
 }
+function execFileSyncQuiet(repo: string, args: string[]): string {
+  try { return require('child_process').execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return '' }
+}
+/** Source Control with its message box focused. */
+async function openScm(): Promise<void> {
+  await vscode.commands.executeCommand('workbench.view.scm')
+  await vscode.commands.executeCommand('workbench.scm.focus').then(undefined, () => undefined)
+}
+/** A line comment for a file's language: [open, close]. */
+function commentMark(file: string): [string, string] {
+  const ext = path.extname(file).toLowerCase()
+  if (['.py', '.rb', '.sh', '.bash', '.yaml', '.yml', '.toml', '.r', '.pl', '.ex', '.exs', '.tf'].includes(ext) || /(^|\/)(Dockerfile|Makefile)$/.test(file)) return ['#', '']
+  if (['.sql', '.lua', '.hs'].includes(ext)) return ['--', '']
+  if (['.html', '.xml', '.vue', '.svelte', '.md'].includes(ext)) return ['<!--', ' -->']
+  if (['.css', '.scss'].includes(ext)) return ['/*', ' */']
+  return ['//', '']
+}
 
-/** The check's panel: the questions as rows with their state, one line of progress, one next step. */
-class CheckPanel implements vscode.Disposable {
-  private panel: vscode.WebviewPanel | undefined
+/** The Check view in the Code Notes sidebar: where the check stands, the questions as rows, one button. */
+class CheckViewProvider implements vscode.WebviewViewProvider {
+  private wv: vscode.WebviewView | undefined
   private ready = false
   private last: CheckView | undefined
   private queue: unknown[] = []
   /** What the webview reported (integration test): rows drawn, layout problems, errors. */
-  private reported: { rows?: number; overflow?: string[]; errors: string[] } = { errors: [] }
+  private reported: { rows?: number; overflow?: string[]; errors: string[]; height?: number } = { errors: [] }
 
   constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string }) => void) {}
 
-  show(v: CheckView): void {
-    this.last = v
-    if (!this.panel) {
-      this.ready = false
-      this.panel = vscode.window.createWebviewPanel('codeNotes.check', 'Check', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, {
-        enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')],
-      })
-      this.panel.webview.html = this.html(this.panel.webview)
-      this.panel.webview.onDidReceiveMessage((m: { type: string; id?: string; rows?: number; overflow?: string[]; message?: string }) => {
-        if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void this.panel?.webview.postMessage(q) }
-        else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow }
-        else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check panel: ${m.message}`) }
-        this.onMessage(m)
-      })
-      this.panel.onDidDispose(() => { this.panel = undefined; this.ready = false; this.queue = [] })
-    } else this.panel.reveal(this.panel.viewColumn, true)
-    this.post()
+  resolveWebviewView(view: vscode.WebviewView): void {
+    this.wv = view
+    this.ready = false
+    view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
+    view.webview.html = this.html(view.webview)
+    view.webview.onDidReceiveMessage((m: { type: string; id?: string; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
+      if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
+      else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
+      else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }
+      this.onMessage(m)
+    })
+    view.onDidDispose(() => { this.wv = undefined; this.ready = false })
   }
 
-  update(v: CheckView): void { this.last = v; this.post() }
-  private post(): void {
-    if (!this.panel || !this.ready || !this.last) return
-    this.panel.title = `Check · ${this.last.progress || this.last.branch}`.replace(/ · $/, '')
-    void this.panel.webview.postMessage({ type: 'check', view: this.last })
+  /** Shows the view (opening the sidebar on it), keeping the keyboard where it is. */
+  reveal(): void {
+    if (this.wv) this.wv.show(true)
+    else void vscode.commands.executeCommand('codeNotes.check.focus').then(() => vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'))
   }
-  get column(): vscode.ViewColumn | undefined { return this.panel?.viewColumn }
-  send(m: unknown): void { if (this.panel && this.ready) void this.panel.webview.postMessage(m); else this.queue.push(m) }
-  state() { return { open: !!this.panel, title: this.panel?.title, ...this.reported } }
+  update(v: CheckView | undefined): void { this.last = v; this.post() }
+  private post(): void {
+    if (!this.wv || !this.ready) return
+    void this.wv.webview.postMessage({ type: 'check', view: this.last ?? null })
+  }
+  send(m: unknown): void { if (this.wv && this.ready) void this.wv.webview.postMessage(m); else this.queue.push(m) }
+  state() { return { open: !!this.wv, visible: !!this.wv?.visible, ...this.reported } }
 
   private html(w: vscode.Webview): string {
     const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')
@@ -446,8 +646,6 @@ class CheckPanel implements vscode.Disposable {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${uri('check.css')}"></head>
-<body><div id="app"><p class="muted">Loading…</p></div><script nonce="${nonce}" src="${uri('check.js')}"></script></body></html>`
+<body><div id="app"></div><script nonce="${nonce}" src="${uri('check.js')}"></script></body></html>`
   }
-
-  dispose(): void { this.panel?.dispose() }
 }

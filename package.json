@@ -74,6 +74,11 @@
           "name": "Code Notes"
         },
         {
+          "type": "webview",
+          "id": "codeNotes.check",
+          "name": "Check"
+        },
+        {
           "id": "codeNotes.journeys",
           "name": "Journeys"
         }
@@ -456,6 +461,11 @@
       {
         "command": "codeNotes.gradeCheck",
         "title": "Grade the answer again",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.checkConcern",
+        "title": "Act on a concern found during the check",
         "category": "Code Notes"
       },
       {
@@ -1151,6 +1161,10 @@
         },
         {
           "command": "codeNotes.gradeCheck",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.checkConcern",
           "when": "false"
         }
       ],

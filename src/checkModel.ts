@@ -1,41 +1,60 @@
 // Understanding check in the editor: the prompt that writes the questions, the plain phase shown while it works, the
-// grader's reply as a thread message, the panel's view. No vscode API here (unit-tested in test/checkModel.test.ts).
-// The rules (file format, grading prompt, thresholds) live in cli/understanding.mjs; its shapes are typed here.
+// grader's reply as a thread message, the Check view's model, the status bar. No vscode API here (unit-tested in
+// test/checkModel.test.ts). The rules (file format, grading prompt, the pass rule and the one state every surface
+// shows: checkState / stateWords) live in cli/understanding.mjs; its shapes are typed here.
 import type { ToolCall } from './claude'
 
 export type Kind = 'how' | 'why' | 'failure' | 'edge' | 'change'
-export type Verdict = 'pass' | 'retry' | 'explained'
-export type QState = 'todo' | 'ungraded' | 'pass' | 'retry' | 'explained'
+export type Verdict = 'pass' | 'retry' | 'explained' | 'restated'
+export type QState = 'todo' | 'ungraded' | 'pass' | 'retry' | 'explained' | 'restated'
 export interface Who { name?: string; email?: string }
-export interface Attempt { answer: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string }
-export interface Question { id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'; anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }; attempts?: Attempt[]; round?: number }
-export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
-export interface Summary { total: number; passed: number; explained: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
-export interface Status {
-  branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; small: boolean; exists: boolean
-  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; dirty?: boolean; next: string
+export interface Attempt {
+  answer: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string
+  note?: string; topic?: string; concern?: string; flagged?: boolean
 }
-export interface Config { questions: { min: number; max: number }; minChangedLines: number; passRatio: number; maxDrift: number; model: string | null }
+export interface Range { file: string; start: number; end: number }
+export interface Question {
+  id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'
+  anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
+  attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean
+}
+export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
+export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
+export type Phase = 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
+export interface State { phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
+export interface Words { tone: 'ok' | 'warn' | 'todo'; bar: string; title: string; line: string; rule: string }
+export interface Status {
+  branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; small?: boolean; exists: boolean
+  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean
+  state: State; next: string
+}
+export interface Config { questions: { min: number; max: number }; passRatio: number; maxDrift: number; model: string | null }
+export interface PushResult { ok: boolean; committed: boolean; pushed: boolean; line: string }
 
 /** The functions of cli/understanding.mjs the extension uses (it is loaded with import() at run time). */
 export interface Cli {
   localStatus(repo: string, o?: { base?: string }): Status
+  stateWords(state: State, st?: Partial<Status>): Words
   loadConfig(repo: string): Config
   readCheck(file: string): Check
   writeCheck(file: string, c: Check): void
   validateCheck(c: unknown, o?: { repo?: string }): string[]
+  relocate(repo: string, c: Check): number
   stateOf(q: Question): QState
   summarize(c: Check, cfg: Config): Summary
   addAttempt(c: Check, q: Question, answer: string, who?: Who): Attempt
   gitIdentity(repo: string): Who | undefined
   attemptHash(q: Question, a: Attempt): string
-  graderPrompt(o: { q: Question; answer: string; attempt: number; diff: string; code: string; canRead: boolean }): string
-  parseVerdict(text: string, attempt: number): { verdict: Verdict; feedback: string; hint: string }
+  gradeMode(q: Question): { attempt: number; explanation?: string }
+  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean }): string
+  parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string }
   diffText(repo: string, from: string, to?: string): string
   diffForGrader(diff: string, file: string): string
   codeWindow(repo: string, q: Question): string
   stamp(c: Check, cfg: Config): Check
   fileFor(branch: string): string
+  slugOf(branch: string): string
+  commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
 }
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
@@ -63,59 +82,85 @@ export function checkPhase(tool: ToolCall | undefined, prev: string): string {
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
 
-/** The question as the first message of its thread (its kind is in the panel; "Why: Why …" reads badly). */
+const range = (r: Range) => `${r.file}:${r.start}${r.end > r.start ? `-${r.end}` : ''}`
+
+/** The question as the first message of its thread; the unchanged code it depends on as links below it. */
 export function questionBody(q: Question): string {
-  return q.text
+  return q.also?.length ? `${q.text}\n\nAlso read: ${q.also.map(range).join(', ')}` : q.text
 }
 
-/** The grader's reply in the thread: pass → a short confirmation; retry → feedback + hint; explained → the explanation. */
-export function gradeBody(a: Attempt): string {
-  if (a.verdict === 'pass') return `✓ ${a.feedback || 'Right.'}`
+/**
+ * The grader's reply in the thread: pass → a short confirmation; retry → feedback + hint; explained → the
+ * explanation and an offer to say it back; a restatement → ✓, or what is still off.
+ */
+export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string {
+  if (a.verdict === 'pass' || a.verdict === 'restated') return `✓ ${a.feedback || 'Right.'}`
   if (a.verdict === 'retry') return `${/^not quite/i.test(a.feedback ?? '') ? '' : 'Not quite. '}${a.feedback ?? ''}${a.hint ? `\n\n**Hint:** ${a.hint}` : ''}`.trim()
-  return `${a.feedback ?? ''}\n\n_Counted as missed. On to the next one._`.trim()
+  if (o.restatement) return `${a.feedback ?? ''}\n\n_Try once more, or leave it: it is done._`.trim()
+  return `${a.feedback ?? ''}\n\n_Got it? Say it back in one sentence (optional)._`.trim()
 }
 
-export const STATE_WORD: Record<QState, string> = { todo: 'to answer', ungraded: 'not graded', pass: '✓', retry: 'try again', explained: 'explained' }
+/** The words of a row's state (the icon says the rest). */
+export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not graded', pass: '', retry: 'try again', explained: 'explained · say it back', restated: 'in your words' }
 
-export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; state: QState; word: string }
+/** A question's open concern: the grader's (the latest graded attempt's), else the question's own "may be a bug". */
+export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean } | undefined {
+  const a = (q.attempts ?? []).filter((x) => x.concern).at(-1)
+  if (a) return { text: a.concern!, flagged: !!a.flagged, suspect: false }
+  return q.suspect ? { text: 'May be a bug: fix it or explain.', flagged: false, suspect: true } : undefined
+}
+
+export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; also: string[]; state: QState; word: string; flag?: string }
 export interface CheckView {
   branch: string; file: string
-  /** "2 of 4 passed · 3 needed" */
-  progress: string
+  tone: Words['tone']; title: string; line: string
   rows: CheckRow[]
-  met: boolean
-  /** The one next step, when there is one: commit (with a Stage button), or top up. */
-  next?: { text: string; action?: 'stage' | 'topUp'; button?: string }
+  /** The one button, when there is one. */
+  action?: { id: 'start' | 'topUp' | 'commitPush' | 'scm'; label: string }
+  /** Someone else's check: whose, in one line. */
+  who?: string
   /** Writing questions now: "Writing questions · 0:42 · reading the change". */
   busy?: string
 }
 
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
 
-export function checkView(st: Status, o: { maxDrift: number; staged: boolean; busy?: string; grading?: Set<string> }): CheckView | undefined {
-  if (!st.check || !st.summary) return o.busy ? { branch: st.branch, file: st.file, progress: '', rows: [], met: false, busy: o.busy } : undefined
+/**
+ * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
+ * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
+ */
+export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who } = {}): CheckView {
   const s = st.summary
-  const rows = st.check.questions.map((q, i) => {
-    const state: QState = o.grading?.has(q.id) ? 'ungraded' : s.states[i]
-    return { id: q.id, n: i + 1, kind: KIND_LABEL[q.kind] ?? q.kind, text: q.text, where: where(q), state, word: o.grading?.has(q.id) ? 'checking…' : STATE_WORD[state] }
+  const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
+    const grading = o.grading?.has(q.id)
+    const state: QState = grading ? 'ungraded' : s?.states[i] ?? 'todo'
+    const c = concernOf(q)
+    return { id: q.id, n: i + 1, kind: KIND_LABEL[q.kind] ?? q.kind, text: q.text, where: where(q), also: (q.also ?? []).map(range), state, word: grading ? 'checking…' : STATE_WORD[state],
+      ...(c ? { flag: c.suspect ? 'may be a bug' : c.flagged ? 'flagged for review' : 'concern' } : {}) }
   })
-  const drift = st.drift && st.drift.lines > o.maxDrift
-  const done = s.todo === 0 && s.ungraded === 0
-  const next = drift ? { text: `The change grew by ${st.drift!.lines} lines since these questions.`, action: 'topUp' as const, button: 'Add questions' }
-    : s.met && done ? (o.staged ? { text: `Staged. Commit and push.` } : st.dirty ? { text: `Commit ${st.file} and push.`, action: 'stage' as const, button: 'Stage it' } : { text: 'Committed. Push if you haven\'t.' })
-    : undefined
+  const p = st.state.phase
+  let line = w.line
+  let action: CheckView['action']
+  if (p === 'none') action = { id: 'start', label: 'Start' }
+  else if (p === 'drift') action = st.state.commitFirst ? { id: 'scm', label: 'Commit…' } : { id: 'topUp', label: 'Add questions' }
+  else if (p === 'done') {
+    if (st.dirty || o.unpushed !== false) { action = { id: 'commitPush', label: 'Commit & push' }; if (!st.dirty) line = 'Not pushed yet.' }
+    else line = 'Pushed.'
+    if (o.pushed && o.pushed !== 'Pushed.') line = o.pushed
+  }
+  const by = st.check?.answeredBy
+  const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
-    branch: st.branch, file: st.file, rows, met: s.met && done, next, ...(o.busy ? { busy: o.busy } : {}),
-    progress: s.met && done ? `Passed · ${s.passed} of ${s.total}` : `${s.passed} of ${s.total} passed · ${s.needed} needed`,
+    branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
+    ...(action && !o.busy ? { action } : {}), ...(o.busy ? { busy: o.busy } : {}),
+    ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
   }
 }
 
-/** The status bar: hidden (nothing to check), "Check" (none yet), "2/4 ✓" (a check), with an icon for passed or out of date. */
-export function statusText(st: Status | undefined, maxDrift: number): { text: string; tip: string } | undefined {
-  if (!st) return undefined
-  if (!st.exists) return st.small ? undefined : { text: '$(checklist) Check', tip: `Check my understanding: ${st.changed} lines changed on ${st.branch}` }
-  if (!st.summary) return { text: '$(warning) Check', tip: st.next }
-  const s = st.summary
-  const icon = st.drift && st.drift.lines > maxDrift ? '$(warning)' : s.met && !s.todo && !s.ungraded ? '$(pass)' : '$(checklist)'
-  return { text: `${icon} ${s.passed}/${s.total} ✓`, tip: st.next }
+/** The status bar, from the CLI's words: hidden when no check is needed; an icon by tone; amber for a top-up. */
+export function statusText(st: Status | undefined, w: Words | undefined): { text: string; tip: string; warn: boolean } | undefined {
+  if (!st || !w || !w.bar) return undefined
+  const p = st.state.phase
+  const icon = p === 'done' ? '$(pass)' : w.tone === 'warn' ? '$(warning)' : '$(checklist)'
+  return { text: `${icon} ${w.bar.replace(/^✓\s*/, '')}`, tip: [w.title, w.line].filter(Boolean).join(' · '), warn: p === 'drift' }
 }

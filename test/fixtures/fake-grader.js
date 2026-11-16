@@ -18,13 +18,20 @@ if (start) {
   run('add', '--kind', 'failure', '--file', 'api/limits.js', '--lines', '4-7', '--text', 'What does allow() do for a customer whose window has already expired?')
   run('add', '--kind', 'why', '--file', 'api/limits.js', '--lines', '10-12', '--text', 'Why is the count kept per customer rather than per order here?')
   run('add', '--kind', 'edge', '--file', 'api/limits.js', '--whole-file', '--text', 'What happens to the counts when the API process restarts?')
+  // A test switches branches while the questions are being written: it leaves this file to say so.
+  const slow = require('path').join(execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim(), 'fake-slow')
+  if (fs.existsSync(slow)) { fs.writeFileSync(`${slow}-waiting`, ''); const until = Date.now() + 8000; while (fs.existsSync(slow) && Date.now() < until) execFileSync('sleep', ['0.1']) }
   run('finish')
   say({ type: 'result', result: 'q1 failure\nq2 why\nq3 edge', session_id: 'write-1', is_error: false })
   process.exit(0)
 }
 const answer = (/<answer>\n([\s\S]*?)\n<\/answer>/.exec(prompt) || [])[1] || ''
 const attempt = Number((/\(attempt (\d+)\)/.exec(prompt) || [])[1] || 1)
-const v = /GOOD/.test(answer) ? { verdict: 'pass', feedback: 'Right: the result is kept and sent again.', hint: '' }
+// A restatement after an explanation: "restated" when it says GOOD.
+const restate = /<explanation>/.test(prompt)
+const concern = /CONCERN/.test(answer) ? { concern: 'api/limits.js:2 keeps counts in memory: a restart lets everyone order again.' } : {}
+const v = restate ? (/GOOD/.test(answer) ? { verdict: 'restated', feedback: 'Right.', note: 'The window restarts.' } : { verdict: 'explained', feedback: 'Not yet: the window, not the order.' })
+  : /GOOD/.test(answer) ? { verdict: 'pass', feedback: 'Right. The result is kept and sent again.', hint: '', note: 'Kept and sent again.', ...concern }
   : attempt >= 2 ? { verdict: 'explained', feedback: 'It retries with backoff, then keeps the result in a file (worker/worker.js:20).', hint: '' }
   : { verdict: 'retry', feedback: 'Not quite: what happens after the last try?', hint: 'Look at what report() does after its loop.' }
 const text = `Here is my grade:\n${JSON.stringify(v)}`
