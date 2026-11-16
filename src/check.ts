@@ -65,6 +65,10 @@ const linkOf = (n: Note) => (n.data.extra as { check?: { file: string; q: string
 const textHash = (q: Question) => require('crypto').createHash('sha1').update(`${q.id}\0${q.text}`, 'utf8').digest('hex').slice(0, 12) as string
 /** The thread was made for this question as it is now (an older thread without a hash: its first message says). */
 const sameQuestion = (n: Note, q: Question) => { const h = linkOf(n)?.h; return h ? h === textHash(q) : n.data.messages[0]?.body === questionBody(q) }
+const BG_KEY = 'codeNotes.understanding.backgroundHeads'
+/** The parts of VS Code's git extension API used here. */
+interface GitRepo { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> } }
+interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
 const importFn = new Function('u', 'return import(u)') as (u: string) => Promise<unknown>
 const notDone = (s: string) => s === 'todo' || s === 'retry' || s === 'ungraded'
 
@@ -80,6 +84,10 @@ export class Understanding implements vscode.Disposable {
   private unpushed: boolean | undefined
   private pushed: string | undefined
   private pushing = false
+  /** Questions written in the background and not opened yet: the status bar says how many are ready. */
+  private ready = 0
+  /** What the push watcher saw last (integration test). */
+  private bgTrace: string[] = []
   private notice: string | undefined
   private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
@@ -113,6 +121,7 @@ export class Understanding implements vscode.Disposable {
       this.subs.push(w)
     }
     this.subs.push(vscode.window.onDidChangeWindowState((s) => { if (s.focused) later() }), vscode.workspace.onDidSaveTextDocument(later))
+    this.watchPushes()
     await this.refresh()
   }
 
@@ -143,6 +152,7 @@ export class Understanding implements vscode.Disposable {
     this.unpushed = ahead === undefined ? undefined : ahead !== '0'
     if (!this.writing) {
       const t = statusText(this.st, this.words)
+      if (t && this.ready && this.st?.state.phase === 'answering' && !this.st.summary?.done) { t.text = `$(checklist) ${this.ready} question${this.ready === 1 ? '' : 's'} ready`; t.tip = `Questions about ${this.st.branch} are ready · Check my understanding` }
       if (t) {
         this.item.text = t.text; this.item.tooltip = t.tip
         this.item.backgroundColor = t.warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined
@@ -173,6 +183,8 @@ export class Understanding implements vscode.Disposable {
     await this.refresh()
     const st = this.st
     if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
+    // Questions written in the background: the notice about uncommitted work now, as the person opens them.
+    if (this.ready) { this.ready = 0; const loose = await this.loose(); if (loose) void vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`) }
     const p = st.state.phase
     if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
     if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
@@ -200,11 +212,13 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** Claude writes the questions with the skill, for the branch checked out now; then question 1 opens. */
-  async write(topUp: boolean): Promise<boolean> {
+  async write(topUp: boolean, o: { background?: boolean } = {}): Promise<boolean> {
     const repo = this.repo!, st = this.st!
-    if (this.writing) { this.show(); return false }
-    if (!this.host.allowed('write understanding-check questions')) return false
-    const loose = await this.loose()
+    const bg = !!o.background
+    if (this.writing) { if (!bg) this.show(); return false }
+    // In the background nothing is said: no trust prompt, no notice, no progress, nothing opens.
+    if (bg ? !vscode.workspace.isTrusted : !this.host.allowed('write understanding-check questions')) return false
+    const loose = bg ? undefined : await this.loose()
     if (loose) {
       const pick = await vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`, 'Commit first', 'Continue')
       if (pick === 'Commit first') { await openScm(); return false }
@@ -213,6 +227,7 @@ export class Understanding implements vscode.Disposable {
     const cli = this.host.cli()
     const { dir, bundled } = this.skill()
     const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled })
+    if (!cli && bg) return false
     if (!cli) {
       await vscode.env.clipboard.writeText(prompt)
       void vscode.window.showInformationMessage('Claude Code was not found: copied a prompt for your agent.')
@@ -222,10 +237,10 @@ export class Understanding implements vscode.Disposable {
     const w = (this.writing = { started: Date.now(), phase: 'starting', branch: st.branch } as NonNullable<Understanding['writing']>)
     this.item.text = '$(sync~spin) Understanding'
     this.item.show()
-    this.host.log.info(`understanding check: Claude (${model ?? 'default model'}) is ${topUp ? 'topping up' : 'writing'} the questions for ${st.branch}`)
+    this.host.log.info(`understanding check: Claude (${model ?? 'default model'}) is ${topUp ? 'topping up' : 'writing'} the questions for ${st.branch}${bg ? ' in the background' : ''}`)
     let res: AskResult
     try {
-      res = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: topUp ? 'Adding questions' : 'Writing questions', cancellable: true }, async (progress, token) => {
+      res = bg ? await this.ask(cli, prompt, dir, model, w) : await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: topUp ? 'Adding questions' : 'Writing questions', cancellable: true }, async (progress, token) => {
         const tick = () => { progress.report({ message: `${clock(Date.now() - w.started)} · ${w.phase}` }); this.post() }
         const ask = new Ask({
           cli, cwd: repo, prompt, model, extraTools: [`Bash(${dir}/scripts/*)`], addDirs: [dir],
@@ -243,14 +258,15 @@ export class Understanding implements vscode.Disposable {
     // The branch was switched while Claude worked: its questions wait in the cache until it is checked out again.
     const now = await gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
     if (!res.cancelled && !res.error && now && now !== w.branch && this.park(w.branch)) {
-      void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
+      if (!bg) void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
       await this.refresh()
       return false
     }
     await this.refresh()
     if (res.cancelled) return false
-    if (res.error) { void vscode.window.showWarningMessage(`Code Notes: Claude couldn't write the questions: ${res.error}`); return false }
+    if (res.error) { if (bg) this.host.log.error(`understanding check: background questions: ${res.error}`); else void vscode.window.showWarningMessage(`Code Notes: Claude couldn't write the questions: ${res.error}`); return false }
     const after = this.st?.check?.questions.length ?? 0
+    if (after <= before && bg) { this.host.log.info(`understanding check: no background questions: ${res.text.trim().split('\n')[0]}`); return false }
     if (after <= before) {
       // NOTHING / UNCOMMITTED / PROBLEM: the script's own words.
       const why = /(SMALL|NOTHING|UNCOMMITTED|PROBLEM):?\s*([^\n]+)/.exec(res.text)?.[2] ?? res.text.trim().split('\n')[0] ?? 'no questions were written'
@@ -258,10 +274,66 @@ export class Understanding implements vscode.Disposable {
       return false
     }
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+    if (!topUp) await this.initRepo()
+    // In the background: the status bar says so; nothing opens until the person clicks.
+    if (bg) { this.ready = after - before; await this.refresh(); return true }
     // Only the first question opens: its code and its thread. The list is in the Check view.
     await this.openNext()
-    if (!topUp) await this.initRepo()
     return true
+  }
+
+  /** Claude writes the questions without a progress notification (the background run). */
+  private ask(cli: string, prompt: string, dir: string, model: string | undefined, w: NonNullable<Understanding['writing']>): Promise<AskResult> {
+    const ask = new Ask({
+      cli, cwd: this.repo!, prompt, model, extraTools: [`Bash(${dir}/scripts/*)`], addDirs: [dir],
+      env: { UNDERSTANDING_CLI: vscode.Uri.joinPath(this.host.extUri, 'cli', 'understanding.mjs').fsPath, UNDERSTANDING_MODEL_LABEL: model ?? 'Claude Code default' },
+      onProgress: (p) => { w.phase = checkPhase(p.tool, w.phase) },
+    })
+    w.ask = ask
+    return ask.done
+  }
+
+  /**
+   * Background questions: when a branch is pushed (it has an upstream and nothing left to push, after it had
+   * something or no upstream), has code changes and no check, and is not the default branch, its questions are
+   * written quietly. One run at a time; never twice for the same commit. Setting codeNotes.understanding.background.
+   */
+  private watchPushes(): void {
+    const git = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')
+    const hook = (api: GitApi) => {
+      const seen = (r: GitRepo) => {
+        if (!this.folder || path.resolve(r.rootUri.fsPath) !== path.resolve(this.folder.uri.fsPath)) return
+        // Per branch: pushed as last seen. A branch first seen already pushed (a checkout) starts nothing.
+        const was = new Map<string, boolean>()
+        this.subs.push(r.state.onDidChange(() => {
+          const h = r.state.HEAD
+          if (!h?.name) return
+          const pushed = !!h.upstream && h.ahead === 0
+          const before = was.get(h.name)
+          was.set(h.name, pushed)
+          this.bgTrace = [...this.bgTrace.slice(-9), `${h.name} ${pushed ? 'pushed' : 'unpushed'}${before === undefined ? ' (new)' : ''}`]
+          if (pushed && before === false) void this.pushedBranch(h.name, h.commit)
+        }))
+      }
+      this.bgTrace.push(`git api: ${api.repositories.length} repositories`)
+      api.repositories.forEach(seen)
+      this.subs.push(api.onDidOpenRepository(seen))
+    }
+    if (!git) { this.bgTrace.push('no git extension'); return }
+    if (git.isActive) hook(git.exports.getAPI(1))
+    else void git.activate().then((e) => hook(e.getAPI(1)), () => undefined)
+  }
+  private async pushedBranch(branch: string, commit: string | undefined): Promise<void> {
+    if (!vscode.workspace.getConfiguration('codeNotes').get<boolean>('understanding.background', true) || this.writing || !commit) return
+    const done = this.host.memento.get<string[]>(BG_KEY) ?? []
+    if (done.includes(commit)) return
+    await this.refresh()
+    const st = this.st
+    if (!st || st.branch !== branch || st.state.phase !== 'none') return
+    const base = (st.baseRef ?? '').replace(/^origin\//, '')
+    if (['main', 'master', base].includes(branch)) return
+    await this.host.memento.update(BG_KEY, [...done.slice(-50), commit])
+    await this.write(false, { background: true })
   }
 
   /** Moves the questions written for `branch` out of a working tree that has another branch now. */
@@ -553,7 +625,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** A thread's passing state for commentsOf: checking, why it couldn't be checked, a concern about the code. */
-  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean } } | undefined {
+  threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string } } | undefined {
     const l = linkOf(n)
     if (!l) return undefined
     if (this.grading.has(l.q)) return { checking: true }
@@ -606,6 +678,11 @@ export class Understanding implements vscode.Disposable {
     if (!fq) return
     const text = c.suspect ? q.text : c.text
     fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: action === 'flag' ? !c.flagged : false }
+    // Flagged by someone other than the check's author: the merge request says who.
+    const me = this.me(), by = check.answeredBy
+    const other = !!me && !!by && (me.email && by.email ? me.email !== by.email : me.name !== by.name)
+    if (fq.concern.flagged && other) fq.concern.by = { ...(me!.name ? { name: me!.name } : {}), ...(me!.email ? { email: me!.email } : {}) }
+    else delete fq.concern.by
     this.save(abs, check)
     await this.refresh()
     this.host.refresh()
@@ -621,7 +698,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** For the integration test. */
-  snapshot() { return { status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
+  snapshot() { return { bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
   panelSend(m: unknown): void { this.view.send(m) }
 
   dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer) }

@@ -35,21 +35,28 @@ will find a way around it, so every design choice below favours little friction.
 1. Dev works on a branch, pushes, opens a merge request. The CI job `understanding` fails with one friendly
    line: what to run and that it takes ~5 minutes.
    (They can also do it before pushing.)
-2. In VS Code: **Code Notes: Check my understanding** (also offered from a status-bar item when the branch
-   has no check yet). The extension asks the coding agent (same Claude Code runner as "Ask Claude",
-   read-only tools) to read `git diff <base>...HEAD` and write the questions with the bundled skill
-   `skills/understanding-check` (SKILL.md + a script that validates and writes the file).
-3. The questions open in a small panel styled like a journey's storyline: one row per question with its status
-   (to answer / ✓ / try again / explained); clicking one opens its code with the question as a note thread on the
-   exact lines (general/design questions are file-level threads on the most relevant file). The dev replies in
-   the thread (Ctrl+Enter). The threads are notes of a session `Check · <branch>`.
-   *Prototype choice:* its own panel (`codeNotes.check`), not the journey panel: the journey panel carries a tour
-   (current step, map, restore after reload) that a check doesn't have, and sharing it would tangle both.
-   The questions are written on committed code only (uncommitted lines would count as drift at once).
-4. Each reply is graded on submit (a failed grading shows "Try again" in the thread): the grader replies in the same thread —
-   ✓ with one sentence of confirmation / extra insight, or "not quite" + a hint. After a second miss it
-   explains, and the question counts as missed.
-5. When the threshold is met the panel says so: "Commit `understanding/<branch>.json` and push".
+2. In VS Code: **Code Notes: Check my understanding** (the status bar says `Understanding: start`). The
+   extension asks the coding agent (same Claude Code runner as "Ask Claude", read-only tools) to write the
+   questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
+   file). Questions cover committed code only: uncommitted or new files get one line first (Commit first, Continue).
+   Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
+   checked out again. The first check also runs `init` and adds `understanding/**` to the workspace's
+   `search.exclude`.
+3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
+   with the keyboard in the thread. The list is the **Check** view in the Code Notes sidebar: where the check stands,
+   one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
+   journey lenses step aside in a file with an open question; another branch's check threads are hidden. Threads
+   follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
+   only for the question text it was shown with.
+4. Each reply is graded on submit: ✓ "Right." with at most one new fact, or "Not quite" (what is right, what to
+   re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
+   (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
+   (click: the lines light up; "← Back to question"). It may raise a `concern` about the code itself: Fix now (a
+   note of its own, asked to Claude), Add TODO, Flag for reviewer. A pass moves on to the next open question.
+   "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
+   to write the check's answer.
+5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push** (the check file,
+   with `.gitattributes`/`.ignore` when `init` changed them; `-u` without an upstream).
 6. CI: finds the file, checks it belongs to this change and that the recorded verdicts meet the threshold
    (no model call), passes or fails with a short reason, and posts the Q&A as a merge request comment.
 

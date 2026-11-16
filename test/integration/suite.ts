@@ -549,10 +549,13 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.endJourney')
   await until('ended', () => !t().touring && !t().card && !t().statusShown)
   assert.equal(snap().journeys[0].resume, 3)
-  // Outside a walk, one quiet line above each step's code: "◇ Step n of <journey>"; click = that step.
+  // Outside a walk, at most one quiet line per function: "◇ Step n of <journey>" (its first step there); click = that step.
   const flowUri = vscode.Uri.file(path.join(ws, 'src', 'flow.ts'))
   const lenses = async (u: vscode.Uri) => ((await vscode.commands.executeCommand('vscode.executeCodeLensProvider', u)) as vscode.CodeLens[]).map((l) => `${l.range.start.line + 1}:${l.command?.title ?? ''}`)
-  await until('step lenses outside a walk', async () => { const l = await lenses(flowUri); return l.includes('4:◇ Step 2 of Demo') && l.includes('8:◇ Step 3 of Demo') })
+  const fdocNow = await vscode.workspace.openTextDocument(flowUri)
+  const fnLine = (name: string) => fdocNow.getText().split('\n').findIndex((x) => x.startsWith(`export function ${name}(`)) + 1
+  // Steps 1 and 2 are both in a(): one lens there, for step 1; step 3 in b().
+  await until('one lens per function', async () => { const l = (await lenses(flowUri)).filter((x) => x.includes('◇')); return l.length === 2 && l.includes(`${fnLine('a')}:◇ Step 1 of Demo`) && l.includes(`${fnLine('b')}:◇ Step 3 of Demo`) }, 15000)
   await vscode.window.showTextDocument(flowUri, { viewColumn: vscode.ViewColumn.One })
   await shotX('step-lens')
   await vscode.workspace.getConfiguration('codeNotes').update('journeys.codeLens', false, vscode.ConfigurationTarget.Workspace)
@@ -564,7 +567,7 @@ export async function run(): Promise<void> {
   assert.ok(!(await lenses(flowUri)).some((x) => x.includes('◇')), 'no step lenses while walking')
   await vscode.commands.executeCommand('codeNotes.endJourney')
   await until('ended again', () => !t().touring)
-  ok('"◇ Step n of Demo" above step code outside a walk; click opens it; setting turns it off; none while walking')
+  ok('"◇ Step n of Demo" once per function outside a walk; click opens it; setting turns it off; none while walking')
   // Not walking: the step question links back to its step, with the journey's name.
   await until('the back-link', () => /\[↩ Step 3 · Demo\]\(command:codeNotes\.openStepLink/.test((api.thread(an.id)!.comments[0].body as vscode.MarkdownString).value))
   assert.ok(vscode.window.tabGroups.all.some((g) => g.tabs.some((x) => x.input instanceof vscode.TabInputText && /flow\.ts$/.test(x.input.uri.path))), 'End keeps the code you were reading')

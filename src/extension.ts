@@ -741,7 +741,7 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
   if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
   if (chk?.concern) {
     const c = chk.concern
-    const acts = [cmdLink('Fix now', 'codeNotes.checkConcern', n.data.id, 'fix'), cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
+    const acts = [cmdLink('Fix now', 'codeNotes.checkConcern', n.data.id, 'fix'), cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
     out.push({ body: systemMarkdown(`⚠ ${c.suspect ? 'May be a bug: fix it or explain.' : c.text}\n\n${acts.join(' · ')}`), mode: vscode.CommentMode.Preview, author: { name: c.suspect ? 'Understanding check' : 'Found while grading' }, contextValue: 'system' })
   }
   if (chk?.error) out.push({ body: systemMarkdown(`⚠ Couldn't check this answer: ${chk.error}\n\n${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
@@ -2884,7 +2884,7 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
  * While walking: "← Back to step n" above an opened ref (R8). Outside a walk: one quiet line above the code a
  * journey step is about, "◇ Step 3 of Place an order" (only where its code is found); click = that step.
  */
-function stepLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
+async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> {
   if (touring()) {
     const lj = tourJourney()!
     if (!refHere || refHere.uri !== doc.uri.toString()) return []
@@ -2897,16 +2897,53 @@ function stepLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
   if (!folder || inNotesFolder(doc.uri)) return []
   const rel = relPath(folder, doc.uri)
-  const out: vscode.CodeLens[] = []
+  const hits: LensStep[] = []
   for (const lj of journeys.all()) {
     if (lj.folder.uri.toString() !== folder.uri.toString()) continue
     for (const s of lj.j.steps) {
       const at = lj.at[s.n - 1]
       if (!at || at.stale || fileOf(lj, s.n) !== rel) continue
-      out.push(new vscode.CodeLens(new vscode.Range(at.start - 1, 0, at.start - 1, 0), { title: `◇ Step ${s.n} of ${lj.j.title}`, command: 'codeNotes.openStepLink', arguments: [lj.j.id, s.id, s.n], tooltip: s.title }))
+      hits.push({ line: at.start - 1, journey: lj.j.id, title: lj.j.title, step: s.id, n: s.n, stepTitle: s.title })
     }
   }
+  if (!hits.length) return []
+  // At most one lens per function (its symbol), on its first line: the step there, or how many journeys pass there.
+  const syms = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then((x) => x ?? [], () => [])
+  return lensGroups(hits, symbolRanges(syms)).map((g) => {
+    const r = new vscode.Range(g.line, 0, g.line, 0)
+    const js = [...new Set(g.steps.map((x) => x.journey))]
+    if (js.length === 1) {
+      const s = g.steps.reduce((a, b) => (b.n < a.n ? b : a))
+      return new vscode.CodeLens(r, { title: `◇ Step ${s.n} of ${s.title}`, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n], tooltip: s.stepTitle })
+    }
+    return new vscode.CodeLens(r, { title: `◇ ${js.length} journeys`, command: 'codeNotes.pickJourneyStep', arguments: [g.steps], tooltip: [...new Set(g.steps.map((x) => x.title))].join(' · ') })
+  })
+}
+
+/** A journey step whose lines are in a file (for the lenses). */
+interface LensStep { line: number; journey: string; title: string; step: string; n: number; stepTitle: string }
+/** Functions, methods and classes of a document as line ranges (0-based), innermost last. */
+function symbolRanges(syms: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = []
+  const walk = (list: (vscode.DocumentSymbol | vscode.SymbolInformation)[]) => {
+    for (const s of list) {
+      const r = 'range' in s ? s.range : s.location.range
+      if ([vscode.SymbolKind.Function, vscode.SymbolKind.Method, vscode.SymbolKind.Constructor, vscode.SymbolKind.Class].includes(s.kind) || ('children' in s && s.kind === vscode.SymbolKind.Variable && s.children.length)) out.push({ start: r.start.line, end: r.end.line })
+      if ('children' in s) walk(s.children)
+    }
+  }
+  walk(syms)
   return out
+}
+/** Steps grouped by the innermost function around their first line (else by that line); the lens goes on its first line. */
+function lensGroups(hits: LensStep[], fns: { start: number; end: number }[]): { line: number; steps: LensStep[] }[] {
+  const groups = new Map<number, LensStep[]>()
+  for (const h of hits) {
+    const inner = fns.filter((f) => f.start <= h.line && h.line <= f.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
+    const at = inner ? inner.start : h.line
+    groups.set(at, [...(groups.get(at) ?? []), h])
+  }
+  return [...groups].sort((a, b) => a[0] - b[0]).map(([line, steps]) => ({ line, steps }))
 }
 
 /** After a reload: the tour where it was. The map comes back by itself when it was open (serializer). */
@@ -4106,6 +4143,12 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.answerCheck', async (r: vscode.CommentReply) => {
     const n = noteOfThread(r.thread)
     if (n && r.text.trim()) await understanding!.answer(n, r.text)
+  })
+  // "◇ 3 journeys" above a function: which journey, and which step, then walk to it.
+  cmd('codeNotes.pickJourneyStep', async (steps?: LensStep[]) => {
+    if (!Array.isArray(steps) || !steps.length) return
+    const pick = await vscode.window.showQuickPick(steps.map((s) => ({ label: s.title, description: `step ${s.n}`, detail: s.stepTitle, s })), { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
+    if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n)
   })
   cmd('codeNotes.checkConcern', async (id?: string, action?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined

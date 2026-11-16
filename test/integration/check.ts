@@ -255,6 +255,27 @@ export async function run(): Promise<void> {
   await until('and back', () => checkNotes().length === 3 && noteOf('q3'))
   ok('the check file rewritten on disk: a changed question gets a new thread, a removed one loses its thread')
 
+  // 12c. Pushed without a check: the questions are written in the background; nothing opens until clicked.
+  git('checkout', '-q', '-b', 'feat/third')
+  fs.writeFileSync(path.join(ws, 'api', 'third.js'), 'export const third = 3\n')
+  git('add', '-A', 'api/third.js'); git('commit', '-qm', 'third')
+  api.checkRefresh()
+  await until('no check yet on feat/third', () => chk().view?.title === 'No check yet for feat/third')
+  const where = vscode.window.activeTextEditor?.document.uri.fsPath
+  // As in real use, VS Code's git has seen the branch before it is pushed.
+  await until('git sees feat/third', () => (chk().bg as string[]).includes('feat/third unpushed (new)'), 20000)
+  git('push', '-q', '-u', 'origin', 'feat/third')
+  await until('questions ready in the background', () => chk().item === '$(checklist) 3 questions ready', 40000)
+  assert.ok(fs.existsSync(path.join(ws, 'understanding/feat-third.json')))
+  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, where, 'nothing opened by itself')
+  await shoot('check-5-ready')
+  await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('a click opens q1', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && chk().item === '$(checklist) Understanding 0/3')
+  git('checkout', '-q', 'feat/limits')
+  api.checkRefresh()
+  await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
+  ok('pushed without a check: questions written in the background, "3 questions ready", nothing opens; a click opens question 1')
+
   // 13. Finding journeys (journeyList.ts): "In this file" follows the editor; search reads step text.
   const tree = () => api.journeysTree() as string[]
   const j = JSON.parse(fs.readFileSync(path.join(ws, 'journeys/place-order.json'), 'utf8'))

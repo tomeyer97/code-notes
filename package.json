@@ -469,6 +469,11 @@
         "category": "Code Notes"
       },
       {
+        "command": "codeNotes.pickJourneyStep",
+        "title": "Pick a Journey Step Here",
+        "category": "Code Notes"
+      },
+      {
         "command": "codeNotes.searchJourneys",
         "title": "Search Journeys",
         "category": "Code Notes",
@@ -1166,6 +1171,10 @@
         {
           "command": "codeNotes.checkConcern",
           "when": "false"
+        },
+        {
+          "command": "codeNotes.pickJourneyStep",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -1262,6 +1271,11 @@
           "type": "string",
           "default": "",
           "description": "Model Claude Code uses to write a journey from the journey picker (\"Ask the agent to write a journey…\"). Empty: Code Notes › Claude: Model, else Claude Code's default."
+        },
+        "codeNotes.understanding.background": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Write a branch's understanding-check questions in the background when it is pushed without a check; the status bar says when they are ready."
         },
         "codeNotes.understanding.model": {
           "type": "string",

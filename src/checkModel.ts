@@ -21,7 +21,7 @@ export interface Question {
   anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
   attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean; links?: Link[]
   /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
-  concern?: { text: string; flagged?: boolean; at?: string }
+  concern?: { text: string; flagged?: boolean; at?: string; by?: Who }
 }
 export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
@@ -125,8 +125,8 @@ export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string
 export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not graded', pass: '', retry: 'try again', explained: 'explained · say it back', restated: 'in your words' }
 
 /** A question's concern: the one stored on it (found while grading), else the question's own "may be a bug". */
-export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean } | undefined {
-  if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && q.concern.text === SUSPECT }
+export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean; by?: string } | undefined {
+  if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && q.concern.text === SUSPECT, ...(q.concern.by ? { by: q.concern.by.name ?? q.concern.by.email } : {}) }
   return q.suspect ? { text: SUSPECT, flagged: false, suspect: true } : undefined
 }
 const SUSPECT = 'May be a bug: fix it or explain.'

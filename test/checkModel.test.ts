@@ -74,6 +74,7 @@ test('concerns: the grader\'s latest, else the question\'s own "may be a bug"; s
   assert.deepEqual(concernOf(c as never), { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true, suspect: false })
   const v = checkView(st({ check: { ...st().check!, questions: [c as never, { ...base, id: 'q2', suspect: true } as never] }, summary: sum(['pass', 'todo']) }), W())
   assert.deepEqual(v.rows.map((r) => r.flag), ['flagged for review', 'may be a bug'])
+  assert.equal(concernOf({ ...base, concern: { text: 'x', flagged: true, by: { name: 'Bob', email: 'bob@example.com' } } } as never)!.by, 'Bob')
 })
 
 test('the status bar: the CLI\'s words with an icon; amber for a top-up; hidden when no check is needed', () => {

@@ -6,8 +6,8 @@ Three things for understanding code you did not write, in VS Code:
   up as unread.
 - **Code Journeys**: an answer to "how does X work?" as a small map of the parts involved and a storyline of steps
   through the real code. You walk it step by step; a step can play as a short animation.
-- **Understanding check**: before you merge a change (yours, or your agent's), answer 3-5 short questions about it
-  next to the code. A merge request check makes sure it was done.
+- **Understanding check**: before you merge a change (yours, or your agent's), answer a few short questions about
+  it next to the code. A merge request check makes sure it was done.
 
 ![A journey: the storyline, a step's animation and the code it is about](docs/images/journey.png)
 
@@ -58,13 +58,19 @@ the repository's copy wins.
 
 ## Understanding check
 
-**Code Notes: Check my understanding** (or the **Check** item in the status bar) has Claude Code read your branch's
-change and ask a few questions about it (1 for a small change, up to 5 for a big one): how a part behaves, why it is built this way, how it fails. Each question opens
-as a thread on its lines. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
-replies in the thread. A miss gets a hint and a second try; a second miss gets the explanation, and you move on.
+**Code Notes: Check my understanding** (or **Understanding: start** in the status bar) has Claude Code read your
+branch's change and ask a few questions about it (1 for a small change, up to 5 for a big one): how a part behaves, why
+it is built this way, how it fails. The first question opens as a thread on its lines; the list is the **Check** view
+in the Code Notes sidebar. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
+replies in the thread, naming the code it means as links you can click. A miss gets a hint and a second try; a second
+miss gets the explanation, which you may say back in one sentence (a right one counts as passed). Ctrl+' D goes to
+the next open question.
 
-Questions and answers are saved in `understanding/<branch>.json`. Once every question is done and enough answers pass
-(60 % by default), the panel says **Commit and push**. Commit it with your change.
+Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
+questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and
+pushes. When the grader finds a problem in the code itself, the thread offers **Fix now**, **Add TODO** and **Flag for
+reviewer** (flagged ones go on the merge request). When you push a branch that has no check yet, its questions are written in the background
+(the status bar says "3 questions ready"; setting `codeNotes.understanding.background`).
 
 Everything runs on your machine. The merge request check only verifies the file: it belongs to this change, every
 question is done, the recorded verdicts meet the threshold. It calls no model and needs no key. Once the check is done
