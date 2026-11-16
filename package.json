@@ -699,17 +699,17 @@
         {
           "command": "codeNotes.askClaude",
           "group": "navigation@0",
-          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /asking/) && codeNotes.claudeFound && !(commentThread =~ /check/)"
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && (commentThread =~ /open/ || commentThread =~ /check/) && !(commentThread =~ /asking/) && codeNotes.claudeFound"
         },
         {
           "command": "codeNotes.resolve",
           "group": "navigation@4",
-          "when": "commentController == codeNotes && commentThread =~ /open/"
+          "when": "commentController == codeNotes && commentThread =~ /open/ && !(commentThread =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",
           "group": "navigation@4",
-          "when": "commentController == codeNotes && commentThread =~ /resolved/"
+          "when": "commentController == codeNotes && commentThread =~ /resolved/ && !(commentThread =~ /check/)"
         }
       ],
       "view/title": [
@@ -798,7 +798,7 @@
         {
           "command": "codeNotes.resolve",
           "group": "inline@2",
-          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/ && !(viewItem =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",
@@ -808,7 +808,7 @@
         {
           "command": "codeNotes.resolve",
           "group": "1_note@1",
-          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/ && !(viewItem =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",

@@ -885,6 +885,14 @@ function matchesFilter(n: Note): boolean {
   }
 }
 
+/** A check question's state in the notes list: the icon, and a word where the icon isn't enough. */
+const CHECK_ICON: Record<string, vscode.ThemeIcon> = {
+  pass: new vscode.ThemeIcon('pass', new vscode.ThemeColor('testing.iconPassed')), restated: new vscode.ThemeIcon('pass', new vscode.ThemeColor('testing.iconPassed')),
+  retry: new vscode.ThemeIcon('refresh', new vscode.ThemeColor('editorWarning.foreground')), explained: new vscode.ThemeIcon('info'),
+  ungraded: new vscode.ThemeIcon('loading~spin'), todo: new vscode.ThemeIcon('circle-large-outline'),
+}
+const CHECK_WORD: Record<string, string> = { retry: 'try again', explained: 'explained', ungraded: 'checking…', restated: 'in your words' }
+
 /** One line of a markdown message, as plain text. */
 function plain(s: string, max = 80): string {
   const l = (s.split('\n').find((x) => x.trim()) ?? '')
@@ -1107,7 +1115,9 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
     const u = unread(n)
     const gone = missing.has(d.id)
     const link = stepLinkOf(n)
-    const item = new vscode.TreeItem({ label: `${u && d.stale ? '⚠ ' : ''}${link && journeyOfNote(n) ? `Step ${link.n} · ` : ''}${isolate(plain(d.messages[0]?.body ?? '(empty note)', 60))}` })
+    // A check question's row: always the question's text; its state as the icon (✓ only when passed).
+    const crow = understanding?.rowOf(n)
+    const item = new vscode.TreeItem({ label: `${u && d.stale ? '⚠ ' : ''}${link && journeyOfNote(n) ? `Step ${link.n} · ` : ''}${isolate(plain(crow?.text ?? d.messages[0]?.body ?? '(empty note)', 60))}` })
     item.id = `note:${d.id}`
     const replies = d.messages.length - 1
     // Alone in its file: the row says which file (`app.ts:12`), there is no file row above it.
@@ -1118,11 +1128,13 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
       u ? `${u} new` : '',
       asking.has(d.id) ? (asking.get(d.id)!.activity === 'Queued…' ? 'queued for Claude' : 'Claude is answering…') : askErrors.has(d.id) ? 'Claude failed' : '',
       gone ? 'file not found' : d.stale ? 'stale' : '',
-      d.status === 'resolved' ? 'resolved' : '',
+      d.status === 'resolved' && !crow ? 'resolved' : '',
+      crow ? CHECK_WORD[crow.state] ?? '' : '',
       where,
       !u && replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'}` : '',
     ].filter(Boolean).join(' · ')
-    item.iconPath = asking.has(d.id) ? new vscode.ThemeIcon('sync~spin')
+    item.iconPath = crow ? CHECK_ICON[crow.state] ?? new vscode.ThemeIcon('circle-large-outline')
+      : asking.has(d.id) ? new vscode.ThemeIcon('sync~spin')
       : askErrors.has(d.id) ? new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
       // An open finding shows its severity even while unread (a fresh review is all unread; "n new" says so).
       : d.severity && d.status === 'open' && !d.stale ? new vscode.ThemeIcon(SEV_ICON[d.severity][0], new vscode.ThemeColor(SEV_ICON[d.severity][1]))
@@ -1146,7 +1158,7 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
     item.tooltip = tip
     item.command = { command: 'codeNotes.reveal', title: 'Go to Note', arguments: [node] }
     // `asking` (Stop Claude only then), the status (no Ask Claude on a resolved note).
-    item.contextValue = ['note', d.status, d.stale ? 'stale' : '', u ? 'unread' : '', d.messages.some((m) => !mine(m)) ? 'replied' : '', asking.has(d.id) ? 'asking' : ''].filter(Boolean).join(';')
+    item.contextValue = ['note', d.status, d.stale ? 'stale' : '', u ? 'unread' : '', d.messages.some((m) => !mine(m)) ? 'replied' : '', asking.has(d.id) ? 'asking' : '', crow ? 'check' : ''].filter(Boolean).join(';')
     // No checkbox on every row: bulk actions use the list's own multi-select (Ctrl/Shift+click).
     return item
   }

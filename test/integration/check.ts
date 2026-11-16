@@ -243,6 +243,18 @@ export async function run(): Promise<void> {
   git('config', 'user.name', 'Ada'); git('config', 'user.email', 'ada@example.com')
   ok('another git user: "Ada\'s check: your answers are recorded as yours."')
 
+  // 12b. The file rewritten on disk (questions written again, a pull): threads follow; none stands for another question.
+  const oldQ2 = noteOf('q2').id
+  const kept = fs.readFileSync(file, 'utf8')
+  const rw = read()
+  rw.questions[1].text = 'Why does reset() take a customer instead of clearing every count?'; rw.questions[1].attempts = []
+  rw.questions.splice(2, 1)
+  fs.writeFileSync(file, JSON.stringify(rw, null, 2) + '\n')
+  await until('threads follow the rewritten file', () => checkNotes().length === 2 && noteOf('q2')?.id !== oldQ2 && noteOf('q2')?.messages[0].body === rw.questions[1].text && !api.thread(oldQ2))
+  fs.writeFileSync(file, kept)
+  await until('and back', () => checkNotes().length === 3 && noteOf('q3'))
+  ok('the check file rewritten on disk: a changed question gets a new thread, a removed one loses its thread')
+
   // 13. Finding journeys (journeyList.ts): "In this file" follows the editor; search reads step text.
   const tree = () => api.journeysTree() as string[]
   const j = JSON.parse(fs.readFileSync(path.join(ws, 'journeys/place-order.json'), 'utf8'))

@@ -60,7 +60,11 @@ const EARLIER = '_An earlier answer (not kept)._'
 /** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
 const CACHE = '.code-notes/.cache/checks'
 const isCheck = (n: Note) => !!(n.data.extra as { check?: unknown } | undefined)?.check
-const linkOf = (n: Note) => (n.data.extra as { check?: { file: string; q: string } } | undefined)?.check
+/** A thread's link to its question: the check file, the question's id, and a hash of the text it was shown with. */
+const linkOf = (n: Note) => (n.data.extra as { check?: { file: string; q: string; h?: string } } | undefined)?.check
+const textHash = (q: Question) => require('crypto').createHash('sha1').update(`${q.id}\0${q.text}`, 'utf8').digest('hex').slice(0, 12) as string
+/** The thread was made for this question as it is now (an older thread without a hash: its first message says). */
+const sameQuestion = (n: Note, q: Question) => { const h = linkOf(n)?.h; return h ? h === textHash(q) : n.data.messages[0]?.body === questionBody(q) }
 const importFn = new Function('u', 'return import(u)') as (u: string) => Promise<unknown>
 const notDone = (s: string) => s === 'todo' || s === 'retry' || s === 'ungraded'
 
@@ -385,8 +389,17 @@ export class Understanding implements vscode.Disposable {
     return out
   }
 
-  /** Every question has its thread; answers and grades written elsewhere (the CLI, another window) are added. */
+  /**
+   * Every question has its thread; answers and grades written elsewhere (the CLI, another window) are added. The file
+   * rewritten (questions written again, a pull, a checkout): a thread whose question changed is made again, one whose
+   * question is gone is removed. A thread never stands for a question it didn't show.
+   */
   private async syncThreads(check: Check): Promise<void> {
+    const file = this.st!.file
+    for (const n of this.host.store.all().filter((x) => linkOf(x)?.file === file)) {
+      const q = check.questions.find((x) => x.id === linkOf(n)!.q)
+      if (!q || !sameQuestion(n, q)) { this.graded.delete(n.data.id); await this.host.store.trash(n); this.host.refresh() }
+    }
     for (const q of check.questions) {
       const want = this.messagesOf(q, check)
       const n = this.noteOf(q.id)
@@ -436,7 +449,7 @@ export class Understanding implements vscode.Disposable {
         session: SESSION(this.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
         messages: messages.map((m) => ({ ...m, at: m.at ?? at })),
         ...(q.target ? { target: 'file' as const } : {}),
-        extra: { check: { file: this.st!.file, q: q.id } },
+        extra: { check: { file: this.st!.file, q: q.id, h: textHash(q) } },
       },
     }
     if (await this.host.store.save(n)) await this.host.changed(n, true)
@@ -467,7 +480,12 @@ export class Understanding implements vscode.Disposable {
     let check: Check
     try { check = this.U.readCheck(abs) } catch { void vscode.window.showWarningMessage(`Code Notes: ${link.file} can't be read.`); return }
     const q = check.questions.find((x) => x.id === link.q)
-    if (!q) { await this.host.addReply(n, body); return }
+    // Only an answer to the question as it was shown: the file may have been rewritten since.
+    if (!q || !sameQuestion(n, q)) {
+      void vscode.window.showWarningMessage('This question changed: reopen it from the Check view.')
+      await this.refresh()
+      return
+    }
     const state = this.U.stateOf(q)
     // Passed: a remark, not graded. Explained: a restatement, graded against the explanation.
     if (state === 'pass' || state === 'restated') { await this.host.addReply(n, body); return }
@@ -546,6 +564,11 @@ export class Understanding implements vscode.Disposable {
     return c ? { concern: c } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
+  /** A check thread's row in the notes list: the question's text and its state. */
+  rowOf(n: Note): { text: string; state: string } | undefined {
+    const q = this.questionOf(n)
+    return q ? { text: q.text, state: this.grading.has(q.id) ? 'ungraded' : this.U.stateOf(q) } : undefined
+  }
   /** The code links of message `mi` of a check thread (with the line text to find them after edits). */
   linksIn(n: Note, mi: number): (Link & { text: string })[] {
     const q = this.questionOf(n)
