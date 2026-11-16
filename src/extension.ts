@@ -3489,6 +3489,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }), journeys.onDidMoveSteps((lj) => {
     lensChanged.fire()
     mapPanel.update()
+    journeysTree.refresh()
     if (lj.key === tourKey && tourStep) showCard(lj, tourStep)
     refreshStepDecorations()
   }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) journeys.onDocument(e.document) }))
@@ -3591,12 +3592,20 @@ export async function activate(context: vscode.ExtensionContext) {
   /** A journey step's code is in this file. */
   const stepIn = (u: vscode.Uri) => [...journeys.list.values()].some((lj) => lj.j.steps.some((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).path === u.path))
   let diskTimer: NodeJS.Timeout | undefined
+  /** Files with journey steps changed on disk since the last pass: their steps are found again. */
+  const stepFilesChanged = new Set<string>()
   const onDisk = (u: vscode.Uri, created = false) => {
     if (inNotesFolder(u) || u.path.includes('/.git/')) return
+    if (stepIn(u)) stepFilesChanged.add(u.path)
     if (created) recentCreates.push({ uri: u, at: Date.now() })
     else if (!notesFor(u).length && !notes().some((n) => n.data.target === 'folder' && u.path.startsWith(pathUri(n).path)) && !stepIn(u)) return
     clearTimeout(diskTimer)
-    diskTimer = setTimeout(async () => { await reanchorAll(); await followMovedFiles(); await followJourneyFiles() }, 600)
+    diskTimer = setTimeout(async () => {
+      await reanchorAll(); await followMovedFiles(); await followJourneyFiles()
+      const paths = new Set(stepFilesChanged)
+      stepFilesChanged.clear()
+      if (paths.size) await journeys.relocateOnDisk(paths)
+    }, 600)
   }
   fileWatcher.onDidChange((u) => onDisk(u))
   fileWatcher.onDidCreate((u) => onDisk(u, true))
@@ -4059,7 +4068,8 @@ export async function activate(context: vscode.ExtensionContext) {
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     await refreshBranch(f)
     const head = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, '.git/HEAD'))
-    const onHead = () => { return refreshBranch(f).then(refreshAll) }
+    // Another branch: every step is found again in the code checked out now.
+    const onHead = () => { return refreshBranch(f).then(() => journeys.relocateOnDisk()).then(refreshAll) }
     head.onDidChange(onHead); head.onDidCreate(onHead)
     context.subscriptions.push(head)
   }

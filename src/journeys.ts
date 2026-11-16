@@ -272,6 +272,20 @@ export class Journeys implements vscode.Disposable {
     return out
   }
 
+  /**
+   * Files changed on disk (git checkout, pull, an agent; not typed in an editor): re-find the steps in them. Without
+   * this a step stayed as it was found when the window opened: stale after a branch switch back, fresh after one away.
+   * No `paths`: every step (the branch changed).
+   */
+  async relocateOnDisk(paths?: Set<string>): Promise<void> {
+    for (const lj of [...this.list.values()]) {
+      const base = lj.folder.uri.path.replace(/\/?$/, '/')
+      const hit = (n: number) => !paths || paths.has(base + fileOf(lj, n))
+      if (!lj.j.steps.some((s) => hit(s.n))) continue
+      if (await this.locate(lj, hit)) this.moved.fire(lj)
+    }
+  }
+
   /** An edited document: re-find the steps in it, a moment after typing stops. */
   onDocument(doc: vscode.TextDocument): void {
     for (const lj of this.list.values()) {

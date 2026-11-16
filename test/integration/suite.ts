@@ -747,6 +747,28 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await until('gitmv gone', () => !snap().journeys.some((x: any) => x.id === 'gitmv'))
   ok('a file renamed with git mv: the step follows it from git, in a journey read afterwards')
 
+  // A step's file changed on disk while no editor has it open (a checkout, a pull): its step is found again. Code that
+  // only moved stays fresh; an edit to its lines makes it stale; the old text back makes it fresh again.
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  const dk = path.join(ws, 'src', 'disk.ts')
+  const dlines = ['// disk', 'export function charge(order) {', '  return gateway.charge(order.total, order.currency)', '}', '']
+  fs.writeFileSync(dk, dlines.join('\n'))
+  const dkPath = path.join(path.dirname(j.demoPath), 'disk.json')
+  fs.writeFileSync(dkPath, JSON.stringify({ version: 2, id: 'disk', question: 'How is an order charged?', title: 'Disk', summary: '',
+    nodes: [{ id: 'c', kind: 'function', label: 'charge' }],
+    steps: [{ id: 'd1', title: 'Charged', node: 'c', file: 'src/disk.ts', range: { start: 2, end: 3 }, lead: 'Here.', refs: [] }] }))
+  const dAt = () => snap().journeys.find((x: any) => x.id === 'disk')?.at[0]
+  await until('disk loaded, fresh', () => !!dAt() && !dAt().stale)
+  fs.writeFileSync(dk, ['// disk', '', '// moved down by a comment', ...dlines.slice(1)].join('\n'))
+  await until('moved on disk: fresh at its new lines', () => dAt().start === 4 && !dAt().stale, 8000)
+  fs.writeFileSync(dk, ['// disk', 'export function charge(order) {', '  return gateway.charge(order.total, "EUR")', '}', ''].join('\n'))
+  await until('edited on disk: stale', () => dAt().stale, 8000)
+  fs.writeFileSync(dk, dlines.join('\n'))
+  await until('the old code back on disk: fresh again', () => !dAt().stale && dAt().start === 2, 8000)
+  fs.unlinkSync(dkPath)
+  await until('disk gone', () => !snap().journeys.some((x: any) => x.id === 'disk'))
+  ok('a step file changed on disk (no editor open): moved stays fresh, an edit is stale, the old code back is fresh')
+
   // 32e. The map follows the step; a ref is lit with "← Back to step"; the card and the step's lines are in view after a jump lower in the same
   // file; arriving at a step doesn't read a note there; leaving a journey for another says so;
   // a step whose file is gone opens no stand-in tab.
