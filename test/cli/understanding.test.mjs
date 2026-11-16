@@ -1608,3 +1608,23 @@ test('a key of the settings that is not a setting is said in the log (ignored), 
   const st = await run(d, ['status'])
   assert.match(st.out, /understanding\/config\.json: "minChangedLines" is not a setting \(ignored\)\./)
 })
+
+test('without VS Code: help links docs that exist, status and CI give the same way, the skill finds the repository\'s copy of the CLI', async () => {
+  const help = await run(os.tmpdir(), ['help'])
+  assert.match(help.out, /docs: https:\/\/github\.com\/tomeyer97\/code-notes\/blob\/main\/docs\/understanding-check\.md/)
+  assert.match(help.out, /grade \[<file>\]/)
+  const d = smallRepo(['export const one = 1'])
+  const st = await run(d, ['status'])
+  assert.match(st.out, /1 code line changed/); assert.doesNotMatch(st.out, /1 code lines/)
+  const way = st.out.split('\n').find((l) => /Without VS Code/.test(l)).trim()
+  const r = await ci(d, gitlabEnv(d))
+  assert.equal(r.lines[1].trim().replace(/node \S+ grade/, 'node X grade'), way.replace(/node \S+ grade/, 'node X grade'))
+  assert.match(way, /skills\/understanding-check\) into \.claude\/skills, ask Claude Code to "check my understanding"/)
+  // The skill copied into .claude/skills, the CLI committed as tools/understanding.mjs: found.
+  const skill = path.join(d, '.claude/skills/understanding-check/scripts')
+  fs.mkdirSync(skill, { recursive: true }); fs.copyFileSync(SCRIPT, path.join(skill, 'questions.mjs'))
+  fs.mkdirSync(path.join(d, 'tools')); fs.copyFileSync(path.join(root, 'cli/understanding.mjs'), path.join(d, 'tools/understanding.mjs'))
+  gitIn(d, 'add', 'tools'); gitIn(d, 'commit', '-qm', 'cli')
+  const out = execFileSync('node', [path.join(skill, 'questions.mjs'), 'start', '--base', 'main'], { cwd: d, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } })
+  assert.match(out, /^CHANGE: branch feat\/x · /)
+})

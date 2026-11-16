@@ -10,14 +10,16 @@
 //   questions.mjs tour-finish --steps q1=3,q2=5,…    checks the tour and puts it, and each question's step, in the file
 // The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json; the tour is
 // written with the code-journey skill's journey.py into a staging folder there, then embedded as `journey`.
-// It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill.
+// It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill, else the one the
+// repository has (e.g. tools/understanding.mjs, the copy its CI runs).
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const cliPath = [process.env.UNDERSTANDING_CLI, path.join(here, 'understanding.mjs'), path.join(here, '../../../cli/understanding.mjs')].find((p) => p && fs.existsSync(p))
+const inRepo = () => { try { const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); const f = execFileSync('git', ['ls-files', '--', ':(glob)**/understanding.mjs'], { cwd: top, encoding: 'utf8' }).split('\n').find(Boolean); return f && path.join(top, f) } catch { return undefined } }
+const cliPath = [process.env.UNDERSTANDING_CLI, path.join(here, 'understanding.mjs'), path.join(here, '../../../cli/understanding.mjs')].find((p) => p && fs.existsSync(p)) ?? inRepo()
 if (!cliPath) { console.log('PROBLEM: understanding.mjs not found (set UNDERSTANDING_CLI to its path)'); process.exit(2) }
 const U = await import(pathToFileURL(cliPath).href)
 

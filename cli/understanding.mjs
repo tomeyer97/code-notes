@@ -30,6 +30,10 @@ export const TOUR_LINE = 'A guided tour of this change: open it in VS Code with 
 /** The design notes and the CI recipes, for people who only have this file. */
 export const DOCS_URL = 'https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md'
 export const CI_URL = 'https://github.com/tomeyer97/code-notes#in-ci'
+/** The skill that writes the questions, for Claude Code without VS Code. */
+export const SKILL_URL = 'https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check'
+/** The way without VS Code, the same in `status` and CI: Claude Code writes the questions, `grade` grades each answer. */
+export const withoutVsCode = (cli) => `Without VS Code: copy the understanding-check skill (${SKILL_URL}) into .claude/skills, ask Claude Code to "check my understanding", then answer each question with: node ${cli} grade --question q1 --answer "…" --write`
 
 // ---------- git ----------
 
@@ -1718,7 +1722,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
     const size = sizeWords(change.docsOnly ? 1 : questionsFor(linesOf(change), cfg))
     return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
-      `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
+      `  ${withoutVsCode(cli)}`,
       // Advisory, or the label is there already: no skip instructions.
       ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
   }
@@ -1820,19 +1824,22 @@ export function initRepo(repo) {
 
 // ---------- the command line ----------
 
-const HELP = `understanding.mjs: an understanding check for a change (docs: understanding-check.md)
+const HELP = `understanding.mjs: an understanding check for a change (docs: ${DOCS_URL})
 
   status [--json] [--base <ref>]          this branch's check: valid?, answered/passed, what to do next
   validate <file>                         check a file's format
-  grade <file> [--question q2] [--answer "text"] [--write] [--backend claude|anthropic] [--model m]
-                                          grade answers (local only): the ungraded ones, or one question
+  grade [<file>] [--question q2] [--answer "text"] [--write] [--backend claude|anthropic] [--model m]
+                                          grade answers (local only): the ungraded ones, or one question;
+                                          the file defaults to this branch's
                                           (--answer adds an attempt first; --write saves the result)
   ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check,
                                           3 would fail but advisory (config "mode", UNDERSTANDING_MODE)
   init                                    keep understanding/ out of diffs and search (.gitattributes, .ignore)
 
 Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or claude when on PATH, else
-ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.`
+ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.
+The questions are written by the understanding-check skill: in VS Code by Code Notes, else by Claude Code
+(${SKILL_URL}).`
 
 export function parseArgs(argv) {
   const o = { _: [] }
@@ -1857,8 +1864,12 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     if (o.json) { const { check, ...rest } = s; print(JSON.stringify(rest, null, 2)); return 0 }
     const w = stateWords(s.state, s)
     print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
-    if (s.state.phase === 'none') print('  Run "Code Notes: Check my understanding" in VS Code.')
-    print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code lines changed`)
+    if (s.state.phase === 'none') {
+      const me = path.relative(repo, fileURLToPath(import.meta.url))
+      print('  Run "Code Notes: Check my understanding" in VS Code.')
+      print(`  ${withoutVsCode(me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs')}`)
+    }
+    print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code line${s.changed === 1 ? '' : 's'} changed`)
     if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
     if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
     const unknown = unknownSettings(repo)

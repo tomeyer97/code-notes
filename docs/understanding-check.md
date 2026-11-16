@@ -235,7 +235,7 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 |---|---|
 | `status [--json]` | which file, valid for this change?, answered/passed counts, what to do next |
 | `validate <file>` | schema + anchors check (used by the skill's script and by CI) |
-| `grade <file> [--question q2] [--answer "…"] [--write]` | grade answers with the configured backend (`--answer` adds an attempt first) |
+| `grade [<file>] [--question q2] [--answer "…"] [--write]` | grade answers with the configured backend (`--answer` adds an attempt first; the file defaults to this branch's) |
 | `init` | keeps `understanding/` out of diffs and search: writes or extends `.gitattributes` and `.ignore` (idempotent) |
 | `ci` | the CI job: find file → check drift → check completeness + recorded verdicts vs threshold + attempt hashes → exit 0/1 with a short reason → optional MR comment. Never calls a model. Exit 2: it can't check (commits missing, API error). |
 
@@ -285,6 +285,11 @@ content it kept. A change that only removes code gets questions too: on the line
 it (any file). `finish` wants the count for the change's
 size (exactly 1 or 2 for a small change, 3–5 above; 1–2 for a top-up), from 3 questions on of at least two kinds, one
 of them why/failure/edge.
+
+**Without VS Code.** `status` (no check yet) and CI's log say the same: copy the skill into `.claude/skills`, ask
+Claude Code to "check my understanding", then answer each question with `grade --question q1 --answer "…" --write`.
+The skill's script finds the CLI beside it, through `UNDERSTANDING_CLI`, or as the repository's own copy (e.g.
+`tools/understanding.mjs`).
 
 Grading runs only locally (extension, or `grade` from a terminal). Grader backends: `claude` (the `claude -p` CLI, read-only tools, uses `CLAUDE_CODE_OAUTH_TOKEN` or the
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
