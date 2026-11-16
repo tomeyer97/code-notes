@@ -3149,8 +3149,10 @@ async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, sele
 
 /** Commenting ranges: none, except while a note box is being opened (`addingUntil`). */
 let addingUntil = 0
+/** When VS Code last asked for a file's commenting ranges: an editor that has just opened asks before it draws its threads. */
+const rangesAskedAt = new Map<string, number>()
 const rangeProvider: vscode.CommentingRangeProvider = {
-  provideCommentingRanges: (doc) => (Date.now() < addingUntil && vscode.workspace.getWorkspaceFolder(doc.uri) && doc.lineCount && !inNotesFolder(doc.uri)
+  provideCommentingRanges: (doc) => (rangesAskedAt.set(doc.uri.toString(), Date.now()), Date.now() < addingUntil && vscode.workspace.getWorkspaceFolder(doc.uri) && doc.lineCount && !inNotesFolder(doc.uri)
     ? [new vscode.Range(0, 0, doc.lineCount - 1, 0)] : []),
 }
 let rangesOff: NodeJS.Timeout | undefined
@@ -3390,9 +3392,13 @@ async function focusReply(n: Note): Promise<boolean> {
   if (!threads.get(n.data.id)) return false
   // Its widget is drawn after the thread's first state arrives, and in an editor that has just opened, after the
   // editor has settled: too early, and the command finds no thread and the keyboard stays in the code.
+  // An editor that has just opened asks for the file's comments, then draws their widgets: wait for that question.
+  const u = docUri(n).toString()
   editorSettling(docUri(n))
-  const since = Date.now() - (editorShownAt.get(docUri(n).toString()) ?? 0)
-  await wait(Math.max(150, 500 - since))
+  const shownAt = editorShownAt.get(u) ?? 0
+  for (let k = 0; k < 40 && (rangesAskedAt.get(u) ?? 0) < shownAt; k++) await wait(50)
+  const since = Date.now() - Math.max(shownAt, rangesAskedAt.get(u) ?? 0)
+  await wait(Math.max(150, 400 - since))
   const e = vscode.window.activeTextEditor
   if (!e || e.document.uri.toString() !== docUri(n).toString()) return false
   // The command looks for a thread on the caret's line: the thread's last line, where its widget hangs.
