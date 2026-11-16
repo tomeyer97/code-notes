@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes the questions of an understanding check, one validated question at a time (SKILL.md says how to use it).
 //   questions.mjs start [--base <ref>] [--top-up] [--replace]   the change, with new-file line numbers; starts a draft
-//   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>"
+//   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…]
 //   questions.mjs list | remove <qN> | finish
 // The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json.
 // It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill.
@@ -80,7 +80,9 @@ if (cmd === 'add') {
   if (text.length > U.MAX_TEXT) fail(`--text is ${text.length} characters: at most ${U.MAX_TEXT}. One question, plainly`)
   if (!text.endsWith('?')) fail('--text must be one question, ending with "?"')
   if ((text.match(/\?/g) ?? []).length > 1) fail('--text asks more than one question: ask one')
-  if (/,?\s+and (how|what|why|when|where|which|does|do|is|are|can)\b/i.test(text)) fail('--text asks two things ("… and how …"): keep the one that matters')
+  if (/,?\s+and (how|what|why|when|where|which|who|does|do|did|is|are|was|were|can|could|would|should|will|has|have)\b/i.test(text)) fail('--text asks two things ("…, and could …"): keep the one that matters')
+  // "what happens to X, Y and Z": three things to cover is three questions.
+  if (/,\s+(?!(?:what|how|why|when|where|which|who|does|do|is|are|can|could|would|should|will|if|so|but|or)\b)[^,?]{1,60},?\s+and\s+[^?]+\?$/i.test(text)) fail('--text asks about a list of things ("X, Y and Z"): ask about the one that matters')
   if (/\bline\s+\d+/i.test(text)) fail('--text names a line number: name the function, value or case instead (the question is shown on its lines)')
   if (/^(what does|what is)\b/i.test(text) && kind === 'how' && text.length < 60) say('WARNING: "what does X do" questions are trivia; ask how it behaves in a case, or why')
   const q = { id: '', kind, text, file }
@@ -97,10 +99,27 @@ if (cmd === 'add') {
     if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
     q.anchor = U.compactOf(lines, q.start, q.end)
   }
+  // Unchanged code the answer depends on (a caller, a retry loop, a constraint): shown beside the question.
+  if (typeof o.also === 'string' && o.also.trim()) {
+    q.also = []
+    for (const part of o.also.split(',').map((x) => x.trim()).filter(Boolean)) {
+      const m = /^(.+):(\d+)(?:-(\d+))?$/.exec(part)
+      if (!m) fail(`--also ${part}: write it as path:A-B`)
+      const f = m[1].replace(/^\.\//, ''), a = Number(m[2]), b = Number(m[3] ?? m[2])
+      const fa = path.join(repo, f)
+      if (path.isAbsolute(f) || f.split(/[\\/]/).includes('..') || !fs.existsSync(fa)) fail(`--also: ${f} doesn't exist`)
+      const fl = fs.readFileSync(fa, 'utf8').split('\n')
+      if (b < a || b > fl.length) fail(`--also ${part}: ${f} has ${fl.length} lines`)
+      if (b - a > 40) fail(`--also ${part}: more than 40 lines; point at the lines that matter`)
+      if (f === q.file && q.start && a <= q.end && q.start <= b) fail(`--also ${part}: overlaps the question's own lines`)
+      q.also.push({ file: f, start: a, end: b, anchor: U.compactOf(fl, a, b) })
+    }
+    if (q.also.length > 3) fail('--also: at most 3 places')
+  }
   if (d.questions.some((x) => x.file === q.file && x.start && q.start && x.start <= q.end && q.start <= x.end)) say('WARNING: another question is on overlapping lines: make sure it asks something different')
   d.questions.push(q)
   saveDraft(d)
-  say(`added #${d.questions.length} (${kind}) ${file}${q.target ? '' : `:${q.start}-${q.end}`} · ${d.questions.length} of ${d.want}`)
+  say(`added #${d.questions.length} (${kind}) ${file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''} · ${d.questions.length} of ${d.want}`)
   if (!q.target) say(`  ${lines[q.start - 1].trim().slice(0, 100)}${q.end > q.start ? `\n  … ${lines[q.end - 1].trim().slice(0, 100)}` : ''}`)
   process.exit(0)
 }
@@ -155,5 +174,5 @@ if (cmd === 'finish') {
   process.exit(0)
 }
 
-say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" | list | remove <n> | finish`)
+say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] | list | remove <n> | finish`)
 process.exit(cmd ? 2 : 0)

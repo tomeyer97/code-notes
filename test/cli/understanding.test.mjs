@@ -202,8 +202,9 @@ test('ci: small change passes; no file fails with what to do; no model is ever c
   const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
-  assert.match(r2.lines[0], /^✗ No understanding check for this branch yet\. Run "Code Notes: Check my understanding"/)
-  assert.match(r2.lines[1], /skip-understanding/)
+  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(~5 min\)\. Run "Code Notes: Check my understanding"/)
+  assert.match(r2.lines[1], /Without VS Code: .*node understanding\.mjs grade --question q1/)
+  assert.match(r2.lines[2], /skip-understanding.*then re-run this job/)
   const f = writeQuestions(d)
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
   commitAll(d)
@@ -343,4 +344,138 @@ test('status: what to do next, locally', async () => {
   const r = await run(d, ['status', '--json'])
   assert.equal(JSON.parse(r.out).summary.passed, 2)
   assert.equal((await run(d, ['validate', f])).code, 0)
+})
+
+test('grader prompt: short replies by verdict, claims checked against lines read, a self-check, the "also" code', () => {
+  const q = { kind: 'failure', text: 'What if?', file: 'a.js', start: 1, end: 2, also: [{ file: 'b.js', start: 4, end: 9 }] }
+  const first = U.graderPrompt({ q, answer: 'x', attempt: 1, diff: '+x', code: '1 x', canRead: true })
+  assert.match(first, /"Right\." plus at most one fact they did not mention, 25 words/)
+  assert.match(first, /says which part of their answer is right and which part to re-check\. Never state or imply the correct outcome/)
+  assert.match(first, /checked by reading those exact lines/)
+  assert.match(first, /Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another/)
+  assert.match(first, /also depends on b\.js:4-9/)
+  const second = U.graderPrompt({ q, answer: 'x', attempt: 2, diff: '', code: '', canRead: false })
+  assert.match(second, /at most 60 words/); assert.match(second, /Make claims only about lines shown above/)
+  assert.doesNotMatch(second, /verdict "retry"/)
+})
+
+test('anchors: lines follow the code after edits above them (status, then the file when saved)', () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  commitAll(d)
+  const src = path.join(d, 'src/app.js')
+  fs.writeFileSync(src, `// a\n// b\n${fs.readFileSync(src, 'utf8')}`)
+  commitAll(d, 'two lines on top')
+  assert.deepEqual(U.localStatus(d).check.questions.slice(0, 2).map((q) => [q.start, q.end]), [[5, 8], [12, 14]])
+  const c = U.readCheck(f)
+  assert.equal(U.relocate(d, c), 2)
+  assert.equal(U.relocate(d, c), 0, 'nothing moves twice')
+  const lines = fs.readFileSync(src, 'utf8').split('\n')
+  assert.equal(U.findAnchor(lines, { head: 'nothing like this', tail: 'x', lines: 1 }), undefined)
+})
+
+test('diff links: the old line GitLab pairs with a new one; GitLab and GitHub URLs', () => {
+  const diff = ['diff --git a/x.js b/x.js', '--- a/x.js', '+++ b/x.js', '@@ -3,4 +3,6 @@', ' a', '+b', '+c', ' d', '-e', ' f', '@@ -20,2 +22,2 @@', ' g', '-h', '+i', ''].join('\n')
+  assert.deepEqual([3, 4, 5, 6, 7, 10, 22, 23, 40].map((n) => U.oldLineOf(diff, "x.js", n)), [3, 4, 4, 4, 6, 9, 20, 22, 38])
+  assert.equal(U.oldLineOf(diff, 'y.js', 3), undefined)
+  const q = { file: 'x.js', start: 4, end: 6 }
+  const sha1 = '6a7b1ea9c3b4c3acd6ea4a1ab3ad81f7bb81f8b0'.length
+  assert.match(U.refLink({ platform: 'gitlab', web: 'https://gl/g/shop', mr: '7', head: 'abc' }, q, diff), new RegExp(`^https://gl/g/shop/-/merge_requests/7/diffs#[0-9a-f]{${sha1}}_4_4$`))
+  assert.equal(U.refLink({ platform: 'gitlab', web: 'https://gl/g/shop', mr: '7', head: 'abc' }, { file: 'y z.js', start: 2, end: 3 }, diff), 'https://gl/g/shop/-/blob/abc/y%20z.js#L2-3')
+  assert.match(U.refLink({ platform: 'github', web: 'https://gh/o/shop', mr: '5' }, q, diff), /^https:\/\/gh\/o\/shop\/pull\/5\/files#diff-[0-9a-f]{64}R4-R6$/)
+  assert.equal(U.refLink({ platform: 'local' }, q, diff), undefined)
+})
+
+test('ci: no check yet posts the MR comment (what and how, in two lines); a pass says the room left before a top-up; refs link to the diff', async () => {
+  const d = repo()
+  const notes = []
+  const mr = '/projects/grp%2Fshop/merge_requests/7'
+  const api = await fakeApi({
+    [`GET ${mr}`]: () => ({ labels: [], author: { username: 'ada' } }), [`GET ${mr}/notes`]: () => notes,
+    [`POST ${mr}/notes`]: (b) => { notes.push({ id: 11, body: b.body }); return notes[0] }, [`PUT ${mr}/notes/11`]: (b) => { notes[0].body = b.body; return notes[0] },
+  })
+  try {
+    let r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
+    assert.equal(r.code, 1); assert.match(r.lines.at(-1), /comment created/)
+    assert.equal(notes[0].body.split('\n').length, 3)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(~5 min\)/)
+    assert.match(notes[0].body, /then re-run the job/)
+    const f = writeQuestions(d)
+    answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+    commitAll(d)
+    fs.appendFileSync(path.join(d, 'src/app.js'), 'export const one = 1\nexport const two = 2\n')
+    commitAll(d, 'two more')
+    r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
+    assert.equal(r.code, 0, r.lines.join('\n'))
+    assert.match(r.lines[0], /passed: 3 of 3 \(2 needed\)\. 2 lines since the check \(top-up at 40\)\.$/)
+    assert.equal(notes.length, 1, 'the same comment, now the result')
+    assert.match(notes[0].body, /\[`src\/app\.js:3-6`\]\(https:\/\/gl\/grp\/shop\/-\/merge_requests\/7\/diffs#[0-9a-f]{40}_\d+_3\)/)
+  } finally { api.close() }
+})
+
+test('checkState: one word for where the check stands', () => {
+  const d = repo()
+  assert.equal(U.checkState(U.localStatus(d)).phase, 'none')
+  const f = writeQuestions(d)
+  commitAll(d)
+  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'answering', passed: 0, total: 3, needed: 2, maxDrift: 40, grew: 0 })
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'explained' }, { text: 'c', verdict: 'explained' }])
+  assert.equal(U.checkState(U.localStatus(d)).phase, 'short')
+  answerAll(f, [undefined, undefined, { text: 'd', verdict: 'pass' }])
+  assert.equal(U.checkState(U.localStatus(d)).phase, 'done')
+  commitAll(d)
+  // Uncommitted lines past the limit: a top-up is due once they are committed.
+  fs.appendFileSync(path.join(d, 'src/app.js'), Array.from({ length: 45 }, (_, i) => `export const w${i} = ${i}`).join('\n') + '\n')
+  assert.deepEqual(U.checkState(U.localStatus(d)), { phase: 'drift', commitFirst: true, passed: 2, total: 3, needed: 2, maxDrift: 40, grew: 45 })
+  commitAll(d, 'more')
+  assert.equal(U.checkState(U.localStatus(d)).commitFirst, false)
+})
+
+test('skill script: --also for the unchanged code an answer needs; lists and "…, and could" are refused', () => {
+  const d = repo()
+  script(d, 'start', '--base', 'main')
+  assert.match(script(d, 'add', '--kind', 'failure', '--file', 'src/app.js', '--lines', '3-6', '--text', 'If load() throws, what happens to the steps, the values and the result?').out, /a list of things/)
+  assert.match(script(d, 'add', '--kind', 'failure', '--file', 'src/app.js', '--lines', '3-6', '--text', 'If load() throws, what happens to main, and could a step run twice?').out, /asks two things/)
+  assert.match(script(d, 'add', '--kind', 'failure', '--file', 'src/app.js', '--lines', '3-6', '--text', 'If load() throws for one step, what happens to the steps after it?', '--also', 'src/none.js:1-2').out, /doesn't exist/)
+  const ok = script(d, 'add', '--kind', 'failure', '--file', 'src/app.js', '--lines', '3-6', '--text', 'When load() throws for one step, what happens to the ones after it?', '--also', 'src/app.js:30-32')
+  assert.equal(ok.code, 0, ok.out); assert.match(ok.out, /also src\/app\.js:30-32/)
+  const draft = JSON.parse(fs.readFileSync(path.join(d, '.git/understanding-draft.json'), 'utf8'))
+  assert.deepEqual([draft.questions[0].also[0].file, draft.questions[0].also[0].start, draft.questions[0].also[0].anchor.v], ['src/app.js', 30, 3])
+  assert.deepEqual(U.validateCheck({ version: 1, branch: 'b', head: 'abcdef1', questions: [{ id: 'q1', kind: 'why', text: 'Why is this so here?', file: 'a.js', start: 1, end: 2, also: [{ file: '../x', start: 1, end: 1 }] }] }).length, 1)
+})
+
+test('commit & push: only the check file; -u without an upstream; then to it; rejected and sign-in failures in one line', async () => {
+  const d = repo()
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-remote-'))
+  gitIn(bare, 'init', '-q', '--bare')
+  const f = writeQuestions(d)
+  fs.writeFileSync(path.join(d, 'other.txt'), 'not mine\n')
+  const rel = 'understanding/feat-x.json'
+  let r = await U.commitAndPush(d, [rel], 'Understanding check')
+  assert.deepEqual([r.ok, r.committed, r.line], [false, true, 'Committed, but not pushed: no git remote.'])
+  assert.equal(gitIn(d, 'show', '--name-only', '--format=', 'HEAD').trim(), rel, 'only the check file')
+  assert.match(gitIn(d, 'status', '--porcelain'), /\?\? other\.txt/)
+  gitIn(d, 'remote', 'add', 'origin', bare)
+  r = await U.commitAndPush(d, [rel], 'Understanding check')
+  assert.deepEqual([r.ok, r.committed, r.line], [true, false, 'Pushed.'])
+  assert.equal(gitIn(d, 'rev-parse', '--abbrev-ref', '@{u}').trim(), 'origin/feat/x')
+  answerAll(f, [{ text: 'a', verdict: 'pass' }])
+  r = await U.commitAndPush(d, [rel], 'Understanding check: answers')
+  assert.deepEqual([r.ok, r.committed, r.line], [true, true, 'Pushed.'])
+  assert.equal(gitIn(bare, 'rev-parse', 'feat/x').trim(), gitIn(d, 'rev-parse', 'HEAD').trim())
+  // Someone else pushed in between.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-other-'))
+  gitIn(other, 'clone', '-q', '-b', 'feat/x', bare, '.'); gitIn(other, 'config', 'user.name', 'Bo'); gitIn(other, 'config', 'user.email', 'bo@example.com')
+  fs.writeFileSync(path.join(other, 'x.txt'), 'x\n'); gitIn(other, 'add', '-A'); gitIn(other, 'commit', '-qm', 'x'); gitIn(other, 'push', '-q')
+  answerAll(f, [undefined, { text: 'b', verdict: 'pass' }])
+  r = await U.commitAndPush(d, [rel], 'Understanding check: answers')
+  assert.equal(r.ok, false); assert.equal(r.line, 'Committed, but the push was rejected: origin has newer commits. Pull, then push again.')
+  // A remote that wants a password: no prompt, one line.
+  const srv = http.createServer((req, res) => { res.statusCode = 401; res.setHeader('WWW-Authenticate', 'Basic realm="git"'); res.end() })
+  await new Promise((ok) => srv.listen(0, ok))
+  try {
+    gitIn(d, 'remote', 'set-url', 'origin', `http://127.0.0.1:${srv.address().port}/shop.git`)
+    r = await U.commitAndPush(d, [rel], 'Understanding check: answers', { env: { ...process.env, GIT_ASKPASS: '', SSH_ASKPASS: '' } })
+    assert.equal(r.line, "The push failed: git couldn't sign in to origin.")
+  } finally { srv.close() }
 })

@@ -29,14 +29,17 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 3. Pick the questions (rules below), then add each one:
    `questions.mjs add --kind failure --file api/orders.js --lines 12-18 --text "…?"`
    Use `--whole-file` (no lines) only for a question about the design of a whole file.
+   When the answer depends on code the change did NOT touch (the loop that retries a failing handler, the
+   constraint that rejects a duplicate, the caller that ignores an error), add it: `--also worker/queue.js:84-96`
+   (up to 3, comma-separated). It is shown beside the question, so the author knows where to look.
 4. `questions.mjs finish`. It writes `understanding/<branch>.json`. Reply with one line per question, nothing more.
 
 ## What makes a good question
 
 - **About this change, answerable from it.** It names the function, value or case it is about, so it makes sense
   on its own next to its lines. The answer is in the code (and its obvious callers), not in someone's head.
-- **Answerable in 1-3 sentences.** One question, one point, under ~140 characters. "…, and how does that differ
-  from …?" is two questions: keep the one that matters.
+- **Answerable in 1-3 sentences.** One question, one point, under ~140 characters. "…, and could the customer …?"
+  is two questions, and "what happens to the row, the counters and the job?" is three: keep the one that matters.
 - **Mixed kinds**: at least one `failure` or `edge`, and one `why` when the change makes a design choice (it
   almost always does: a limit, an order of operations, where something is stored, what is retried):
   - `failure`: "What happens to the order when the payment client times out after the order was stored?"

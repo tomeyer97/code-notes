@@ -190,6 +190,13 @@ export function validateCheck(c, { repo } = {}) {
     else if (q.target !== undefined) errs.push(`${at}: "target" must be "file" or left out`)
     else if (!Number.isInteger(q.start) || !Number.isInteger(q.end) || q.start < 1 || q.end < q.start) errs.push(`${at}: "start"/"end" must be 1-based lines (or "target": "file")`)
     if (q.anchor !== undefined && (typeof q.anchor !== 'object' || q.anchor === null || q.anchor.v !== 3 || typeof q.anchor.head !== 'string')) errs.push(`${at}: "anchor" must be a compact anchor ({ "v": 3, "head": … })`)
+    // Unchanged code the answer depends on (shown beside the question).
+    if (q.also !== undefined) {
+      const okPath = (f) => typeof f === 'string' && !!f && !path.isAbsolute(f) && !f.split(/[\\/]/).includes('..')
+      if (!Array.isArray(q.also) || q.also.length > 3) errs.push(`${at}: "also" must be a list of at most 3 { "file", "start", "end" }`)
+      else if (q.also.some((x) => !x || !okPath(x.file) || !Number.isInteger(x.start) || !Number.isInteger(x.end) || x.start < 1 || x.end < x.start)) errs.push(`${at}: each "also" needs a file inside the repository and 1-based start/end`)
+      else if (repo) for (const x of q.also) if (!fs.existsSync(path.join(repo, x.file))) errs.push(`${at}: ${x.file} doesn't exist`)
+    }
     if (q.attempts !== undefined && !Array.isArray(q.attempts)) errs.push(`${at}: "attempts" must be an array`)
     for (const [k, a] of (Array.isArray(q.attempts) ? q.attempts : []).entries()) {
       if (!a || typeof a.answer !== 'string') { errs.push(`${at}, attempt ${k + 1}: "answer" must be a string`); continue }
@@ -252,6 +259,83 @@ export function compactOf(lines, start, end) {
     before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '' }
 }
 
+const weak = (s) => norm(s).length < 3
+/** Non-blank lines from `i` on match `want` (normalized) in order: the index of the last one, else undefined. */
+function forward(lines, i, want) {
+  let k = i
+  for (let w = 0; w < want.length; w++) {
+    while (k < lines.length && blank(lines[k])) k++
+    if (k >= lines.length || norm(lines[k]) !== want[w]) return undefined
+    if (w < want.length - 1) k++
+  }
+  return k
+}
+function backward(lines, e, want, floor) {
+  let k = e
+  for (let w = want.length - 1; w >= 0; w--) {
+    while (k >= floor && blank(lines[k])) k--
+    if (k < floor || norm(lines[k]) !== want[w]) return false
+    k--
+  }
+  return true
+}
+/**
+ * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
+ * it was. The same rules as the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
+ * first, then the closest length, then the context lines, then the nearest place.
+ */
+export function findAnchor(lines, a, hint = 0) {
+  const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
+  const tail = String(a?.tail ?? '').split('\n').map(norm).filter(Boolean)
+  if (!head.length) return undefined
+  if (!tail.length) tail.push(...head.slice(-2))
+  const L = Math.max(1, a.lines || 1)
+  const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
+  const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
+  const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
+  const better = (c, b) => (c.fresh !== b.fresh ? c.fresh : c.dLen !== b.dLen ? c.dLen < b.dLen : c.ctx !== b.ctx ? c.ctx > b.ctx : c.dist < b.dist)
+  let best
+  for (let i = 0; i < lines.length; i++) {
+    if (norm(lines[i]) !== head[0]) continue
+    const headEnd = forward(lines, i, head)
+    if (headEnd === undefined) continue
+    let b = i - 1
+    while (b >= 0 && blank(lines[b])) b--
+    const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
+    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
+      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
+      let f = e + 1
+      while (f < lines.length && blank(lines[f])) f++
+      const c = { start: i, end: e, fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash, dLen: Math.abs(e - i + 1 - L),
+        ctx: ctxBefore + (after && f < lines.length && norm(lines[f]) === after ? 1 : 0), dist: Math.abs(i - hint) }
+      if (!best || better(c, best)) best = c
+    }
+  }
+  return best && { start: best.start, end: best.end, fresh: best.fresh }
+}
+
+/**
+ * Moves each question's lines (and its `also` ranges) to where their anchored code is now in the working tree, so
+ * the panel, the file and the merge request comment show today's line numbers. Returns how many ranges moved.
+ */
+export function relocate(repo, check) {
+  const cache = new Map()
+  const linesOfFile = (f) => {
+    if (!cache.has(f)) { try { cache.set(f, fs.readFileSync(path.join(repo, f), 'utf8').split(/\r?\n/)) } catch { cache.set(f, undefined) } }
+    return cache.get(f)
+  }
+  let moved = 0
+  const move = (r) => {
+    if (!r || r.target === 'file' || !r.anchor || !Number.isInteger(r.start)) return
+    const lines = linesOfFile(r.file)
+    const at = lines && findAnchor(lines, r.anchor, r.start - 1)
+    if (!at || (at.start + 1 === r.start && at.end + 1 === r.end)) return
+    r.start = at.start + 1; r.end = at.end + 1; moved++
+  }
+  for (const q of check.questions ?? []) { move(q); for (const x of q.also ?? []) move(x) }
+  return moved
+}
+
 // ---------- local status ----------
 
 /** Where the branch stands: what changed, the check file, whether it is still valid, what to do next. */
@@ -269,15 +353,36 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   try { check = readCheck(abs) } catch (e) { return { ...st, errors: [`not valid JSON (${e.message})`], next: `Fix ${rel}: it is not valid JSON.` } }
   const errors = validateCheck(check, { repo })
   if (errors.length) return { ...st, errors, next: `Fix ${rel}: ${errors[0]}.` }
+  relocate(repo, check) // today's line numbers (in memory: the file is rewritten only when it is saved anyway)
   const drift = driftOf(repo, check, 'HEAD', change)
+  // With uncommitted edits too: the drift CI will see once they are pushed.
+  const pending = driftOf(repo, check, undefined, change)
   const sum = summarize(check, cfg)
   const dirty = !!gitOk(repo, ['status', '--porcelain', '--', rel])
   const next = drift.lines > cfg.maxDrift ? `Your change grew by ${drift.lines} lines since the check: run "Check my understanding" again to add 1–2 questions.`
+    : pending.lines > cfg.maxDrift ? `Your change grew by ${pending.lines} lines since the check: commit it, then run "Check my understanding" again.`
     : sum.ungraded ? `${sum.ungraded} answer${sum.ungraded === 1 ? '' : 's'} not graded yet: grade ${sum.ungraded === 1 ? 'it' : 'them'} in VS Code.`
     : sum.todo ? `Answer ${sum.todo} more question${sum.todo === 1 ? '' : 's'} (${sum.passed} passed, ${sum.needed} needed).`
     : !sum.met ? `${sum.passed} of ${sum.total} passed, ${sum.needed} needed: try again where it says so.`
     : dirty ? `Passed. Commit ${rel} and push.` : 'Passed. Push if you haven\'t.'
-  return { ...st, check, summary: sum, drift, dirty, next }
+  return { ...st, check, summary: sum, drift, pending, dirty, next }
+}
+
+/**
+ * Where the check stands, in one word, from `localStatus`: what every surface shows. `none` (no check yet), `small`
+ * (none needed), `invalid`, `answering` (questions open), `short` (all done, too few passed), `drift` (the change
+ * grew past maxDrift: `grew` lines; `commitFirst` when only uncommitted lines put it over), `done`.
+ */
+export function checkState(st, cfg = DEFAULTS) {
+  if (!st) return { phase: 'none' }
+  if (!st.exists) return { phase: st.small ? 'small' : 'none', changed: st.changed }
+  if (!st.summary) return { phase: 'invalid', why: st.next }
+  const s = st.summary
+  const base = { passed: s.passed, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
+  if ((st.drift?.lines ?? 0) > cfg.maxDrift) return { ...base, phase: 'drift', commitFirst: false }
+  if ((st.pending?.lines ?? 0) > cfg.maxDrift) return { ...base, phase: 'drift', commitFirst: true }
+  // A "try again" left as is counts as missed (CI): it keeps the check open only while the rule isn't met yet.
+  return { ...base, phase: s.todo || s.ungraded ? 'answering' : s.met ? 'done' : s.retry ? 'answering' : 'short' }
 }
 
 /**
@@ -299,7 +404,10 @@ export function codeWindow(repo, q, pad = 30) {
   let lines
   try { lines = fs.readFileSync(path.join(repo, q.file), 'utf8').split('\n') } catch { return '' }
   const [s, e] = q.target === 'file' || !q.start ? [1, Math.min(lines.length, 200)] : [Math.max(1, q.start - pad), Math.min(lines.length, q.end + pad)]
-  return lines.slice(s - 1, e).map((l, i) => `${String(s + i).padStart(5)}  ${l}`).join('\n')
+  const own = lines.slice(s - 1, e).map((l, i) => `${String(s + i).padStart(5)}  ${l}`).join('\n')
+  // The unchanged code the question depends on, each with its file's name.
+  const also = (q.also ?? []).map((x) => { const w = codeWindow(repo, { file: x.file, start: x.start, end: x.end }, 3); return w && `\n${x.file}:\n${w}` }).filter(Boolean)
+  return [own, ...also].join('\n')
 }
 
 /** The diff a grader sees: the question's file first, the rest after, cut at MAX_DIFF characters (and it says so). */
@@ -448,6 +556,62 @@ export function stamp(check, cfg) {
   return check
 }
 
+// ---------- commit and push (the extension's Commit & push) ----------
+
+/** Runs git with an argument list (never a shell): `{ code, out, err }`; code -1 when it timed out. */
+export function gitRun(repo, args, { timeoutMs = 60_000, env = process.env } = {}) {
+  return new Promise((resolve) => {
+    // No credential prompt can be answered here: git fails at once instead of waiting for one.
+    const p = spawn('git', args, { cwd: repo, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = '', err = '', done = false
+    const t = setTimeout(() => { if (!done) { done = true; p.kill('SIGTERM'); resolve({ code: -1, out, err }) } }, timeoutMs)
+    p.stdout.on('data', (b) => { out += b })
+    p.stderr.on('data', (b) => { if (err.length < 8000) err += b })
+    p.on('error', (e) => { if (!done) { done = true; clearTimeout(t); resolve({ code: 127, out, err: e.message }) } })
+    p.on('close', (code) => { if (!done) { done = true; clearTimeout(t); resolve({ code: code ?? 1, out, err }) } })
+  })
+}
+
+/** git's error in one line: the first line that says something (no hints, no "To <url>"). */
+const gitError = (err) => err.split('\n').map((l) => l.replace(/^(error|fatal|remote):\s*/i, '').trim()).find((l) => l && !/^(hint:|To |!\s*\[|Everything up-to-date)/.test(l)) ?? 'git failed'
+
+/**
+ * Commits `files` (only those) with `message` when they have changes, then pushes the branch: to its upstream, or with
+ * `-u` to its remote (branch.<b>.pushRemote, remote.pushDefault, origin, else the only remote) when it has none.
+ * Returns `{ ok, committed, pushed, line }`: `line` is the one thing to tell the person.
+ */
+export async function commitAndPush(repo, files, message, { env = process.env, timeoutMs = 60_000 } = {}) {
+  const g = (args, ms) => gitRun(repo, args, { env, timeoutMs: ms ?? 15_000 })
+  const add = await g(['add', '--', ...files])
+  if (add.code) return { ok: false, committed: false, pushed: false, line: `Couldn't stage: ${gitError(add.err)}` }
+  const staged = await g(['diff', '--cached', '--quiet', '--', ...files])
+  let committed = false
+  if (staged.code === 1) {
+    const c = await g(['commit', '-q', '-m', message, '--', ...files], 60_000)
+    if (c.code) return { ok: false, committed: false, pushed: false, line: `Commit failed: ${gitError(c.err || c.out)}` }
+    committed = true
+  }
+  const branch = (await g(['symbolic-ref', '--quiet', '--short', 'HEAD'])).out.trim()
+  if (!branch) return { ok: false, committed, pushed: false, line: `${committed ? 'Committed, but not pushed' : 'Not pushed'}: not on a branch.` }
+  const conf = async (k) => (await g(['config', '--get', k])).out.trim()
+  const upRemote = await conf(`branch.${branch}.remote`), upMerge = await conf(`branch.${branch}.merge`)
+  let args, remote
+  if (upRemote && upMerge) { remote = (await conf(`branch.${branch}.pushRemote`)) || (await conf('remote.pushDefault')) || upRemote; args = ['push', remote, `HEAD:${remote === upRemote ? upMerge : `refs/heads/${branch}`}`] }
+  else {
+    const remotes = (await g(['remote'])).out.split('\n').map((x) => x.trim()).filter(Boolean)
+    remote = (await conf(`branch.${branch}.pushRemote`)) || (await conf('remote.pushDefault')) || (remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0] : '')
+    if (!remote) return { ok: false, committed, pushed: false, line: `${committed ? 'Committed, but not pushed' : 'Not pushed'}: ${remotes.length ? 'which remote? Push it yourself.' : 'no git remote.'}` }
+    args = ['push', '-u', remote, 'HEAD']
+  }
+  const p = await gitRun(repo, args, { env, timeoutMs })
+  if (!p.code) return { ok: true, committed, pushed: true, line: 'Pushed.' }
+  const was = committed ? 'Committed, but the push ' : 'The push '
+  if (p.code === -1) return { ok: false, committed, pushed: false, line: `${was}took longer than ${Math.round(timeoutMs / 1000)} s: push it yourself.` }
+  if (/\[rejected\]|non-fast-forward|fetch first|\(stale info\)/.test(p.err)) return { ok: false, committed, pushed: false, line: `${was}was rejected: ${remote} has newer commits. Pull, then push again.` }
+  if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied|access denied|not authorized|\b40[13]\b|Invalid username or password|Host key verification failed/i.test(p.err)) return { ok: false, committed, pushed: false, line: `${was}failed: git couldn't sign in to ${remote}.` }
+  return { ok: false, committed, pushed: false, line: `${was}failed: ${gitError(p.err)}` }
+}
+
 // ---------- CI ----------
 
 /** Where CI runs and what it is checking: platform, branch, base and head commits, the merge request. */
@@ -457,7 +621,7 @@ export function ciContext(env = process.env) {
       platform: 'gitlab', branch: env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.CI_COMMIT_REF_NAME, head: env.CI_COMMIT_SHA,
       base: env.CI_MERGE_REQUEST_DIFF_BASE_SHA, baseRef: env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME && `origin/${env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME}`,
       mr: env.CI_MERGE_REQUEST_IID, labels: env.CI_MERGE_REQUEST_LABELS ? env.CI_MERGE_REQUEST_LABELS.split(',').map((x) => x.trim()).filter(Boolean) : [],
-      api: env.CI_API_V4_URL, project: env.CI_PROJECT_ID, token: env.GITLAB_TOKEN,
+      api: env.CI_API_V4_URL, project: env.CI_PROJECT_ID, token: env.GITLAB_TOKEN, web: env.CI_MERGE_REQUEST_PROJECT_URL || env.CI_PROJECT_URL,
     }
   }
   if (env.GITHUB_ACTIONS) {
@@ -468,6 +632,7 @@ export function ciContext(env = process.env) {
       platform: 'github', branch: pr.head?.ref || env.GITHUB_HEAD_REF || env.GITHUB_REF_NAME, head: pr.head?.sha || env.GITHUB_SHA, base: pr.base?.sha,
       baseRef: env.GITHUB_BASE_REF && `origin/${env.GITHUB_BASE_REF}`, mr: pr.number ? String(pr.number) : undefined,
       labels: (pr.labels ?? []).map((l) => l.name), author: pr.user?.login, api: env.GITHUB_API_URL || 'https://api.github.com', project: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN,
+      web: env.GITHUB_REPOSITORY && `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}`,
     }
   }
   return { platform: 'local' }
@@ -525,13 +690,49 @@ const STATE_WORD = { pass: 'passed', explained: 'explained after 2 tries', retry
 const quote = (s) => String(s).trim().replace(/<!--/g, '&lt;!--').split('\n').map((l) => `> ${l}`).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
-/** The merge request comment: the verdict, then each question with the author's last answer. Compact markdown. */
-export function commentBody(check, sum, headline) {
+/**
+ * The old-side line GitLab pairs with new-side line `n` of `file` in a unified diff (its diff line codes are
+ * `sha1(path)_old_new`; an added line carries the old counter where it was added). Undefined when the file is not in it.
+ */
+export function oldLineOf(diff, file, n) {
+  let inFile = false, seen = false, o = 0, w = 0, offset = 0
+  for (const l of diff.split('\n')) {
+    if (l.startsWith('diff --git')) { if (inFile) return n + offset; inFile = false; continue }
+    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; seen ||= inFile; continue }
+    if (!inFile || l.startsWith('--- ')) continue
+    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (h) { o = Number(h[1]); w = Number(h[2]); if (n < w) return n + offset; continue }
+    if (l.startsWith('+')) { if (w === n) return o; w++ }
+    else if (l.startsWith('-')) o++
+    else if (l.startsWith(' ')) { if (w === n) return o; w++; o++ }
+    offset = o - w
+  }
+  return seen ? n + offset : undefined
+}
+
+/** A link to a question's lines in the merge request's diff (GitLab, GitHub); the file at the head commit when it isn't in the diff. */
+export function refLink(ctx, q, diff) {
+  if (!ctx?.web || !ctx.mr) return undefined
+  const file = q.target === 'file' || !q.start
+  if (ctx.platform === 'github') {
+    const h = createHash('sha256').update(q.file, 'utf8').digest('hex')
+    return `${ctx.web}/pull/${ctx.mr}/files#diff-${h}${file ? '' : `R${q.start}${q.end > q.start ? `-R${q.end}` : ''}`}`
+  }
+  if (ctx.platform !== 'gitlab') return undefined
+  const h = createHash('sha1').update(q.file, 'utf8').digest('hex')
+  const old = oldLineOf(diff ?? '', q.file, q.start ?? 1)
+  if (old === undefined) return ctx.head ? `${ctx.web}/-/blob/${ctx.head}/${q.file.split('/').map(encodeURIComponent).join('/')}${file ? '' : `#L${q.start}-${q.end}`}` : undefined
+  return `${ctx.web}/-/merge_requests/${ctx.mr}/diffs#${h}${file ? '' : `_${old}_${q.start}`}`
+}
+
+/** The merge request comment: the verdict, then each question with the author's last answer. Compact markdown. `link(q)`: where its lines are. */
+export function commentBody(check, sum, headline, link = () => undefined) {
   const out = [MARKER, `**Understanding check: ${headline}**`, '']
   check.questions.forEach((q, i) => {
     const s = sum.states[i]
     const a = (q.attempts ?? []).at(-1)
-    out.push(`**${i + 1}. ${MARK[s]} ${q.text.trim()}**  `, `<sub>${q.kind} · \`${loc(q)}\` · ${STATE_WORD[s]}</sub>`, '')
+    const url = link(q)
+    out.push(`**${i + 1}. ${MARK[s]} ${q.text.trim()}**  `, `<sub>${q.kind} · ${url ? `[\`${loc(q)}\`](${url})` : `\`${loc(q)}\``} · ${STATE_WORD[s]}</sub>`, '')
     if (a) out.push(quote(a.answer), '')
   })
   out.push('<sub>Answered in the editor and graded locally; see understanding/ in this change.</sub>')
@@ -569,10 +770,18 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   }
 
   const abs = path.join(repo, rel)
-  const todo = '"Code Notes: Check my understanding" in VS Code (~5 min)'
+  const post = async (res, body) => {
+    if (!comment || !cfg.mrComment) return res
+    res.comment = body
+    if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) } }
+    return res
+  }
   if (!fs.existsSync(abs)) {
-    return { code: 1, lines: [`✗ No understanding check for this branch yet. Run ${todo}, then commit ${rel} and push.`,
-      `  Or add the label "${cfg.skipLabel}" and get an approval from a reviewer.`] }
+    const me = path.relative(repo, fileURLToPath(import.meta.url))
+    const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
+    return post({ code: 1, lines: [`✗ No understanding check yet: a few questions about your change (~5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+      `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
+      `  Or add the label "${cfg.skipLabel}", get a reviewer's approval, then re-run this job.`] }, missingBody(rel, cfg))
   }
   let check
   try { check = readCheck(abs) } catch (e) { return { code: 1, lines: [`✗ ${rel} is not valid JSON (${e.message}).`] } }
@@ -586,6 +795,7 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   const bad = hashProblems(check)
   if (bad.length) return { code: 1, lines: [`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`] }
 
+  relocate(repo, check) // the lines as they are in this commit
   const sum = summarize(check, cfg)
   const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${q.text.trim().slice(0, 70)}${q.text.trim().length > 70 ? '…' : ''}`)
   let res
@@ -596,16 +806,19 @@ export async function runCi(repo, { env = process.env, comment = true, base: bas
   } else if (!sum.met) {
     res = { code: 1, headline: `${sum.passed} of ${sum.total} passed (${sum.needed} needed)`, lines: [`✗ Understanding check: ${sum.passed} of ${sum.total} passed, ${sum.needed} needed. Run "Check my understanding" again to get new questions, or ask a reviewer for "${cfg.skipLabel}".`, ...qLines] }
   } else {
-    res = { code: 0, headline: `passed, ${sum.passed} of ${sum.total}`, lines: [`✓ Understanding check passed: ${sum.passed} of ${sum.total} (${sum.needed} needed).`, ...qLines] }
+    // How much room is left before a top-up is needed.
+    const room = drift.lines ? ` ${drift.lines} line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
+    res = { code: 0, headline: `passed, ${sum.passed} of ${sum.total}`, lines: [`✓ Understanding check passed: ${sum.passed} of ${sum.total} (${sum.needed} needed).${room}`, ...qLines] }
   }
-  if (comment && cfg.mrComment && res.headline) {
-    const body = commentBody(check, sum, res.headline)
-    res.comment = body
-    if (canApi) {
-      try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${e.message})`) }
-    }
-  }
-  return res
+  let diff = ''
+  try { diff = diffText(repo, base, head) } catch { /* links fall back to the file */ }
+  return post(res, commentBody(check, sum, res.headline, (q) => refLink({ ...ctx, head }, q, diff)))
+}
+
+/** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
+export function missingBody(rel, cfg = DEFAULTS) {
+  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (~5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
+    `<sub>Or add the label \`${cfg.skipLabel}\`, get a reviewer's approval, then re-run the job.</sub>`].join('\n')
 }
 
 // ---------- the command line ----------
