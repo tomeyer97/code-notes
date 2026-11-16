@@ -55,7 +55,9 @@ export interface Cli {
   gitIdentity(repo: string): Who | undefined
   attemptHash(q: Question, a: Attempt): string
   gradeMode(q: Question): { attempt: number; explanation?: string }
-  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean; tour?: string }): string
+  graderPrompt(o: { q: Question; answer: string; attempt: number; explanation?: string; diff: string; code: string; canRead: boolean; tour?: string; others?: string[] }): string
+  /** The texts of the check's other questions not done yet. */
+  openOthers(check: Check, q: Question): string[]
   /** The tour as numbered lines (the grader's context): "3. The API refuses a used code (api/discounts.ts:40-52)". */
   tourText(c: Check): string
   parseVerdict(text: string, attempt: number, o?: { restate?: boolean }): { verdict: Verdict; feedback: string; hint: string; note?: string; topic?: string; concern?: string; links?: Link[] }

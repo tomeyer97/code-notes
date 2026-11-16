@@ -1383,3 +1383,12 @@ test('an MR that only changes the check\'s settings: no check needed, and the co
   assert.match(r.lines[1], /This merge request changes the understanding check's settings: (mode required → advisory, maxDrift 40 → 60|maxDrift 40 → 60, mode required → advisory)\./)
   assert.match(r.comment, /^<!-- understanding-check -->\nAdvisory: this check doesn't block merging\.\nThis merge request changes the understanding check's settings: /)
 })
+
+test('the grader is told the other open questions and never to answer them', () => {
+  const qs = [{ id: 'q1', text: 'What does shippingFor return for a negative discount?', attempts: [{ answer: 'x' }] }, { id: 'q2', text: 'What does it return when subtotal minus discount is exactly 5000?' }, { id: 'q3', text: 'Why is the threshold checked after the discount?', attempts: [{ answer: 'y', verdict: 'pass' }] }]
+  const check = { questions: qs }
+  assert.deepEqual(U.openOthers(check, qs[0]), ['What does it return when subtotal minus discount is exactly 5000?'])
+  const p = U.graderPrompt({ q: { ...qs[0], kind: 'edge', file: 'p.js', start: 1, end: 2 }, answer: 'x', attempt: 1, diff: '', code: '', canRead: true, others: U.openOthers(check, qs[0]) })
+  assert.match(p, /Other questions of this check, still to be answered \(never state a fact that answers one of them, not even as an extra fact\):\n- What does it return when subtotal minus discount is exactly 5000\?/)
+  assert.doesNotMatch(p, /Why is the threshold checked/)
+})

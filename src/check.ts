@@ -806,7 +806,7 @@ export class Understanding implements vscode.Disposable {
     const mode = this.U.gradeMode(q)
     let diff = ''
     try { diff = this.U.diffText(repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
-    const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true, tour: this.U.tourText(check) })
+    const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true, tour: this.U.tourText(check), others: this.U.openOthers(check, q) })
     const ask = new Ask({ cli, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
     this.post(); this.host.refresh()
