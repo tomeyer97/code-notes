@@ -427,7 +427,7 @@ test('grader prompt: short replies by verdict, claims checked against lines read
   const q = { kind: 'failure', text: 'What if?', file: 'a.js', start: 1, end: 2, also: [{ file: 'b.js', start: 4, end: 9 }] }
   const first = U.graderPrompt({ q, answer: 'x', attempt: 1, diff: '+x', code: '1 x', canRead: true })
   assert.match(first, /answers what THEY said: "Right" and their main point confirmed[\s\S]*25 words in all/)
-  assert.match(first, /says which part of their answer is right and which part to re-check\. Never state or imply the correct outcome/)
+  assert.match(first, /says which part of their answer is right and which part to re-check, with one opener at most.*just the hint\. Never state or imply the correct outcome/)
   assert.match(first, /checked by reading those exact lines/)
   assert.match(first, /Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another/)
   assert.match(first, /also depends on b\.js:4-9/)
@@ -1403,4 +1403,13 @@ test('a grade that says the change breaks something always carries a concern', (
   assert.equal(v.concern, 'NOTES-x.txt is rendered as a manifest, so helm install errors out.')
   assert.equal(U.parseVerdict(JSON.stringify({ verdict: 'retry', feedback: 'Not quite: what fails here?', hint: 'h' }), 1).concern, undefined, 'never on a retry')
   assert.match(U.graderPrompt({ q: { id: 'q1', kind: 'why', text: 'Why?', file: 'a.js', start: 1, end: 2 }, answer: 'a', attempt: 1, diff: '', code: '', canRead: true }), /it is a concern: say it here, never leave it empty then/)
+})
+
+test('at most one "what does it return for <numbers>" question per check', () => {
+  const d = repo()
+  script(d, 'start', '--base', 'main')
+  assert.equal(script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '3-6', '--text', 'What does main return for 3 steps when load(1) throws (is that a valid result)?').code, 0)
+  const r = script(d, 'add', '--kind', 'edge', '--file', 'src/app.js', '--lines', '10-12', '--text', 'What value does main return when there are 70 steps to load here?')
+  assert.match(r.out, /a second "what does it return for <numbers>" question/)
+  assert.equal(script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '10-12', '--text', 'Why are the steps loaded one by one instead of all at once?').code, 0)
 })

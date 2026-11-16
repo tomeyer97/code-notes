@@ -148,6 +148,9 @@ if (cmd === 'add') {
   if (/(,?\s+(and|or)( also| then)?|;|\s+as well as)\s+(how|what|why|when|where|which|who|whose|does|do|did|is|are|was|were|can|could|would|should|will|has|have|if)\b/i.test(text)) fail('--text asks two things ("…, and could …"): keep the one that matters')
   // "what happens to X, Y and Z": three things to cover is three questions.
   if (/,\s+(?!(?:what|how|why|when|where|which|who|does|do|is|are|can|could|would|should|will|if|so|but|or)\b)[^,?]{1,60},?\s+(and|or)\s+[^?]+\?$/i.test(text)) fail('--text asks about a list of things ("X, Y and Z"): ask about the one that matters')
+  // "What does f(x) return for 200 at qty 61?": one computed value per check at most.
+  const computed = (t) => /^(what|which)\b[^?]*\b(return|returns|price|cost|total|result|value)\b[^?]*\d/i.test(t) || /^(what|which)\b[^?]*\d[^?]*\breturns?\b/i.test(t)
+  if (computed(text) && d.questions.some((x) => computed(x.text))) fail('a second "what does it return for <numbers>" question: one is enough; ask why, or what can go wrong, instead')
   if (/\bline\s+\d+/i.test(text)) fail('--text names a line number: name the function, value or case instead (the question is shown on its lines)')
   if (/^(what does|what is)\b/i.test(text) && kind === 'how' && text.length < 60) say('WARNING: "what does X do" questions are trivia; ask how it behaves in a case, or why')
   const q = { id: '', kind, text, file }

@@ -60,6 +60,9 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
   - `change`: "Which callers of `insertOrder` get a different result after this change?"
 - **Anchored on the lines that answer it** (`--lines`): the decision, the check, the catch, not the whole function.
   At most ~15 lines when you can.
+- **At most one computed value.** "What does `rule59` return for a 200-cent item at qty 61?" is a calculator drill
+  unless it says why it matters: ask it once at most, and say what is at stake ("… is that a valid price?"). Prefer why,
+  failure and edge questions.
 - **Prefer what the author is most likely to have skipped**: error paths, retries, ordering between two writes,
   what is shared between requests, limits, what happens with empty or duplicate input, a default that changed.
 
