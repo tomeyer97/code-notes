@@ -3906,18 +3906,24 @@ export async function activate(context: vscode.ExtensionContext) {
       overviewRulerColor: new vscode.ThemeColor('editorWarning.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
     }),
   }
-  // The map comes back after a reload: VS Code hands the old panel over once the journeys are read.
+  // The map comes back after a reload: VS Code hands the old panel over once the journeys are read. A panel that can't
+  // come back (its journey is gone, or no room beside 80 columns of code) closes once VS Code has put it in place:
+  // closed while VS Code was still restoring it, it left an empty editor group ("OverlayWebview has been disposed").
   let journeysLoaded!: () => void
   const journeysReady = new Promise<void>((r) => { journeysLoaded = r })
   context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(MAP_VIEW, {
     deserializeWebviewPanel: async (panel, st) => {
       mapPanel.placeholder(panel, st as { q?: string; cur?: number; n?: number } | undefined)
       await journeysReady
-      const lj = journeys.byPos(state.get<string>(MAP_KEY))
-      if (!lj) { panel.dispose(); return }
+      // A check's tour is read with its check, a moment after the journeys.
+      let lj = journeys.byPos(state.get<string>(MAP_KEY))
+      for (let i = 0; !lj && i < 20; i++) { await new Promise((r) => setTimeout(r, 250)); lj = journeys.byPos(state.get<string>(MAP_KEY)) }
+      const later = (f: () => void) => setTimeout(f, 1500)
+      if (!lj) { log.info('journey panel: its journey is gone; closed after the reload'); later(() => panel.dispose()); return }
       if (!tourKey) tourKey = lj.key
       mapPanel.adopt(panel, lj)
       updateTour()
+      later(() => void codeGetsMoreRoom())
     },
   }))
   deco = {

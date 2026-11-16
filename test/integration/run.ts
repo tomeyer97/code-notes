@@ -128,7 +128,9 @@ function watchWorkbench(port: number, file: string): { stop: () => void } {
       page.on('console', (m) => { if (process.env.CODE_NOTES_CONSOLE_ALL) console.log(`  [console ${m.type()}] ${m.text().slice(0, 300)}`); if (m.type() === 'error') { errors.push(`${m.text()}${m.location()?.url ? ` (${m.location().url}:${m.location().lineNumber})` : ''}`); write() } })
       page.on('pageerror', (e) => { errors.push(`${e.message}\n${e.stack ?? ''}`); write() })
     }
-    for (const c of b.contexts()) { c.pages().forEach(hook); c.on('page', hook) }
+    // A blocked Trusted Types assignment logs no stack: the page's own violation event says which script and what HTML.
+    const csp = (page: import('playwright').Page) => page.evaluate(`document.addEventListener('securitypolicyviolation', (e) => console.error('[csp] ' + e.violatedDirective + ' ' + e.sourceFile + ':' + e.lineNumber + ':' + e.columnNumber + ' sample=' + JSON.stringify(e.sample)))`).catch(() => undefined)
+    for (const c of b.contexts()) { c.pages().forEach((p) => { hook(p); void csp(p) }); c.on('page', (p) => { hook(p); void csp(p) }) }
   })()
   return { stop: () => { stopped = true; void browser?.close().catch(() => {}) } }
 }
