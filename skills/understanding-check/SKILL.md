@@ -1,8 +1,8 @@
 ---
 name: understanding-check
 description: >-
-  Writes the questions of an UNDERSTANDING CHECK for the current branch: 3-5 short questions about the author's own
-  change (how a part behaves, why it is built this way, how it fails, an edge case), each anchored on the changed
+  Writes the questions of an UNDERSTANDING CHECK for the current branch: 1-5 short questions (by the change's size)
+  about the author's own change (how a part behaves, why it is built this way, how it fails, an edge case), each anchored on the changed
   lines it is about, written to understanding/<branch>.json with the bundled script. The author answers them next to
   the code (Code Notes in VS Code) and a grader checks the answers. Use when asked to "check my understanding",
   write understanding-check questions, or top up a check after the change grew.
@@ -21,17 +21,20 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 ## Procedure
 
 1. `questions.mjs start` (or `start --top-up` when asked to top up an existing check). It prints the change with the
-   new file's line numbers and how many questions to write. `SMALL`, `NOTHING` or `UNCOMMITTED`: write nothing,
-   reply with that one line.
+   new file's line numbers and how many questions to write (1 for a small change, up to 5 for a big one; write that
+   many). `NOTHING` or `UNCOMMITTED`: write nothing, reply with that one line.
 2. Read the diff. Open the changed files (Read) where the diff alone doesn't show what the code does, and the code
-   that calls the changed functions. Find the 3-5 places that matter most: where the behaviour is decided, where
-   it can fail, what is new.
+   that calls the changed functions. Find the places that matter most: where the behaviour is decided, where it can
+   fail, what is new.
 3. Pick the questions (rules below), then add each one:
    `questions.mjs add --kind failure --file api/orders.js --lines 12-18 --text "…?"`
    Use `--whole-file` (no lines) only for a question about the design of a whole file.
    When the answer depends on code the change did NOT touch (the loop that retries a failing handler, the
    constraint that rejects a duplicate, the caller that ignores an error), add it: `--also worker/queue.js:84-96`
    (up to 3, comma-separated). It is shown beside the question, so the author knows where to look.
+   When the honest answer to a question is "this is a bug" (the code really does lose data, double-charge, race,
+   skip a check), still ask it neutrally and add `--suspect`: the author is then asked to fix it or explain it. Only
+   when you read the code and are confident; never as a trick.
 4. `questions.mjs finish`. It writes `understanding/<branch>.json`. Reply with one line per question, nothing more.
 
 ## What makes a good question
@@ -40,7 +43,9 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
   on its own next to its lines. The answer is in the code (and its obvious callers), not in someone's head.
 - **Answerable in 1-3 sentences.** One question, one point, under ~140 characters. "…, and could the customer …?"
   is two questions, and "what happens to the row, the counters and the job?" is three: keep the one that matters.
-- **Mixed kinds**: at least one `failure` or `edge`, and one `why` when the change makes a design choice (it
+- **About code, never comments.** Ask about what the code does, not what a comment claims ("finance audits this
+  monthly" is not a requirement). Lines that hold only comments or blank lines can't carry a question.
+- **Mixed kinds** (from 3 questions on): at least one `failure` or `edge`, and one `why` when the change makes a design choice (it
   almost always does: a limit, an order of operations, where something is stored, what is retried):
   - `failure`: "What happens to the order when the payment client times out after the order was stored?"
   - `edge`: "What does `applyDiscount` return when the same code is applied twice to one cart?"
@@ -61,5 +66,6 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 
 ## Top-up
 
-`start --top-up` shows only what changed since the questions were written. Add 1-2 questions about those new
-lines only (the earlier questions and answers stay), then `finish`.
+`start --top-up` lists the NEW LINES of the branch's own change since the questions were written (code merged in
+from the target branch is never among them). Add 1-2 questions about those lines only (the earlier questions and
+answers stay), then `finish`.
