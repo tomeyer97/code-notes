@@ -31,7 +31,8 @@ const views = {
   passed: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '2 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
     row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
     row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'pass', ''), row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
-    answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true } },
+    answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true,
+      concern: { text: 'The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.', flagged: false } } },
   drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
   none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
   // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
@@ -82,6 +83,10 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
     await page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
     await page.waitForTimeout(50)
     if (!(await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: a redraw took the keyboard out of the box`)
+  }
+  if (view.answer?.concern) {
+    await page.click('.answer .concern .link:last-child')
+    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'concern' && m.action === 'dismiss')))) fails.push(`${tag}: a concern action didn't post`)
   }
   if (view.answer?.next) {
     if (await page.locator('.answer textarea').count()) fails.push(`${tag}: a passed question still has its box`)

@@ -806,12 +806,29 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
           : '- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check. Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X"). "hint" (at most 20 words) names the code to read, ideally as a question.',
       ]),
       '- "note": for the reviewer of the merge request, at most 15 words, always correct about the code: on a pass or a restatement, the point the author got right; on a partial pass, the correct point including the correction; when explained, the correct answer in one line; on a retry, "".',
-      '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (name the code), at most 25 words. Otherwise "". Never invent one.',
+      '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (name the code), at most 25 words. Otherwise "". Never invent one. When their answer or your feedback says the change breaks something (an install fails, a mail is never sent, data is lost), it is a concern: say it here, never leave it empty then.',
       '- "links": 1-3 links for the code you named: {"phrase": the exact words as they appear in your feedback, hint or concern, "file": a path in the repository, "start": first line, "end": last line} (lines you read). [] when you named no code.',
     ].join('\n'),
     'Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another; it is within the word limit; on a miss, nothing in it gives the answer away. Fix or cut what fails.',
     `Reply with only this JSON object, nothing before or after it:\n{"verdict": ${verdicts}, "feedback": "…", "hint": "…", "note": "…"${restate ? '' : ', "partial": false, "topic": "…"'}, "concern": "", "links": [{"phrase": "…", "file": "…", "start": 1, "end": 2}]}`,
   ].filter(Boolean).join('\n\n')
+}
+
+/**
+ * The sentence of a grade that says the change breaks something ("so helm install fails on that file"), at most 25
+ * words; undefined when none does. Negated ones ("it never fails", "nothing is lost") don't count.
+ */
+export function breakage(text) {
+  const BREAK = /\b(fails?|failing|breaks?|broken|errors? out|crash(?:es)?|is lost|are lost|gets lost|never (?:sent|runs|reaches|arrives|called|delivered)|goes nowhere|no longer works)\b/i
+  for (const sentence of String(text ?? '').replace(/^\s*(right|mostly right|correct)[.!:,]\s*/i, '').split(/(?<=[.!?])\s+/)) {
+    const m = BREAK.exec(sentence)
+    if (!m) continue
+    if (!/^never/i.test(m[1]) && /\b(never|not|n't|no|nothing|without)\b(\W+\w+){0,3}\W*$/i.test(sentence.slice(0, m.index))) continue
+    // Stored as written (the comment escapes it when it posts it).
+    const w = sentence.split(/\s+/).filter(Boolean)
+    return w.length > 25 ? `${w.slice(0, 25).join(' ').replace(/[,;:.]$/, '')}…` : w.join(' ')
+  }
+  return undefined
 }
 
 /**
@@ -841,6 +858,8 @@ export function parseVerdict(text, attempt = 1, { restate = false } = {}) {
     if (verdict === 'pass' && v.partial === true) out.partial = true
     if (str(v.topic) && (verdict === 'explained' || out.partial)) out.topic = str(v.topic)
     if (str(v.concern)) out.concern = str(v.concern)
+    // The grade itself says the change breaks something, but no concern came with it: that sentence is the concern.
+    else if (verdict !== 'retry') { const b = breakage(out.feedback); if (b) out.concern = b }
     // Links whose phrase is in the text (verbatim); their lines are checked against the files by codeLinksIn().
     const said = [out.feedback, out.hint, out.concern ?? ''].join('\n')
     const links = (Array.isArray(v.links) ? v.links : []).filter((l) => l && typeof l.phrase === 'string' && l.phrase.trim() && said.includes(l.phrase.trim()) && typeof l.file === 'string' && Number.isInteger(l.start) && l.start >= 1)

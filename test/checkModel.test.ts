@@ -131,6 +131,8 @@ test('the answer box: only for the selected question; open until done; its grade
   const passed = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, feedback: 'Right.' }] }
   assert.deepEqual(answerBox(passed as never, 1, 'pass', { others: true }), { id: 'q1', n: 1, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right.' }] }, next: true })
   assert.equal(answerBox(passed as never, 1, 'pass', { others: false }).next, undefined)
+  // A concern stays in view with its actions, also after the box closes.
+  assert.deepEqual(answerBox({ ...passed, concern: { text: 'Install fails.', flagged: false } } as never, 1, 'pass').concern, { text: 'Install fails.', flagged: false })
   const ex = { ...base, attempts: [{ answer: 'a', verdict: 'explained' as const, feedback: 'It retries.' }] }
   assert.deepEqual([answerBox(ex as never, 1, 'explained').open, answerBox(ex as never, 1, 'explained').grade?.say], [true, 'Got it? Say it back in one sentence (optional).'])
   // In the view: only the selected question has one.

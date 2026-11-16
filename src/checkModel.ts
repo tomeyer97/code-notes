@@ -210,6 +210,8 @@ export interface AnswerBox {
   grade?: { pass: boolean; feedback: Part[]; hint?: Part[]; say?: string }
   /** "Next question ›": this one is done and another is open. */
   next?: boolean
+  /** A concern about the code (found while grading, or "may be a bug" once answered), with its actions. */
+  concern?: { text: string; flagged: boolean }
 }
 
 /** A text split at the code links' phrases (each phrase once, the first time it appears). */
@@ -243,6 +245,7 @@ export function answerBox(q: Question, n: number, state: QState, o: { draft?: st
   return {
     id: q.id, n, open: !pass, draft: o.draft ?? '', ...(o.grading ? { checking: true } : {}), ...(grade ? { grade } : {}),
     ...(pass && o.others ? { next: true } : {}),
+    ...(concernOf(q) && !o.grading ? { concern: { text: concernOf(q)!.text, flagged: concernOf(q)!.flagged } } : {}),
   }
 }
 

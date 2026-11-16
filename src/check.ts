@@ -570,7 +570,7 @@ export class Understanding implements vscode.Disposable {
     return true
   }
 
-  private onView(m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number }): void {
+  private onView(m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number; action?: string }): void {
     if (m.type === 'open' && m.id) { const id = m.id; void (this.host.openInTour?.(id) ?? Promise.resolve(false)).then((ok) => { if (!ok) void this.open(id) }) }
     else if (m.type === 'tour') void this.host.walkTour?.()
     else if (m.type === 'writeTour') void this.writeTour(false)
@@ -579,6 +579,7 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'draft' && m.id && typeof m.text === 'string') void this.setDraft(m.id, m.text)
     else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
     else if (m.type === 'next') void this.step(1)
+    else if (m.type === 'concern' && m.id && ['fix', 'todo', 'flag', 'dismiss'].includes(String(m.action))) { const n = this.noteOf(m.id); if (n) void this.concern(n, m.action as 'fix' | 'todo' | 'flag' | 'dismiss') }
     else if (m.type === 'setup') void this.setupRepo()
     else if (m.type === 'retry') { const t = !!this.failed?.topUp; this.failed = undefined; void this.write(t) }
     else if (m.type === 'modelSetting') void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model')
@@ -962,14 +963,14 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
   /** What the webview reported (integration test): rows drawn, layout problems, errors. */
   private reported: { rows?: number; overflow?: string[]; errors: string[]; height?: number } = { errors: [] }
 
-  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number }) => void) {}
+  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: { type: string; id?: string; file?: string; on?: boolean; text?: string; i?: number; action?: string }) => void) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.wv = view
     this.ready = false
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     view.webview.html = this.html(view.webview)
-    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; ok?: boolean; text?: string; i?: number; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
+    view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; ok?: boolean; text?: string; i?: number; action?: string; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
       if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
       else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
       else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }

@@ -11,3 +11,6 @@
 .answer .codelink:focus-visible, .answer .next:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .answer .next { margin-top: 4px; font: inherit; color: var(--vscode-textLink-foreground); background: none; border: 0; padding: 0; cursor: pointer; }
 .answer .next:hover { text-decoration: underline; }
+.answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.answer .concern p:first-child { color: var(--vscode-editorWarning-foreground, #cca700); }
+.answer .concern .link { display: inline; background: none; border: 0; padding: 0; font: inherit; color: var(--vscode-textLink-foreground); cursor: pointer; }

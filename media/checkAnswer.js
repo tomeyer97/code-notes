@@ -3,7 +3,7 @@
 // clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
 // Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' }
-//      { type: 'focused', id, ok } (whether the keyboard reached the box)
+//      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
@@ -59,6 +59,15 @@
         if (a.grade.hint) { const h = el('p', 'hint'); h.append(el('b', null, 'Hint: '), parts(a.grade.hint, a.id, post, w)); g.append(h) }
         if (a.grade.say) g.append(el('p', 'say', a.grade.say))
         w.append(g)
+      }
+      // A concern about the code: its actions here too (the box may be closed after a pass).
+      if (a.concern) {
+        const c = el('div', 'concern')
+        c.append(el('p', null, `⚠ ${a.concern.text}`))
+        const acts = el('p', 'acts')
+        const act = (label, action) => { const b = el('button', 'link', label); b.onclick = () => post({ type: 'concern', id: a.id, action }); return b }
+        acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
+        c.append(acts); w.append(c)
       }
       if (a.next) { const n = el('button', 'next', 'Next question ›'); n.onclick = () => post({ type: 'next' }); w.append(n) }
       return w
