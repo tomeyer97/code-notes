@@ -1171,48 +1171,87 @@ export function concernLink(q) {
 
 /** Concerns the author flagged for the reviewer (`questions[].concern` with `flagged: true`). */
 export function flaggedConcerns(check) {
-  return (check.questions ?? []).filter((q) => q.concern?.flagged && inline(q.concern.text)).map((q) => ({ q, text: q.concern.text }))
+  return (check.questions ?? []).filter((q) => q.concern?.flagged && !q.concern.dismissed && !q.concern.fixed && inline(q.concern.text)).map((q) => ({ q, text: q.concern.text }))
 }
 
 /**
- * The merge request comment. `head`: its first line (the result, or what is missing). Flagged concerns follow as
- * "⚠ Found during the check". With `qa` (only once the check is done: it never grades in public) the questions follow:
- * explained ones and partial passes as "Worth discussing" with the correct point in one line (the author's wrong guesses
- * and retries are never posted), the others with the author's passing answer and at most 15 words of the grader's reasoning. An answer
- * by someone other than the check's `answeredBy` says "answered by <name>".
+ * What a done check holds for the reviewer to talk about: explained questions and partial passes, each with its topic
+ * and the correct point in one line (the author's wrong guesses are never posted).
  */
-export function commentBody(check, sum, head, link = () => undefined, { qa = false, threads = new Map() } = {}) {
+export function discussItems(check, sum) {
+  const out = []
+  check.questions.forEach((q, i) => {
+    const s = sum.states[i], as = q.attempts ?? []
+    if (s === 'explained' || s === 'restated') {
+      const a = as.find((x) => x.verdict === 'explained')
+      out.push({ id: `discuss-${q.id}`, q, a, topic: a?.topic || q.text, point: explanationOf(a) })
+      return
+    }
+    const a = as.findLast((x) => x.verdict === 'pass')
+    if (a?.partial) out.push({ id: `discuss-${q.id}`, q, a, topic: a.topic || q.text, point: explanationOf(a) || clipWords(String(a.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30) })
+  })
+  return out
+}
+
+/** Concerns the grader raised that the author did not flag, dismiss or mark fixed: "Also noticed while grading". */
+export function noticedConcerns(check) {
+  return (check.questions ?? []).filter((q) => q.concern && !q.concern.flagged && !q.concern.dismissed && !q.concern.fixed && inline(q.concern.text))
+}
+
+/**
+ * Whether a flagged concern's code changed since it was graded: the line its grade linked is no longer in the file at
+ * the commit (`lines(file)`): possibly fixed. Undefined when it can't tell.
+ */
+export function concernChanged(q, lines) {
+  const own = concernLink(q)
+  const ls = own && typeof own.text === 'string' ? lines?.(own.file) : undefined
+  return ls ? !ls.includes(own.text) : undefined
+}
+
+/**
+ * The merge request comment, short: `head` (the result, or what is missing), then one line per thread a reviewer can
+ * act on (flagged concerns, then, once done, "Worth discussing" items), each a link to its diff thread (`threads`: id →
+ * url) or, without one, the text and a file link; "possibly fixed" when the concern's lines changed (`changed`); once
+ * done, concerns nobody flagged ("Also noticed while grading"), the tour line, and every answer in a collapsed "All
+ * answers": each answer once, the grader's line labelled "Check:" and only when it corrects something. It never grades
+ * in public (`qa` only once done).
+ */
+export function commentBody(check, sum, head, link = () => undefined, { qa = false, threads = new Map(), changed = new Set() } = {}) {
   const ref = (q) => { const u = link(q); return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\`` }
-  // A check with a tour: one line for reviewers, first.
-  const out = check.journey ? [MARKER, TOUR_LINE, '', head] : [MARKER, head]
-  const flagged = flaggedConcerns(check)
-  // Each concern once where it can be acted on: its thread on the line; here a one-line link to it.
-  const item = (c) => (threads.has(c.q.id) ? `- [${clipWords(c.text, 12).replace(/[[\]]/g, '')}](${threads.get(c.q.id)})` : `- ${inline(c.text)} · ${ref(c.q)}`)
-  if (flagged.length) out.push('', '**⚠ Found during the check**', ...flagged.map(item))
-  if (!qa) return out.join('\n')
-  const discuss = [], answered = []
+  const linkText = (t, n) => clipWords(t, n).replace(/\\?[[\]]/g, '')
   // Someone other than the check's author answered (a teammate): said, never blocking.
   const by = (a) => (a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : '')
+  const out = [MARKER, head]
+  const items = []
+  for (const c of flaggedConcerns(check)) {
+    const u = threads.get(c.q.id), fixed = changed.has(c.q.id) ? ' · possibly fixed' : ''
+    items.push(u ? `- ⚠ [${linkText(c.text, 14)}](${u})${fixed}` : `- ⚠ ${inline(c.text)} · ${ref(c.q)}${fixed}`)
+  }
+  if (qa) {
+    for (const d of discussItems(check, sum)) {
+      const u = threads.get(d.id)
+      items.push(u ? `- 💬 [Worth discussing: ${linkText(d.topic, 10)}](${u})${by(d.a)}` : `- 💬 **Worth discussing: ${inline(d.topic)}** · ${ref(d.q)}${by(d.a)}${d.point ? ` · ${d.point}` : ''}`)
+    }
+  }
+  if (items.length) out.push('', ...items)
+  if (check.journey) out.push('', TOUR_LINE)
+  if (!qa) return out.join('\n')
+  const noticed = noticedConcerns(check)
+  if (noticed.length) out.push('', '**Also noticed while grading**', ...noticed.map((q) => `- ${clipWords(q.concern.text, 25)} · ${ref(q)}`))
+  const all = []
   check.questions.forEach((q, i) => {
-    const s = sum.states[i]
-    const as = q.attempts ?? []
+    const s = sum.states[i], as = q.attempts ?? []
     if (s === 'explained' || s === 'restated') {
-      const ex = as.find((a) => a.verdict === 'explained')
-      const why = explanationOf(ex)
-      discuss.push('', `**Worth discussing: ${inline(ex?.topic || q.text)}** · ${ref(q)}${by(ex)}`, ...(why ? [why] : []))
+      const a = as.find((x) => x.verdict === 'explained')
+      all.push('', `**${inline(q.text)}** · ${ref(q)}${by(a)}`, '', `Check: ${explanationOf(a)}`)
       return
     }
-    const good = as.findLast((a) => a.verdict === 'pass')
-    // A partial pass (the grader corrected something that matters): worth discussing, with the correct point.
-    if (good?.partial) {
-      const fix = explanationOf(good) || clipWords(String(good.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30)
-      discuss.push('', `**Worth discussing: ${inline(good.topic || q.text)}** · ${ref(q)}${by(good)}`, ...(fix ? [fix] : []))
-      return
-    }
-    const why = reasonOf(good)
-    answered.push('', `**${inline(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(why ? [`<sub>${why}</sub>`] : []))
+    const good = as.findLast((x) => x.verdict === 'pass')
+    const fix = good?.partial ? (explanationOf(good) || clipWords(String(good.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30)) : ''
+    all.push('', `**${inline(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}${by(good)}`, ...(good ? [quote(good.answer)] : []), ...(fix ? ['', `Check: ${fix}`] : []))
   })
-  return [...out, ...discuss, ...answered].join('\n')
+  out.push('', '<details><summary>All answers</summary>', ...all, '', '</details>')
+  return out.join('\n')
 }
 
 /** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
@@ -1308,7 +1347,7 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
   let synced = []
   if (res.check && canApi && comment && cfg.mrComment) {
     const urls = new Map()
-    synced = await syncConcerns(ctx, res.check, { head, link: res.link, urls, repo })
+    synced = await syncConcerns(ctx, res.check, { head, link: res.link, urls, repo, discuss: res.discuss ?? [] })
     if (urls.size && res.remake) res.body = res.remake(urls)
   }
   const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
@@ -1351,11 +1390,16 @@ export function concernPlace(q, lines) {
 }
 
 /** A concern thread's text: short, mentions inert, the marker hidden. `where`: a file:line link (only in a fallback note). */
-export function concernBody(check, q, where) {
+export function concernBody(check, q, where, { changed = false } = {}) {
   const who = q.concern?.by ?? check.answeredBy
   const name = who?.name || who?.email
   return [concernMarker(q.id), `⚠ **Found during the understanding check**${name ? ` (flagged by ${inline(name)})` : ''}`,
-    `${inline(q.concern.text)}${where ? ` · ${where}` : ''}`].join('\n')
+    `${inline(q.concern.text)}${where ? ` · ${where}` : ''}`, ...(changed ? ['', '_Its code changed since it was flagged: possibly fixed. In VS Code: Mark fixed._'] : [])].join('\n')
+}
+
+/** A "Worth discussing" thread's text: the topic and the correct point; the marker hidden. */
+export function discussBody(d, where) {
+  return [concernMarker(d.id), `💬 **Worth discussing** (understanding check): ${inline(d.topic)}`, `${d.point || ''}${where ? `${d.point ? ' · ' : ''}${where}` : ''}`].join('\n')
 }
 
 /**
@@ -1366,14 +1410,16 @@ export function concernBody(check, q, where) {
  * (review threads can only be resolved through GraphQL). A line the diff doesn't have (the position is rejected) falls
  * back to a plain merge request note with a file:line link. Returns log lines; never throws.
  */
-export async function syncConcerns(ctx, check, { head, link = () => undefined, urls = new Map(), repo } = {}) {
+export async function syncConcerns(ctx, check, { head, link = () => undefined, urls = new Map(), repo, discuss = [] } = {}) {
   const lines = []
   // The file at the head commit, for a concern's line that moved since it was graded.
   const fileAt = (f) => { try { return repo && head ? git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) : undefined } catch { return undefined } }
-  const placeOf = (q) => concernPlace(q, fileAt)
+  // Flagged concerns, and (once the check is done) the "Worth discussing" items: one thread each.
+  const want = new Map([...flaggedConcerns(check).map((c) => [c.q.id, { q: c.q }]), ...discuss.map((d) => [d.id, { q: d.q, d }])])
+  const placeOf = (it) => (it.d ? (it.q.target === 'file' || !Number.isInteger(it.q.start) ? undefined : { file: it.q.file, line: it.q.start }) : concernPlace(it.q, fileAt))
+  const bodyOf = (it, where) => (it.d ? discussBody(it.d, where) : concernBody(check, it.q, where, { changed: !!concernChanged(it.q, fileAt) }))
   const say = (s) => { lines.push(`  ${s}`); return true }
   const safe = async (what, fn) => { try { return await fn() } catch (e) { lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`); return undefined } }
-  const want = new Map(flaggedConcerns(check).map((c) => [c.q.id, c.q]))
   const whereOf = (q) => {
     const p = placeOf(q)
     if (!p) return undefined
@@ -1390,13 +1436,14 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
     for (const d of discussions) { const n = d.notes?.[0]; const id = concernIdOf(n?.body); if (id && !mine.has(id)) mine.set(id, { d, n }) }
     let refs
     for (const [id, q] of want) {
+      const what = q.d ? 'Worth discussing' : 'Concern'
       const had = mine.get(id)
       const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
       if (had) {
         urls.set(id, noteUrl(had.n.id))
-        const body = noted(had.n.body) ? concernBody(check, q, whereOf(q)) : concernBody(check, q)
-        if (had.n.body !== body && await safe('update a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
-        if (had.n.resolved && await safe('reopen a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true))) say(`Concern reopened (${id}).`)
+        const body = noted(had.n.body) ? bodyOf(q, whereOf(q)) : bodyOf(q)
+        if (had.n.body !== body && await safe('update a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true))) say(`${what} updated (${id}).`)
+        if (had.n.resolved && await safe('reopen a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true))) say(`${what} reopened (${id}).`)
         continue
       }
       const p = placeOf(q)
@@ -1405,13 +1452,13 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
       // A line outside the diff is rejected: then a plain note, quietly (no error in the log).
       let ok = false
       const posted = (d) => { const nid = d?.notes?.[0]?.id; if (nid !== undefined) urls.set(id, noteUrl(nid)); return true }
-      if (position) { try { posted(await api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q), position })); ok = true } catch { /* not in the diff */ } }
-      if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
-      if (await safe('post a concern', () => api(ctx, 'POST', `${mr}/discussions`, { body: concernBody(check, q, whereOf(q)) }).then(posted))) say(`Concern posted as a note (${id}).`)
+      if (position) { try { posted(await api(ctx, 'POST', `${mr}/discussions`, { body: bodyOf(q), position })); ok = true } catch { /* not in the diff */ } }
+      if (ok) { say(`${what} posted on ${p.file}:${p.line} (${id}).`); continue }
+      if (await safe('post a concern', () => api(ctx, 'POST', `${mr}/discussions`, { body: bodyOf(q, whereOf(q)) }).then(posted))) say(`${what} posted as a note (${id}).`)
     }
     for (const [id, { d, n }] of mine) {
       if (want.has(id) || n.resolved) continue
-      if (await safe('resolve a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true))) say(`Concern resolved (${id}): no longer flagged.`)
+      if (await safe('resolve a concern thread', () => api(ctx, 'PUT', `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true))) say(`${id.startsWith('discuss-') ? 'Worth discussing' : 'Concern'} resolved (${id}): ${id.startsWith('discuss-') ? 'no longer an item' : 'no longer flagged'}.`)
     }
     return lines
   }
@@ -1428,12 +1475,13 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
   for (const c of review) { const id = closedIdOf(c.body); if (id) closed.set(id, c) }
   for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c) }
   for (const [id, q] of want) {
+    const what = q.d ? 'Worth discussing' : 'Concern'
     const had = mine.get(id)
     const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
     if (had) {
       urls.set(id, ghUrl(had.c, had.review))
-      const body = had.review ? concernBody(check, q) : concernBody(check, q, whereOf(q))
-      if (had.c.body !== body && await safe('update a concern', () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true))) say(`Concern updated (${id}).`)
+      const body = had.review ? bodyOf(q) : bodyOf(q, whereOf(q))
+      if (had.c.body !== body && await safe('update a concern', () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true))) say(`${what} updated (${id}).`)
       // Flagged again: the "No longer flagged." reply goes.
       const gone = closed.get(id)
       if (gone && had.review && await safe('remove a reply', () => api(ctx, 'DELETE', `${repoUrl}/pulls/comments/${gone.id}`).then(() => true))) say(`Concern flagged again (${id}).`)
@@ -1441,9 +1489,9 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
     }
     const p = placeOf(q)
     let ok = false
-    if (p && head) { try { const c = await api(ctx, 'POST', `${pr}/comments`, { body: concernBody(check, q), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); if (c?.id !== undefined) urls.set(id, ghUrl(c, true)); ok = true } catch { /* not in the diff */ } }
-    if (ok) { say(`Concern posted on ${p.file}:${p.line} (${id}).`); continue }
-    if (await safe('post a concern', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: concernBody(check, q, whereOf(q)) }).then((c) => { if (c?.id !== undefined) urls.set(id, ghUrl(c, false)); return true }))) say(`Concern posted as a comment (${id}).`)
+    if (p && head) { try { const c = await api(ctx, 'POST', `${pr}/comments`, { body: bodyOf(q), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); if (c?.id !== undefined) urls.set(id, ghUrl(c, true)); ok = true } catch { /* not in the diff */ } }
+    if (ok) { say(`${what} posted on ${p.file}:${p.line} (${id}).`); continue }
+    if (await safe('post a concern', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: bodyOf(q, whereOf(q)) }).then((c) => { if (c?.id !== undefined) urls.set(id, ghUrl(c, false)); return true }))) say(`${what} posted as a comment (${id}).`)
   }
   for (const [id, { c, review: rv }] of mine) {
     if (want.has(id) || (rv && closed.has(id)) || (!rv && closedIdOf(c.body))) continue
@@ -1479,7 +1527,10 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
   const link = (q) => refLink({ ...ctx, head }, q, diff)
   // The comment, and the same again once the concern threads are known (`remake(threads)`).
-  const made = (line, o = {}) => ({ body: commentBody(check, sum, line, link, o), remake: (threads) => commentBody(check, sum, line, link, { ...o, threads }) })
+  // Flagged concerns whose code changed since: possibly fixed.
+  const fileAt = (f) => { try { return git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) } catch { return undefined } }
+  const changed = new Set(flaggedConcerns(check).filter((c) => concernChanged(c.q, fileAt)).map((c) => c.q.id))
+  const made = (line, o = {}) => ({ body: commentBody(check, sum, line, link, { ...o, changed }), remake: (threads) => commentBody(check, sum, line, link, { ...o, changed, threads }) })
   // The check and its links go along: runCi posts the flagged concerns on their lines.
   const out = (r) => Object.assign(r, { check, link, diff })
   if (state.phase === 'drift') {
@@ -1502,7 +1553,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   // How much room is left before a top-up is needed.
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
   return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
+    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }), discuss: discussItems(check, sum) })
 }
 
 // ---------- init ----------

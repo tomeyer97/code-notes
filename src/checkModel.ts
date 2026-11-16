@@ -23,7 +23,7 @@ export interface Question {
   /** The step of the check's tour after which its answer is visible. */
   step?: number
   /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
-  concern?: { text: string; flagged?: boolean; at?: string; by?: Who }
+  concern?: { text: string; flagged?: boolean; at?: string; by?: Who; dismissed?: { reason: string; by?: Who; at?: string }; fixed?: { by?: Who; at?: string } }
 }
 /** The check's tour: a journey of the change (the journey file format), its steps walked in the journey panel. */
 export interface Tour { title: string; steps: { id?: string; title: string; file: string; range: { start: number; end: number } }[]; [k: string]: unknown }
@@ -161,6 +161,8 @@ export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not gra
  * only once it has been answered (before, it would give the answer away).
  */
 export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean; by?: string } | undefined {
+  // Dismissed (with a reason) or marked fixed: done with; nothing more to do about it.
+  if (q.concern?.dismissed || q.concern?.fixed) return undefined
   if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && SUSPECTS.includes(q.concern.text), ...(q.concern.by ? { by: q.concern.by.name ?? q.concern.by.email } : {}) }
   return q.suspect && (q.attempts ?? []).some((a) => a.verdict) ? { text: SUSPECT, flagged: false, suspect: true } : undefined
 }

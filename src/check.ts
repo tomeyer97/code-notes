@@ -867,7 +867,7 @@ export class Understanding implements vscode.Disposable {
   questionOf(n: Note): Question | undefined { const l = linkOf(n); return l ? this.st?.check?.questions.find((x) => x.id === l.q) : undefined }
 
   /** What to do about a concern: Suggest a fix (a new note, asked to Claude), Add TODO (a comment above the lines), Flag for review. */
-  async concern(n: Note, action: 'fix' | 'todo' | 'flag'): Promise<void> {
+  async concern(n: Note, action: 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed', given?: string): Promise<void> {
     const q = this.questionOf(n)
     const c = q && concernOf(q)
     if (!q || !c || !this.repo) return
@@ -893,15 +893,30 @@ export class Understanding implements vscode.Disposable {
       this.host.refresh()
       return
     }
+    // Dismiss (not a problem, with a short reason) or Mark fixed: the concern leaves the merge request.
+    let reason: string | undefined
+    if (action === 'dismiss') {
+      reason = (given ?? await vscode.window.showInputBox({ title: 'Dismiss this concern', prompt: 'Why is it not a problem? One line, kept in the check file.', placeHolder: 'e.g. the caller checks it first' }))?.trim()
+      if (!reason) return
+    }
     // Flag for reviewer: on the merge request (toggles); independent of a TODO.
     const abs = this.abs!
     const check = this.U.readCheck(abs)
     const fq = check.questions.find((x) => x.id === q.id)
     if (!fq) return
     const text = c.suspect ? q.text : c.text
+    const me = this.me(), by = check.answeredBy
+    const who = me ? { ...(me.name ? { name: me.name } : {}), ...(me.email ? { email: me.email } : {}) } : undefined
+    const at = this.host.now()
+    if (action === 'dismiss' || action === 'fixed') {
+      fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: false, ...(action === 'dismiss' ? { dismissed: { reason: reason!, ...(who ? { by: who } : {}), at } } : { fixed: { ...(who ? { by: who } : {}), at } }) }
+      this.save(abs, check)
+      await this.refresh()
+      this.host.refresh()
+      return
+    }
     fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: !c.flagged }
     // Flagged by someone other than the check's author: the merge request says who.
-    const me = this.me(), by = check.answeredBy
     const other = !!me && !!by && (me.email && by.email ? me.email !== by.email : me.name !== by.name)
     if (fq.concern.flagged && other) fq.concern.by = { ...(me!.name ? { name: me!.name } : {}), ...(me!.email ? { email: me!.email } : {}) }
     else delete fq.concern.by

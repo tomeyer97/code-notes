@@ -69,7 +69,8 @@ export async function run(): Promise<void> {
     await toast.locator('.monaco-button', { hasText: button }).first().click()
   }
   const view = () => chk().view
-  const editorLine = () => vscode.window.activeTextEditor?.selection.active.line
+  // The code editor's caret (the keyboard may be in the Check view's box, where there is no active editor).
+  const editorLine = () => (vscode.window.activeTextEditor ?? vscode.window.visibleTextEditors.find((e) => e.document.uri.scheme === 'file'))?.selection.active.line
   const inLines = (a: number, b: number) => { const l = editorLine(); return l !== undefined && l >= a && l <= b }
 
   // 1. A branch with a change and no check: the status bar says so; so does the Check view.
@@ -100,7 +101,7 @@ export async function run(): Promise<void> {
   assert.deepEqual([n1.file, n1.range.start, n1.range.end], ['api/limits.js', 4, 7])
   assert.match(api.thread(n1.id).contextValue, /check/)
   // Only question 1 opens: its code and its thread. No editor group for a list: it is in the sidebar.
-  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, path.join(ws, 'api/limits.js'))
+  await until('q1\'s code on screen', () => vscode.window.visibleTextEditors.some((e) => e.document.uri.fsPath === path.join(ws, 'api/limits.js')))
   await until('q1 open on its lines', () => api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded && inLines(3, 6))
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
   // One list of the questions: the Check view; the Code Notes tree doesn't repeat them.
@@ -302,6 +303,7 @@ export async function run(): Promise<void> {
   assert.match(out, /^✓ Understanding check done/)
   ok('`ci` passes the committed file without calling a model')
 
+
   // 8. Ask Claude on a check question: a note of its own (the check's thread is left alone).
   const before = noteOf('q1').messages.length
   await vscode.commands.executeCommand('codeNotes.askClaude', { thread: api.thread(noteOf('q1').id), text: 'What does counts hold?' })
@@ -329,6 +331,15 @@ export async function run(): Promise<void> {
   await until('undone', () => limDoc.getText() === lim0)
   if (limDoc.isDirty) await limDoc.save()
   ok('Suggest a fix: a note asked to Claude; one sentence and a suggestion; Apply puts it in, Undo takes it back')
+
+  // 8c. A concern can be marked fixed (once flagged) or dismissed with a reason: it leaves the thread, the row and the comment.
+  assert.ok((api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /\[Mark fixed\]\(command:codeNotes\.checkConcern[^)]*\) · \[Dismiss\]/.test((c.body as vscode.MarkdownString).value)), 'the quiet actions are there')
+  await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'dismiss', 'A restart is fine: counts are per hour anyway.')
+  await until('dismissed', () => read().questions[2].concern?.dismissed?.reason === 'A restart is fine: counts are per hour anyway.' && read().questions[2].concern.flagged === false && !chk().view.rows[2].flag)
+  await until('gone from the thread', () => !(api.thread(noteOf('q3').id).comments as vscode.Comment[]).some((c) => /Found while grading/.test(String((c.author as any)?.name))))
+  assert.doesNotMatch(execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } }), /restart lets everyone/)
+  git('commit', '-qam', 'dismissed')
+  ok('a concern dismissed with a reason (Dismiss, beside Mark fixed): kept in the file, gone from the thread, the row and the merge request')
 
   // 9. Drift: 45 new lines (uncommitted) → amber "Needs top-up" before any push.
   const lim = path.join(ws, 'api/limits.js')
@@ -377,13 +388,13 @@ export async function run(): Promise<void> {
   await until('kept in the cache', () => fs.existsSync(cached) && !fs.existsSync(path.join(ws, 'understanding/feat-second.json')))
   assert.equal(fs.readFileSync(path.join(ws, '.code-notes/.cache/.gitignore'), 'utf8'), '*\n')
   const kept2 = JSON.parse(fs.readFileSync(cached, 'utf8'))
-  assert.deepEqual([kept2.branch, kept2.head, kept2.questions.length], ['feat/second', secondHead, 3], 'written for feat/second at its commit')
+  assert.deepEqual([kept2.branch, kept2.head, kept2.questions.length], ['feat/second', secondHead, 2], 'written for feat/second at its commit, about its own 30 lines (stacked on feat/limits\'s check)')
   // Nothing was written to the branch checked out meanwhile.
   assert.equal(fs.readFileSync(path.join(ws, 'understanding/feat-limits.json'), 'utf8'), limitsCheck, 'feat/limits\'s check untouched')
   assert.equal(git('status', '--porcelain'), '', 'feat/limits: nothing new in the working tree')
   git('checkout', '-q', 'feat/second')
   api.checkRefresh()
-  await until('put in place on return', () => fs.existsSync(path.join(ws, 'understanding/feat-second.json')) && !fs.existsSync(cached) && chk().view?.title === '0 of 3 done')
+  await until('put in place on return', () => fs.existsSync(path.join(ws, 'understanding/feat-second.json')) && !fs.existsSync(cached) && chk().view?.title === '0 of 2 done')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits again', () => chk().item === '$(pass) Understanding')
@@ -418,16 +429,16 @@ export async function run(): Promise<void> {
   // As in real use, VS Code's git has seen the branch before it is pushed.
   await until('git sees feat/third', () => (chk().bg as string[]).includes('feat/third unpushed (new)'), 20000)
   git('push', '-q', '-u', 'origin', 'feat/third')
-  await until('questions ready in the background', () => chk().item === '$(checklist) 3 questions ready', 40000)
+  await until('questions ready in the background', () => chk().item === '$(checklist) 1 question ready', 40000)
   assert.ok(fs.existsSync(path.join(ws, 'understanding/feat-third.json')))
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, where, 'nothing opened by itself')
   await shoot('check-5-ready')
   await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-  await until('a click opens q1', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/limits.js') && chk().item === '$(checklist) Understanding 0/3')
+  await until('a click opens q1', () => vscode.window.activeTextEditor?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()
   await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
-  ok('pushed without a check: questions written in the background, "3 questions ready", nothing opens; a click opens question 1')
+  ok('pushed without a check: questions written in the background, "1 question ready" (stacked: only its own line), nothing opens; a click opens question 1')
 
   // 13. The tour of the change: written right after the questions, walked in the journey panel with the questions as
   // stops between the steps; a pass stays, Next walks on; rows of the Check view and of the storyline go to their step and question.

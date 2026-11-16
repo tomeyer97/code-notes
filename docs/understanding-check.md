@@ -244,9 +244,15 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 The merge request comment follows the job and is found again by the marker `<!-- understanding-check -->` and updated
 in place. Its first line is the result or what is missing (no check yet, needs a top-up, file not valid). It never
 grades in public: while the check is in progress it is one line (`Understanding check in progress: 2 of 4 done.`), no ✗
-ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions and partial passes as `Worth discussing:
-<topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
-and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
+ever. It stays short: the status line, then one line per thread a reviewer can act on, each a link to its resolvable
+diff thread: flagged concerns first (`- ⚠ …`, "· possibly fixed" when the line the concern named is gone from the
+file), then, once done, explained questions and partial passes (`- 💬 Worth discussing: <topic>`, posted as threads on
+their question's first line with the correct point; resolved when the item goes). Without an API token, the same lines
+carry the text and a file link instead. Once done also: concerns nobody flagged, dismissed or fixed, one line each
+under "Also noticed while grading"; the tour line; and every answer in a collapsed `<details>` "All answers": each answer
+once, the grader's line ("Check: …", outside the quote) only when it corrects something. Wrong guesses and retries are
+never posted. In VS Code a concern's thread offers, quietly, **Mark fixed** (once flagged) and **Dismiss** (asks for a
+one-line reason; stored as `concern.dismissed = { reason, by, at }`); both take it off the merge request. An answer by
 someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
 references (`#12`, `!3`, `~5`, …) are made inert. Answers, notes, topics and concerns are literal text: their markdown
 and HTML are escaped line by line (a `---` under a line, `### ✅ waived`, `</blockquote>`, a table row or `:emoji:` shows

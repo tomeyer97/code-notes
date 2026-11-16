@@ -765,7 +765,9 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
   if (chk?.checking) out.push({ body: systemMarkdown('_Checking your answer…_'), mode: vscode.CommentMode.Preview, author: { name: 'Understanding check' }, label: 'checking…', contextValue: 'system' })
   if (chk?.concern) {
     const c = chk.concern
-    const acts = [cmdLink('Suggest a fix', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag')]
+    const acts = [cmdLink('Suggest a fix', 'codeNotes.checkConcern', n.data.id, 'fix'), c.todo ? `TODO added at ${c.todo}` : cmdLink('Add TODO', 'codeNotes.checkConcern', n.data.id, 'todo'), cmdLink(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'codeNotes.checkConcern', n.data.id, 'flag'),
+      // Quiet: Mark fixed once it is flagged (it leaves the merge request), Dismiss with a reason when it is wrong.
+      ...(c.flagged ? [cmdLink('Mark fixed', 'codeNotes.checkConcern', n.data.id, 'fixed')] : []), cmdLink('Dismiss', 'codeNotes.checkConcern', n.data.id, 'dismiss')]
     out.push({ body: systemMarkdown(`⚠ ${c.text}\n\n${acts.join(' · ')}`), mode: vscode.CommentMode.Preview, author: { name: c.suspect ? 'Understanding check' : 'Found while grading' }, contextValue: 'system' })
   }
   // An open check question whose code a journey of the repository walks: one link to that step.
@@ -4405,9 +4407,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const pick = await vscode.window.showQuickPick(steps.map((s) => ({ label: s.title, description: `step ${s.n}`, detail: s.stepTitle, s })), { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
     if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n)
   })
-  cmd('codeNotes.checkConcern', async (id?: string, action?: string) => {
+  cmd('codeNotes.checkConcern', async (id?: string, action?: string, reason?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined
-    if (n && (action === 'fix' || action === 'todo' || action === 'flag')) await understanding!.concern(n, action)
+    if (n && (action === 'fix' || action === 'todo' || action === 'flag' || action === 'dismiss' || action === 'fixed')) await understanding!.concern(n, action, typeof reason === 'string' ? reason : undefined)
   })
   cmd('codeNotes.gradeCheck', async (id?: string) => {
     const n = typeof id === 'string' ? byId(id) : undefined
