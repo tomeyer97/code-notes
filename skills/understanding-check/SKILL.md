@@ -35,13 +35,15 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 
 - **About this change, answerable from it.** It names the function, value or case it is about, so it makes sense
   on its own next to its lines. The answer is in the code (and its obvious callers), not in someone's head.
-- **Answerable in 1-3 sentences.** One question, one point. No lists, no "and also".
-- **Mixed kinds**, at least one `why`, `failure` or `edge`:
+- **Answerable in 1-3 sentences.** One question, one point, under ~140 characters. "…, and how does that differ
+  from …?" is two questions: keep the one that matters.
+- **Mixed kinds**: at least one `failure` or `edge`, and one `why` when the change makes a design choice (it
+  almost always does: a limit, an order of operations, where something is stored, what is retried):
   - `failure`: "What happens to the order when the payment client times out after the order was stored?"
   - `edge`: "What does `applyDiscount` return when the same code is applied twice to one cart?"
   - `why`: "Why does the worker re-read the order before charging instead of using the job's copy?"
   - `how`: "How does a settled order stop a second charge for the same job?" (behaviour, not a line-by-line read)
-  - `change`: "Which callers of `insertOrder` see a different result after this change, and how?"
+  - `change`: "Which callers of `insertOrder` get a different result after this change?"
 - **Anchored on the lines that answer it** (`--lines`): the decision, the check, the catch, not the whole function.
   At most ~15 lines when you can.
 - **Prefer what the author is most likely to have skipped**: error paths, retries, ordering between two writes,

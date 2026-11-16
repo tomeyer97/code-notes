@@ -80,6 +80,7 @@ if (cmd === 'add') {
   if (text.length > U.MAX_TEXT) fail(`--text is ${text.length} characters: at most ${U.MAX_TEXT}. One question, plainly`)
   if (!text.endsWith('?')) fail('--text must be one question, ending with "?"')
   if ((text.match(/\?/g) ?? []).length > 1) fail('--text asks more than one question: ask one')
+  if (/,?\s+and (how|what|why|when|where|which|does|do|is|are|can)\b/i.test(text)) fail('--text asks two things ("… and how …"): keep the one that matters')
   if (/\bline\s+\d+/i.test(text)) fail('--text names a line number: name the function, value or case instead (the question is shown on its lines)')
   if (/^(what does|what is)\b/i.test(text) && kind === 'how' && text.length < 60) say('WARNING: "what does X do" questions are trivia; ask how it behaves in a case, or why')
   const q = { id: '', kind, text, file }
