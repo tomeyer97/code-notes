@@ -664,8 +664,8 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
   const restate = explanation !== undefined
   const second = !restate && attempt >= 2
   const verify = canRead
-    ? '- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name). Before you say a value is checked, guarded, unique, retried, locked or never read, read the code that would do it and every place that uses it. Do not mention code you did not read.'
-    : '- Make claims only about lines shown above. Before you say a value is checked, guarded, unique, retried, locked or never read, find the lines that show it. Say nothing about code that is not shown.'
+    ? '- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name). Before you say a value is checked, guarded, unique, retried, locked or never read, read the code that would do it and every place that uses it. A value that is written but never read guards nothing: never hold it up as a marker or safeguard, and never compare other code with it as if it protected anything. Do not mention code you did not read.'
+    : '- Make claims only about lines shown above. Before you say a value is checked, guarded, unique, retried, locked or never read, find the lines that show it. A value that is written but never read guards nothing: never hold it up as a marker or safeguard. Say nothing about code that is not shown.'
   const verdicts = restate ? '"restated" | "explained"' : `"pass" | "${second ? 'explained' : 'retry'}"`
   return [
     'You grade one answer in an "understanding check": the author of a code change answers a question about their own change, to show they understand the code they are about to merge. Be the friendly senior colleague who asked the question, not an examiner. Your reply is read in a small thread next to the code: short and plain.',
