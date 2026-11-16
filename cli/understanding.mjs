@@ -667,8 +667,11 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const drift = driftOf(repo, check, 'HEAD', change, cfg.exempt, mb)
   // With uncommitted edits too: the drift CI will see once they are pushed.
   const pending = driftOf(repo, check, undefined, change, cfg.exempt, mb)
-  const dirty = !!gitOk(repo, ['status', '--porcelain', '--', rel])
-  return done({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty })
+  const porcelain = gitOk(repo, ['status', '--porcelain', '--', rel]) ?? ''
+  const dirty = !!porcelain
+  // A new file: `git commit -a` leaves it out (the reason a finished check never reached CI).
+  const untracked = porcelain.startsWith('??')
+  return done({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty, ...(untracked ? { untracked } : {}) })
 }
 
 /**
@@ -713,7 +716,7 @@ export function stateWords(state, st = {}) {
     case 'answering': return { tone: 'todo', bar: `Understanding ${state.done}/${state.total}`, title: `${state.done} of ${state.total} done`, line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`, rule }
     case 'short': return { tone: 'warn', bar: `Understanding ${state.passed}/${state.needed} passed`, title: `${state.passed} passed, ${state.needed} must pass`,
       line: 'Say an explained answer back in your own words.', rule }
-    case 'done': return { tone: 'ok', bar: '✓ Understanding', title: '✓ Done', line: st.dirty ? 'Commit and push.' : 'Committed.', rule }
+    case 'done': return { tone: 'ok', bar: '✓ Understanding', title: '✓ Done', line: st.untracked ? 'A new file: not committed yet.' : st.dirty ? 'Not committed yet.' : 'Committed.', rule }
     default: return { tone: 'todo', bar: '', title: '', line: '', rule }
   }
 }

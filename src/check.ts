@@ -234,6 +234,8 @@ export class Understanding implements vscode.Disposable {
     if (p === 'none') { await this.write(false); return }
     this.show()
     if (p === 'drift') { if (st.state.commitFirst) await openScm(); else await this.write(true); return }
+    // Done but not committed or pushed: the status item does what the view's button does.
+    if (p === 'done' && (st.dirty || this.unpushed !== false)) { this.show(); await this.commitPush(); return }
     // A check with a tour opens it: the steps lead to the questions. Without one, the first open question.
     if (st.check?.journey && (await this.host.walkTour?.())) return
     await this.openNext()

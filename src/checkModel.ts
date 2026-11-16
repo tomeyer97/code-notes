@@ -34,7 +34,7 @@ export interface State { phase: Phase; passed?: number; done?: number; total?: n
 export interface Words { tone: 'ok' | 'warn' | 'todo'; bar: string; title: string; line: string; rule: string }
 export interface Status {
   branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; exists: boolean
-  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean
+  errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean; untracked?: boolean
   state: State; next: string
 }
 export interface Config { questions: { min: number; max: number }; passRatio: number; maxDrift: number; model: string | null }

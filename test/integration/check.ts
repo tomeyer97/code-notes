@@ -287,13 +287,14 @@ export async function run(): Promise<void> {
   ok('Ctrl+\' D opens the open question; the grader\'s concern shows on the row and in the thread; Flag for reviewer is stored in the file; Add TODO keeps it and says where the TODO went')
 
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
-  await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush')
+  await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush' && chk().view.line === 'A new file: not committed yet.')
   await until('status bar done', () => chk().item === '$(pass) Understanding')
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
   await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
   await shoot('check-3-done')
-  api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
+  // The status item does what the button does (Commit & push), not a jump to question 1.
+  void vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
   assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['understanding/feat-limits.json'])
