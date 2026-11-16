@@ -792,3 +792,11 @@ test('init: .gitattributes and .ignore, idempotent, never duplicated, existing l
   assert.equal((await U.main(['init'], { cwd: path.join(d, 'src'), print: () => {} })), 0)
   assert.ok(fs.existsSync(path.join(d, '.ignore')))
 })
+
+test('validate: optional code links on questions and attempts, checked lightly', () => {
+  const link = { phrase: 'the retry loop', file: 'w.js', start: 4, end: 9 }
+  const c = (qx, ax) => ({ version: 1, branch: 'b', head: 'abcdef1', questions: [{ id: 'q1', kind: 'why', text: 'Why is this so here?', file: 'a.js', start: 1, end: 2, ...qx, attempts: [{ answer: 'x', ...ax }] }] })
+  assert.deepEqual(U.validateCheck(c({ links: [link] }, { links: [link], extra: 1 })), [])
+  assert.match(U.validateCheck(c({ links: [{ ...link, start: 0 }] })).join(), /"links" must be a list/)
+  assert.match(U.validateCheck(c({}, { links: 'x' })).join(), /attempt 1: "links" must be a list/)
+})

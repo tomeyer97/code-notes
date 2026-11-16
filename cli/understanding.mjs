@@ -330,6 +330,14 @@ export function attemptHash(question, attempt) {
 
 const isHex = (s, min = 7) => typeof s === 'string' && new RegExp(`^[0-9a-f]{${min},64}$`).test(s)
 
+/** Optional code links in a question's or a reply's text: `[{ phrase, file, start, end }]`, checked lightly. */
+function linksBad(links, at, errs) {
+  if (links === undefined) return
+  const ok = Array.isArray(links) && links.every((l) => l && typeof l === 'object' && typeof l.phrase === 'string' && typeof l.file === 'string'
+    && Number.isInteger(l.start) && Number.isInteger(l.end) && l.start > 0 && l.end > 0)
+  if (!ok) errs.push(`${at} must be a list of { "phrase", "file", "start", "end" }`)
+}
+
 /** What is wrong with a check file (an empty list: nothing). `repo`: also check that each question's file exists. */
 export function validateCheck(c, { repo } = {}) {
   const errs = []
@@ -369,11 +377,13 @@ export function validateCheck(c, { repo } = {}) {
       else if (q.also.some((x) => !x || !okPath(x.file) || !Number.isInteger(x.start) || !Number.isInteger(x.end) || x.start < 1 || x.end < x.start)) errs.push(`${at}: each "also" needs a file inside the repository and 1-based start/end`)
       else if (repo) for (const x of q.also) if (!fs.existsSync(path.join(repo, x.file))) errs.push(`${at}: ${x.file} doesn't exist`)
     }
+    linksBad(q.links, `${at}: "links"`, errs)
     if (q.attempts !== undefined && !Array.isArray(q.attempts)) errs.push(`${at}: "attempts" must be an array`)
     for (const [k, a] of (Array.isArray(q.attempts) ? q.attempts : []).entries()) {
       // Only the last attempt must keep its answer (earlier ones may have had it pruned; older files still have it).
       const last = k === q.attempts.length - 1
       if (!a || typeof a !== 'object' || (last ? typeof a.answer !== 'string' : a.answer !== undefined && typeof a.answer !== 'string')) { errs.push(`${at}, attempt ${k + 1}: "answer" must be a string`); continue }
+      linksBad(a.links, `${at}, attempt ${k + 1}: "links"`, errs)
       if (a.by !== undefined && whoBad(a.by)) errs.push(`${at}, attempt ${k + 1}: "by" must be { "name": …, "email": … }`)
       if (a.verdict !== undefined && !VERDICTS.includes(a.verdict)) errs.push(`${at}, attempt ${k + 1}: "verdict" must be one of ${VERDICTS.join(', ')}`)
     }
