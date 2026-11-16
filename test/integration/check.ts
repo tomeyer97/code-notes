@@ -524,6 +524,8 @@ export async function run(): Promise<void> {
     const zoom = vscode.workspace.getConfiguration('window').inspect<number>('zoomLevel')?.globalValue
     await vscode.commands.executeCommand('codeNotes.endJourney')
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    // The secondary side bar (Chat) closed, as in the reported window: its width is the reader's to give.
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
     await vscode.workspace.getConfiguration('window').update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
     // The window's size as the workbench sees it (Electron has no Browser.setWindowBounds over DevTools).
     await s.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
@@ -557,9 +559,9 @@ export async function run(): Promise<void> {
     }
     await until('step 3, its card with the code link "the count"', () => tour().step === 3 && />count<\/span>\]\(command:codeNotes\.codeLink/.test(tour().card?.body ?? '') && !tour().map)
     await sleep(600)
+    await shoot('tour-4-1280-step')
     let cols = await columns()
     assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns with the tour open: ${cols}`)
-    await shoot('tour-4-1280-step')
     // The code link, clicked for real; then keys, as someone reading on would type them.
     const limitsNow = fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8')
     await page.locator('.review-widget .comment-body a', { hasText: 'count' }).first().click()
