@@ -1627,10 +1627,13 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
 let journeysTree: JourneysTree
 let journeysView: vscode.TreeView<Node>
 
-/** Search every journey (title, question, summary, step titles, files): a picker, best match first. */
+/** Search every journey (title, question, summary, step titles, files): a picker, best match first (or the view's sort). */
 async function searchJourneys(): Promise<void> {
   const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { key: string }>()
   qp.placeholder = 'Search journeys: words of the title, question, steps or file paths'
+  // The results follow the view's sort when one was picked (else best match first).
+  const sort = listSort()
+  if (sort !== 'area') qp.title = `Search journeys · ${SORTS.find((x) => x.id === sort)!.label}`
   qp.matchOnDescription = true
   qp.matchOnDetail = true
   const fill = () => {
@@ -2828,7 +2831,7 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'closed') beats.clear()
   else if (m.type === 'panelWidth') void rememberPanelWidth()
   else if (m.type === 'mapWidth') void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined)
-  else if (m.type === 'list') { homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? ''), searchSort: m.searchSort ?? 'best' }; if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }); else mapPanel.update() }
+  else if (m.type === 'list') { homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? ''), searchSort: m.searchSort }; if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }); else mapPanel.update() }
   else if (m.type === 'preview') { const x = journeys.list.get(m.key); if (x) void staleInfo(x).then((stale) => mapPanel.send({ type: 'preview', key: m.key, journey: x.j, stale })) }
   else if (m.type === 'refresh') { const x = journeys.list.get(m.key); if (x) void refreshJourney(x) }
   else if (m.type === 'hereAll') { hereAll = true; mapPanel.update() }

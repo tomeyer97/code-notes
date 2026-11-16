@@ -571,7 +571,7 @@
     if (e.key === '/' && !inSearch) { e.preventDefault(); searchEl && searchEl.focus(); return }
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (hq.query) { hq.query = ''; hq.searchSort = 'best'; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
+      if (hq.query) { hq.query = ''; delete hq.searchSort; if (searchEl) searchEl.value = ''; focusNext = 'search'; sendList({}); return }
       if (J) { setHome(false); render() }
       return
     }

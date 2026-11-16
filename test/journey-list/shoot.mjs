@@ -100,7 +100,7 @@ for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   // A word nothing has: any word, and the line says so.
   await page.keyboard.press('Home'); await page.keyboard.type('zebra '); await settle()
   h = await home()
-  if (h.note !== 'Nothing mentions “zebra”; showing “retry”' || !h.rows.includes('How charging work')) fail(`fallback: ${h.note} / ${h.rows.join(', ')}`)
+  if (h.note !== 'No journey about “zebra”; closest for “retry”' || !h.rows.includes('How charging work')) fail(`fallback: ${h.note} / ${h.rows.join(', ')}`)
   for (const b of await measure()) fail(`fallback: ${b}`)
   if (OUT) await page.screenshot({ path: path.join(OUT, `home-search-${w}-${theme}.png`) })
   // Esc clears the search.
