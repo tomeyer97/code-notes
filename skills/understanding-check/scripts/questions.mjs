@@ -4,7 +4,10 @@
 //   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect]
 //                     [--links "<phrase>@<path>:A-B;…"]   phrases of the text that become links to those lines
 //   questions.mjs list | remove <qN> | finish
-// The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json.
+//   questions.mjs tour [--top-up]                    then journey.py (its path and --dir are printed) writes the tour
+//   questions.mjs tour-finish --steps q1=3,q2=5,…    checks the tour and puts it, and each question's step, in the file
+// The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json; the tour is
+// written with the code-journey skill's journey.py into a staging folder there, then embedded as `journey`.
 // It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,6 +30,16 @@ const fail = (s) => { say(`PROBLEM: ${s}`); process.exit(1) }
 const loadDraft = () => { try { return JSON.parse(fs.readFileSync(draftPath, 'utf8')) } catch { fail('no draft: run `questions.mjs start` first') } }
 const saveDraft = (d) => fs.writeFileSync(draftPath, JSON.stringify(d, null, 2) + '\n')
 const MAX_DIFF_LINES = 1500
+const gitDir = () => path.resolve(repo, execFileSync('git', ['rev-parse', '--git-dir'], { cwd: repo, encoding: 'utf8' }).trim())
+/** Where journey.py writes the tour (slug TOUR) before tour-finish embeds it. */
+const stageDir = () => process.env.UNDERSTANDING_TOUR_DIR || path.join(gitDir(), 'understanding-tour')
+const TOUR = 'tour'
+/** The code-journey skill's journey.py: JOURNEY_PY, the repository's copy, else the one shipped beside this skill. */
+const journeyPy = () => [process.env.JOURNEY_PY, path.join(repo, '.claude/skills/code-journey/scripts/journey.py'), path.join(here, '../../code-journey/scripts/journey.py')].find((p) => p && fs.existsSync(p))
+/** Steps a new tour has, and a top-up adds. */
+const TOUR_STEPS = [6, 10], TOPUP_STEPS = [1, 4]
+const fmtRange = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
+const qLine = (q) => `${q.id} (${q.kind}) ${q.file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also?.length ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''}${q.step ? ` · step ${q.step}` : ''}: ${q.text}`
 
 /** How many questions a change gets: by its size in code lines (U.questionsFor); a top-up gets 1, or 2 when it grew a lot. */
 function wanted(lines, topUp) {
@@ -210,5 +223,102 @@ if (cmd === 'finish') {
   process.exit(0)
 }
 
-say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect] | list | remove <n> | finish`)
+if (cmd === 'tour') {
+  const branch = U.currentBranch(repo)
+  const rel = U.fileFor(branch)
+  const abs = path.join(repo, rel)
+  if (!fs.existsSync(abs)) fail(`${rel} doesn't exist: write the questions first (start, add, finish)`)
+  const check = U.readCheck(abs)
+  const J = journeyPy()
+  if (!J) fail('journey.py (the code-journey skill) was not found: set JOURNEY_PY to its path')
+  const stage = stageDir()
+  fs.rmSync(stage, { recursive: true, force: true })
+  fs.mkdirSync(stage, { recursive: true })
+  const topUp = !!o['top-up'] && !!check.journey
+  // The branch it is for: tour-finish writes there even after a branch switch.
+  fs.writeFileSync(path.join(stage, 'meta.json'), JSON.stringify({ branch }) + '\n')
+  if (topUp) fs.writeFileSync(path.join(stage, `${TOUR}.json`), JSON.stringify({ ...check.journey, id: TOUR }, null, 2) + '\n')
+  // What the tour must show: the change's lines (a top-up: only what is new since the tour), by file.
+  const base = check.base && U.hasCommit(repo, check.base) ? check.base : U.mergeBase(repo, U.defaultBase(repo) ?? 'HEAD', check.head)
+  let ranges
+  if (topUp) {
+    const known = new Set(check.journey.steps.map((s) => s.file))
+    const fresh = check.journey.commit && U.hasCommit(repo, check.journey.commit) ? U.codeLines(repo, check.journey.commit, check.head, cfg.exempt) : []
+    ranges = U.rangesOf(fresh)
+    if (!ranges.size) for (const q of check.questions.filter((x) => !x.step)) if (!known.has(q.file)) ranges.set(q.file, [[q.start ?? 1, q.end ?? 1]])
+  } else ranges = base ? U.changedRanges(U.diffText(repo, base, check.head, U.numstat(repo, base, check.head), cfg.exempt), { codeOnly: true }) : new Map()
+  const want = topUp ? check.questions.filter((q) => !q.step) : check.questions
+  const [lo, hi] = topUp ? TOPUP_STEPS : TOUR_STEPS
+  const n0 = topUp ? check.journey.steps.length : 0
+  say(topUp ? `TOUR TOP-UP: the tour of ${branch} has ${n0} steps; add ${lo}-${hi} after step ${n0}, through the new part only` : `TOUR: a journey of this change (${branch}): ${lo}-${hi} steps through the changed code and the unchanged code it depends on, in the order a request or the data flows`)
+  say(`JOURNEY: ${J} <command> <repo> ${TOUR} … --dir ${stage}   (repo: ${repo}; always --dir; slug ${TOUR})`)
+  if (topUp) { say('STEPS SO FAR (keep them as they are):'); check.journey.steps.forEach((s, i) => say(`  ${i + 1}. ${s.title} (${s.file}:${s.range.start}-${s.range.end})`)) }
+  say(`QUESTIONS ${topUp ? 'that need a step' : '(each needs the step after which its answer is visible)'}:`)
+  for (const q of want) say(`  ${qLine(q)}`)
+  if (ranges.size) say(`CHANGED: ${[...ranges].map(([f, rs]) => `${f}:${fmtRange(rs)}`).join(' · ')}`)
+  say(`THEN: ${J} check <repo> ${TOUR} quiet --dir ${stage}; fix every PROBLEM; then questions.mjs tour-finish --steps ${want.map((q) => `${q.id}=<n>`).join(',')}`)
+  process.exit(0)
+}
+
+if (cmd === 'tour-finish') {
+  let meta = {}
+  try { meta = JSON.parse(fs.readFileSync(path.join(stageDir(), 'meta.json'), 'utf8')) } catch { /* none: this branch */ }
+  const branch = meta.branch || U.currentBranch(repo)
+  const rel = U.fileFor(branch)
+  // Its branch was switched away from meanwhile: the extension keeps its check in .code-notes/.cache/checks.
+  const abs = [path.join(repo, rel), path.join(repo, '.code-notes/.cache/checks', `${U.slugOf(branch)}.json`)].find((f) => fs.existsSync(f))
+  if (!abs) fail(`${rel} doesn't exist`)
+  const staged = path.join(stageDir(), `${TOUR}.json`)
+  let j
+  try { j = JSON.parse(fs.readFileSync(staged, 'utf8')) } catch { fail(`no tour in ${stageDir()}: run \`questions.mjs tour\`, then journey.py new … ${TOUR} --dir …`) }
+  const J = journeyPy()
+  if (J) {
+    let out = '', code = 0
+    try { out = execFileSync('python3', [J, 'check', repo, TOUR, 'quiet', '--dir', stageDir()], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) } catch (e) { code = e.status ?? 1; out = `${e.stdout ?? ''}${e.stderr ?? ''}` }
+    if (code) { say(out.trim()); fail('journey.py check found problems: fix them, then tour-finish again') }
+  }
+  // The file as it is now: answers given while the tour was written are kept.
+  const check = U.readCheck(abs)
+  const before = check.journey
+  const n0 = before ? before.steps.length : 0
+  const steps = Array.isArray(j.steps) ? j.steps : []
+  const added = steps.length - n0
+  if (before) {
+    // A top-up only appends: the steps the questions already point at stay where they are.
+    const same = before.steps.every((s, i) => steps[i] && steps[i].id === s.id && steps[i].title === s.title && steps[i].file === s.file)
+    if (!same) fail(`the first ${n0} steps changed: a top-up only adds steps after step ${n0} (journey.py restore, or rmstep the new ones and add them again)`)
+    if (added < TOPUP_STEPS[0] || added > TOPUP_STEPS[1]) fail(`${added} new steps: add ${TOPUP_STEPS[0]}-${TOPUP_STEPS[1]} after step ${n0}`)
+  } else if (steps.length < TOUR_STEPS[0] || steps.length > TOUR_STEPS[1]) fail(`${steps.length} steps: a tour of a change has ${TOUR_STEPS[0]}-${TOUR_STEPS[1]}`)
+  // No animations in a check's tour (time and cost): dropped if any.
+  for (const s of steps) delete s.scene
+  const given = new Map()
+  for (const part of String(o.steps ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const m = /^(q\d+)\s*=\s*(\d+)$/.exec(part)
+    if (!m) fail(`--steps ${part}: write it as q1=3`)
+    if (!check.questions.some((q) => q.id === m[1])) fail(`--steps: there is no question ${m[1]}`)
+    given.set(m[1], Number(m[2]))
+  }
+  const problems = []
+  for (const q of check.questions) {
+    const n = given.get(q.id) ?? q.step
+    if (!n) { problems.push(`${q.id} has no step: --steps ${q.id}=<n>`); continue }
+    if (n < 1 || n > steps.length) { problems.push(`${q.id}=${n}: the tour has ${steps.length} steps`); continue }
+    if (before && given.has(q.id) && q.step && q.step !== n) { problems.push(`${q.id} is at step ${q.step} already: keep it`); continue }
+    // Its answer must be visible by then: a step up to n shows the question's file (or the code it also depends on).
+    const files = new Set([q.file, ...(q.also ?? []).map((x) => x.file)])
+    if (!steps.slice(0, n).some((s) => files.has(s.file))) problems.push(`${q.id}=${n}: no step up to ${n} is in ${[...files].join(' or ')}; give a later step, or add a step there`)
+    q.step = n
+  }
+  if (problems.length) fail(problems.join('; '))
+  const model = process.env.UNDERSTANDING_MODEL_LABEL || process.env.UNDERSTANDING_MODEL || undefined
+  check.journey = { ...j, id: TOUR, commit: check.head, ...(before?.createdAt ? { createdAt: before.createdAt, updatedAt: new Date().toISOString() } : { createdAt: new Date().toISOString() }), ...(model ? { model } : {}) }
+  const errs = U.validateCheck(check, { repo })
+  if (errs.length) fail(`the file would not be valid: ${errs.join('; ')}`)
+  U.writeCheck(abs, U.stamp(check, cfg))
+  fs.rmSync(stageDir(), { recursive: true, force: true })
+  say(`WROTE the tour into ${rel}: ${steps.length} steps${before ? ` (${added} new)` : ''}; ${check.questions.map((q) => `${q.id} after step ${q.step}`).join(', ')}. Done: reply with the step titles, one per line.`)
+  process.exit(0)
+}
+
+say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect] | list | remove <n> | finish | tour [--top-up] | tour-finish --steps q1=<n>,…`)
 process.exit(cmd ? 2 : 0)

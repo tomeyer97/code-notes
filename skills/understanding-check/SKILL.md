@@ -68,6 +68,30 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 - Yes/no questions, opinion questions ("Is this a good design?"), or questions about code the change didn't touch.
 - Hints of the answer in the question. Answers are never stored: the grader judges each answer against the code.
 
+## The tour (when asked to write it)
+
+After the questions, the author can walk a short **journey of the change** and click their way to each answer
+instead of reading the code cold. Write it only when the request asks for the tour.
+
+1. `questions.mjs tour` (`tour --top-up` when topping up). It prints the questions, the changed lines and the exact
+   `journey.py` path and `--dir` to use (always that `--dir`; the slug is `tour`).
+2. Write the journey with `journey.py` (the code-journey skill's script; `journey.py help <command>` gives its rules):
+   - **6-10 steps** through the changed code AND the unchanged code it depends on (the caller, the table, the retry
+     loop), in the order a request or the data actually flows. A top-up adds 1-4 steps after the last one, about
+     the new part only; never change the earlier steps.
+   - `new <repo> tour "<question>" "<title>" --dir … < summary`: the question one developer would ask about this
+     change ("What happens when a shopper asks for a refund?"), a short topic title ("Refunds"), a 2-sentence summary.
+   - A small map: 1-3 `system` boxes (reuse the names of the repo's journeys in `journeys/` when there are some), a
+     `function` box per function a step is in (`range` prints its lines), and an `edge` for each hop between them.
+   - Each `step`: a title that is one fact (≤ 70 chars), a lead of one plain sentence (≤ 25 words), lines that make
+     the title true (≤ 15). Details and refs only where they save a click.
+   - **Each question's answer must be visible by its step**: a step up to it shows the question's lines (or the code
+     it depends on). Order the steps so the questions come along the way, not all at the end.
+   - Then 1-3 `link`s per step (a phrase of the lead to the lines doing it). No `value`, no `scene`.
+   - `check <repo> tour quiet --dir …`: fix every PROBLEM and WARNING it prints.
+3. `questions.mjs tour-finish --steps q1=3,q2=5,…`: for each question, the step after which its answer can be seen.
+   Reply with the step titles, one per line.
+
 ## Top-up
 
 `start --top-up` lists the NEW LINES of the branch's own change since the questions were written (code merged in
