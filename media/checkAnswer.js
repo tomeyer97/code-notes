@@ -2,7 +2,7 @@
 // textarea for the answer (Ctrl+Enter sends it, Esc goes back to the code), its latest grade with the code links
 // clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
-// Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' }
+// Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' } { type: 'regrade', id }
 //      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
@@ -59,6 +59,8 @@
         w.append(t)
       }
       if (a.checking) w.append(el('p', 'checking', 'Checking…'))
+      // Couldn't grade it (the answer is kept): why, and Try again.
+      else if (a.error) { const p = el('p', 'failed'), b = el('button', 'link', 'Try again'); b.onclick = () => post({ type: 'regrade', id: a.id }); p.append(`⚠ ${a.error} `, b); w.append(p) }
       else if (a.grade) {
         const g = el('div', `grade${a.grade.pass ? ' pass' : ''}`)
         const f = el('p')
@@ -75,7 +77,9 @@
         c.append(el('p', null, `⚠ ${a.concern.text}`))
         const acts = el('p', 'acts')
         const act = (label, action) => { const b = el('button', 'link', label); b.onclick = () => post({ type: 'concern', id: a.id, action }); return b }
-        acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
+        // Its fix is in the code: said; it goes with Commit & push.
+        if (a.concern.applied) acts.append(el('span', 'applied', 'Fix applied · not committed'), ' · ', act('Dismiss', 'dismiss'))
+        else acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
         c.append(acts); w.append(c)
       }
       if (a.next) { const n = el('button', 'next', 'Next question ›'); n.onclick = () => post({ type: 'next' }); w.append(n) }

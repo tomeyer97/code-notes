@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLine, answerBox, linkParts, tourPrompt, writeFailure } from '../src/checkModel'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, answerBox, linkParts, tourPrompt, writeFailure } from '../src/checkModel'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -71,6 +71,19 @@ test('the Check view: the CLI\'s words, rows with their state, one button', () =
   assert.deepEqual(cv.also, [{ file: 'api/refunds.js', label: 'also refunds.js (TODO added)', on: false }])
   assert.equal(checkView(done, ok, { commit: { ...commit, include: new Set(['api/refunds.js']) } }).also?.[0].on, true)
   assert.equal(checkView(clean, ok, { unpushed: true, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set() } }).commits, undefined, 'nothing to commit: only the push')
+  assert.equal(checkView(clean, ok, { unpushed: true, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set() } }).action?.label, 'Push')
+  // An applied fix: offered ticked, named, said on its question; Commit & push stays even when the check file is committed.
+  const fixed = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>(), fixes: ['api/refunds.js'], applied: ['q3'], exclude: new Set<string>() }
+  const fv = checkView(clean, ok, { unpushed: false, commit: fixed })
+  assert.deepEqual([fv.action?.label, fv.line, fv.also], ['Commit & push', 'Your fix is not committed yet.', [{ file: 'api/refunds.js', label: 'refunds.js (your fix)', on: true }]])
+  assert.equal(checkView(clean, ok, { unpushed: false, commit: { ...fixed, exclude: new Set(['api/refunds.js']) } }).also?.[0].on, false)
+  const withC = st({ summary: sum(['pass', 'pass', 'pass']), state: { phase: 'done' } })
+  withC.check!.questions[2].concern = { text: 'NaN slips through.', flagged: false }
+  assert.equal(checkView(withC, ok, { commit: fixed }).rows[2].flag, 'fix applied · not committed')
+  assert.equal(checkView(withC, ok, { commit: fixed, selected: 'q3' }).answer?.concern?.applied, true)
+  // Only the tour is new: said; the button stays, naming it.
+  const tv = checkView(done, ok, { unpushed: false, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set(), tourOnly: true } })
+  assert.deepEqual([tv.line, tv.action?.label, tv.commits], ['Only the tour is new: it can go with your next push.', 'Commit & push', 'Commits feat-x.json (the tour)'])
   // Someone else's check: one line, nothing blocked.
   assert.equal(checkView(st(), W(), { me: { name: 'Bob', email: 'bob@example.com' } }).who, "Ada's check: your answers are recorded as yours.")
   assert.equal(checkView(st(), W(), { me: { name: 'Ada', email: 'ada@example.com' } }).who, undefined)
@@ -112,13 +125,20 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: store.js')
 })
 
-test('a TODO from the check is one short line (at most 80 characters, cut at a word)', () => {
-  assert.equal(todoLine(['//', ''], 'Stock goes up for damaged units.'), '// TODO: Stock goes up for damaged units.')
+test('a TODO from the check holds the whole concern (wrapped at words), above its line or inside the block it opens', () => {
+  assert.deepEqual(todoLines(['//', ''], 'Stock goes up for damaged units.'), ['// TODO: Stock goes up for damaged units.'])
   const long = 'The stock update in the refund loop adds every refunded unit back to products with no restock option, so unreturned or damaged goods inflate stock.'
-  const t = todoLine(['//', ''], long)
-  assert.ok(t.length <= 80, `${t.length}`); assert.match(t, /^\/\/ TODO: The stock update in the refund loop adds every refunded unit back to\S*…$/)
-  const h = todoLine(['<!--', ' -->'], long)
-  assert.ok(h.length <= 80 && h.endsWith('… -->'), h)
+  const t = todoLines(['//', ''], long)
+  assert.ok(t.length === 2 && t.every((l) => l.length <= 100), JSON.stringify(t))
+  assert.equal(t.map((l, i) => (i ? l.replace(/^\/\/\s+/, '') : l.replace(/^\/\/ TODO: /, ''))).join(' '), long, 'nothing cut')
+  assert.match(t[1], /^\/\/ {7}\S/, 'lined up under the text')
+  const h = todoLines(['<!--', ' -->'], long)
+  assert.ok(h[0].startsWith('<!-- TODO: ') && h.at(-1)!.endsWith(' -->') && !h[0].endsWith('-->'), JSON.stringify(h))
+  const code = ['  try {', '    run()', '  } catch (err) {', '    log(err)', '  }']
+  assert.deepEqual(todoPlace(code, 2), { line: 3, indent: '    ' }, 'a "} catch {" line: inside the catch block')
+  assert.deepEqual(todoPlace(code, 1), { line: 1, indent: '    ' }, 'else above the line, at its indentation')
+  assert.equal(gradeFailure('Claude Code exited (1): API Error: Connection error. (Overloaded) retrying failed'), 'Claude is busy right now; your answer is saved.')
+  assert.equal(gradeFailure('couldn\'t start Claude Code (/x/claude): spawn /x/claude ENOENT'), "Claude Code wasn't found; your answer is saved.")
 })
 
 test('the answer box: only for the selected question; open until done; its grade with code links; Next question once done', () => {
@@ -174,6 +194,7 @@ test('a failed write in plain words: never the CLI\'s own advice', () => {
   assert.deepEqual(writeFailure({ error: 'Error 529: overloaded' }), { text: 'Claude is busy right now.' })
   assert.equal(writeFailure({ error: 'The process exited. Run --verbose to see more.' }).text, "Claude couldn't write the questions: The process exited.")
   assert.equal(writeFailure({ text: 'I could not write any questions. `questions.mjs add` rejects every file I give it.' }).text, "Claude couldn't write questions for this change.")
+  assert.deepEqual(writeFailure({ error: "couldn't start Claude Code (/home/a/.local/bin/claude): spawn /home/a/.local/bin/claude ENOENT" }), { text: "Claude Code wasn't found.", path: true })
   assert.equal(writeFailure({ text: 'UNCOMMITTED: this change is not committed yet' }).text, 'Commit your change first: questions are about committed code.')
   assert.equal(checkView(st(), W(), { failed: { text: 'x' } }).failed?.text, 'x')
 })

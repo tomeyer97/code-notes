@@ -151,6 +151,9 @@ export class Ask {
     })
   }
 
+  /** The process id of the running `claude` (a window reloaded meanwhile can tell it is still at work). */
+  get pid(): number | undefined { return this.proc?.pid }
+
   cancel(): void {
     this.cancelled = true
     this.proc?.kill('SIGTERM')

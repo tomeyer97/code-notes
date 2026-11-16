@@ -1064,7 +1064,9 @@ export async function commitAndPush(repo, files, message, { env = process.env, t
     args = ['push', '-u', remote, 'HEAD']
   }
   const p = await gitRun(repo, args, { env, timeoutMs })
-  if (!p.code) return { ok: true, committed, pushed: true, line: 'Pushed.' }
+  // A branch without a merge request: GitLab and GitHub print where to open one.
+  const mr = /remote:\s+(https?:\/\/\S+(?:\/merge_requests\/new\S*|\/pull\/new\/\S+))/.exec(`${p.err}\n${p.out}`)?.[1]
+  if (!p.code) return { ok: true, committed, pushed: true, line: 'Pushed.', ...(mr ? { mr } : {}) }
   const was = committed ? 'Committed, but the push ' : 'The push '
   if (p.code === -1) return { ok: false, committed, pushed: false, line: `${was}took longer than ${Math.round(timeoutMs / 1000)} s: push it yourself.` }
   if (/\[rejected\]|non-fast-forward|fetch first|\(stale info\)/.test(p.err)) return { ok: false, committed, pushed: false, line: `${was}was rejected: ${remote} has newer commits. Pull, then push again.` }

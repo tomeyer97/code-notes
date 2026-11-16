@@ -778,7 +778,7 @@ function commentsOf(n: Note, thread: vscode.CommentThread): vscode.Comment[] {
     const also = seeAlsoLink([cq.file, ...(cq.also ?? []).map((x) => x.file)], cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
     if (also) out.push({ body: systemMarkdown(also), mode: vscode.CommentMode.Preview, author: { name: 'See also' }, contextValue: 'system' })
   }
-  if (chk?.error) out.push({ body: systemMarkdown(`⚠ Couldn't check this answer: ${chk.error}\n\n${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
+  if (chk?.error) out.push({ body: systemMarkdown(`⚠ ${chk.error} ${cmdLink('Try again', 'codeNotes.gradeCheck', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
   const err = askErrors.get(n.data.id)
   // A failure is a passing status, not a message from Claude: Try again, or Dismiss; never saved.
   if (err) out.push({ body: systemMarkdown(`⚠ Claude couldn't answer: ${err}\n\n${cmdLink('Try again', 'codeNotes.askClaude', n.data.id)} · ${cmdLink('Dismiss', 'codeNotes.cancelClaude', n.data.id)}`), mode: vscode.CommentMode.Preview, author: { name: 'Code Notes' }, contextValue: 'system' })
@@ -3456,6 +3456,9 @@ async function applySuggestion(id: string, mi: number, k: number): Promise<boole
   ed.selection = new vscode.Selection(start, 0, start, 0)
   refreshAll()
   vscode.window.setStatusBarMessage(`$(check) Applied to ${lines(n)}. Save to keep; Ctrl+Z undoes.`, 5000)
+  // A fix suggested for a check's concern: the check offers it with Commit & push.
+  const fixFor = (n.data.extra as { checkFix?: string } | undefined)?.checkFix
+  if (fixFor) void understanding?.fixApplied(fixFor, n.data.file)
   return true
 }
 
