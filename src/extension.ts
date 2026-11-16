@@ -884,7 +884,8 @@ function syncThread(n: Note): void {
     missing.has(n.data.id) ? `⚠ ${n.data.target === 'folder' ? 'folder' : 'file'} not found` : '',
     // The note's first line: never VS Code's "Start discussion".
     shortQ(((n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? '').replace(/\*\*|`/g, ''), 80),
-  ].filter(Boolean).join(' · '))
+    // VS Code shows a label HTML-escaped ("&lt;"): <, > and & as look-alikes (as on the step card).
+  ].filter(Boolean).join(' · ').replace(/</g, '‹').replace(/>/g, '›').replace(/&/g, '＆'))
 }
 
 function noteOfThread(t: vscode.CommentThread): Note | undefined {

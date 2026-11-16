@@ -51,7 +51,7 @@ export async function run(): Promise<void> {
   const read = () => JSON.parse(fs.readFileSync(file, 'utf8'))
   const checkNotes = () => (api.snapshot().notes as any[]).filter((n) => n.session === 'Check · feat/limits')
   const noteOf = (q: string) => checkNotes().find((n) => n.extra?.check?.q === q)
-  dump = () => ({ check: chk(), files: fs.readdirSync(ws), u: fs.existsSync(path.join(ws, 'understanding')) && fs.readdirSync(path.join(ws, 'understanding')), notes: api.snapshot().notes.map((n: any) => [n.session, n.extra]) })
+  dump = () => ({ notes: api.snapshot().notes.map((n: any) => [n.session, n.extra]), u: fs.existsSync(path.join(ws, 'understanding')) && fs.readdirSync(path.join(ws, 'understanding')), files: fs.readdirSync(ws), check: chk() })
   const shot = (name: string) => { const d = process.env.CODE_NOTES_SHOTS; if (d) execFileSync('import', ['-window', 'root', path.join(d, `${name}.png`)]) }
 
   await vscode.workspace.getConfiguration('codeNotes').update('claude.path', path.join(__dirname, '../../../test/fixtures/fake-grader.js'), vscode.ConfigurationTarget.Workspace)
@@ -281,7 +281,8 @@ export async function run(): Promise<void> {
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.
   assert.equal(read().questions[1].attempts[0].answer, undefined)
-  assert.equal(noteOf('q2').messages.filter((m: any) => m.role === 'human')[0].body, '_An earlier answer (not kept)._')
+  // Nor its "Not quite" under it (it would talk about an answer no longer there); the explanation stays.
+  await until('the first answer and its retry gone from the thread', () => !noteOf('q2').messages.some((m: any) => m.body === 'Not sure.' || /^Not quite/.test(m.body) || /not kept/.test(m.body)))
   assert.equal(chk().view.rows[1].word, 'explained · say it back')
   if (cdp) {
     await until('after "explained": the keyboard in q2\'s box', async () => (await boxFocused()) === 'q2' && !view().answer?.checking)
@@ -290,6 +291,7 @@ export async function run(): Promise<void> {
     await page.keyboard.press('Control+Enter')
   } else await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
   await until('q2 restated', () => lastBody('q2') === '✓ Right.')
+  assert.ok(noteOf('q2').messages.some((m: any) => /^It retries with backoff/.test(m.body)), 'the explanation stays after saying it back')
   assert.deepEqual(read().questions[1].attempts.map((a: any) => a.verdict), ['retry', 'explained', 'restated'])
   assert.equal(chk().view.rows[1].word, 'in your words')
   await shoot('check-2-restated')
@@ -460,7 +462,7 @@ export async function run(): Promise<void> {
   ok('another git user: "Ada\'s check: your answers are recorded as yours."')
 
   // 12b. The file rewritten on disk (questions written again, a pull): threads follow; none stands for another question.
-  const oldQ2 = noteOf('q2').id
+  const oldQ2 = (await until('q2\'s thread', () => noteOf('q2'))).id
   const kept = fs.readFileSync(file, 'utf8')
   const rw = read()
   rw.questions[1].text = 'Why does reset() take a customer instead of clearing every count?'; rw.questions[1].attempts = []

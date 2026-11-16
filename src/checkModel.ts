@@ -157,7 +157,8 @@ export function linksAt(q: Question, roles: string[], mi: number): Link[] {
   const k = roles.slice(0, mi).filter((r) => r === 'agent').length
   // The question's own links, then its "Also read" names (last in its text, so they are found there).
   if (k === 0) return [...(q.links ?? []), ...alsoLinks(q)]
-  return (q.attempts ?? []).filter((a) => a.verdict)[k - 1]?.links ?? []
+  // The grades the thread shows: a superseded answer's only when it explained (check.ts messagesOf).
+  return (q.attempts ?? []).filter((a) => a.verdict && (a.answer !== undefined || a.verdict === 'explained'))[k - 1]?.links ?? []
 }
 
 /**

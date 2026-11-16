@@ -66,8 +66,6 @@ const AUTHOR = 'Understanding check'
 const SKILL = 'understanding-check'
 /** Files the first check writes (initRepo): committed with the check. */
 const REPO_FILES = ['.gitattributes', '.ignore']
-/** A superseded answer: not kept in the check file, nor in its thread's note. */
-const EARLIER = '_An earlier answer (not kept)._'
 /** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
 const CACHE = '.code-notes/.cache/checks'
 const isCheck = (n: Note) => !!(n.data.extra as { check?: unknown } | undefined)?.check
@@ -555,6 +553,14 @@ export class Understanding implements vscode.Disposable {
     try { await this.view.focus(id) } catch { boxed = false }
     await this.host.reveal(n, this.host.codeColumn(), boxed)
     if (!boxed) await this.host.focusReply(n)
+    // Its own lines stay in view, also when a tour's step card far from them is drawn a moment later and scrolls there.
+    const file = path.join(this.repo ?? '', n.data.file), r = n.data.range
+    for (const ms of [250, 800]) setTimeout(() => {
+      if (this.selected !== id) return
+      const ed = vscode.window.visibleTextEditors.find((e) => e.document.uri.fsPath === file)
+      const want = new vscode.Range(r.start - 1, 0, r.end - 1, 0)
+      if (ed && !ed.visibleRanges.some((v) => v.contains(want.start))) ed.revealRange(want, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    }, ms)
   }
 
   // ---------- the answer box in the Check view ----------
@@ -581,7 +587,7 @@ export class Understanding implements vscode.Disposable {
     const q = this.st?.check?.questions.find((x) => x.id === id)
     if (!n || !q) return
     // The grade's message in the thread: the k-th agent message after the question for the k-th graded attempt.
-    const k = (q.attempts ?? []).filter((a) => a.verdict).length
+    const k = (q.attempts ?? []).filter((a) => a.verdict && (a.answer !== undefined || a.verdict === 'explained')).length
     let seen = 0
     const mi = n.data.messages.findIndex((m, x) => x > 0 && m.role === 'agent' && ++seen === k)
     if (mi > 0) await vscode.commands.executeCommand('codeNotes.codeLink', `check|${n.data.id}|${mi}`, i)
@@ -688,16 +694,41 @@ export class Understanding implements vscode.Disposable {
     return this.host.store.all().find((n) => linkOf(n)?.q === id && linkOf(n)?.file === file)
   }
 
-  /** The thread messages a question's file entry stands for: the question, then each answer and its grade. */
+  /**
+   * The thread messages a question's file entry stands for: the question, then each answer and its grade. A superseded
+   * answer (not kept in the file) is left out with its grade, except an explanation: that is the lesson.
+   */
   private messagesOf(q: Question, check: Check): NoteData['messages'] {
     const out: NoteData['messages'] = [{ author: AUTHOR, role: 'agent', body: questionBody(q) }]
     let explained = false
     for (const a of q.attempts ?? []) {
-      out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer ?? EARLIER, ...(a.at ? { at: a.at } : {}) })
-      if (a.verdict) out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
+      if (a.answer !== undefined) out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer, ...(a.at ? { at: a.at } : {}) })
+      if (a.verdict && (a.answer !== undefined || a.verdict === 'explained')) out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
       if (a.verdict === 'explained') explained = true
     }
     return out
+  }
+  /**
+   * A thread's copies of answers the file no longer keeps (a later one superseded them) go, with the grade under each
+   * (an explanation stays). They are the thread's answers before the kept one that aren't kept, matched from the last.
+   */
+  private dropSuperseded(n: Note, q: Question): boolean {
+    const gone = (q.attempts ?? []).filter((a) => a.answer === undefined)
+    const kept = new Set((q.attempts ?? []).flatMap((a) => (a.answer !== undefined ? [a.answer] : [])))
+    const ms = n.data.messages
+    let last = -1
+    ms.forEach((m, i) => { if (m.role === 'human' && kept.has(m.body)) last = i })
+    if (!gone.length || last < 0) return false
+    const old = ms.map((m, i) => ({ m, i })).filter(({ m, i }) => i > 0 && i < last && m.role === 'human' && !kept.has(m.body))
+    if (!old.length) return false
+    const drop = new Set<number>()
+    old.reverse().forEach(({ i }, k) => {
+      const a = gone[gone.length - 1 - k]
+      drop.add(i)
+      if (ms[i + 1]?.role === 'agent' && a?.verdict !== 'explained') drop.add(i + 1)
+    })
+    n.data.messages = ms.filter((_m, i) => !drop.has(i))
+    return true
   }
 
   /**
@@ -716,10 +747,7 @@ export class Understanding implements vscode.Disposable {
       const n = this.noteOf(q.id)
       if (!n) { await this.createNote(q, want); continue }
       // An answer the file no longer keeps (a later one superseded it): its copy in the note goes too.
-      let redacted = false
-      const humans0 = n.data.messages.filter((m) => m.role === 'human')
-      want.filter((m) => m.role === 'human').forEach((m, k) => { if (m.body === EARLIER && humans0[k] && humans0[k].body !== EARLIER) { humans0[k].body = EARLIER; redacted = true } })
-      if (redacted && await this.host.store.save(n)) await this.host.changed(n, false)
+      if (this.dropSuperseded(n, q) && await this.host.store.save(n)) await this.host.changed(n, false)
       // Append-only: the thread may hold more (a remark after the question was done); never less.
       const humans = (m: NoteData['messages']) => m.filter((x) => x.role === 'human').length
       const agents = (m: NoteData['messages']) => m.filter((x) => x.role === 'agent').length
