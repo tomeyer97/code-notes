@@ -14,7 +14,8 @@ async function main() {
     extensionDevelopmentPath: root,
     extensionTestsPath: path.join(__dirname, 'index.js'),
     // No Chromium sandbox: CI runners (and containers) often can't set it up; the untrusted run below does the same.
-    launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox'],
+    launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox',
+      ...(process.env.CODE_NOTES_PROFILE ? [`--user-data-dir=${path.join(process.env.CODE_NOTES_PROFILE, `main-${path.basename(ws)}`)}`] : [])],
   })
 }
 
@@ -60,7 +61,7 @@ async function check() {
   fs.writeFileSync(path.join(ws, 'api', 'limits.js'), ['// Orders per customer per hour.', 'const counts = new Map()', '',
     'export function allow(customer, now = Date.now()) {', '  const c = counts.get(customer)', '  if (!c || now - c.since > 3600_000) { counts.set(customer, { since: now, n: 1 }); return true }',
     '  return ++c.n <= 5', '}', '', '// One count per customer: a customer splitting a big cart into orders is still one customer.',
-    'export function reset(customer) {', '  counts.delete(customer)', '}', ...Array.from({ length: 14 }, (_, i) => `export const LIMIT_${i} = ${i}`), ''].join('\n'))
+    'export function reset(customer) {', '  counts.delete(customer)', '}', ...Array.from({ length: 52 }, (_, i) => `export const LIMIT_${i} = ${i}`), ''].join('\n'))
   g('add', '-A'); g('commit', '-qm', 'limits')
   // The test's own workspace settings are not part of the change.
   fs.appendFileSync(path.join(ws, '.git', 'info', 'exclude'), '.vscode/\n')

@@ -70,7 +70,7 @@ test('concerns: the grader\'s latest, else the question\'s own "may be a bug"; s
   const base = q('q1', 'failure')
   assert.equal(concernOf(base as never), undefined)
   assert.deepEqual(concernOf({ ...base, suspect: true } as never), { text: 'May be a bug: fix it or explain.', flagged: false, suspect: true })
-  const c = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, concern: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true }] }
+  const c = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, concern: 'OPS_EMAIL is never set: alerts go nowhere.' }], concern: { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true } }
   assert.deepEqual(concernOf(c as never), { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true, suspect: false })
   const v = checkView(st({ check: { ...st().check!, questions: [c as never, { ...base, id: 'q2', suspect: true } as never] }, summary: sum(['pass', 'todo']) }), W())
   assert.deepEqual(v.rows.map((r) => r.flag), ['flagged for review', 'may be a bug'])

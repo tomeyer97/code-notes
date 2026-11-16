@@ -59,25 +59,26 @@ the repository's copy wins.
 ## Understanding check
 
 **Code Notes: Check my understanding** (or the **Check** item in the status bar) has Claude Code read your branch's
-change and ask 3-5 questions about it: how a part behaves, why it is built this way, how it fails. Each question opens
+change and ask a few questions about it (1 for a small change, up to 5 for a big one): how a part behaves, why it is built this way, how it fails. Each question opens
 as a thread on its lines. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
 replies in the thread. A miss gets a hint and a second try; a second miss gets the explanation, and you move on.
 
-Questions and answers are saved in `understanding/<branch>.json`. Once enough answers pass (60 % by default), the panel
-says **Commit understanding/&lt;branch&gt;.json and push**. Commit it with your change.
+Questions and answers are saved in `understanding/<branch>.json`. Once every question is done and enough answers pass
+(60 % by default), the panel says **Commit and push**. Commit it with your change.
 
 Everything runs on your machine. The merge request check only verifies the file: it belongs to this change, every
-question is answered, the recorded verdicts meet the threshold. It calls no model and needs no key. It also posts the
-questions and answers on the merge request for the reviewer. It is easy to cheat by editing the file; it is there to
+question is done, the recorded verdicts meet the threshold. It calls no model and needs no key. Once the check is done
+it posts the questions and answers on the merge request for the reviewer (while it is in progress, only "2 of 4 done"). It is easy to cheat by editing the file; it is there to
 make you look, not to police.
 
-- **Small changes** (under 20 changed lines, not counting docs and lockfiles) pass without a check.
-- **The change grew** by more than 40 lines since the questions: run the command again; it adds 1-2 questions about
-  the new part only.
-- **Skip it:** label the merge request `skip-understanding`. The check passes once someone other than the author has
-  approved (re-run the job after the approval; on GitHub the review re-runs it).
+- **Every change with code** gets a check; only code lines count (not comments or blank lines). Files that should
+  never count go in `exempt` (none by default).
+- **The change grew** by more than 40 code lines since the questions: run the command again; it adds 1-2 questions
+  about the new part only. Merging the target branch in doesn't count.
+- **Skip it:** label the merge request `skip-understanding`. Any approval by someone other than the author waives the
+  check (re-run the job after the approval; on GitHub the review re-runs it).
 - **Settings** for a repository: `understanding/config.json`, e.g.
-  `{ "passRatio": 0.6, "minChangedLines": 20, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
+  `{ "exempt": ["docs/**", "*.md", "package-lock.json"], "passRatio": 0.6, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
 
 The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
 `grade` (local; Claude Code or `ANTHROPIC_API_KEY`) and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).

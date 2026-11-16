@@ -17,6 +17,8 @@ export interface Question {
   id: string; kind: Kind; text: string; file: string; start?: number; end?: number; target?: 'file'
   anchor?: { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
   attempts?: Attempt[]; round?: number; also?: Range[]; suspect?: boolean
+  /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
+  concern?: { text: string; flagged?: boolean; at?: string }
 }
 export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[] }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
@@ -24,7 +26,7 @@ export type Phase = 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'sh
 export interface State { phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
 export interface Words { tone: 'ok' | 'warn' | 'todo'; bar: string; title: string; line: string; rule: string }
 export interface Status {
-  branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; small?: boolean; exists: boolean
+  branch: string; file: string; base?: string; baseRef?: string; head?: string; changed: number; exists: boolean
   errors?: string[]; check?: Check; summary?: Summary; drift?: { lines: number; approx: boolean }; pending?: { lines: number; approx: boolean }; dirty?: boolean
   state: State; next: string
 }
@@ -103,12 +105,12 @@ export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string
 /** The words of a row's state (the icon says the rest). */
 export const STATE_WORD: Record<QState, string> = { todo: '', ungraded: 'not graded', pass: '', retry: 'try again', explained: 'explained · say it back', restated: 'in your words' }
 
-/** A question's open concern: the grader's (the latest graded attempt's), else the question's own "may be a bug". */
+/** A question's concern: the one stored on it (found while grading), else the question's own "may be a bug". */
 export function concernOf(q: Question): { text: string; flagged: boolean; suspect: boolean } | undefined {
-  const a = (q.attempts ?? []).filter((x) => x.concern).at(-1)
-  if (a) return { text: a.concern!, flagged: !!a.flagged, suspect: false }
-  return q.suspect ? { text: 'May be a bug: fix it or explain.', flagged: false, suspect: true } : undefined
+  if (q.concern?.text) return { text: q.concern.text, flagged: !!q.concern.flagged, suspect: !!q.suspect && q.concern.text === SUSPECT }
+  return q.suspect ? { text: SUSPECT, flagged: false, suspect: true } : undefined
 }
+const SUSPECT = 'May be a bug: fix it or explain.'
 
 export interface CheckRow { id: string; n: number; kind: string; text: string; where: string; also: string[]; state: QState; word: string; flag?: string }
 export interface CheckView {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes the questions of an understanding check, one validated question at a time (SKILL.md says how to use it).
 //   questions.mjs start [--base <ref>] [--top-up] [--replace]   the change, with new-file line numbers; starts a draft
-//   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…]
+//   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect]
 //   questions.mjs list | remove <qN> | finish
 // The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json.
 // It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill.
@@ -27,10 +27,9 @@ const loadDraft = () => { try { return JSON.parse(fs.readFileSync(draftPath, 'ut
 const saveDraft = (d) => fs.writeFileSync(draftPath, JSON.stringify(d, null, 2) + '\n')
 const MAX_DIFF_LINES = 1500
 
-/** How many questions a change gets: by its size; a top-up gets 1, or 2 when it grew a lot. */
+/** How many questions a change gets: by its size in code lines (U.questionsFor); a top-up gets 1, or 2 when it grew a lot. */
 function wanted(lines, topUp) {
-  if (topUp) return lines < 80 ? 1 : 2
-  return Math.min(cfg.questions.max, Math.max(cfg.questions.min, lines < 80 ? 3 : lines < 300 ? 4 : 5))
+  return topUp ? (lines < 80 ? 1 : 2) : U.questionsFor(lines, cfg)
 }
 
 if (cmd === 'start') {
@@ -42,22 +41,36 @@ if (cmd === 'start') {
   if (topUp && !existing) fail(`--top-up: ${rel} doesn't exist yet; run start without it`)
   if (!topUp && existing && !o.replace) fail(`${rel} exists already. Use --top-up to add questions about what changed since, or --replace to start over (its answers are lost)`)
   const baseRef = typeof o.base === 'string' ? o.base : U.defaultBase(repo)
-  const base = topUp ? existing.head : baseRef && U.mergeBase(repo, baseRef, head)
+  const base = baseRef && U.mergeBase(repo, baseRef, head)
   if (!base) fail('no base to compare with: pass --base <branch or commit>')
   // Committed code only: the questions record the commit they were written for (uncommitted lines would count as drift).
-  const files = U.numstat(repo, base, head)
-  const loose = U.linesOf(U.stat(U.numstat(repo, head)))
-  const st = U.stat(files)
-  const lines = U.linesOf(st)
-  if (!topUp && lines < cfg.minChangedLines && loose >= cfg.minChangedLines) { say(`UNCOMMITTED: most of this change is not committed (${loose} lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
-  if (!topUp && lines < cfg.minChangedLines) { say(`SMALL: ${lines} changed lines (under ${cfg.minChangedLines}): no questions needed. Write nothing.`); process.exit(0) }
-  if (topUp && !lines) { say('NOTHING: no change since the questions were written. Write nothing.'); process.exit(0) }
-  const diff = U.diffText(repo, base, head, files)
+  // Code lines only: blank and comment-only lines don't count, nor the config's exempt files.
+  // Always the branch's OWN change (from today's merge base): code that came in from the target branch is never asked.
+  let files = U.numstat(repo, base, head)
+  const loose = U.linesOf(U.codeStat(repo, head, undefined, cfg.exempt))
+  const st = U.codeStat(repo, base, head, cfg.exempt)
+  let lines = U.linesOf(st), ranges
+  if (topUp) {
+    // Only what the branch's own change gained since the questions (freshLines); else, when the questions' commits are
+    // gone, what changed since the questions' commit, or the whole change.
+    const fresh = U.freshLines(repo, existing, base, head, cfg.exempt)
+      ?? (U.hasCommit(repo, existing.head) ? U.codeLines(repo, existing.head, head, cfg.exempt) : U.codeLines(repo, base, head, cfg.exempt))
+    lines = fresh.length
+    ranges = U.rangesOf(fresh)
+    files = files.filter((f) => ranges.has(f.file))
+  }
+  if (!topUp && !lines && loose) { say(`UNCOMMITTED: this change is not committed yet (${loose} code lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
+  if (!lines || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
+  const diff = U.diffText(repo, base, head, files, cfg.exempt)
+  ranges ??= U.changedRanges(diff, { codeOnly: true })
   const want = wanted(lines, topUp)
-  saveDraft({ branch, base: topUp ? existing.base : base, from: base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: topUp ? U.stat(U.numstat(repo, existing.base ?? base, head)) : st, ranges: Object.fromEntries(U.changedRanges(diff)), questions: [] })
-  say(`${topUp ? 'TOP-UP' : 'CHANGE'}: branch ${branch} · ${st.files} files · +${st.added} −${st.removed}${topUp ? ` since the questions were written` : ''}`)
-  if (loose) say(`NOTE: ${loose} uncommitted lines are not included.`)
-  say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''} (then \`finish\`). Files: ${files.filter((f) => U.counted(f.file)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
+  const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
+  const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
+  saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), questions: [] })
+  say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
+  if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
+  say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
   const numbered = U.numberDiff(diff).split('\n')
   say('')
   say(numbered.slice(0, MAX_DIFF_LINES).join('\n'))
@@ -80,9 +93,9 @@ if (cmd === 'add') {
   if (text.length > U.MAX_TEXT) fail(`--text is ${text.length} characters: at most ${U.MAX_TEXT}. One question, plainly`)
   if (!text.endsWith('?')) fail('--text must be one question, ending with "?"')
   if ((text.match(/\?/g) ?? []).length > 1) fail('--text asks more than one question: ask one')
-  if (/,?\s+and (how|what|why|when|where|which|who|does|do|did|is|are|was|were|can|could|would|should|will|has|have)\b/i.test(text)) fail('--text asks two things ("…, and could …"): keep the one that matters')
+  if (/(,?\s+(and|or)( also| then)?|;|\s+as well as)\s+(how|what|why|when|where|which|who|whose|does|do|did|is|are|was|were|can|could|would|should|will|has|have|if)\b/i.test(text)) fail('--text asks two things ("…, and could …"): keep the one that matters')
   // "what happens to X, Y and Z": three things to cover is three questions.
-  if (/,\s+(?!(?:what|how|why|when|where|which|who|does|do|is|are|can|could|would|should|will|if|so|but|or)\b)[^,?]{1,60},?\s+and\s+[^?]+\?$/i.test(text)) fail('--text asks about a list of things ("X, Y and Z"): ask about the one that matters')
+  if (/,\s+(?!(?:what|how|why|when|where|which|who|does|do|is|are|can|could|would|should|will|if|so|but|or)\b)[^,?]{1,60},?\s+(and|or)\s+[^?]+\?$/i.test(text)) fail('--text asks about a list of things ("X, Y and Z"): ask about the one that matters')
   if (/\bline\s+\d+/i.test(text)) fail('--text names a line number: name the function, value or case instead (the question is shown on its lines)')
   if (/^(what does|what is)\b/i.test(text) && kind === 'how' && text.length < 60) say('WARNING: "what does X do" questions are trivia; ask how it behaves in a case, or why')
   const q = { id: '', kind, text, file }
@@ -95,10 +108,14 @@ if (cmd === 'add') {
     if (q.end < q.start) fail('--lines: the end is before the start')
     if (q.end > lines.length) fail(`--lines: ${file} has ${lines.length} lines`)
     if (q.end - q.start > 40) fail('--lines: more than 40 lines; point at the lines that matter (the question shows on them)')
+    const cs = {}
+    if (!lines.slice(q.start - 1, q.end).map((l) => U.isCode(l, file, cs)).some(Boolean)) fail(`--lines ${q.start}-${q.end} hold only comments or blank lines: ask about code`)
     const near = ranges.some(([a, b]) => q.start <= b + 5 && q.end >= a - 5)
-    if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
+    if (!near) fail(`--lines ${q.start}-${q.end} are not near a changed code line of ${file} (changed: ${ranges.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')})`)
     q.anchor = U.compactOf(lines, q.start, q.end)
   }
+  // The honest answer is "this is a bug": the author is asked to fix it or explain it.
+  if (o.suspect) q.suspect = true
   // Unchanged code the answer depends on (a caller, a retry loop, a constraint): shown beside the question.
   if (typeof o.also === 'string' && o.also.trim()) {
     q.also = []
@@ -144,8 +161,9 @@ if (cmd === 'remove') {
 if (cmd === 'finish') {
   const d = loadDraft()
   const n = d.questions.length
-  const [lo, hi] = d.mode === 'top-up' ? [1, 2] : [Math.min(d.want, cfg.questions.min), cfg.questions.max]
-  if (n < lo || n > hi) fail(`${n} questions: write ${lo === hi ? lo : `${lo}-${hi}`} (${d.want} suggested)`)
+  // The count follows the change's size: exactly `want` for a small change (1 or 2), 3 up to the config's max above.
+  const [lo, hi] = d.mode === 'top-up' ? [1, 2] : d.want < 3 ? [d.want, d.want] : [Math.min(3, d.want), Math.max(d.want, cfg.questions.max)]
+  if (n < lo || n > hi) fail(`${n} question${n === 1 ? '' : 's'}: write ${lo === hi ? lo : `${lo}-${hi}`} for this change${lo === hi ? '' : ` (${d.want} suggested)`}`)
   const kinds = new Set(d.questions.map((q) => q.kind))
   if (d.mode !== 'top-up' && n >= 3 && kinds.size < 2) fail('all questions are of one kind: mix them (how, why, failure, edge, change)')
   if (d.mode !== 'top-up' && n >= 3 && ![...kinds].some((k) => ['why', 'failure', 'edge'].includes(k))) fail('ask at least one why, failure or edge question')
@@ -158,6 +176,7 @@ if (cmd === 'finish') {
     let k = Math.max(0, ...check.questions.map((q) => Number(q.id.slice(1)) || 0))
     const round = Math.max(1, ...check.questions.map((q) => q.round ?? 1)) + 1
     for (const q of d.questions) check.questions.push({ ...q, id: `q${++k}`, round })
+    check.base = d.base
     check.head = d.head
     check.diffStat = d.diffStat
     check.updatedAt = new Date().toISOString()
@@ -174,5 +193,5 @@ if (cmd === 'finish') {
   process.exit(0)
 }
 
-say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] | list | remove <n> | finish`)
+say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect] | list | remove <n> | finish`)
 process.exit(cmd ? 2 : 0)

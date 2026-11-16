@@ -506,6 +506,8 @@ export class Understanding implements vscode.Disposable {
       if (!q || !a) return
       Object.assign(a, v, { gradedAt: this.host.now() })
       a.hash = this.U.attemptHash(q, a)
+      // One concern per question, kept on it (its flag survives a later grade).
+      if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
       this.save(abs, check)
       this.host.log.info(`understanding check: ${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
       await this.refresh() // the grade reaches the thread through syncThreads
@@ -549,16 +551,14 @@ export class Understanding implements vscode.Disposable {
       edit.insert(uri, new vscode.Position(line.lineNumber, 0), `${indent}${mark[0]} TODO: ${c.suspect ? q.text : c.text}${mark[1]}\n`)
       await vscode.workspace.applyEdit(edit)
       await doc.save()
-      return
     }
-    // Flag: on the grader's concern (the question's own "may be a bug" has no attempt: flag its latest graded one).
+    // Flag for reviewer: on the merge request (toggles); a TODO in the code takes the place of the flag.
     const abs = this.abs!
     const check = this.U.readCheck(abs)
     const fq = check.questions.find((x) => x.id === q.id)
-    const a = fq?.attempts?.filter((x) => x.concern).at(-1) ?? fq?.attempts?.filter((x) => x.verdict).at(-1)
-    if (!fq || !a) { void vscode.window.showInformationMessage('Answer it first: a flag goes with an answer.'); return }
-    a.flagged = !a.flagged
-    if (!a.concern) a.concern = c.text
+    if (!fq) return
+    const text = c.suspect ? q.text : c.text
+    fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: action === 'flag' ? !c.flagged : false }
     this.save(abs, check)
     await this.refresh()
     this.host.refresh()

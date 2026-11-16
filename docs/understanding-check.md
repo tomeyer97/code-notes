@@ -11,7 +11,8 @@ will find a way around it, so every design choice below favours little friction.
 
 ## Principles
 
-1. **Few, good questions.** 3–5 per change (fewer for small diffs; none under a minimum size). Each one is
+1. **Few, good questions.** Every change with code gets a check; the count follows its size in code lines: 1 under
+   20, 2 under 60, 3–5 above. Each one is
    about *this* change: a specific function, a design choice, a failure mode, an edge case. No trivia, no
    "what does line 12 do".
 2. **Never stuck.** Wrong answer → feedback + one hint → second try → if still wrong, the grader explains
@@ -25,7 +26,9 @@ will find a way around it, so every design choice below favours little friction.
    cheatable by hand-editing the file, deliberately accepted: the goal is to prompt thinking, not to police.
    Each graded attempt stores a short hash of (question, answer, verdict) so CI notices accidental damage
    (e.g. a bad merge of the file) — not a security measure.
-6. **The answers help the reviewer.** CI posts the questions and answers on the merge request.
+6. **The answers help the reviewer.** Once the check is done, CI posts the questions and answers on the merge request
+   (never while it is in progress: no grading in public).
+7. **Good faith over enforcement.** Least friction wins: an approval waives the check, every message is one short line.
 
 ## Flow
 
@@ -72,9 +75,12 @@ never match. The file records the code commit the questions were written for.
       "file": "api/discounts.ts", "start": 40, "end": 58,       // 1-based lines; or "target": "file"
       "anchor": { … same compact anchor as journeys/notes, so it survives edits … },
       "round": 2,                                                // set on questions added by a top-up
+      "suspect": true,                       // optional: the question writer thinks the honest answer is "a bug"
+      "concern": { "text": "…", "flagged": true, "at": "…" },   // optional, see below
       "attempts": [
         { "answer": "…", "at": "…", "by": { "name": "…", "email": "…" },   // "by" only when not answeredBy
-          "verdict": "pass" | "retry" | "explained", "feedback": "…", "hint": "…", "gradedAt": "…",
+          "verdict": "pass" | "retry" | "explained" | "restated", "feedback": "…", "hint": "…", "gradedAt": "…",
+          "note": "…", "topic": "…", "concern": "…",   // from the grader, when it gives them
           "hash": "<12 hex: sha256 of question text, answer, verdict>" }
       ]
     }
@@ -88,16 +94,26 @@ passed; any `explained` → missed; else (last is `retry`) → try again.
 
 The answers also show as note threads in the editor; the file is the source of truth (notes are a view).
 
+**Concerns.** When the grader thinks the CODE is wrong it returns `concern` on that attempt (text only). The author
+decides what happens to it; the extension then writes the question's `concern`:
+`{ "text": string, "flagged": boolean, "at"?: ISO time }`. `flagged: true` (**Flag for reviewer**) puts it at the top of
+the merge request comment under "⚠ Found during the check"; `false` (e.g. **Add TODO**, or not decided) keeps it out of
+the comment. One concern per question; `text` may be edited by the author. `suspect: true` (set by the question
+writer) is shown as "may be a bug" next to the question in the comment.
+
 ## Belongs to this change? (staleness)
 
-CI computes the diff from `head` to the merge request's head, ignoring `understanding/` and what never counts as
-changed lines (docs: `*.md`, `docs/`; lockfiles; `.code-notes/`). If ≤ `maxDrift`
-changed lines (default 40) → still valid. Otherwise: "Your change grew by N lines since the check. Run
+Only **code lines** count: blank lines and whole-line comments (by file type: `//`, `#`, `/* */`, `--`, `<!-- -->`) don't,
+nor `understanding/`, `.code-notes/` and the config's `exempt` files. Drift is measured on the branch's **own** change:
+CI diffs the branch against today's merge base and compares it, line by line (file, + or −, code text), with the change
+the questions were written for (`base` → `head`). Merging or rebasing onto the target branch adds nothing; lines resolved
+differently in a conflict count. If ≤ `maxDrift` new code lines (default 40) → still valid. Otherwise: "Your change grew by N lines since the check. Run
 *Check my understanding* again: it adds 1–2 questions about the new part only" (top-up, appended to the
-same file, earlier answers kept).
+same file, earlier answers kept). A top-up asks only about those new lines of the branch's own change, never about code
+that came in from the target branch, and records today's merge base.
 
-When `head` is not in the clone (rebased or squashed branch, or a shallow clone), CI compares sizes instead: the
-change's counted lines now against `diffStat`. Lenient, but a rebase must not void the check. CI jobs fetch the full
+When `base` or `head` is not in the clone (rebased or squashed branch, or a shallow clone), CI compares sizes instead:
+the change's code lines now against `diffStat` (code lines too). Lenient, but a rebase must not void the check. CI jobs fetch the full
 history (`GIT_DEPTH: 0`, `fetch-depth: 0`).
 
 ## CLI (one file, Node ≥ 18, no dependencies): `understanding.mjs`
@@ -111,17 +127,35 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 | `grade <file> [--question q2] [--answer "…"] [--write]` | grade answers with the configured backend (`--answer` adds an attempt first) |
 | `ci` | the CI job: find file → check drift → check completeness + recorded verdicts vs threshold + attempt hashes → exit 0/1 with a short reason → optional MR comment. Never calls a model. Exit 2: it can't check (commits missing, API error). |
 
-`ci` rules, in order: under `minChangedLines` → pass. Skip label (read fresh from the API when there is a token: a
-re-run job keeps its pipeline's old variables) → pass only with an approval by someone other than the author. No
-file / invalid file / drift / a graded attempt whose hash doesn't match → fail with what to do. Any question not
-answered or not graded → fail. A question left at "try again" counts as missed (never stuck on one). Passed ≥
-`ceil(passRatio × total)` → pass. The merge request comment (questions, last answers, states) is found again by the
-marker `<!-- understanding-check -->` and updated in place.
+`ci` rules, in order:
+
+1. No code lines changed → pass: `✓ No check needed: only exempt files changed (docs/guide.md)` or `✓ No check needed:
+   no code lines changed (only comments or blank lines).` There is no size limit: one changed code line needs a check.
+2. Skip label (read fresh from the API when there is a token: a re-run job keeps its pipeline's old variables) and an
+   approval by anyone but the author (any approval, also one given before the label) → `✓ Understanding check waived
+   (approved by @bob)`, also as the comment. Without such an approval the check below still runs; if it doesn't pass,
+   the job says `Skip requested: an approval from a reviewer waives the understanding check, then re-run this job.`
+   (self-approval: `✗ Approved only by alice (the author). Ask a reviewer to approve, then re-run this job.`). On GitHub
+   the recipe re-runs on the review, so "then re-run this job" is left out.
+3. No file / invalid file / drift / a graded attempt whose hash doesn't match → fail with what to do.
+4. The rule (`checkState`, the same everywhere): every question done (pass, explained or restated; "try again" is not
+   done) and `ceil(passRatio × total)` passed.
+
+The merge request comment follows the job and is found again by the marker `<!-- understanding-check -->` and updated
+in place. Its first line is the result or what is missing (no check yet, needs a top-up, file not valid). It never
+grades in public: while the check is in progress it is one line (`Understanding check in progress: 2 of 4 done.`), no ✗
+ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions as `Worth discussing:
+<topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
+and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
+someone other than `answeredBy` says `answered by <name>`.
 
 The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`, `add`, `list`, `remove`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
-questions that are not near a changed line, longer than 240 characters, more than one question, or that name a line
-number; `finish` wants 3–5 questions (1–2 for a top-up) of at least two kinds, one of them why/failure/edge.
+questions that are not near a changed code line, on lines that hold only comments or blank lines, longer than 240
+characters, more than one question ("…, and could…", "what happens to X, Y and Z", "…, or does…"), or that name a line
+number; `--suspect` marks a question whose honest answer is "this is a bug". `finish` wants the count for the change's
+size (exactly 1 or 2 for a small change, 3–5 above; 1–2 for a top-up), from 3 questions on of at least two kinds, one
+of them why/failure/edge.
 
 Grading runs only locally (extension, or `grade` from a terminal). Grader backends: `claude` (the `claude -p` CLI, read-only tools, uses `CLAUDE_CODE_OAUTH_TOKEN` or the
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
@@ -130,20 +164,23 @@ answer, the diff and may read the code; it returns JSON `{verdict, feedback, hin
 ## Config: `understanding/config.json` (optional, committed)
 
 ```jsonc
-{ "questions": { "min": 3, "max": 5 }, "minChangedLines": 20, "passRatio": 0.6, "maxDrift": 40,
+{ "questions": { "min": 1, "max": 5 }, "exempt": [], "passRatio": 0.6, "maxDrift": 40,
   "skipLabel": "skip-understanding", "model": null, "backend": null, "mrComment": true }
 ```
 
 `backend` (`claude` | `anthropic`) and `model` apply to `grade` from a terminal (also `--backend`, `--model`,
 `UNDERSTANDING_BACKEND`). In VS Code, the Claude Code runner grades (setting `codeNotes.understanding.model`).
-Questions per change: 3 under 80 changed lines, 4 under 300, else 5 (within `questions.min`/`max`).
+Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
+`questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
+within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
 ## Skipping
 
-Small changes (< `minChangedLines`, docs-only, lockfiles) pass automatically. Otherwise: add the label
-`skip-understanding` to the merge request; the job then passes only once someone other than the author has
-approved the merge request (GitLab approvals API; GitHub reviews API), with a message saying exactly that.
-The job does not re-run by itself on approval: the message says to re-run it (prototype limitation).
+No size limit: every change with code lines needs the check (only exempt files or comment-only changes pass by
+themselves). To skip one: add the label `skip-understanding`; any approval by someone other than the author waives the
+check (GitLab approvals API; GitHub reviews API). The feature relies on good faith, so no reason is asked; the job and the
+comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an approval: the message says to re-run it
+(GitHub's recipe re-runs on the review).
 
 ## CI recipes (in the README)
 
