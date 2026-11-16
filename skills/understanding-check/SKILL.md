@@ -32,6 +32,10 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
    When the answer depends on code the change did NOT touch (the loop that retries a failing handler, the
    constraint that rejects a duplicate, the caller that ignores an error), add it: `--also worker/queue.js:84-96`
    (up to 3, comma-separated). It is shown beside the question, so the author knows where to look.
+   Name code in the question by what it is ("the catch block in `tick()`", "the INSERT"), never by line number, and
+   link those words to their lines: `--links "the catch block in tick()@worker/queue.js:88-96"` (up to 3,
+   `;`-separated; the phrase exactly as in the text). The author clicks the phrase to see the code. A phrase linked
+   to an `--also` range is all the pointer that range needs.
    When the honest answer to a question is "this is a bug" (the code really does lose data, double-charge, race,
    skip a check), still ask it neutrally and add `--suspect`: the author is then asked to fix it or explain it. Only
    when you read the code and are confident; never as a trick.

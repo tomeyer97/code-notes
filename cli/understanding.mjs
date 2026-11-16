@@ -683,20 +683,21 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
       verify,
     ].join('\n'),
     [
-      'What to write (count the words; refer to code as path:line):',
+      'What to write (count the words). Name code by what it is ("the catch block in tick()", "the INSERT"), never by line numbers or path:line: each name you use gets a link (below), shown as a clickable phrase.',
       ...(restate ? [
         `- "feedback": "Right." when restated; else what is still off, without repeating the whole explanation (at most ${REPLY_WORDS.restated} words). "hint" is "".`,
       ] : [
         `- pass: "feedback" is "Right." plus at most one fact they did not mention, ${REPLY_WORDS.pass} words in all. Do not restate their answer. "hint" is "".`,
         second
-          ? `- not a pass (their second try): verdict "explained"; "feedback" explains the answer plainly with path:line references, at most ${REPLY_WORDS.explained} words; "hint" is "". "topic": what the question is about, at most 6 words (e.g. "same-key refunds at once").`
-          : '- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check. Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X"). "hint" (at most 20 words) points at the lines to read (path:line), ideally as a question.',
+          ? `- not a pass (their second try): verdict "explained"; "feedback" explains the answer plainly, naming the code it is about, at most ${REPLY_WORDS.explained} words; "hint" is "". "topic": what the question is about, at most 6 words (e.g. "same-key refunds at once").`
+          : '- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check. Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X"). "hint" (at most 20 words) names the code to read, ideally as a question.',
       ]),
       '- "note": for the reviewer of the merge request, at most 15 words: on a pass or a restatement, the point the author got right; when explained, the correct answer in one line; on a retry, "".',
-      '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (path:line), at most 25 words. Otherwise "". Never invent one.',
+      '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (name the code), at most 25 words. Otherwise "". Never invent one.',
+      '- "links": 1-3 links for the code you named: {"phrase": the exact words as they appear in your feedback, hint or concern, "file": a path in the repository, "start": first line, "end": last line} (lines you read). [] when you named no code.',
     ].join('\n'),
     'Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another; it is within the word limit; on a miss, nothing in it gives the answer away. Fix or cut what fails.',
-    `Reply with only this JSON object, nothing before or after it:\n{"verdict": ${verdicts}, "feedback": "…", "hint": "…", "note": "…"${second ? ', "topic": "…"' : ''}, "concern": ""}`,
+    `Reply with only this JSON object, nothing before or after it:\n{"verdict": ${verdicts}, "feedback": "…", "hint": "…", "note": "…"${second ? ', "topic": "…"' : ''}, "concern": "", "links": [{"phrase": "…", "file": "…", "start": 1, "end": 2}]}`,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -725,9 +726,30 @@ export function parseVerdict(text, attempt = 1, { restate = false } = {}) {
     if (str(v.note) && verdict !== 'retry') out.note = str(v.note)
     if (str(v.topic) && verdict === 'explained') out.topic = str(v.topic)
     if (str(v.concern)) out.concern = str(v.concern)
+    // Links whose phrase is in the text (verbatim); their lines are checked against the files by codeLinksIn().
+    const said = [out.feedback, out.hint, out.concern ?? ''].join('\n')
+    const links = (Array.isArray(v.links) ? v.links : []).filter((l) => l && typeof l.phrase === 'string' && l.phrase.trim() && said.includes(l.phrase.trim()) && typeof l.file === 'string' && Number.isInteger(l.start) && l.start >= 1)
+      .slice(0, 3).map((l) => ({ phrase: l.phrase.trim(), file: l.file.replace(/^\.\//, ''), start: l.start, end: Number.isInteger(l.end) && l.end >= l.start ? l.end : l.start }))
+    if (links.length) out.links = links
     return out
   }
   throw new Error(`the grader didn't reply with a verdict: ${s.trim().slice(0, 200) || '(nothing)'}`)
+}
+
+/**
+ * Code links whose lines are in the repository: `{ phrase, file, start, end, text }` (`text`: the first line, to find
+ * them again after edits, as journey links do). Links to a missing file or past its end are dropped; the words stay.
+ */
+export function codeLinksIn(repo, links) {
+  const out = []
+  for (const l of Array.isArray(links) ? links : []) {
+    if (!l || typeof l.file !== 'string' || path.isAbsolute(l.file) || l.file.split(/[\\/]/).includes('..')) continue
+    let lines
+    try { lines = fs.readFileSync(path.join(repo, l.file), 'utf8').split(/\r?\n/) } catch { continue }
+    if (!Number.isInteger(l.start) || l.start < 1 || l.end > lines.length || l.end < l.start) continue
+    out.push({ phrase: l.phrase, file: l.file, start: l.start, end: l.end, text: lines[l.start - 1] })
+  }
+  return out
 }
 
 /** How to grade a question's latest answer: its attempt number, and the explanation when it is a restatement. */
@@ -804,7 +826,9 @@ export async function gradeQuestion(repo, check, q, { backend, model, env, diff 
   const mode = gradeMode(q)
   const prompt = graderPrompt({ q, answer: a.answer, ...mode, diff: diffForGrader(d, q.file), code: codeWindow(repo, q), canRead: backend === 'claude' })
   const text = await runGrader(backend, { prompt, repo, model, env })
-  Object.assign(a, parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined }), { gradedAt: new Date().toISOString() })
+  const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
+  if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
+  Object.assign(a, v, { gradedAt: new Date().toISOString() })
   a.hash = attemptHash(q, a)
   return a
 }

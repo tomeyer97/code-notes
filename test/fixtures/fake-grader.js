@@ -33,7 +33,7 @@ const concern = /CONCERN/.test(answer) ? { concern: 'api/limits.js:2 keeps count
 const v = restate ? (/GOOD/.test(answer) ? { verdict: 'restated', feedback: 'Right.', note: 'The window restarts.' } : { verdict: 'explained', feedback: 'Not yet: the window, not the order.' })
   : /GOOD/.test(answer) ? { verdict: 'pass', feedback: 'Right. The result is kept and sent again.', hint: '', note: 'Kept and sent again.', ...concern }
   : attempt >= 2 ? { verdict: 'explained', feedback: 'It retries with backoff, then keeps the result in a file (worker/worker.js:20).', hint: '' }
-  : { verdict: 'retry', feedback: 'Not quite: what happens after the last try?', hint: 'Look at what report() does after its loop.' }
+  : { verdict: 'retry', feedback: 'Not quite: what happens after the last try?', hint: 'Look at what the reset function does.', links: [{ phrase: 'the reset function', file: 'api/limits.js', start: 11, end: 13 }] }
 const text = `Here is my grade:\n${JSON.stringify(v)}`
 const stream = args.includes('stream-json')
 const delay = /SLOW/.test(answer) ? 1500 : 50

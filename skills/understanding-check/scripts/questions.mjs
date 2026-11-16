@@ -2,6 +2,7 @@
 // Writes the questions of an understanding check, one validated question at a time (SKILL.md says how to use it).
 //   questions.mjs start [--base <ref>] [--top-up] [--replace]   the change, with new-file line numbers; starts a draft
 //   questions.mjs add --kind <kind> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect]
+//                     [--links "<phrase>@<path>:A-B;…"]   phrases of the text that become links to those lines
 //   questions.mjs list | remove <qN> | finish
 // The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json.
 // It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill.
@@ -133,10 +134,26 @@ if (cmd === 'add') {
     }
     if (q.also.length > 3) fail('--also: at most 3 places')
   }
+  // Code links: words of the question shown as a clickable phrase that lights those lines (never line numbers).
+  if (typeof o.links === 'string' && o.links.trim()) {
+    const raw = []
+    for (const part of o.links.split(';').map((x) => x.trim()).filter(Boolean)) {
+      const m = /^(.+)@([^@]+):(\d+)(?:-(\d+))?$/.exec(part)
+      if (!m) fail(`--links ${part}: write it as "phrase@path:A-B"`)
+      const phrase = m[1].trim()
+      if (!text.includes(phrase)) fail(`--links: "${phrase}" is not in the question's text (exactly as written)`)
+      raw.push({ phrase, file: m[2].replace(/^\.\//, ''), start: Number(m[3]), end: Number(m[4] ?? m[3]) })
+    }
+    if (raw.length > 3) fail('--links: at most 3')
+    const ok = U.codeLinksIn(repo, raw)
+    const bad = raw.filter((l) => !ok.some((x) => x.phrase === l.phrase))
+    if (bad.length) fail(`--links: ${bad.map((l) => `${l.file}:${l.start}-${l.end}`).join(', ')} is not a range of a file in the repository`)
+    q.links = ok
+  }
   if (d.questions.some((x) => x.file === q.file && x.start && q.start && x.start <= q.end && q.start <= x.end)) say('WARNING: another question is on overlapping lines: make sure it asks something different')
   d.questions.push(q)
   saveDraft(d)
-  say(`added #${d.questions.length} (${kind}) ${file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''} · ${d.questions.length} of ${d.want}`)
+  say(`added #${d.questions.length} (${kind}) ${file}${q.target ? '' : `:${q.start}-${q.end}`}${q.also ? ` (also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')})` : ''}${q.links ? ` · ${q.links.length} link${q.links.length === 1 ? '' : 's'}` : ''} · ${d.questions.length} of ${d.want}`)
   if (!q.target) say(`  ${lines[q.start - 1].trim().slice(0, 100)}${q.end > q.start ? `\n  … ${lines[q.end - 1].trim().slice(0, 100)}` : ''}`)
   process.exit(0)
 }

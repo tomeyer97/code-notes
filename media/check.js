@@ -34,7 +34,9 @@
         const icon = el('span', 'icon', ICON[r.state] || '○')
         icon.setAttribute('aria-hidden', 'true')
         const body = el('span', 'body')
-        const meta = [r.kind, r.where.split('/').pop(), ...r.also.map((a) => `+ ${a.split('/').pop()}`), r.word].filter(Boolean).join(' · ')
+        // File names only: lines are what a click shows.
+        const name = (w) => w.split('/').pop().replace(/:\d+(-\d+)?$/, '')
+        const meta = [r.kind, name(r.where), ...r.also.map((a) => `+ ${name(a)}`), r.word].filter(Boolean).join(' · ')
         body.append(el('span', 'text', r.text), el('span', 'meta', meta))
         if (r.flag) body.append(el('span', 'flag', `⚠ ${r.flag}`))
         b.setAttribute('aria-label', `${r.n}. ${r.text} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`)
