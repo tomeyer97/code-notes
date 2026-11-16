@@ -202,8 +202,10 @@ export function serialize(d: NoteData): string {
  * Writes a note file in one step (a hidden temp file, then a rename): an agent (or a test) reading it meanwhile sees
  * the old content or the new one, never a half-written file (the flaky "note history" test read a truncated file).
  */
+let tmpSeq = 0
 export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> {
-  const tmp = vscode.Uri.joinPath(uri, '..', `.${uri.path.split('/').pop()}.${process.pid}.tmp`)
+  // One temp file per write: two saves of a note at once must not rename each other's file away.
+  const tmp = vscode.Uri.joinPath(uri, '..', `.${uri.path.split('/').pop()}.${process.pid}.${++tmpSeq}.tmp`)
   await vscode.workspace.fs.writeFile(tmp, encoder.encode(text))
   // Node's rename replaces the file in one step; VS Code's rename with overwrite deletes it first (a moment with no file).
   try { if (uri.scheme === 'file') await fs.promises.rename(tmp.fsPath, uri.fsPath); else await vscode.workspace.fs.rename(tmp, uri, { overwrite: true }) }
