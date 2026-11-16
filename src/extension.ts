@@ -3448,7 +3448,11 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, ...(col ? { viewColumn: col } : {}) })
   const r = threadRange(n)
   editor.selection = new vscode.Selection(r.start, r.start)
-  editor.revealRange(new vscode.Range(r.start, r.end.translate(4)), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+  // A long range: its thread hangs below its last line, so that end (and the thread) is what comes into view, not a
+  // screen of highlighted code with the question below the fold.
+  const tall = r.end.line - r.start.line > 12
+  editor.revealRange(tall ? new vscode.Range(Math.max(r.start.line, r.end.line - 3), 0, r.end.line, 0) : new vscode.Range(r.start, r.end.translate(4)),
+    tall ? vscode.TextEditorRevealType.AtTop : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
   syncThread(n)
   // Only this note's thread is open: others on the same lines collapse, so the one clicked is the one shown.
   for (const other of notesFor(docUri(n))) {
