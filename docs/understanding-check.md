@@ -221,7 +221,9 @@ that came in from the target branch, and records today's merge base.
 **Stacked branches.** When the branch holds another branch's committed check whose code commit lies between the merge
 base and the head (a branch made from a branch that did its check), the change starts at that commit: its code was
 checked in its own merge request, so it is never asked about again (status: "2 code lines changed since feat/x's
-check"; CI the same). Once the parent is merged, the merge base is past it and nothing special happens.
+check"; CI the same). When the parent went on after its check (a fix, a small addition), the change starts where the
+branch left the parent instead (when the clone has the parent's branch): the parent's later commits are its own, never
+asked about on the child. Once the parent is merged, the merge base is past it and nothing special happens.
 
 When `base` or `head` is not in the clone (rebased or squashed branch, or a shallow clone), CI compares sizes instead:
 the change's code lines now against `diffStat` (code lines too). Lenient, but a rebase must not void the check. CI jobs fetch the full

@@ -1628,3 +1628,21 @@ test('without VS Code: help links docs that exist, status and CI give the same w
   const out = execFileSync('node', [path.join(skill, 'questions.mjs'), 'start', '--base', 'main'], { cwd: d, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } })
   assert.match(out, /^CHANGE: branch feat\/x · /)
 })
+
+test('stacked branches: commits the parent made after its check are the parent\'s, never asked about on the child', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d, 'check of feat/x')
+  // The parent goes on after its check: 10 more lines in worker.js (within its drift).
+  fs.writeFileSync(path.join(d, 'src/worker.js'), Array.from({ length: 10 }, (_, i) => `export const w${i} = ${i}`).join('\n') + '\n')
+  commitAll(d, 'parent: retry warning')
+  gitIn(d, 'checkout', '-qb', 'cleanup/y')
+  fs.writeFileSync(path.join(d, 'src/app.js'), fs.readFileSync(path.join(d, 'src/app.js'), 'utf8').replace('return 0', 'return 1'))
+  commitAll(d, 'one line')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.changed, st.stackedOn], [2, 'feat/x'])
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /CHANGE: branch cleanup\/y · 1 files · 2 code lines/)
+  assert.doesNotMatch(out, /worker\.js/)
+})

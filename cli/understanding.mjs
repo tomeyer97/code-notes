@@ -91,6 +91,16 @@ export function stackBase(repo, base, head, ownFile) {
     if (!isAncestor(repo, base, h) || !isAncestor(repo, h, head)) continue
     if (!best || isAncestor(repo, best.base, h)) best = { base: gitOk(repo, ['rev-parse', h]) ?? h, branch: c.branch ?? f }
   }
+  // The parent went on after its check (a fix, a TODO, a small addition within its drift): what it has now is its own
+  // change, not this branch's. The change starts where this branch left the parent, when the clone has the parent.
+  if (best?.branch) {
+    for (const ref of [`origin/${best.branch}`, best.branch]) {
+      if (!gitOk(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])) continue
+      const fork = mergeBase(repo, ref, head)
+      if (fork && fork !== best.base && isAncestor(repo, best.base, fork)) best.base = fork
+      break
+    }
+  }
   return best
 }
 
