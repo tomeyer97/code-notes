@@ -77,8 +77,12 @@ if (cmd === 'start') {
   if (topUp && !existing) fail(`--top-up: ${rel} doesn't exist yet; run start without it`)
   if (!topUp && existing && !o.replace) fail(`${rel} exists already. Use --top-up to add questions about what changed since, or --replace to start over (its answers are lost)`)
   const baseRef = typeof o.base === 'string' ? o.base : U.defaultBase(repo)
-  const base = baseRef && U.mergeBase(repo, baseRef, head)
-  if (!base) fail('no base to compare with: pass --base <branch or commit>')
+  const mb = baseRef && U.mergeBase(repo, baseRef, head)
+  if (!mb) fail('no base to compare with: pass --base <branch or commit>')
+  // Stacked on a branch whose check is committed here: only what came after that check's code.
+  const stack = U.stackBase(repo, mb, head, rel)
+  const base = stack?.base ?? mb
+  if (stack) say(`STACKED: on ${stack.branch}, whose check covers its own code; this change starts after it.`)
   // Committed code only: the questions record the commit they were written for (uncommitted lines would count as drift).
   // Code lines only: blank and comment-only lines don't count, nor the config's exempt files.
   // Always the branch's OWN change (from today's merge base): code that came in from the target branch is never asked.

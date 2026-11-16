@@ -58,6 +58,28 @@ export function defaultBase(repo) {
   return cands.find((c) => c !== cur && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]))
 }
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
+const isAncestor = (repo, a, b) => { try { git(repo, ['merge-base', '--is-ancestor', a, b]); return true } catch { return false } }
+
+/**
+ * Stacked branches: the newest check committed on this branch for ANOTHER branch (its file is in the tree at `head`)
+ * whose code commit lies between `base` and `head`. The change starts there: that code was checked in its own merge
+ * request. `{ base, branch }`, or undefined. Once the parent is merged, its check's commit is behind the merge base and
+ * no longer counts.
+ */
+export function stackBase(repo, base, head, ownFile) {
+  if (!base || !head) return undefined
+  const files = (gitOk(repo, ['ls-tree', '--name-only', head, `${DIR}/`]) ?? '').split('\n').filter((f) => /\.json$/.test(f) && f !== ownFile && f !== `${DIR}/config.json`)
+  let best
+  for (const f of files) {
+    let c
+    try { c = JSON.parse(git(repo, ['show', `${head}:${f}`])) } catch { continue }
+    const h = c?.head
+    if (!isHex(h) || !hasCommit(repo, h) || h === base) continue
+    if (!isAncestor(repo, base, h) || !isAncestor(repo, h, head)) continue
+    if (!best || isAncestor(repo, best.base, h)) best = { base: gitOk(repo, ['rev-parse', h]) ?? h, branch: c.branch ?? f }
+  }
+  return best
+}
 
 /** A glob as a RegExp: `**` any path, `*` and `?` within a name; a pattern without "/" matches the name in any folder. */
 export function globRe(glob) {
@@ -613,10 +635,13 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const abs = path.join(repo, rel)
   const baseRef = base ?? defaultBase(repo)
   const head = gitOk(repo, ['rev-parse', 'HEAD'])
-  const mb = baseRef && head ? mergeBase(repo, baseRef, head) : undefined
+  const mb0 = baseRef && head ? mergeBase(repo, baseRef, head) : undefined
+  // Stacked on a branch whose check is committed here: the change starts after that check's code.
+  const stack = stackBase(repo, mb0, head, rel)
+  const mb = stack?.base ?? mb0
   // Code lines, committed and uncommitted.
   const change = mb ? codeStat(repo, mb, undefined, cfg.exempt) : { files: 0, added: 0, removed: 0, exempt: [], exemptOnly: false }
-  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs) }
+  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}) }
   const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
   if (!st.exists) return done(st)
   let check
@@ -664,7 +689,7 @@ export function stateWords(state, st = {}) {
   const branch = st.branch ?? 'this branch'
   switch (state.phase) {
     case 'nothing': return { tone: 'ok', bar: '', title: 'No check needed', line: state.exemptOnly ? 'No check needed: only exempt files changed.' : 'No check needed for this change.', rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${state.changed} code line${state.changed === 1 ? '' : 's'} changed.`, rule }
+    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
       line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
@@ -1226,6 +1251,8 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
   const rel = fileFor(branch)
   let base = baseFlag ?? ctx.base
   if (!base) { const ref = ctx.baseRef ?? defaultBase(repo); base = ref && head ? mergeBase(repo, ref, head) : undefined }
+  // Stacked on a branch whose check is committed here: its code was checked in its own merge request.
+  if (base && hasCommit(repo, base) && head && hasCommit(repo, head)) base = stackBase(repo, base, head, rel)?.base ?? base
   if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
     return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
   }

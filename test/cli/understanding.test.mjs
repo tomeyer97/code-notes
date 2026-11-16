@@ -1242,3 +1242,27 @@ test('a change that only removes code gets questions: at the removal, or where t
   assert.equal(r.code, 0, r.out)
   assert.match(script(d, 'finish').out, /WROTE understanding\/chore-drop\.json: 1 questions/)
 })
+
+test('stacked branches: the change starts after the parent\'s committed check; once the parent is merged, the merge base takes over', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d, 'check of feat/x')
+  gitIn(d, 'checkout', '-qb', 'fix/y')
+  fs.writeFileSync(path.join(d, 'src/app.js'), fs.readFileSync(path.join(d, 'src/app.js'), 'utf8').replace('return 0', 'return 1'))
+  commitAll(d, 'one line')
+  let st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.changed, st.stackedOn, st.state.phase], [2, 'feat/x', 'none'])
+  assert.equal(U.stateWords(st.state, st).line, "2 code lines changed since feat/x's check.")
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /^STACKED: on feat\/x/m)
+  assert.match(out, /CHANGE: branch fix\/y · 1 files · 2 code lines/)
+  assert.match(out, /WRITE: 1 question/)
+  // CI agrees: no check yet, about 2 lines (not the parent's 70).
+  const r = await ci(d, { CI_MERGE_REQUEST_DIFF_BASE_SHA: gitIn(d, 'merge-base', 'main', 'HEAD').trim() })
+  assert.equal(r.code, 1); assert.match(r.lines[0], /No understanding check yet/)
+  // The parent is merged into main: the merge base is past its check; the change is the child's own, still 2 lines.
+  gitIn(d, 'checkout', '-q', 'main'); gitIn(d, 'merge', '-q', '--no-ff', '-m', 'merge feat/x', 'feat/x'); gitIn(d, 'checkout', '-q', 'fix/y')
+  st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.changed, st.stackedOn], [2, undefined])
+})
