@@ -976,8 +976,10 @@ const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungr
 /**
  * Makes @mentions inert (`@carol`, `@all`, `@group/sub`, `@org/team`): a word joiner after the "@" keeps the text as it
  * reads but GitLab and GitHub no longer notify anyone, also when the comment is edited later. Emails stay as they are.
+ * Numbered references too (`#12` issue, `!3` merge request, `~5` label, `%2` milestone, `$7` snippet, `&4` epic): quoted
+ * text never turns into a link to something else.
  */
-export const inert = (s) => String(s ?? '').replace(/(^|[^\w.@`])@(?=[\w-])/g, '$1@\u2060')
+export const inert = (s) => String(s ?? '').replace(/(^|[^\w.@`])@(?=[\w-])/g, '$1@\u2060').replace(/(^|[^\w&\u2060])([#!~%$&])(?=\d)/g, '$1$2\u2060')
 const quote = (s) => inert(String(s).trim().replace(/<!--/g, '&lt;!--')).split('\n').map((l) => `> ${l}`).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
@@ -1084,7 +1086,7 @@ export function commentBody(check, sum, head, link = () => undefined, { qa = fal
 
 /** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
 export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job') {
-  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (~5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
+  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (about 5 min): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
     `<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`].join('\n')
 }
 
@@ -1294,7 +1296,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun }) {
   if (!fs.existsSync(abs)) {
     const me = path.relative(repo, fileURLToPath(import.meta.url))
     const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (~5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (about 5 min). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
       `  Without VS Code: ask Claude Code to check your understanding (the understanding-check skill), then answer each question with: node ${cli} grade --question q1 --answer "…" --write`,
       `  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`], body: missingBody(rel, cfg, rerun.replace('this job', 'the job')) }
   }

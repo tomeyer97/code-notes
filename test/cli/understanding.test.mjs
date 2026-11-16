@@ -208,7 +208,7 @@ test('ci: nothing changed passes; no file fails with what to do; no model is eve
   const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
-  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(~5 min\)\. Run "Code Notes: Check my understanding"/)
+  assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(about 5 min\)\. Run "Code Notes: Check my understanding"/)
   assert.match(r2.lines[1], /Without VS Code: .*node understanding\.mjs grade --question q1/)
   assert.match(r2.lines[2], /skip-understanding.*then re-run this job/)
   const f = writeQuestions(d)
@@ -470,7 +470,7 @@ test('ci: no check yet posts the MR comment (what and how, in two lines); a pass
     let r = await ci(d, { ...gitlabEnv(d, api.url), GITLAB_TOKEN: 'tok', CI_PROJECT_URL: 'https://gl/grp/shop' })
     assert.equal(r.code, 1); assert.match(r.lines.at(-1), /comment created/)
     assert.equal(notes[0].body.split('\n').length, 3)
-    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(~5 min\)/)
+    assert.match(notes[0].body, /^<!-- understanding-check -->\n\*\*Understanding check: not done yet\.\*\* A few questions about your change \(about 5 min\)/)
     assert.match(notes[0].body, /and get a reviewer's approval, then re-run the job\./)
     const f = writeQuestions(d)
     answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
@@ -819,6 +819,13 @@ test('the MR comment never notifies anyone: @mentions in answers, notes, topics,
   for (const m of ['all', 'carol', 'group/sub', 'bob', 'org/team', 'dave', 'erin']) assert.ok(body.includes(`@⁠${m}`), m)
   assert.ok(body.includes('ada@example.com'), 'emails untouched')
   assert.equal(U.inert(U.inert('@x')), '@⁠x', 'applying it twice changes nothing (an edit never re-notifies)')
+  // GitLab's numbered references stay text: issue, merge request, label, milestone, snippet, epic.
+  assert.equal(U.inert('takes ~5 min, see #12, !3 and %2; $7 &4'), 'takes ~\u20605 min, see #\u206012, !\u20603 and %\u20602; $\u20607 &\u20604')
+  assert.equal(U.inert('a#1 x~2 &#39; 3!4'), 'a#1 x~2 &#39; 3!4', 'inside words and HTML entities: unchanged')
+  assert.equal(U.inert(U.inert('#5')), '#\u20605')
+  const refs = { answeredBy: { name: 'Ada' }, questions: [q('q1', 'Why ~5?', [{ answer: 'Fixed in !12 and #3.', verdict: 'pass', note: 'Like ~4.' }])] }
+  assert.doesNotMatch(U.commentBody(refs, U.summarize(refs), 'head', undefined, { qa: true }), /(^|[^\w&\u2060])[#!~%$&]\d/m)
+  assert.doesNotMatch(U.missingBody('understanding/x.json'), /~\d/)
 })
 
 test('code links: the grader names code and links it; links are checked against the text and the files; the skill takes --links', () => {

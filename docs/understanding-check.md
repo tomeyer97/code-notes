@@ -33,7 +33,7 @@ will find a way around it, so every design choice below favours little friction.
 ## Flow
 
 1. Dev works on a branch, pushes, opens a merge request. The CI job `understanding` fails with one friendly
-   line: what to run and that it takes ~5 minutes.
+   line: what to run and that it takes about 5 minutes.
    (They can also do it before pushing.)
 2. In VS Code: **Code Notes: Check my understanding** (the status bar says `Understanding: start`). The
    extension asks the coding agent (same Claude Code runner as "Ask Claude", read-only tools) to write the
@@ -189,7 +189,8 @@ grades in public: while the check is in progress it is one line (`Understanding 
 ever. Once done: flagged concerns first (`⚠ Found during the check`), then explained questions as `Worth discussing:
 <topic>` (file:line link) with the correct point in one line, then the other questions with the author's passing answer
 and at most 15 words of the grader's reasoning (`note`). Wrong guesses and retries are never posted. An answer by
-someone other than `answeredBy` says `answered by <name>`.
+someone other than `answeredBy` says `answered by <name>`. Quoted text never notifies or links: @mentions and numbered
+references (`#12`, `!3`, `~5`, …) are made inert.
 
 The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`, `add`, `list`, `remove`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
