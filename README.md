@@ -1,11 +1,13 @@
 # Code Notes
 
-Two things for understanding code you did not write, in VS Code:
+Three things for understanding code you did not write, in VS Code:
 
 - **Notes**: leave a question or a remark on any lines of code. Your coding agent answers in the thread; replies show
   up as unread.
 - **Code Journeys**: an answer to "how does X work?" as a small map of the parts involved and a storyline of steps
   through the real code. You walk it step by step; a step can play as a short animation.
+- **Understanding check**: before you merge a change (yours, or your agent's), answer 3-5 short questions about it
+  next to the code. A merge request check makes sure it was done.
 
 ![A journey: the storyline, a step's animation and the code it is about](docs/images/journey.png)
 
@@ -48,6 +50,81 @@ a journey, so every step points at real lines. **Ask a Question About the Codeâ€
 written in your repository, copy [skills/code-journey](skills/code-journey) to `.claude/skills/code-journey` there;
 the repository's copy wins.
 
+## Understanding check
+
+**Code Notes: Check my understanding** (or the **Check** item in the status bar) has Claude Code read your branch's
+change and ask 3-5 questions about it: how a part behaves, why it is built this way, how it fails. Each question opens
+as a thread on its lines. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
+replies in the thread. A miss gets a hint and a second try; a second miss gets the explanation, and you move on.
+
+Questions and answers are saved in `understanding/<branch>.json`. Once enough answers pass (60 % by default), the panel
+says **Commit understanding/&lt;branch&gt;.json and push**. Commit it with your change.
+
+Everything runs on your machine. The merge request check only verifies the file: it belongs to this change, every
+question is answered, the recorded verdicts meet the threshold. It calls no model and needs no key. It also posts the
+questions and answers on the merge request for the reviewer. It is easy to cheat by editing the file; it is there to
+make you look, not to police.
+
+- **Small changes** (under 20 changed lines, not counting docs and lockfiles) pass without a check.
+- **The change grew** by more than 40 lines since the questions: run the command again; it adds 1-2 questions about
+  the new part only.
+- **Skip it:** label the merge request `skip-understanding`. The check passes once someone other than the author has
+  approved (re-run the job after the approval; on GitHub the review re-runs it).
+- **Settings** for a repository: `understanding/config.json`, e.g.
+  `{ "passRatio": 0.6, "minChangedLines": 20, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
+
+The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
+`grade` (local; Claude Code or `ANTHROPIC_API_KEY`) and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).
+
+### In CI
+
+GitLab (`.gitlab-ci.yml`). `GITLAB_TOKEN`: a project access token with `api` scope (CI/CD variable, masked), used to
+read labels and approvals and to write the comment. Without it the check still runs, without the comment and the skip
+label.
+
+```yaml
+understanding:
+  image: node:22
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.24.0/cli/understanding.mjs -o /tmp/understanding.mjs
+    - node /tmp/understanding.mjs ci
+```
+
+GitHub Actions (`.github/workflows/understanding.yml`); an approving review re-runs it by itself:
+
+```yaml
+name: Understanding check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  understanding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.24.0/cli/understanding.mjs -o /tmp/understanding.mjs
+          node /tmp/understanding.mjs ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+To review the script once and keep it, commit a copy (e.g. `tools/understanding.mjs`) and run that instead.
+
 ## Keys
 
 One chord: **Ctrl+'** (or **Ctrl+<** on ISO keyboards), then a letter.
@@ -63,7 +140,8 @@ One chord: **Ctrl+'** (or **Ctrl+<** on ISO keyboards), then a letter.
 ## Requirements
 
 - VS Code 1.100 or newer.
-- Optional: the [Claude Code](https://claude.com/claude-code) CLI, for **Ask Claude** and for writing journeys. Claude
+- Optional: the [Claude Code](https://claude.com/claude-code) CLI, for **Ask Claude**, writing journeys and the
+  understanding check. Claude
   never runs in an untrusted workspace, and it cannot edit your files: it answers in notes and writes journey files.
 - Optional: Python 3, used by the journey skill's script.
 
