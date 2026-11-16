@@ -1290,3 +1290,16 @@ test('a rename: detected as a move (0 lines changed, not new code); it gets one 
   const r = await ci(d, {})
   assert.equal(r.code, 1); assert.match(r.lines[0], /No understanding check yet/)
 })
+
+test('a renamed branch (or the same work pushed under a new name) keeps its check: covered, nothing to redo; CI agrees', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  commitAll(d, 'check')
+  gitIn(d, 'branch', '-m', 'feat/x', 'feat/better-name')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.state.phase, st.stackedOn], ['nothing', 'feat/x'])
+  assert.equal(U.stateWords(st.state, st).line, "Covered by feat/x's check.")
+  const r = await ci(d, {})
+  assert.equal(r.code, 0); assert.equal(r.lines[0], "✓ No check needed: covered by feat/x's check (no code changed since).")
+})

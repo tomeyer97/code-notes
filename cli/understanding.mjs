@@ -693,7 +693,7 @@ export function stateWords(state, st = {}) {
   const rule = state.total ? ruleText(state) : ''
   const branch = st.branch ?? 'this branch'
   switch (state.phase) {
-    case 'nothing': return { tone: 'ok', bar: '', title: 'No check needed', line: state.exemptOnly ? 'No check needed: only exempt files changed.' : 'No check needed for this change.', rule }
+    case 'nothing': return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
     case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: !state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')}).` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
@@ -1256,13 +1256,14 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
   const rel = fileFor(branch)
   let base = baseFlag ?? ctx.base
   if (!base) { const ref = ctx.baseRef ?? defaultBase(repo); base = ref && head ? mergeBase(repo, ref, head) : undefined }
-  // Stacked on a branch whose check is committed here: its code was checked in its own merge request.
-  if (base && hasCommit(repo, base) && head && hasCommit(repo, head)) base = stackBase(repo, base, head, rel)?.base ?? base
+  // Stacked on a branch whose check is committed here (or the same work under a new branch name): that code was checked.
+  const stacked = base && hasCommit(repo, base) && head && hasCommit(repo, head) ? stackBase(repo, base, head, rel) : undefined
+  if (stacked) base = stacked.base
   if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
     return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
   }
   const change = codeStat(repo, base, head, cfg.exempt)
-  if (!linesOf(change) && !change.renamed?.length) return { code: 0, lines: [noCheckLine(change)] }
+  if (!linesOf(change) && !change.renamed?.length) return { code: 0, lines: [stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : noCheckLine(change)] }
 
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
   // GitHub runs the job again on a review (the recipe listens to it); GitLab doesn't.
