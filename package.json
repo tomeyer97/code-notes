@@ -45,6 +45,9 @@
     "media/**",
     "skills/code-journey/SKILL.md",
     "skills/code-journey/scripts/journey.py",
+    "skills/understanding-check/SKILL.md",
+    "skills/understanding-check/scripts/questions.mjs",
+    "cli/understanding.mjs",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -1268,11 +1271,12 @@
   "scripts": {
     "build": "tsc -p . && npm run -s vendor",
     "vendor": "node -e \"const f=require('fs');f.mkdirSync('out/vendor',{recursive:true});f.copyFileSync('node_modules/elkjs/lib/elk.bundled.js','out/vendor/elk.bundled.js');f.copyFileSync('node_modules/elkjs/LICENSE.md','out/vendor/elk-LICENSE.md')\"",
-    "test": "tsc -p . && node --test out/test/*.test.js",
+    "test": "tsc -p . && node --test out/test/*.test.js test/cli/*.test.mjs",
     "package": "vsce package --no-dependencies",
     "test:integration": "npm run -s build && env -u ELECTRON_RUN_AS_NODE xvfb-run -a node out/test/integration/run.js",
     "test:scenes": "node test/journey-scene/check.mjs test/journey-scene/sample.json",
-    "test:panel": "node test/journey-map/shoot.mjs"
+    "test:panel": "node test/journey-map/shoot.mjs",
+    "test:cli": "node --test test/cli/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
