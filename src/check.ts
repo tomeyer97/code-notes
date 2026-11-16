@@ -193,7 +193,7 @@ export class Understanding implements vscode.Disposable {
     const st = this.st
     if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
     // Questions written in the background: what they left out, now, as the person opens them.
-    if (this.ready) { this.ready = 0; await this.noteLoose(st.branch) }
+    if (this.ready) { this.ready = 0; await this.noteLoose(st.branch); await this.refresh() }
     const p = st.state.phase
     if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
     if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
@@ -666,11 +666,6 @@ export class Understanding implements vscode.Disposable {
     return c || next ? { ...(c ? { concern: c } : {}), ...(next ? { next } : {}) } : undefined
   }
   qidOf(n: Note): string | undefined { return linkOf(n)?.q }
-  /** A check thread's row in the notes list: the question's text and its state. */
-  rowOf(n: Note): { text: string; state: string } | undefined {
-    const q = this.questionOf(n)
-    return q ? { text: q.text, state: this.grading.has(q.id) ? 'ungraded' : this.U.stateOf(q) } : undefined
-  }
   /** The code links of message `mi` of a check thread (with the line text to find them after edits). */
   linksIn(n: Note, mi: number): (Link & { text: string })[] {
     const q = this.questionOf(n)
