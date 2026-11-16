@@ -57,6 +57,7 @@ export async function run(): Promise<void> {
   }
   const view = () => chk().view
   const editorLine = () => vscode.window.activeTextEditor?.selection.active.line
+  const inLines = (a: number, b: number) => { const l = editorLine(); return l !== undefined && l >= a && l <= b }
 
   // 1. A branch with a change and no check: the status bar says so; so does the Check view.
   await until('status bar offers a check', () => chk()?.item === '$(checklist) Understanding: start')
@@ -82,8 +83,16 @@ export async function run(): Promise<void> {
   assert.match(api.thread(n1.id).contextValue, /check/)
   // Only question 1 opens: its code and its thread. No editor group for a list: it is in the sidebar.
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, path.join(ws, 'api/limits.js'))
-  await until('q1 open on its lines', () => api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded && editorLine() === 3)
+  await until('q1 open on its lines', () => api.snapshot().notes.find((n: any) => n.id === n1.id)?.threadExpanded && inLines(3, 6))
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
+  if (cdp) {
+    // The keyboard is in q1's thread, not in the code (typing there would edit limits.js).
+    const page = await ui()
+    await until('focus in the thread, not the code', async () => page.evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.review-widget')))
+    await page.keyboard.type('typed')
+    assert.equal(fs.readFileSync(path.join(ws, 'api/limits.js'), 'utf8').includes('typed'), false)
+    assert.ok(!vscode.window.activeTextEditor?.document.isDirty, 'the code is untouched')
+  }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
   // Quietly: .gitattributes and .ignore for check files, search.exclude for this workspace; said once in the view.
@@ -112,7 +121,7 @@ export async function run(): Promise<void> {
   await until('q1 passed in the thread', () => lastBody('q1').startsWith('✓ Right.'))
   const a1 = read().questions[0].attempts[0]
   assert.equal(a1.verdict, 'pass'); assert.match(a1.hash, /^[0-9a-f]{12}$/); assert.equal(a1.note, 'Kept and sent again.')
-  await until('focus moved to q2', () => editorLine() === 9 && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
+  await until('focus moved to q2', () => inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded)
   assert.ok(api.thread(n1.id), 'the passed thread stays where it is')
   assert.equal(api.thread(n1.id).state, vscode.CommentThreadState.Unresolved, 'never collapsed as "resolved"')
   ok('a good answer (typed in the reply box): "✓ Right." in the thread, the verdict in the file; the cursor moves to question 2; q1\'s thread stays open')
@@ -121,7 +130,7 @@ export async function run(): Promise<void> {
   await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
   const e = vscode.window.activeTextEditor!
-  assert.ok(e.selection.isEmpty, 'nothing selected'); assert.equal(e.selection.active.line, 9)
+  assert.ok(e.selection.isEmpty, 'nothing selected'); assert.ok(inLines(9, 11), 'on the question')
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
   assert.ok(api.snapshot().notes.find((n: any) => n.id === noteOf('q2').id)?.threadExpanded, 'the thread stays open')
   assert.equal(chk().view.rows[1].word, 'try again')
@@ -134,7 +143,7 @@ export async function run(): Promise<void> {
   await until('the linked lines lit', () => { const c = api.snapshot().tour.codeLinks; return c.active === 0 && c.at[0]?.start === 10 && c.at[0]?.end === 12 && editorLine() === 10 })
   await shoot('check-2a-code-link')
   await vscode.commands.executeCommand('codeNotes.codeLinkBack')
-  await until('back at the question', () => api.snapshot().tour.codeLinks.active === -1 && editorLine() === 9 && api.snapshot().notes.find((n: any) => n.id === q2n.id)?.threadExpanded)
+  await until('back at the question', () => api.snapshot().tour.codeLinks.active === -1 && inLines(9, 11) && api.snapshot().notes.find((n: any) => n.id === q2n.id)?.threadExpanded)
   await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.

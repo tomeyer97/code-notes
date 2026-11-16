@@ -3222,6 +3222,22 @@ async function reveal(n: Note, column?: vscode.ViewColumn): Promise<void> {
   await markRead([n], n)
 }
 
+/**
+ * The keyboard in a note's thread, not in the code under it (where typing would edit the file). VS Code's API can't put
+ * the caret in a thread's reply box; "Focus Comment on Current Line" moves focus into the thread (Tab reaches Reply).
+ */
+async function focusReply(n: Note): Promise<boolean> {
+  for (let k = 0; k < 20 && (!threads.get(n.data.id) || settling(threads.get(n.data.id)!)); k++) await new Promise((r) => setTimeout(r, 50))
+  if (!threads.get(n.data.id)) return false
+  await new Promise((r) => setTimeout(r, 150)) // its widget is drawn after the thread's first state arrives
+  const e = vscode.window.activeTextEditor
+  if (!e || e.document.uri.toString() !== docUri(n).toString()) return false
+  // The command looks for a thread on the caret's line: the thread's last line, where its widget hangs.
+  const at = threadRange(n).end
+  e.selection = new vscode.Selection(at.line, 0, at.line, 0)
+  return vscode.commands.executeCommand('workbench.action.focusCommentOnCurrentLine').then(() => true, () => false)
+}
+
 /** Selects the note's row in the sidebar, when the sidebar is open. */
 function revealInList(n: Note): void {
   if (!treeView.visible || !matchesFilter(n)) return
@@ -4052,6 +4068,7 @@ export async function activate(context: vscode.ExtensionContext) {
   understanding = new Understanding({
     log, store, extUri: context.extensionUri, memento: state, me, now, newId,
     revealed: () => revealedId,
+    focusReply,
     askAbout,
     cli: () => findCli(cfg().get<string>('claude.path') || undefined),
     allowed: (what) => claudeAllowed(what),

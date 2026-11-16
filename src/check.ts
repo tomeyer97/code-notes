@@ -39,6 +39,8 @@ export interface CheckHost {
   reveal(n: Note, column?: vscode.ViewColumn): Promise<void>
   /** The note shown last (revealed), if any. */
   revealed(): string | undefined
+  /** The caret in the note's reply box. */
+  focusReply(n: Note): Promise<boolean>
   refresh(): void
   /** The view column the code is shown in. */
   codeColumn(): vscode.ViewColumn | undefined
@@ -317,10 +319,13 @@ export class Understanding implements vscode.Disposable {
     await this.open(q.id)
   }
 
-  /** A question's thread, in the code's group. */
+  /** A question's thread, in the code's group, with the caret in its reply box (never in the code: typing there edits it). */
   async open(id: string): Promise<void> {
     const n = this.noteOf(id)
-    if (n) await this.host.reveal(n, this.host.codeColumn())
+    if (!n) return
+    await this.host.reveal(n, this.host.codeColumn())
+    const st = this.st?.check?.questions.find((q) => q.id === id)
+    if (!st || notDone(this.U.stateOf(st)) || this.U.stateOf(st) === 'explained') await this.host.focusReply(n)
   }
 
   /** Ctrl+' D / A while questions are open: the next or previous one not done, from the one shown now. */
