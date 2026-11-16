@@ -210,6 +210,8 @@ export interface CheckView {
   failed?: { text: string; setting?: boolean }
   /** The repository lacks the lines that collapse check files in diffs: a link that adds them in a commit of their own. */
   setup?: string
+  /** "Set up" just committed the setup files: one line saying so. */
+  setupDone?: string
   /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
   tour?: { label: string; action?: 'walk' | 'write' }
 }
@@ -271,7 +273,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean; failed?: { text: string; setting?: boolean } } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string; commit?: { files: string[]; todos: string[]; include: Set<string> }; selected?: string; draft?: string; setup?: boolean; setupDone?: string; failed?: { text: string; setting?: boolean } } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -317,8 +319,9 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
     ...(answer ? { answer } : {}),
     ...(o.failed && !o.busy ? { failed: o.failed } : {}),
-    // Only with a check, and never while busy: the person decides; nothing is written to the repository by itself.
-    ...(o.setup && st.check && !o.busy ? { setup: 'Collapse check files in diffs:' } : {}),
+    // Once done, beside Commit & push (never while answering: the questions get the room), and never while busy: the
+    // person decides; nothing is written to the repository by itself.
+    ...(o.setup && st.check && p === 'done' && !o.busy ? { setup: 'Collapse check files in diffs:' } : o.setupDone && st.check ? { setupDone: o.setupDone } : {}),
   }
 }
 

@@ -1242,6 +1242,8 @@ function refreshAll(): void {
     filter !== 'all' && journeys.all().length ? 'Journeys are hidden while filtering.' : '',
   ].filter(Boolean).join(' ') || undefined
   setCtx('codeNotes.hasNotes', ids.size > 0 || store.broken.size > 0)
+  // Notes the Code Notes view lists (a check's questions are in the Check view): without any, it steps aside while a check is open.
+  setCtx('codeNotes.listsNotes', notes().some((n) => !understanding?.isCheck(n)) || store.broken.size > 0)
   setCtx('codeNotes.hasChecked', checked.size > 0)
   setCtx('codeNotes.filtered', filter !== 'all')
   setCtx('codeNotes.groupBy', groupMode)

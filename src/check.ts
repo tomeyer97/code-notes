@@ -100,6 +100,8 @@ export class Understanding implements vscode.Disposable {
   words: Words | undefined
   private unpushed: boolean | undefined
   private pushed: string | undefined
+  /** "Set up" committed the setup files: said once, in its place, until the next push or branch. */
+  private setupDone: string | undefined
   private pushing = false
   /** Questions written in the background and not opened yet: the status bar says how many are ready. */
   private ready = 0
@@ -172,13 +174,15 @@ export class Understanding implements vscode.Disposable {
     if (!repo || !this.U) return
     const before = this.st?.branch
     try { this.st = this.U.localStatus(repo) } catch (e) { this.st = undefined; this.host.log.info(`understanding check: no status (${(e as Error).message.split('\n')[0]})`) }
-    if (this.st && this.st.branch !== before) { this.pushed = undefined; this.selected = undefined }
+    if (this.st && this.st.branch !== before) { this.pushed = undefined; this.selected = undefined; this.setupDone = undefined }
     if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh()
     this.words = this.st ? this.U.stateWords(this.st.state, this.st) : undefined
     // Pushed? Ahead of its upstream, or no upstream at all.
     const ahead = this.st?.state.phase === 'done' ? await gitOut(repo, ['rev-list', '--count', '@{u}..HEAD'], true) : undefined
     this.unpushed = ahead === undefined ? undefined : ahead !== '0'
     this.commit = this.st?.state.phase === 'done' ? await this.toCommit() : undefined
+    // What the questions left out: only while it still is uncommitted (committed or reverted since: the line goes).
+    if (this.notice && this.notice.branch === this.st?.branch && !this.writing) await this.noteLoose(this.notice.branch)
     if (!this.writing) {
       const t = statusText(this.st, this.words)
       if (t && this.ready && this.st?.state.phase === 'answering' && !this.st.summary?.done) { t.text = `$(checklist) ${this.ready} question${this.ready === 1 ? '' : 's'} ready`; t.tip = `Questions about ${this.st.branch} are ready · Check my understanding` }
@@ -191,6 +195,8 @@ export class Understanding implements vscode.Disposable {
       } else this.item.hide()
     }
     if (this.st?.check) await this.syncThreads(this.st.check)
+    // While there is a check, an empty Code Notes view steps aside: the Check view gets its room (package.json).
+    void vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', !!this.st?.check)
     await this.host.tourChanged?.(this.st?.check, this.abs, this.st?.branch)
     this.post()
     this.host.listChanged?.()
@@ -211,7 +217,7 @@ export class Understanding implements vscode.Disposable {
       ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}),
       ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}),
       ...(this.failed?.branch === this.st.branch ? { failed: { text: this.failed.text, ...(this.failed.setting ? { setting: true } : {}) } } : {}),
-      setup: !!this.repo && !this.setupHidden() && this.U.setupMissing(this.repo).length > 0 })
+      setup: !!this.repo && !this.setupHidden() && this.U.setupMissing(this.repo).length > 0, ...(this.setupDone ? { setupDone: this.setupDone } : {}) })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -500,7 +506,8 @@ export class Understanding implements vscode.Disposable {
     if (files.length) {
       const ok = await gitOut(repo, ['add', '--', ...files], true) !== undefined && await gitOut(repo, ['commit', '-q', '-m', 'Add understanding check setup', '--', ...files], true) !== undefined
       this.host.log.info(`understanding check: setup ${ok ? 'committed' : 'written, not committed'}: ${added.join('; ')}`)
-      if (!ok) void vscode.window.showWarningMessage('Code Notes: added the setup lines; commit .gitattributes and .ignore yourself.')
+      if (ok) this.setupDone = `${files.join(' and ')} committed: ${this.st?.state.phase === 'done' ? 'they go with your push.' : 'push them with your change.'}`
+      else void vscode.window.showWarningMessage('Code Notes: added the setup lines; commit .gitattributes and .ignore yourself.')
     }
     await this.refresh()
   }
@@ -667,6 +674,7 @@ export class Understanding implements vscode.Disposable {
     try {
       const r = await this.U.commitAndPush(this.repo, files, `Understanding check: ${this.st.branch}`)
       this.pushed = r.line
+      this.setupDone = undefined
       this.host.log.info(`understanding check: commit & push: ${r.line}`)
       if (!r.ok) void vscode.window.showWarningMessage(`Code Notes: ${r.line}`)
     } finally { this.pushing = false }

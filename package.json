@@ -71,7 +71,8 @@
       "codeNotes": [
         {
           "id": "codeNotes.notes",
-          "name": "Code Notes"
+          "name": "Code Notes",
+          "when": "codeNotes.listsNotes || !codeNotes.checkOpen"
         },
         {
           "type": "webview",

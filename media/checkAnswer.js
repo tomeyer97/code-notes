@@ -8,6 +8,8 @@
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
   let timer
+  /** The question whose answer was just sent from its box: once graded, the keyboard goes back into it (or onto "Next"). */
+  let sent
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
   const boxOf = (id) => document.querySelector(`.answer[data-id="${CSS.escape(id)}"]`)
 
@@ -32,18 +34,25 @@
       if (a.open) {
         const t = el('textarea', 'box')
         t.placeholder = 'Answer in 1–3 sentences'
-        t.rows = 3
+        // Two lines, growing with the answer (up to six): the other questions stay in view.
+        t.rows = 2
+        const grow = () => { t.style.height = ''; const lh = parseFloat(getComputedStyle(t).lineHeight) || 18; if (t.scrollHeight > t.clientHeight) t.style.height = `${Math.min(t.scrollHeight + 2, 6 * lh + 10)}px` }
         t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
         t.value = drafts[a.id] ?? a.draft
-        t.disabled = !!a.checking
-        t.oninput = () => { drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
+        // Never disabled while checking: a disabled box drops the keyboard, and what is typed next after the grade
+        // would go nowhere. It can't be sent again until the grade is in.
+        if (a.checking) t.setAttribute('aria-busy', 'true')
+        requestAnimationFrame(grow)
+        t.oninput = () => { grow(); drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
+        // Keys bubble on to VS Code (its shortcuts work from here: Ctrl+G, Ctrl+P, Ctrl+' D); check.js leaves the
+        // arrows in a box alone.
         t.onkeydown = (e) => {
-          e.stopPropagation() // the arrows move the caret here, not between the questions
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault()
             const text = t.value.trim()
             if (!text || a.checking) return
             drafts[a.id] = ''; clearTimeout(timer)
+            sent = a.id
             post({ type: 'answer', id: a.id, text })
           } else if (e.key === 'Escape') { e.preventDefault(); post({ type: 'escape' }) }
         }
@@ -80,9 +89,19 @@
     },
     /** After: the keyboard back where it was (the box gone after a pass: on "Next question ›"). */
     after(k) {
+      // Graded after an answer sent from here: the keyboard back in the box (a retry, say it back) or on "Next", also
+      // when it was lost meanwhile (nothing else took it: the body has it).
+      if (sent) {
+        const w = boxOf(sent), a = document.activeElement
+        if (w && !w.querySelector('.checking') && (!a || a === document.body || (k && k.id === sent))) {
+          const t = w.querySelector('textarea'), target = t || w.querySelector('.next')
+          sent = undefined
+          if (target) { target.focus(); if (t) t.setSelectionRange(t.value.length, t.value.length); return }
+        } else if (!w) sent = undefined
+      }
       if (!k) return
       const w = boxOf(k.id)
-      const t = w && w.querySelector('textarea:not([disabled])')
+      const t = w && w.querySelector('textarea')
       if (t) { t.focus(); if (k.box) t.setSelectionRange(k.s, k.e) } else if (w && w.querySelector('.next')) w.querySelector('.next').focus()
     },
     message(m, post) {

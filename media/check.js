@@ -37,6 +37,7 @@
       b.title = 'Adds .gitattributes and .ignore lines in a commit of their own'
       p.append(`${V.setup} `, b, ' · ', x); h.append(p)
     }
+    else if (V.setupDone) h.append(el('p', 'setup', V.setupDone))
     app.append(h)
     if (V.busy) app.append(el('p', 'busy', V.busy))
     // The tour of the change: one quiet link (walking it is optional; the rows go straight to a question).

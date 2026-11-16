@@ -1,5 +1,5 @@
 /* The Check view: VS Code's theme colours, nothing loud. */
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: transparent; margin: 0; padding: 4px 12px 10px 20px; }
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: transparent; margin: 0; padding: 2px 12px 6px 20px; }
 header { margin: 0 0 6px; }
 header p { margin: 0; overflow-wrap: anywhere; }
 .title { font-weight: 600; }

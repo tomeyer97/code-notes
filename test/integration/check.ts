@@ -120,37 +120,42 @@ export async function run(): Promise<void> {
     assert.ok(!fs.readFileSync(file, 'utf8').includes('typed'))
     await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace')
     await until('the draft gone', () => view().answer?.draft === '')
+    // VS Code's own shortcuts still work from the box (Ctrl+G: go to line), and leave nothing in it.
+    await page.keyboard.press('Control+G')
+    await until('Go to Line opened from the box', () => page.locator('.quick-input-widget').isVisible())
+    await page.keyboard.press('Escape')
+    assert.equal(await (await checkFrame()).locator('.answer textarea').inputValue(), '', 'nothing typed into the box')
   }
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass · ~2 min left.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
+  if (cdp) {
+    // At 1280×800 (no zoom), with no notes: the empty Code Notes view steps aside and all three questions and q1's
+    // answer box fit in the Check view without scrolling.
+    const page = await ui()
+    const cdps = await page.context().newCDPSession(page)
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
+    await cdps.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
+    await until('the empty Code Notes view steps aside', async () => !(await page.locator('.pane-header h3.title', { hasText: /^Code Notes$/ }).count()))
+    const fit = await until('the Check view laid out', async () => {
+      await sleep(300)
+      const fr = await checkFrame()
+      const m = await fr.evaluate(() => { const d = (globalThis as any).document, h = (globalThis as any).innerHeight; const rows = [...d.querySelectorAll('.row')]; return { h, scroll: d.documentElement.scrollHeight, rows: rows.length, cut: rows.map((r: any) => r.getBoundingClientRect().bottom).filter((b: number) => b > h + 1).length, box: !!d.querySelector('.answer textarea') } })
+      return m.rows === 3 && m.box && m
+    })
+    await shoot('check-1-fits')
+    assert.ok(fit.cut === 0 && fit.scroll <= fit.h + 1, `all questions visible without scrolling: ${JSON.stringify(fit)}`)
+    await cdps.send('Emulation.clearDeviceMetricsOverride')
+    await vscode.workspace.getConfiguration('window').update('zoomLevel', -2, vscode.ConfigurationTarget.Global)
+    ok(`1280×800, no notes: the Code Notes view steps aside; the Check view shows all 3 questions and the answer box (${fit.scroll} of ${fit.h} px)`)
+  }
   assert.match(chk().itemLabel, /^Understanding check: 0 of 3 done\. Answer all 3/, 'read out as words, never an icon id')
   // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
   // workspace's settings. The view offers the setup once, as a commit of its own.
   assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
-  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
+  // While answering, the questions get the room: the setup is offered once done, beside Commit & push.
+  assert.equal(view().setup, undefined, 'no setup line while answering')
   await shoot('check-1-questions')
-  const headBefore = git('rev-parse', 'HEAD')
-  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
-  await until('the setup committed', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup)
-  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
-  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\n')
-  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
-  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
-  if (cdp) {
-    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
-    const probe = path.join(ws, 'api', 'search-probe.txt')
-    fs.writeFileSync(probe, 'already expired\n')
-    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
-    const page = await ui()
-    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
-    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
-    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
-    fs.rmSync(probe)
-    await vscode.commands.executeCommand('codeNotes.check.focus')
-    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
-  }
   ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view')
 
   const answer = async (q: string, text: string) => {
@@ -203,6 +208,13 @@ export async function run(): Promise<void> {
     await until('the answer in the thread too', () => noteOf('q2').messages.some((m: any) => m.role === 'human' && m.body === 'Not sure.'))
   } else await answer('q2', 'Not sure.')
   await until('q2: try again with a hint', () => /^Not quite[\s\S]*\*\*Hint:\*\*/.test(lastBody('q2')))
+  if (cdp) {
+    // A grade that asks for more: the keyboard is back in the box by itself (no click), so what is typed next lands there.
+    await until('after the retry grade: the keyboard in q2\'s box', async () => (await boxFocused()) === 'q2' && view().answer?.grade && !view().answer.checking)
+    await (await ui()).keyboard.type('next try')
+    assert.equal(await (await checkFrame()).locator('.answer textarea').inputValue(), 'next try', 'typed after the grade: in the box')
+    await (await ui()).keyboard.press('Control+A'); await (await ui()).keyboard.press('Backspace')
+  }
   const e = vscode.window.visibleTextEditors.find((x) => x.document.uri.fsPath === path.join(ws, 'api/limits.js'))!
   assert.ok(e.selection.isEmpty, `nothing selected: ${JSON.stringify(e.selection)}`); assert.ok(inLines(9, 11), 'on the question')
   assert.ok(e.visibleRanges.some((r) => r.start.line <= 9 && r.end.line >= 11), 'the question\'s lines are in view')
@@ -257,13 +269,26 @@ export async function run(): Promise<void> {
     await until('Esc: the editor has the keyboard', async () => (await boxFocused()) === '' && (await (await ui()).evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.monaco-editor'))))
     ok('the Check view\'s answer box: the keyboard is there on open; Ctrl+Enter answers; its grade\'s code link lights the code and keeps the keyboard; drafts survive switching; Esc goes back to the code')
   }
-  await answer('q2', 'Still not sure.')
+  if (cdp) {
+    // Back in q2's box (from q3), then answered by keyboard; after "explained" the restatement is typed with no click.
+    await vscode.commands.executeCommand('codeNotes.next')
+    await until('on q3', () => view().answer?.id === 'q3')
+    await vscode.commands.executeCommand('codeNotes.previous')
+    await until('q2\'s box has the keyboard', async () => view().answer?.id === 'q2' && (await boxFocused()) === 'q2')
+    const page = await ui()
+    await page.keyboard.press('Control+A'); await page.keyboard.type('Still not sure.'); await page.keyboard.press('Control+Enter')
+  } else await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
   // The first wrong answer is not kept: not in the file, not in the note.
   assert.equal(read().questions[1].attempts[0].answer, undefined)
   assert.equal(noteOf('q2').messages.filter((m: any) => m.role === 'human')[0].body, '_An earlier answer (not kept)._')
   assert.equal(chk().view.rows[1].word, 'explained · say it back')
-  await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
+  if (cdp) {
+    await until('after "explained": the keyboard in q2\'s box', async () => (await boxFocused()) === 'q2' && !view().answer?.checking)
+    const page = await ui()
+    await page.keyboard.type('GOOD: the counts are per customer, so splitting orders does not help.')
+    await page.keyboard.press('Control+Enter')
+  } else await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
   await until('q2 restated', () => lastBody('q2') === '✓ Right.')
   assert.deepEqual(read().questions[1].attempts.map((a: any) => a.verdict), ['retry', 'explained', 'restated'])
   assert.equal(chk().view.rows[1].word, 'in your words')
@@ -289,6 +314,29 @@ export async function run(): Promise<void> {
   // 6. Done: the status bar, the view, Commit & push (to the bare remote).
   await until('done', () => chk().view?.title === '✓ Done' && chk().view.action?.id === 'commitPush' && chk().view.line === 'A new file: not committed yet.')
   await until('status bar done', () => chk().item === '$(pass) Understanding')
+  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
+  const headBefore = git('rev-parse', 'HEAD')
+  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
+  await until('the setup committed, and said', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup && view().setupDone === '.gitattributes and .ignore committed: they go with your push.')
+  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\n')
+  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
+  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
+  if (cdp) {
+    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
+    const probe = path.join(ws, 'api', 'search-probe.txt')
+    fs.writeFileSync(probe, 'already expired\n')
+    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
+    const page = await ui()
+    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
+    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
+    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
+    fs.rmSync(probe)
+    await vscode.commands.executeCommand('codeNotes.check.focus')
+    await until('the Check view back', () => chk().panel.visible)
+    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
+  }
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
   await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)

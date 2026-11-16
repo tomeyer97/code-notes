@@ -44,17 +44,20 @@ will find a way around it, so every design choice below favours little friction.
    (`start --branch <b> --head <sha>`): the script reads files at that commit and, when that branch is no longer checked
    out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
    place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
-   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide"; Set up runs `init` and commits
-   only those two files ("Add understanding check setup"). CI's log has a one-line tip while they are missing.
+   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide" once the check is done (beside
+   Commit & push; while answering, the questions get the room); Set up runs `init`, commits only those two files ("Add
+   understanding check setup") and says so in one line. CI's log has a one-line tip while they are missing.
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
    it and focuses its box; ↑ ↓ on the rows select without taking the keyboard. Ctrl+Enter sends (the same attempt as a
-   reply in the thread, which keeps working), Esc goes back to the code; the grade shows under the box and in the
-   thread, its code links light the code and leave the keyboard in the box. After a pass the box closes and
+   reply in the thread, which keeps working), Esc goes back to the code; VS Code's own shortcuts (Ctrl+G,
+   Ctrl+P, Ctrl+' D) work from the box. The grade shows under the box and in the thread, its code links light the code
+   and leave the keyboard in the box; after a grade that asks for more (a retry, "say it back") the keyboard is in the
+   box again, so what is typed next lands there. The box has two lines and grows with the answer. After a pass the box closes and
    **Next question ›** appears. An unsent answer is kept per question in the workspace's state (never in the file).
    The list is the **Check** view in the Code Notes sidebar (the only list of them: the
-   Code Notes tree doesn't repeat them): where the check stands,
+   Code Notes tree doesn't repeat them, and steps aside while a check is open and there are no other notes): where the check stands,
    one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
    journey lenses step aside in a file with an open question; another branch's check threads (and notes made from them) are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
