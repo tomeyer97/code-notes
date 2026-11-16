@@ -844,13 +844,13 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
         `- "feedback": "Right." when restated; else what is still off, without repeating the whole explanation (at most ${REPLY_WORDS.restated} words). "hint" is "".`,
       ] : [
         `- pass: "feedback" answers what THEY said: "Right" and their main point confirmed in a few words of your own (if they say it is a bug and it is one, confirm that bug, e.g. "Right: nothing tells returned from damaged units, so stock goes up either way."). At most one more fact, only about that same point; never an unrelated fact. ${REPLY_WORDS.pass} words in all (count them: one sentence is best, two at most). "hint" is "". "partial": false.`,
-        `- a partial pass: the main point is right, but the answer says or implies something wrong that matters (e.g. "it is retried later" when the retries stop after a limit, so it may never happen). Verdict "pass", "partial": true, "feedback" is "Mostly right." and the correction in one sentence, at most ${REPLY_WORDS.partial} words in all. "topic": what the correction is about, at most 6 words. If the one fact you would add on a pass corrects something they said or implied, it is a partial pass, not a plain one.`,
+        `- a partial pass: the main point is right, but the answer says or implies something wrong that matters (e.g. "it is retried later" when the retries stop after a limit, so it may never happen), or it leaves out a part the question asks for (the reason, the case, the outcome) so your feedback would have to supply it. Verdict "pass", "partial": true, "feedback" is "Mostly right." and the correction in one sentence, at most ${REPLY_WORDS.partial} words in all. "topic": what the correction is about, at most 6 words. If the one fact you would add on a pass corrects or completes what they said, it is a partial pass, not a plain one: never complete their answer and call it "Right".`,
         second
           ? `- not a pass (their second try): verdict "explained"; "feedback" explains the answer plainly, naming the code it is about, at most ${REPLY_WORDS.explained} words; "hint" is "". "topic": what the question is about, at most 6 words (e.g. "same-key refunds at once").`
           : '- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check, with one opener at most (no "No worries", no "Nothing to check yet"); for "I don\'t know" just the hint. Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X"). "hint" (at most 20 words) names the code to read, ideally as a question.',
       ]),
       '- "note": for the reviewer of the merge request, at most 15 words, always correct about the code: on a pass or a restatement, the point the author got right; on a partial pass, the correct point including the correction; when explained, the correct answer in one line; on a retry, "".',
-      '- "concern": only when the CODE itself looks wrong (a bug, a race, lost data), not the answer: what and where (name the code), at most 25 words. Otherwise "". Never invent one. When their answer or your feedback says the change breaks something (an install fails, a mail is never sent, data is lost), it is a concern: say it here, never leave it empty then.',
+      '- "concern": only when the CODE of this change has a defect you checked, whatever the verdict: a bug, a race, lost data, a step it forgot (a setting never passed on, a file not updated). That includes a slip the author admits ("forgot to bump the lock file") and a trap their answer points at that you confirm (importing the module starts a loop that never ends): when their answer names a defect you confirm, the concern is that one. One sentence, at most 25 words: what breaks and why it matters, naming the code (e.g. "After MAX_ATTEMPTS the refund email is dropped with only a log line: the customer is never told and nobody is alerted."). Never a concern: code that works as intended, described; a reassurance ("nothing calls it, so removing it breaks nothing"); what would happen in a "what if" about code the change does not have; a correction of the author\'s answer (that goes in "feedback"); your feedback repeated. Otherwise "". Never invent one.',
       '- "links": 1-3 links for the code you named: {"phrase": the exact words as they appear in your feedback, hint or concern, "file": a path in the repository, "start": first line, "end": last line} (lines you read). [] when you named no code.',
     ].join('\n'),
     'Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another; it is within the word limit; on a miss, nothing in it gives the answer away. Fix or cut what fails.',
@@ -859,20 +859,13 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
 }
 
 /**
- * The sentence of a grade that says the change breaks something ("so helm install fails on that file"), at most 25
- * words; undefined when none does. Negated ones ("it never fails", "nothing is lost") don't count.
+ * Whether a concern only repeats the feedback: the same words as the feedback, or a part of it (letters and digits
+ * compared, case and punctuation ignored, "Right:" / "Mostly right." left out).
  */
-export function breakage(text) {
-  const BREAK = /\b(fails?|failing|breaks?|broken|errors? out|crash(?:es)?|is lost|are lost|gets lost|never (?:sent|runs|reaches|arrives|called|delivered)|goes nowhere|no longer works)\b/i
-  for (const sentence of String(text ?? '').replace(/^\s*(right|mostly right|correct)[.!:,]\s*/i, '').split(/(?<=[.!?])\s+/)) {
-    const m = BREAK.exec(sentence)
-    if (!m) continue
-    if (!/^never/i.test(m[1]) && /\b(never|not|n't|no|nothing|without)\b(\W+\w+){0,3}\W*$/i.test(sentence.slice(0, m.index))) continue
-    // Stored as written (the comment escapes it when it posts it).
-    const w = sentence.split(/\s+/).filter(Boolean)
-    return w.length > 25 ? `${w.slice(0, 25).join(' ').replace(/[,;:.]$/, '')}…` : w.join(' ')
-  }
-  return undefined
+export function repeats(concern, feedback) {
+  const norm = (t) => String(t ?? '').replace(/^\s*(right|mostly right|correct|yes)\b[.!:,]?\s*/i, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const c = norm(concern), f = norm(feedback)
+  return !c || f.includes(c)
 }
 
 /**
@@ -901,9 +894,8 @@ export function parseVerdict(text, attempt = 1, { restate = false } = {}) {
     // A pass that corrects something: worth discussing on the merge request.
     if (verdict === 'pass' && v.partial === true) out.partial = true
     if (str(v.topic) && (verdict === 'explained' || out.partial)) out.topic = str(v.topic)
-    if (str(v.concern)) out.concern = str(v.concern)
-    // The grade itself says the change breaks something, but no concern came with it: that sentence is the concern.
-    else if (verdict !== 'retry') { const b = breakage(out.feedback); if (b) out.concern = b }
+    // A concern is about the code; one that only repeats the feedback (a confirmation, a reassurance) is dropped.
+    if (str(v.concern) && !repeats(str(v.concern), out.feedback)) out.concern = str(v.concern)
     // Links whose phrase is in the text (verbatim); their lines are checked against the files by codeLinksIn().
     const said = [out.feedback, out.hint, out.concern ?? ''].join('\n')
     const links = (Array.isArray(v.links) ? v.links : []).filter((l) => l && typeof l.phrase === 'string' && l.phrase.trim() && said.includes(l.phrase.trim()) && typeof l.file === 'string' && Number.isInteger(l.start) && l.start >= 1)

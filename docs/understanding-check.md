@@ -61,7 +61,8 @@ will find a way around it, so every design choice below favours little friction.
    only for the question text it was shown with.
 4. Each reply is graded on submit: ✓ "Right" confirming what the answer said (a bug it names, confirmed), at most one
    more fact on the same point; "Mostly right" + the correction when the main point is right but a detail that matters
-   is wrong (`partial`, worth discussing on the merge request); or "Not quite" (what is right, what to re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
+   is wrong or a part the question asks for is missing (`partial`, worth discussing on the merge request: never an answer
+   completed by the grader and called "Right"); or "Not quite" (what is right, what to re-check) + a hint. After a second miss the grader explains; the dev may say it back in one sentence
    (`restated`, counts as passed). The grader names code instead of giving line numbers, each name a code link
    (click: the lines light up, nothing is selected and the keyboard stays in the thread; "← Back to question"). It may
    raise a `concern` about the code itself: **Suggest a fix** (a note on the code the concern names, asked to Claude for
@@ -166,7 +167,11 @@ stays in the repository. Whoever writes an attempt calls `pruneAttempts(question
 does it itself). Only each question's last attempt must have an `answer`, and only its `hash` is verified by CI.
 Files written before this (every attempt with its answer and hash) still validate.
 
-**Concerns.** When the grader thinks the CODE is wrong it returns `concern` on that attempt (text only). The author
+**Concerns.** When the CODE of the change has a defect the grader checked (a bug, a race, lost data, a forgotten step;
+also a slip the author admits, or a trap their answer points at that the grader confirms) it returns `concern` on that
+attempt: one sentence saying what breaks and why it matters. Never a description of working code, a reassurance
+("nothing calls it"), the outcome of a "what if", or a correction of the answer (that is the feedback, or a partial
+pass). A concern that only repeats the feedback (the same words, or a part of them) is dropped when the reply is parsed. The author
 decides what happens to it; the extension then writes the question's `concern`:
 `{ "text": string, "flagged": boolean, "at"?: ISO time, "by"?: { "name", "email" } }` (`by`: who flagged it, else
 `answeredBy`). `flagged: true` (**Flag for reviewer**) puts it at the top of

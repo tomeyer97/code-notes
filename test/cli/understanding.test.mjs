@@ -1394,16 +1394,19 @@ test('the grader is told the other open questions and never to answer them', () 
   assert.doesNotMatch(p, /Why is the threshold checked/)
 })
 
-test('a grade that says the change breaks something always carries a concern', () => {
-  assert.equal(U.breakage('Right. Helm renders the renamed file as a manifest, so helm install fails on it.'), 'Helm renders the renamed file as a manifest, so helm install fails on it.')
-  assert.equal(U.breakage('Right. After MAX_TRIES the job is dead and the email is never sent.'), 'After MAX_TRIES the job is dead and the email is never sent.')
-  assert.equal(U.breakage('Right. The lock means it never fails twice.'), undefined)
-  assert.equal(U.breakage('Right. Nothing is lost: the row stays.'), undefined)
-  assert.equal(U.breakage('Right. The stock update shares a transaction with the insert.'), undefined)
-  const v = U.parseVerdict(JSON.stringify({ verdict: 'pass', feedback: 'Right. NOTES-x.txt is rendered as a manifest, so helm install errors out.', concern: '' }), 1)
-  assert.equal(v.concern, 'NOTES-x.txt is rendered as a manifest, so helm install errors out.')
-  assert.equal(U.parseVerdict(JSON.stringify({ verdict: 'retry', feedback: 'Not quite: what fails here?', hint: 'h' }), 1).concern, undefined, 'never on a retry')
-  assert.match(U.graderPrompt({ q: { id: 'q1', kind: 'why', text: 'Why?', file: 'a.js', start: 1, end: 2 }, answer: 'a', attempt: 1, diff: '', code: '', canRead: true }), /it is a concern: say it here, never leave it empty then/)
+test('a concern is about the code: never a copy of the feedback; the prompt says when to raise one', () => {
+  const pv = (o, n = 1) => U.parseVerdict(JSON.stringify({ verdict: 'pass', feedback: '', hint: '', ...o }), n)
+  // A confirmation or a reassurance repeated as a concern: dropped (same text, or a part of the feedback).
+  assert.equal(pv({ feedback: 'Right: the static import of the renamed file fails to resolve, so the process dies at startup.', concern: 'The static import of the renamed file fails to resolve, so the process dies at startup.' }).concern, undefined)
+  assert.equal(pv({ feedback: 'Right: nothing in the repo references refundReport, so removing it breaks no caller.', concern: 'nothing in the repo references refundReport' }).concern, undefined)
+  assert.equal(pv({ feedback: 'Right.', concern: 'right' }).concern, undefined)
+  // The grade itself is never turned into a concern.
+  assert.equal(pv({ feedback: 'Right. NOTES-x.txt is rendered as a manifest, so helm install errors out.', concern: '' }).concern, undefined)
+  // A real concern in its own words stays.
+  assert.equal(pv({ feedback: 'Right: the top-level loop starts on import and never ends.', concern: 'Exporting jitter from worker.js hangs any module that imports it.' }).concern, 'Exporting jitter from worker.js hangs any module that imports it.')
+  assert.equal(U.parseVerdict(JSON.stringify({ verdict: 'retry', feedback: 'Not quite: what fails here?', hint: 'h', concern: '' }), 1).concern, undefined)
+  const p = U.graderPrompt({ q: { id: 'q1', kind: 'why', text: 'Why?', file: 'a.js', start: 1, end: 2 }, answer: 'a', attempt: 1, diff: '', code: '', canRead: true })
+  for (const w of ['a slip the author admits', 'a trap their answer points at that you confirm', 'what breaks and why it matters', 'a reassurance', 'a correction of the author\'s answer', 'your feedback repeated', 'never complete their answer and call it "Right"']) assert.ok(p.includes(w), w)
 })
 
 test('at most one "what does it return for <numbers>" question per check', () => {

@@ -73,11 +73,14 @@ const CASES = [
   // A plausible answer about code that doesn't work as deployed: the grader must raise a concern, not a plain pass.
   { id: 'C1', q: 'q4', answer: 'They are emailed to the ops address in OPS_EMAIL.', verdict: undefined, maxWords: 60,
     mustConcern: /OPS_EMAIL/ },
+  // Right about code that works: a plain pass, and no concern (never a copy of the feedback, never a reassurance).
+  { id: 'N1', q: 'q3', answer: 'So two refunds for one order run one after the other: the second sees what the first refunded and cannot go over the total.',
+    verdict: 'pass', maxWords: 25, noConcern: true },
   { id: 'B3', q: 'q2', answer: 'Both miss the lookup; the second waits on the row lock, then its INSERT violates the unique key and errors instead of replaying.',
     verdict: 'pass', maxWords: 25, never: [/refunded twice/i] },
   // The answer names a bug, and it is one: the feedback confirms THAT, not some other fact.
   { id: 'P1', q: 'q5', answer: "Looks like a bug to me: there's no restock flag, so a refund for a damaged item that never comes back still adds it to stock.",
-    verdict: 'pass', maxWords: 25, must: [/stock|return|damaged/i], never: [/transaction|atomic|commit|rollback/i] },
+    verdict: 'pass', maxWords: 25, must: [/stock|return|damaged/i], never: [/transaction|atomic|commit|rollback/i], mustConcern: /stock|return|damaged/i },
   // Right in the main, wrong in a detail that matters (the retries are capped): a pass that corrects it, marked partial,
   // and the reviewer's one-liner says the correct thing.
   { id: 'P2', q: 'q6', answer: 'The refund is already committed by the API, only the job fails: tick() catches it and retries the email later.',
@@ -101,7 +104,8 @@ for (const c of CASES.filter((x) => !only?.length || only.includes(x.id))) {
     const text = `${a.feedback} ${a.hint ?? ''}`
     const problems = [
       c.verdict && a.verdict !== c.verdict && `verdict ${a.verdict}, expected ${c.verdict}`,
-      c.mustConcern && !c.mustConcern.test(a.concern ?? '') && 'no concern about OPS_EMAIL',
+      c.mustConcern && !c.mustConcern.test(a.concern ?? '') && `no concern matching ${c.mustConcern}`,
+      c.noConcern && a.concern && `a concern on working code: ${a.concern}`,
       c.partial !== undefined && !!a.partial !== c.partial && `partial: ${!!a.partial}, expected ${c.partial}`,
       c.noteMust && !c.noteMust.test(a.note ?? '') && `the reviewer's note misses ${c.noteMust}`,
       // Code is named and linked, never pointed at by line numbers.
