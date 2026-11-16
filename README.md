@@ -111,8 +111,8 @@ label.
 ```yaml
 understanding:
   image: node:22
-  stage: .pre        # runs first, on its own: a failing test never skips it
-  needs: []
+  stage: .post       # the last stage, so a missing check never skips lint or tests
+  needs: []          # but it starts at once: a failing test never skips it either
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:

@@ -27,6 +27,9 @@ export const MAX_TEXT = 240
 export const MAX_TOUR_STEPS = 20
 /** The merge request comment's line for reviewers when the check has a tour. */
 export const TOUR_LINE = 'A guided tour of this change: open it in VS Code with Code Notes (Check view)'
+/** The design notes and the CI recipes, for people who only have this file. */
+export const DOCS_URL = 'https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md'
+export const CI_URL = 'https://github.com/tomeyer97/code-notes#in-ci'
 
 // ---------- git ----------
 
@@ -1744,6 +1747,8 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
   if (cmd === 'init') {
     const changed = initRepo(repo)
     print(changed.length ? `Added: ${changed.join('; ')}.` : 'Already set up.')
+    // The CI job goes in the last stage with needs: [] (in .pre, a missing check would skip lint and tests).
+    print(`CI recipe: ${CI_URL}`)
     return 0
   }
   if (cmd === 'validate') {
