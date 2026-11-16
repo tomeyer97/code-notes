@@ -100,12 +100,15 @@ if (cmd === 'start') {
     files = files.filter((f) => ranges.has(f.file))
   }
   if (!topUp && !lines && loose && U.currentBranch(repo) === branch) { say(`UNCOMMITTED: this change is not committed yet (${loose} code lines). Ask the person to commit it first. Write nothing.`); process.exit(0) }
-  if (!lines || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
+  const renamedOnly = !topUp && !lines && st.renamed?.length > 0
+  if ((!lines && !renamedOnly) || (topUp && !ranges.size)) { say(`NOTHING: no code lines changed${topUp ? ' since the questions were written' : ''} (only comments, blank lines or exempt files). Write nothing.`); process.exit(0) }
   const diff = U.diffText(repo, base, head, files, cfg.exempt)
   ranges ??= U.changedRanges(diff, { codeOnly: true })
   // Removed code is part of the change: a question may sit where code was removed, and when the change only removes
   // code, also where the removed code was used (any file).
   for (const [f, rs] of U.removalPoints(diff)) ranges.set(f, [...(ranges.get(f) ?? []), ...rs])
+  // A moved file: a question about the move itself (--whole-file), never about the content it kept.
+  if (renamedOnly) for (const r of st.renamed) if (!ranges.has(r.to)) ranges.set(r.to, [])
   const removedOnly = !topUp && st.added === 0 && st.removed > 0
   const want = wanted(lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
@@ -113,6 +116,7 @@ if (cmd === 'start') {
   saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), questions: [] })
   say(topUp ? `TOP-UP: branch ${branch} · ${lines} new code lines since the questions were written` : `CHANGE: branch ${branch} · ${st.files} files · ${lines} code lines (+${st.added} −${st.removed})`)
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
+  if (renamedOnly) say(`RENAMED ONLY: ${st.renamed.map((r) => `${r.from} → ${r.to}`).join(', ')}, 0 lines changed. Ask only what the move changes (how a tool, an import or a convention treats the new name or place), with --whole-file; never about the content it kept.`)
   if (removedOnly) say(`REMOVED ONLY: this change only removes code. Ask what the removal changes: put a question on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on the code that used what was removed (any file; find it with Grep).`)
   if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
   say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)

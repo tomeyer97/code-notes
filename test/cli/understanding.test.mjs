@@ -1266,3 +1266,27 @@ test('stacked branches: the change starts after the parent\'s committed check; o
   st = U.localStatus(d, { base: 'main' })
   assert.deepEqual([st.changed, st.stackedOn], [2, undefined])
 })
+
+test('a rename: detected as a move (0 lines changed, not new code); it gets one question about the move itself', async () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.mkdirSync(path.join(d, 'chart/templates'), { recursive: true })
+  fs.writeFileSync(path.join(d, 'chart/templates/NOTES.txt'), 'Run:\n  kubectl port-forward svc/{{ .Release.Name }}-web 8080:80\nThen open http://localhost:8080\n')
+  commitAll(d, 'notes')
+  gitIn(d, 'checkout', '-qb', 'chore/rename')
+  gitIn(d, 'mv', 'chart/templates/NOTES.txt', 'chart/templates/NOTES-old.txt')
+  commitAll(d, 'rename')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.changed, st.change.renamed, st.state.phase], [0, [{ from: 'chart/templates/NOTES.txt', to: 'chart/templates/NOTES-old.txt' }], 'none'])
+  assert.equal(U.stateWords(st.state, st).line, 'Renamed, 0 lines changed (NOTES-old.txt).')
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /^RENAMED ONLY: chart\/templates\/NOTES\.txt → chart\/templates\/NOTES-old\.txt, 0 lines changed/m)
+  assert.match(out, /WRITE: 1 question/)
+  assert.notEqual(script(d, 'add', '--kind', 'why', '--file', 'chart/templates/NOTES-old.txt', '--lines', '2-2', '--text', 'Why does the port-forward map the web service to port 8080 here?').code, 0, 'never about the kept content')
+  assert.equal(script(d, 'add', '--kind', 'failure', '--file', 'chart/templates/NOTES-old.txt', '--whole-file', '--text', 'What does a user see after helm install now that this file has a new name?').code, 0)
+  assert.match(script(d, 'finish').out, /WROTE understanding\/chore-rename\.json: 1 questions/)
+  // CI: a check is needed (a move is a change), not "no code lines changed".
+  fs.rmSync(path.join(d, 'understanding'), { recursive: true })
+  const r = await ci(d, {})
+  assert.equal(r.code, 1); assert.match(r.lines[0], /No understanding check yet/)
+})

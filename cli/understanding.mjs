@@ -162,8 +162,11 @@ export function isCode(line, file, state = {}) {
  * The code lines of a change between two commits (or a commit and the working tree when `to` is undefined): counted
  * files only, blank and comment-only lines left out. `[{ file, sign: '+' | '-', text (trimmed), line (new side, for +) }]`.
  */
+/** The paths to diff for these files: a renamed file's old name too, so git pairs them (a pure move changes no line). */
+const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
+
 export function codeLines(repo, from, to, exempt = [], all = numstat(repo, from, to)) {
-  const list = all.filter((f) => counted(f.file, exempt) && !f.binary).map((f) => f.file)
+  const list = pathsOf(all.filter((f) => counted(f.file, exempt) && !f.binary))
   if (!list.length) return []
   const out = []
   let file, n = 0, plus = {}, minus = {}
@@ -192,6 +195,8 @@ export function codeStat(repo, from, to, exempt = []) {
   for (const x of lines) { if (x.sign === '+') out.added++; else out.removed++ }
   out.files = new Set(lines.map((x) => x.file)).size
   out.exemptOnly = !all.some((f) => counted(f.file, exempt)) && out.exempt.length > 0
+  // Moved or renamed files (detected by git, -M): a move is a change even when no line changed.
+  out.renamed = all.filter((f) => f.from && counted(f.file, exempt)).map((f) => ({ from: f.from, to: f.file }))
   return out
 }
 
@@ -245,9 +250,9 @@ export function numstat(repo, from, to) {
     if (!p) continue
     const m = /^(-|\d+)\t(-|\d+)\t(.*)$/s.exec(p)
     if (!m) continue
-    let file = m[3]
-    if (!file) { i += 2; file = parts[i] } // a rename: "a\tr\t\0old\0new"
-    files.push({ file, added: m[1] === '-' ? 0 : Number(m[1]), removed: m[2] === '-' ? 0 : Number(m[2]), binary: m[1] === '-' })
+    let file = m[3], from
+    if (!file) { from = parts[i + 1]; i += 2; file = parts[i] } // a rename: "a\tr\t\0old\0new"
+    files.push({ file, ...(from ? { from } : {}), added: m[1] === '-' ? 0 : Number(m[1]), removed: m[2] === '-' ? 0 : Number(m[2]), binary: m[1] === '-' })
   }
   return files
 }
@@ -259,7 +264,7 @@ export const linesOf = (s) => s.added + s.removed
 
 /** The unified diff of the counted files. */
 export function diffText(repo, from, to, files, exempt = []) {
-  const list = (files ?? numstat(repo, from, to)).filter((f) => counted(f.file, exempt) && !f.binary).map((f) => f.file)
+  const list = pathsOf((files ?? numstat(repo, from, to)).filter((f) => counted(f.file, exempt) && !f.binary))
   if (!list.length) return ''
   return git(repo, ['diff', '--no-color', '-U3', '-M', from, ...(to ? [to] : []), '--', ...list])
 }
@@ -670,7 +675,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
  */
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
-  if (!st.exists) return st.small || !st.changed ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed }
+  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed }
   if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid' }
   const s = st.summary
   const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
@@ -689,7 +694,7 @@ export function stateWords(state, st = {}) {
   const branch = st.branch ?? 'this branch'
   switch (state.phase) {
     case 'nothing': return { tone: 'ok', bar: '', title: 'No check needed', line: state.exemptOnly ? 'No check needed: only exempt files changed.' : 'No check needed for this change.', rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
+    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: !state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')}).` : `${state.changed} code line${state.changed === 1 ? '' : 's'} changed${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}.`, rule }
     case 'invalid': return { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: `Fix ${state.why}.`, rule }
     case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
       line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
@@ -1257,7 +1262,7 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag, 
     return { code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] }
   }
   const change = codeStat(repo, base, head, cfg.exempt)
-  if (!linesOf(change)) return { code: 0, lines: [noCheckLine(change)] }
+  if (!linesOf(change) && !change.renamed?.length) return { code: 0, lines: [noCheckLine(change)] }
 
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
   // GitHub runs the job again on a review (the recipe listens to it); GitLab doesn't.
