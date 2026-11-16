@@ -38,7 +38,8 @@ will find a way around it, so every design choice below favours little friction.
 2. In VS Code: **Code Notes: Check my understanding** (the status bar says `Understanding: start`). The
    extension asks the coding agent (same Claude Code runner as "Ask Claude", read-only tools) to write the
    questions with the bundled skill `skills/understanding-check` (SKILL.md + a script that validates and writes the
-   file). Questions cover committed code only: uncommitted or new files get one line first (Commit first, Continue).
+   file). Questions cover committed code only: the check starts anyway, and one line in the Check view names every uncommitted
+   or new file left out.
    Questions finished after a branch switch wait in `.code-notes/.cache/checks/` (git-ignored) until that branch is
    checked out again. The first check also runs `init` (nothing goes in the workspace's settings).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),

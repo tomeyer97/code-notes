@@ -90,7 +90,8 @@ export class Understanding implements vscode.Disposable {
   private ready = 0
   /** What the push watcher saw last (integration test). */
   private bgTrace: string[] = []
-  private notice: string | undefined
+  /** One line about what the questions left out, for this branch. */
+  private notice: { branch: string; text: string } | undefined
   /** What Commit & push would commit (refreshed while the check is done), and the TODO files ticked to go with it. */
   private commit: { files: string[]; todos: string[] } | undefined
   private include = new Set<string>()
@@ -177,7 +178,8 @@ export class Understanding implements vscode.Disposable {
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
     const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
-    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice,
+    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(),
+      notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
       ...(this.commit ? { commit: { ...this.commit, include: this.include } } : {}) })
   }
   private post(): void { this.view.update(this.current()) }
@@ -190,8 +192,8 @@ export class Understanding implements vscode.Disposable {
     await this.refresh()
     const st = this.st
     if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
-    // Questions written in the background: the notice about uncommitted work now, as the person opens them.
-    if (this.ready) { this.ready = 0; const loose = await this.loose(); if (loose) void vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`) }
+    // Questions written in the background: what they left out, now, as the person opens them.
+    if (this.ready) { this.ready = 0; await this.noteLoose(st.branch) }
     const p = st.state.phase
     if (p === 'invalid') { void vscode.window.showWarningMessage(`Code Notes: ${st.next}`); return }
     if (p === 'nothing') { void vscode.window.showInformationMessage(st.next); return }
@@ -208,14 +210,21 @@ export class Understanding implements vscode.Disposable {
     return { dir, bundled: dir === bundled }
   }
 
-  /** Uncommitted and untracked (not ignored) changes the questions won't see: "1 uncommitted change and 1 new file (x.js)". */
+  /**
+   * Uncommitted and untracked (not ignored) files the questions won't see, as one line for the Check view: "Not asked
+   * about (uncommitted): refunds.js, scratch.js". The check's own files don't count.
+   */
   private async loose(): Promise<string | undefined> {
     const out = await gitOut(this.repo!, ['status', '--porcelain', '--untracked-files=all'], true)
-    const lines = (out ?? '').split('\n').filter(Boolean).filter((l) => !this.U.own(l.slice(3)))
-    const fresh = lines.filter((l) => l.startsWith('??')).map((l) => path.basename(l.slice(3)))
-    const changed = lines.length - fresh.length
-    const parts = [changed ? `${changed} uncommitted change${changed === 1 ? '' : 's'}` : '', fresh.length ? `${fresh.length} new file${fresh.length === 1 ? '' : 's'} (${fresh.slice(0, 2).join(', ')}${fresh.length > 2 ? ', …' : ''})` : '']
-    return parts.filter(Boolean).join(' and ') || undefined
+    // "XY path" (the output is trimmed: the first line may have lost its leading space); a rename: "old -> new".
+    const files = (out ?? '').split('\n').map((l) => /^[ MTADRCU?!]{1,2} (.+)$/.exec(l)?.[1]).filter((f): f is string => !!f)
+      .map((f) => f.replace(/^.* -> /, '').replace(/^"|"$/g, '')).filter((f) => !this.U.own(f))
+    return files.length ? `Not asked about (uncommitted): ${files.map((f) => path.basename(f)).join(', ')}` : undefined
+  }
+  /** What the questions left out, said in the view while the branch's check is being answered. */
+  private async noteLoose(branch: string): Promise<void> {
+    const text = await this.loose()
+    this.notice = text ? { branch, text } : undefined
   }
 
   /** Claude writes the questions with the skill, for the branch checked out now; then question 1 opens. */
@@ -225,12 +234,8 @@ export class Understanding implements vscode.Disposable {
     if (this.writing) { if (!bg) this.show(); return false }
     // In the background nothing is said: no trust prompt, no notice, no progress, nothing opens.
     if (bg ? !vscode.workspace.isTrusted : !this.host.allowed('write understanding-check questions')) return false
-    const loose = bg ? undefined : await this.loose()
-    if (loose) {
-      const pick = await vscode.window.showInformationMessage(`Questions cover committed code only: ${loose} ${/ and |s \(/.test(loose) ? 'are' : 'is'} not included.`, 'Commit first', 'Continue')
-      if (pick === 'Commit first') { await openScm(); return false }
-      if (pick !== 'Continue') return false
-    }
+    // Uncommitted work doesn't stop the start: the view names what the questions leave out.
+    if (!bg) await this.noteLoose(st.branch)
     const cli = this.host.cli()
     const { dir, bundled } = this.skill()
     const prompt = checkPrompt({ skill: dir, branch: st.branch, baseRef: st.baseRef ?? 'the default branch', base: st.base ?? 'main', topUp, bundled })
@@ -587,10 +592,10 @@ export class Understanding implements vscode.Disposable {
     if (this.grading.has(q.id)) return
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
     if (!(await this.host.addReply(n, body))) return
-    this.notice = undefined
     this.U.addAttempt(check, q, body, this.U.gitIdentity(this.repo))
     this.save(abs, check)
-    await this.grade(q.id)
+    // Not awaited: the reply box clears once the answer is in (VS Code clears it when the command returns).
+    void this.grade(q.id)
   }
 
   /** Writes the check file with today's line numbers and its result. */

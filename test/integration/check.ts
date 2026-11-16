@@ -65,16 +65,14 @@ export async function run(): Promise<void> {
   await until('the view says there is no check yet', () => view()?.title === 'No check yet for feat/limits' && view().action?.id === 'start' && chk().panel.rows === 0)
   ok('no check yet: "Understanding: start" in the status bar; "No check yet for feat/limits" and Start in the Check view')
 
-  // 2. Uncommitted work: one line, Commit first or Continue.
+  // 2. Uncommitted work doesn't stop the start: one line in the view names every file left out (modified ones too).
   fs.writeFileSync(path.join(ws, 'api', 'allowlist.js'), 'export const allow = []\n')
-  const writing = vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-  if (cdp) {
-    await shoot('check-0-uncommitted')
-    await clickToast(/Questions cover committed code only: 1 new file \(allowlist\.js\) is not included/, 'Continue')
-  }
-  await writing
+  fs.appendFileSync(path.join(ws, 'README.md'), '\nMore.\n')
+  await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
   await until('three question threads', () => checkNotes().length === 3)
-  fs.rmSync(path.join(ws, 'api', 'allowlist.js'))
+  await until('what was left out', () => chk().view.notice === 'Not asked about (uncommitted): README.md, allowlist.js')
+  await shoot('check-0-uncommitted')
+  fs.rmSync(path.join(ws, 'api', 'allowlist.js')); git('checkout', '--', 'README.md')
   const c0 = read()
   assert.deepEqual(c0.questions.map((q: any) => q.kind), ['failure', 'why', 'edge'])
   assert.equal(c0.head, git('rev-parse', 'HEAD'))
