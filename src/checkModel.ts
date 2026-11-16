@@ -9,7 +9,8 @@ export type Verdict = 'pass' | 'retry' | 'explained' | 'restated'
 export type QState = 'todo' | 'ungraded' | 'pass' | 'retry' | 'explained' | 'restated'
 export interface Who { name?: string; email?: string }
 export interface Attempt {
-  answer: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string
+  /** Missing on an answer that a later one superseded (not kept in the file). */
+  answer?: string; at?: string; by?: Who; verdict?: Verdict; feedback?: string; hint?: string; hash?: string; gradedAt?: string
   note?: string; topic?: string; concern?: string; flagged?: boolean
 }
 export interface Range { file: string; start: number; end: number }
@@ -57,6 +58,8 @@ export interface Cli {
   fileFor(branch: string): string
   slugOf(branch: string): string
   commitAndPush(repo: string, files: string[], message: string): Promise<PushResult>
+  /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
+  initRepo(repo: string): string[]
 }
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
@@ -123,6 +126,8 @@ export interface CheckView {
   who?: string
   /** Writing questions now: "Writing questions · 0:42 · reading the change". */
   busy?: string
+  /** Said once: "Answers are kept out of search." */
+  notice?: string
 }
 
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
@@ -131,7 +136,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Set<string>; unpushed?: boolean; pushed?: string; me?: Who; notice?: string } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -154,7 +159,7 @@ export function checkView(st: Status, w: Words, o: { busy?: string; grading?: Se
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
   return {
     branch: st.branch, file: st.file, tone: w.tone, title: w.title, line, rows,
-    ...(action && !o.busy ? { action } : {}), ...(o.busy ? { busy: o.busy } : {}),
+    ...(action && !o.busy ? { action } : {}), ...(o.busy ? { busy: o.busy } : {}), ...(o.notice ? { notice: o.notice } : {}),
     ...(!sameWho ? { who: `${by!.name ?? by!.email}'s check: your answers are recorded as yours.` } : {}),
   }
 }

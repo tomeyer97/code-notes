@@ -5,7 +5,7 @@ header p { margin: 0; overflow-wrap: anywhere; }
 .title { font-weight: 600; }
 .tone-ok .title { color: var(--vscode-testing-iconPassed, #73c991); }
 .tone-warn .title { color: var(--vscode-editorWarning-foreground, #cca700); }
-.line, .who, .muted, .busy { color: var(--vscode-descriptionForeground); }
+.line, .who, .notice, .muted, .busy { color: var(--vscode-descriptionForeground); }
 .who { font-style: italic; }
 .busy { margin: 0 0 6px; font-style: italic; }
 .rows { list-style: none; margin: 0 -6px; padding: 0; }

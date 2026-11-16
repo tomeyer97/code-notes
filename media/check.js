@@ -19,6 +19,7 @@
     h.append(el('p', 'title', V.title))
     if (V.line) h.append(el('p', 'line', V.line))
     if (V.who) h.append(el('p', 'who', V.who))
+    if (V.notice) h.append(el('p', 'notice', V.notice))
     app.append(h)
     if (V.busy) app.append(el('p', 'busy', V.busy))
     if (V.rows.length) {
@@ -63,7 +64,7 @@
   function report() {
     requestAnimationFrame(() => {
       const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .text, .meta, .flag, button.primary, .busy')) {
+      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .text, .meta, .flag, button.primary, .busy')) {
         const r = e.getBoundingClientRect()
         if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       }

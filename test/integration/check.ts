@@ -86,10 +86,12 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.tabGroups.all.length, 1, 'one editor group')
   await until('the view lists three questions', () => chk().panel.rows === 3 && view().title === '0 of 3 done' && view().line === 'Answer all 3 · 2 must pass.')
   await until('status bar 0/3', () => chk().item === '$(checklist) Understanding 0/3')
-  if (cdp) await clickToast(/Collapse check files in merge request diffs/, 'Add to .gitattributes')
-  await until('.gitattributes', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json linguist-generated=true\n')
+  // Quietly: .gitattributes and .ignore for check files, search.exclude for this workspace; said once in the view.
+  await until('repository lines', () => fs.existsSync(path.join(ws, '.gitattributes')) && fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8') === 'understanding/*.json linguist-generated=true\n' && fs.readFileSync(path.join(ws, '.ignore'), 'utf8') === 'understanding/\n')
+  assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], true)
+  await until('said once', () => chk().view.notice === 'Answers are kept out of search.')
   await shoot('check-1-questions')
-  ok('Start: a one-line notice about uncommitted work (Continue), then only question 1 opens (code + thread); the list is the Check view; .gitattributes offered')
+  ok('Start: a one-line notice about uncommitted work (Continue), then only question 1 opens (code + thread); the list is the Check view; .gitattributes, .ignore and search.exclude set quietly')
 
   const answer = async (q: string, text: string) => {
     const n = noteOf(q)
@@ -125,6 +127,9 @@ export async function run(): Promise<void> {
   assert.equal(chk().view.rows[1].word, 'try again')
   await answer('q2', 'Still not sure.')
   await until('q2 explained', () => /Got it\? Say it back in one sentence/.test(lastBody('q2')))
+  // The first wrong answer is not kept: not in the file, not in the note.
+  assert.equal(read().questions[1].attempts[0].answer, undefined)
+  assert.equal(noteOf('q2').messages.filter((m: any) => m.role === 'human')[0].body, '_An earlier answer (not kept)._')
   assert.equal(chk().view.rows[1].word, 'explained · say it back')
   await answer('q2', 'GOOD: the counts are per customer, so splitting orders does not help.')
   await until('q2 restated', () => lastBody('q2') === '✓ Right.')
@@ -150,8 +155,8 @@ export async function run(): Promise<void> {
   api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
   await until('pushed', () => chk().view?.line === 'Pushed.' && !chk().view.action, 20000)
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', 'understanding/feat-limits.json'])
-  ok('done: "✓ Done", Commit & push commits the check file (and .gitattributes) and pushes with -u; the view says "Pushed."')
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore', 'understanding/feat-limits.json'])
+  ok('done: "✓ Done", Commit & push commits the check file (with .gitattributes and .ignore) and pushes with -u; the view says "Pushed."')
 
   // 7. The CLI agrees (no model): the committed file passes `ci`.
   const out = execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } })

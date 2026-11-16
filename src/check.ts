@@ -51,8 +51,10 @@ export interface CheckHost {
 export const SESSION = (branch: string) => `Check · ${branch}`
 const AUTHOR = 'Understanding check'
 const SKILL = 'understanding-check'
-const ATTR_LINE = 'understanding/*.json linguist-generated=true'
-const ATTR_KEY = 'codeNotes.understanding.attributesOffered'
+/** Files the first check writes (initRepo): committed with the check. */
+const REPO_FILES = ['.gitattributes', '.ignore']
+/** A superseded answer: not kept in the check file, nor in its thread's note. */
+const EARLIER = '_An earlier answer (not kept)._'
 /** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
 const CACHE = '.code-notes/.cache/checks'
 const isCheck = (n: Note) => !!(n.data.extra as { check?: unknown } | undefined)?.check
@@ -72,6 +74,7 @@ export class Understanding implements vscode.Disposable {
   private unpushed: boolean | undefined
   private pushed: string | undefined
   private pushing = false
+  private notice: string | undefined
   private writing: { started: number; phase: string; branch: string; ask?: Ask } | undefined
   /** Questions being graded now (by id), and failures to grade (by note id: shown in the thread with Try again). */
   readonly grading = new Map<string, Ask | undefined>()
@@ -152,7 +155,7 @@ export class Understanding implements vscode.Disposable {
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
     const busy = this.writing ? `Writing questions · ${clock(Date.now() - this.writing.started)} · ${this.writing.phase}` : this.pushing ? 'Pushing…' : undefined
-    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me() })
+    return checkView(this.st, this.words, { busy, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, me: this.me(), notice: this.notice })
   }
   private post(): void { this.view.update(this.current()) }
 
@@ -251,7 +254,7 @@ export class Understanding implements vscode.Disposable {
     this.host.log.info(`understanding check: ${after - before} questions written in ${clock(Date.now() - w.started)}${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
     // Only the first question opens: its code and its thread. The list is in the Check view.
     await this.openNext()
-    if (!topUp) void this.offerAttributes()
+    if (!topUp) await this.initRepo()
     return true
   }
 
@@ -288,16 +291,19 @@ export class Understanding implements vscode.Disposable {
     return true
   }
 
-  /** On the first check: collapse the check files in merge request diffs (GitLab and GitHub read .gitattributes). */
-  private async offerAttributes(): Promise<void> {
-    const file = path.join(this.repo!, '.gitattributes')
-    let text = ''
-    try { text = fs.readFileSync(file, 'utf8') } catch { /* none yet */ }
-    if (text.includes('understanding/*.json') || this.host.memento.get(ATTR_KEY)) return
-    await this.host.memento.update(ATTR_KEY, true)
-    const pick = await vscode.window.showInformationMessage('Collapse check files in merge request diffs?', 'Add to .gitattributes', 'No')
-    if (pick !== 'Add to .gitattributes') return
-    fs.writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ATTR_LINE}\n`)
+  /**
+   * On the first check, quietly: the repository's lines for check files (.gitattributes collapses them in merge
+   * request diffs, .ignore keeps them out of search tools; committed with the check), and this workspace's
+   * search.exclude. Said once in the view.
+   */
+  private async initRepo(): Promise<void> {
+    try { const added = this.U.initRepo(this.repo!); if (added.length) this.host.log.info(`understanding check: added ${added.join('; ')}`) } catch (e) { this.host.log.error(`understanding check: init: ${e}`) }
+    const conf = vscode.workspace.getConfiguration('search', this.folder!.uri)
+    const mine = conf.inspect<Record<string, boolean>>('exclude')?.workspaceValue ?? {}
+    if (mine['understanding/**'] !== true) {
+      await conf.update('exclude', { ...mine, 'understanding/**': true }, vscode.ConfigurationTarget.Workspace)
+      this.notice = 'Answers are kept out of search.'
+    }
     await this.refresh()
   }
 
@@ -344,8 +350,7 @@ export class Understanding implements vscode.Disposable {
   async commitPush(): Promise<void> {
     if (!this.repo || !this.st || this.pushing) return
     const files = [this.st.file]
-    const attr = await gitOut(this.repo, ['status', '--porcelain', '--', '.gitattributes'], true)
-    if (attr) { try { if (fs.readFileSync(path.join(this.repo, '.gitattributes'), 'utf8').includes(ATTR_LINE)) files.push('.gitattributes') } catch { /* gone */ } }
+    for (const f of REPO_FILES) if (fs.existsSync(path.join(this.repo, f)) && await gitOut(this.repo, ['status', '--porcelain', '--', f], true)) files.push(f)
     this.pushing = true; this.post()
     try {
       const r = await this.U.commitAndPush(this.repo, files, `Understanding check: ${this.st.branch}`)
@@ -368,7 +373,7 @@ export class Understanding implements vscode.Disposable {
     const out: NoteData['messages'] = [{ author: AUTHOR, role: 'agent', body: questionBody(q) }]
     let explained = false
     for (const a of q.attempts ?? []) {
-      out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer, ...(a.at ? { at: a.at } : {}) })
+      out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer ?? EARLIER, ...(a.at ? { at: a.at } : {}) })
       if (a.verdict) out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
       if (a.verdict === 'explained') explained = true
     }
@@ -381,6 +386,11 @@ export class Understanding implements vscode.Disposable {
       const want = this.messagesOf(q, check)
       const n = this.noteOf(q.id)
       if (!n) { await this.createNote(q, want); continue }
+      // An answer the file no longer keeps (a later one superseded it): its copy in the note goes too.
+      let redacted = false
+      const humans0 = n.data.messages.filter((m) => m.role === 'human')
+      want.filter((m) => m.role === 'human').forEach((m, k) => { if (m.body === EARLIER && humans0[k] && humans0[k].body !== EARLIER) { humans0[k].body = EARLIER; redacted = true } })
+      if (redacted && await this.host.store.save(n)) await this.host.changed(n, false)
       // Append-only: the thread may hold more (a remark after the question was done); never less.
       const humans = (m: NoteData['messages']) => m.filter((x) => x.role === 'human').length
       const agents = (m: NoteData['messages']) => m.filter((x) => x.role === 'agent').length
@@ -459,6 +469,7 @@ export class Understanding implements vscode.Disposable {
     if (this.grading.has(q.id)) return
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
     if (!(await this.host.addReply(n, body))) return
+    this.notice = undefined
     this.U.addAttempt(check, q, body, this.U.gitIdentity(this.repo))
     this.save(abs, check)
     await this.grade(q.id)
@@ -488,7 +499,7 @@ export class Understanding implements vscode.Disposable {
     const mode = this.U.gradeMode(q)
     let diff = ''
     try { diff = this.U.diffText(repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
-    const prompt = this.U.graderPrompt({ q, answer: last.answer, ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true })
+    const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true })
     const ask = new Ask({ cli, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
     this.post(); this.host.refresh()
@@ -502,7 +513,7 @@ export class Understanding implements vscode.Disposable {
       // The file may have changed while Claude worked: read it again, grade the same answer.
       check = this.U.readCheck(abs)
       q = check.questions.find((x) => x.id === id)
-      const a = q?.attempts?.slice().reverse().find((x) => x.answer === last.answer && !x.verdict)
+      const a = q?.attempts?.at(-1)?.answer === last.answer && !q?.attempts?.at(-1)?.verdict ? q!.attempts!.at(-1) : undefined
       if (!q || !a) return
       Object.assign(a, v, { gradedAt: this.host.now() })
       a.hash = this.U.attemptHash(q, a)
