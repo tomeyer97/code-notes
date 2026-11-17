@@ -2,7 +2,7 @@
 // questions as rows, one button. This side only carries messages: the controller (index.ts) decides what they do.
 import * as vscode from 'vscode'
 import type { CheckView } from '../checkModel'
-import { webviewHtml } from '../webviewHtml'
+import { webviewPage } from '../webviewHtml'
 
 /** What the view's page asks the controller for (index.ts `viewHandlers`, one handler each). */
 export type CheckViewRequest =
@@ -54,7 +54,12 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
     this.wv = view
     this.ready = false
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
-    view.webview.html = webviewHtml(view.webview, this.extUri, { css: ['check.css', 'checkAnswer.css'], js: ['checkAnswer.js', 'check.js'] })
+    const media = (f: string) => vscode.Uri.joinPath(this.extUri, 'media', f)
+    view.webview.html = webviewPage(view.webview, {
+      css: [media('check.css'), media('checkAnswer.css')],
+      body: '<div id="app"></div>',
+      scripts: [media('checkAnswer.js'), media('check.js')],
+    })
     view.webview.onDidReceiveMessage((m: CheckViewMessage) => {
       switch (m.type) {
         case 'ready':

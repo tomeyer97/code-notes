@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
-import { fileLines, linesOf } from './wfs'
+import { fileLines } from './wfs'
 import { ownSelection } from './claudeLinks'
 import { StepLink } from './codeLinkText'
 import { findLine, followLine, shiftLine } from './beatLine'
@@ -72,7 +72,7 @@ export class CodeLinks implements vscode.Disposable {
   private refind(doc: vscode.TextDocument): void {
     const u = doc.uri.toString(), links = this.step?.links
     if (!links) return
-    const lines = linesOf(doc)
+    const lines = Array.from({ length: doc.lineCount }, (_, k) => doc.lineAt(k).text)
     for (const [i, a] of [...this.at]) {
       if (a.uri !== u) continue
       const start = followLine(lines, a.start, links[i]?.text ?? '', [])

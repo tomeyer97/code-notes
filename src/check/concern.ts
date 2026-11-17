@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import type { Note } from '../store'
 import { Check, Question, commentMark, concernOf, hunksOf, samePerson, todoLines, todoPlace, whoOf } from '../checkModel'
 import { gitOut } from '../git'
-import { linesOf } from '../wfs'
+import { docLines } from '../wfs'
 import type { Understanding } from './index'
 
 export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'
@@ -45,7 +45,7 @@ export class Concerns {
     const uri = vscode.Uri.joinPath(this.u.folder!.uri, at.file)
     const doc = await vscode.workspace.openTextDocument(uri)
     // Above the line, at its indentation (inside the block a "} catch {" line opens).
-    const place = todoPlace(linesOf(doc), Math.min(doc.lineCount - 1, Math.max(0, at.start - 1)))
+    const place = todoPlace(docLines(doc), Math.min(doc.lineCount - 1, Math.max(0, at.start - 1)))
     const text = todoLines(commentMark(at.file), c.suspect ? q.text : c.text).map((l) => `${place.indent}${l}\n`).join('')
     const edit = new vscode.WorkspaceEdit()
     edit.insert(uri, new vscode.Position(place.line, 0), text)
@@ -122,7 +122,7 @@ export class Concerns {
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.u.folder!.uri, l.file))
       if (l.text && doc.lineAt(Math.min(doc.lineCount - 1, l.start - 1)).text !== l.text) {
         // Moved: the line with its text nearest to where it was.
-        const hits = linesOf(doc).flatMap((t, k) => (t === l.text ? [k] : []))
+        const hits = docLines(doc).flatMap((t, k) => (t === l.text ? [k] : []))
         if (hits.length) start = hits.reduce((a, b) => (Math.abs(b + 1 - l.start) < Math.abs(a + 1 - l.start) ? b : a)) + 1
       }
     } catch {
@@ -141,7 +141,7 @@ export class Concerns {
     try {
       if (l?.text) {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.u.folder!.uri, l.file))
-        if (!linesOf(doc).includes(l.text)) return true
+        if (!docLines(doc).includes(l.text)) return true
       }
       const at = await this.concernAt(q, n)
       const diff = await gitOut(this.u.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
