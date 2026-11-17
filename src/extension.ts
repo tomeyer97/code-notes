@@ -8,7 +8,7 @@ import { readValues, ValueHints } from './valueHints'
 import { linkPhrases, readLinks } from './codeLinkText'
 import { execFile } from 'child_process'
 import { anchor, shift, swallows, lineDiff, Loc } from './anchor'
-import { Ask, AskResult, findCli } from './claude'
+import { Ask, AskResult, findCli, findCliAsync } from './claude'
 import { folderName, folderProblem, journeysFolderName, Message, Note, NoteData, NoteEvent, serialize, Severity, Store } from './store'
 import { fileOf, Journeys, LoadedJourney, MAP_VIEW, MapMessage, MapPanel, posKey, StepAt } from './journeys'
 import { escapeTags, linkPaths } from './journeyModel'
@@ -3820,7 +3820,9 @@ export async function activate(context: vscode.ExtensionContext) {
   extVersion = String(context.extension.packageJSON?.version ?? extVersion)
   // In Restricted Mode `codeNotes.claude.path` comes from the user's settings only (package.json:
   // restrictedConfigurations), so a folder's own settings never pick the program run here.
-  const probeClaude = () => setCtx('codeNotes.claudeFound', !!findCli(cfg().get<string>('claude.path') || undefined))
+  // Off the extension host's path: each candidate's `claude --version` runs as its own process (findCli then answers from the cache).
+  let probes = 0
+  const probeClaude = () => { const n = ++probes; void findCliAsync(cfg().get<string>('claude.path') || undefined).then((c) => { if (n === probes) void setCtx('codeNotes.claudeFound', !!c) }) }
   probeClaude()
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('codeNotes.claude.path')) probeClaude() }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => probeClaude()), writingChanged)

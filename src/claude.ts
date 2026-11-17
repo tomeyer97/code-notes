@@ -1,6 +1,6 @@
 // Answers a note with Claude Code running headless (`claude -p`), streaming its text as it writes.
 // No vscode API here (unit-tested in test/claude.test.ts with a fake CLI).
-import { spawn, spawnSync, ChildProcess } from 'child_process'
+import { execFile, spawn, spawnSync, ChildProcess } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -45,19 +45,42 @@ export function findCli(setting: string | undefined): string | undefined {
   if (found?.key === key) return found.cli
   const all = candidates(setting)
   if (setting && all[0] === setting) { found = { key, cli: setting }; return setting }
-  let best: { cli: string; v: number[] } | undefined
+  const cli = newest(all, (c) => `${spawnSync(c, ['--version'], { encoding: 'utf8', timeout: 5000 }).stdout ?? ''}`)
+  found = { key, cli: cli ?? all[0] }
+  return found.cli
+}
+
+/**
+ * findCli without blocking: each candidate's `--version` runs as its own process, all at once, and the extension
+ * host keeps going meanwhile (a `claude --version` takes a few hundred ms). Fills findCli's cache.
+ */
+export async function findCliAsync(setting: string | undefined): Promise<string | undefined> {
+  const key = `${setting ?? ''}|${process.env.PATH ?? ''}`
+  if (found?.key === key) return found.cli
+  const all = candidates(setting)
+  if (setting && all[0] === setting) { found = { key, cli: setting }; return setting }
+  const out = new Map<string, string>()
+  await Promise.all(unique(all).map((c) => new Promise<void>((resolve) => {
+    execFile(c, ['--version'], { encoding: 'utf8', timeout: 5000 }, (_e, stdout) => { out.set(c, `${stdout ?? ''}`); resolve() })
+  })))
+  const cli = newest(all, (c) => out.get(c) ?? '')
+  found = { key, cli: cli ?? all[0] }
+  return found.cli
+}
+
+/** The candidates, one per real file (the first path that leads to it). */
+function unique(all: string[]): string[] {
   const seen = new Set<string>()
-  for (const c of all) {
-    let real = c
-    try { real = fs.realpathSync(c) } catch { continue }
-    if (seen.has(real)) continue
-    seen.add(real)
-    const r = spawnSync(c, ['--version'], { encoding: 'utf8', timeout: 5000 })
-    const v = parseVersion(`${r.stdout ?? ''}`)
+  return all.filter((c) => { let real: string; try { real = fs.realpathSync(c) } catch { return false } if (seen.has(real)) return false; seen.add(real); return true })
+}
+/** The candidate whose `--version` says the newest version. */
+function newest(all: string[], version: (c: string) => string): string | undefined {
+  let best: { cli: string; v: number[] } | undefined
+  for (const c of unique(all)) {
+    const v = parseVersion(version(c))
     if (v && (!best || newer(v, best.v) > 0)) best = { cli: c, v }
   }
-  found = { key, cli: best?.cli ?? all[0] }
-  return found.cli
+  return best?.cli
 }
 
 function candidates(setting: string | undefined): string[] {
