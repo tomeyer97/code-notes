@@ -43,8 +43,10 @@ export function compactOf(lines: string[], start: number, end: number): CompactA
   while (b >= 0 && blank(lines[b])) b--
   let a = end + 1
   while (a < lines.length && blank(lines[a])) a++
-  return { v: 3, head: solid.slice(0, HEAD_LINES).join('\n'), tail: solid.slice(-TAIL_LINES).join('\n'), lines: block.length, hash: blockHash(block),
-    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '' }
+  return {
+    v: 3, head: solid.slice(0, HEAD_LINES).join('\n'), tail: solid.slice(-TAIL_LINES).join('\n'), lines: block.length, hash: blockHash(block),
+    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '',
+  }
 }
 
 /** A v2 anchor (the whole text) as v3, in memory. Undefined for a step on blank lines (it has only its context). */

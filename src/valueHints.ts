@@ -14,9 +14,12 @@ export interface ValueHint { name: string; value: string; note?: string; file: s
 
 export function readValues(v: unknown): ValueHint[] {
   if (!Array.isArray(v)) return []
-  return v.filter((x) => x && typeof x.name === 'string' && x.name.trim() && typeof x.value === 'string' && typeof x.file === 'string' && Number.isInteger(x.line) && x.line >= 1)
-    .map((x) => ({ name: x.name.trim(), value: x.value.replace(/\s+/g, ' ').trim(), file: x.file.trim(), line: x.line, text: typeof x.text === 'string' ? x.text : '',
-      ...(typeof x.note === 'string' && x.note.trim() ? { note: x.note.replace(/\s+/g, ' ').trim() } : {}) }))
+  const usable = (x: any) => x && typeof x.name === 'string' && x.name.trim() && typeof x.value === 'string' && typeof x.file === 'string' && Number.isInteger(x.line) && x.line >= 1
+  const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
+  return v.filter(usable).map((x) => ({
+    name: x.name.trim(), value: oneLine(x.value), file: x.file.trim(), line: x.line, text: typeof x.text === 'string' ? x.text : '',
+    ...(typeof x.note === 'string' && x.note.trim() ? { note: oneLine(x.note) } : {}),
+  }))
 }
 
 export class ValueHints implements vscode.Disposable {
