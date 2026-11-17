@@ -16,20 +16,109 @@
   let timer
   /** The question whose answer was just sent from its box: once graded, the keyboard goes back into it (or onto "Next"). */
   let sent
-  const { el } = window.common
+  const { el, button } = window.common
   const boxOf = (id) => document.querySelector(`.answer[data-id="${CSS.escape(id)}"]`)
+  /** The answer box shows two lines and grows with the answer up to this many: the other questions stay in view. */
+  const MAX_LINES = 6
 
+  /** The keyboard into box `w`: its textarea, the caret at `caret` ([start, end]; undefined: the end; null: left as
+   *  it is), or else its "Next question ›". Whether there was one. */
+  function focusBox(w, caret) {
+    const t = w.querySelector('textarea')
+    const target = t || w.querySelector('.next')
+    if (!target) return false
+    target.focus()
+    if (t && caret !== null) {
+      const [start, end] = caret || [t.value.length, t.value.length]
+      t.setSelectionRange(start, end)
+    }
+    return true
+  }
+
+  /** Grade text: plain text and code links (a click lights the code; the keyboard stays in the box). */
   function parts(ps, id, post, w) {
     const s = el('span')
     for (const p of ps) {
       if (p.link === undefined) { s.append(p.text); continue }
-      const b = el('button', 'codelink', p.text)
+      const b = button('codelink', p.text, () => {
+        post({ type: 'link', id, i: p.link })
+        const t = w.querySelector('textarea')
+        if (t) t.focus()
+      })
       b.title = 'Show this code'
-      // The code lights up; the keyboard stays in the box.
-      b.onclick = () => { post({ type: 'link', id, i: p.link }); const t = w.querySelector('textarea'); if (t) t.focus() }
       s.append(b)
     }
     return s
+  }
+
+  /** The textarea of answer `a` (row `r`): the draft kept, Ctrl+Enter sends it, Esc goes back to the code. */
+  function answerArea(a, r, post) {
+    const t = el('textarea', 'box')
+    t.placeholder = 'Answer in 1–3 sentences'
+    t.rows = 2
+    const grow = () => {
+      t.style.height = ''
+      const lh = parseFloat(getComputedStyle(t).lineHeight) || 18
+      if (t.scrollHeight > t.clientHeight) t.style.height = `${Math.min(t.scrollHeight + 2, MAX_LINES * lh + 10)}px`
+    }
+    t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
+    t.value = drafts[a.id] ?? a.draft
+    // Never disabled while checking: a disabled box drops the keyboard, and what is typed next after the grade
+    // would go nowhere. It can't be sent again until the grade is in.
+    if (a.checking) t.setAttribute('aria-busy', 'true')
+    requestAnimationFrame(grow)
+    // What is typed: kept here at once, sent to the extension once typing pauses.
+    t.oninput = () => {
+      grow()
+      drafts[a.id] = t.value
+      clearTimeout(timer)
+      timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300)
+    }
+    // Keys bubble on to VS Code (its shortcuts work from here: Ctrl+G, Ctrl+P, Ctrl+' D); check.js leaves the
+    // arrows in a box alone.
+    t.onkeydown = (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        const text = t.value.trim()
+        if (!text || a.checking) return
+        drafts[a.id] = ''; clearTimeout(timer)
+        sent = a.id
+        post({ type: 'answer', id: a.id, text })
+      } else if (e.key === 'Escape') { e.preventDefault(); post({ type: 'escape' }) }
+    }
+    return t
+  }
+
+  /** The latest grade: ✓ and the feedback, a hint, what to say back. */
+  function gradeBlock(a, post, w) {
+    const g = el('div', `grade${a.grade.pass ? ' pass' : ''}`)
+    const f = el('p')
+    if (a.grade.pass) f.append(el('span', 'mark', '✓ '))
+    f.append(parts(a.grade.feedback, a.id, post, w))
+    g.append(f)
+    if (a.grade.hint) {
+      const h = el('p', 'hint')
+      h.append(el('b', null, 'Hint: '), parts(a.grade.hint, a.id, post, w))
+      g.append(h)
+    }
+    if (a.grade.say) g.append(el('p', 'say', a.grade.say))
+    return g
+  }
+
+  /** A concern about the code and its actions (also here: the box may be closed after a pass). Its fix is in the
+   *  code: said; it goes with Commit & push. */
+  function concernBlock(a, post) {
+    const c = el('div', 'concern')
+    c.append(el('p', null, `⚠ ${a.concern.text}`))
+    const acts = el('p', 'acts')
+    const act = (label, action) => button('link', label, () => post({ type: 'concern', id: a.id, action }))
+    if (a.concern.applied) acts.append(el('span', 'applied', 'Fix applied · not committed'), ' · ', act('Dismiss', 'dismiss'))
+    else {
+      const flag = act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag')
+      acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', flag, ' · ', act('Dismiss', 'dismiss'))
+    }
+    c.append(acts)
+    return c
   }
 
   window.checkAnswer = {
@@ -37,58 +126,16 @@
     box(a, r, post) {
       const w = el('div', 'answer')
       w.dataset.id = a.id
-      if (a.open) {
-        const t = el('textarea', 'box')
-        t.placeholder = 'Answer in 1–3 sentences'
-        // Two lines, growing with the answer (up to six): the other questions stay in view.
-        t.rows = 2
-        const grow = () => { t.style.height = ''; const lh = parseFloat(getComputedStyle(t).lineHeight) || 18; if (t.scrollHeight > t.clientHeight) t.style.height = `${Math.min(t.scrollHeight + 2, 6 * lh + 10)}px` }
-        t.setAttribute('aria-label', `Your answer to question ${a.n}: ${r.text.replace(/`/g, '')} (Ctrl+Enter sends it)`)
-        t.value = drafts[a.id] ?? a.draft
-        // Never disabled while checking: a disabled box drops the keyboard, and what is typed next after the grade
-        // would go nowhere. It can't be sent again until the grade is in.
-        if (a.checking) t.setAttribute('aria-busy', 'true')
-        requestAnimationFrame(grow)
-        t.oninput = () => { grow(); drafts[a.id] = t.value; clearTimeout(timer); timer = setTimeout(() => post({ type: 'draft', id: a.id, text: t.value }), 300) }
-        // Keys bubble on to VS Code (its shortcuts work from here: Ctrl+G, Ctrl+P, Ctrl+' D); check.js leaves the
-        // arrows in a box alone.
-        t.onkeydown = (e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault()
-            const text = t.value.trim()
-            if (!text || a.checking) return
-            drafts[a.id] = ''; clearTimeout(timer)
-            sent = a.id
-            post({ type: 'answer', id: a.id, text })
-          } else if (e.key === 'Escape') { e.preventDefault(); post({ type: 'escape' }) }
-        }
-        w.append(t)
-      }
+      if (a.open) w.append(answerArea(a, r, post))
       if (a.checking) w.append(el('p', 'checking', 'Checking…'))
       // Couldn't grade it (the answer is kept): why, and Try again.
-      else if (a.error) { const p = el('p', 'failed'), b = el('button', 'link', 'Try again'); b.onclick = () => post({ type: 'regrade', id: a.id }); p.append(`⚠ ${a.error} `, b); w.append(p) }
-      else if (a.grade) {
-        const g = el('div', `grade${a.grade.pass ? ' pass' : ''}`)
-        const f = el('p')
-        if (a.grade.pass) f.append(el('span', 'mark', '✓ '))
-        f.append(parts(a.grade.feedback, a.id, post, w))
-        g.append(f)
-        if (a.grade.hint) { const h = el('p', 'hint'); h.append(el('b', null, 'Hint: '), parts(a.grade.hint, a.id, post, w)); g.append(h) }
-        if (a.grade.say) g.append(el('p', 'say', a.grade.say))
-        w.append(g)
-      }
-      // A concern about the code: its actions here too (the box may be closed after a pass).
-      if (a.concern) {
-        const c = el('div', 'concern')
-        c.append(el('p', null, `⚠ ${a.concern.text}`))
-        const acts = el('p', 'acts')
-        const act = (label, action) => { const b = el('button', 'link', label); b.onclick = () => post({ type: 'concern', id: a.id, action }); return b }
-        // Its fix is in the code: said; it goes with Commit & push.
-        if (a.concern.applied) acts.append(el('span', 'applied', 'Fix applied · not committed'), ' · ', act('Dismiss', 'dismiss'))
-        else acts.append(act('Suggest a fix', 'fix'), ' · ', act('Add TODO', 'todo'), ' · ', act(a.concern.flagged ? 'Flagged ✓' : 'Flag for reviewer', 'flag'), ' · ', act('Dismiss', 'dismiss'))
-        c.append(acts); w.append(c)
-      }
-      if (a.next) { const n = el('button', 'next', 'Next question ›'); n.onclick = () => post({ type: 'next' }); w.append(n) }
+      else if (a.error) {
+        const p = el('p', 'failed')
+        p.append(`⚠ ${a.error} `, button('link', 'Try again', () => post({ type: 'regrade', id: a.id })))
+        w.append(p)
+      } else if (a.grade) w.append(gradeBlock(a, post, w))
+      if (a.concern) w.append(concernBlock(a, post))
+      if (a.next) w.append(button('next', 'Next question ›', () => post({ type: 'next' })))
       return w
     },
     /** Before the view is drawn again: where the keyboard is in a box. */
@@ -104,15 +151,13 @@
       if (sent) {
         const w = boxOf(sent), a = document.activeElement
         if (w && !w.querySelector('.checking') && (!a || a === document.body || (k && k.id === sent))) {
-          const t = w.querySelector('textarea'), target = t || w.querySelector('.next')
           sent = undefined
-          if (target) { target.focus(); if (t) t.setSelectionRange(t.value.length, t.value.length); return }
+          if (focusBox(w)) return
         } else if (!w) sent = undefined
       }
       if (!k) return
       const w = boxOf(k.id)
-      const t = w && w.querySelector('textarea')
-      if (t) { t.focus(); if (k.box) t.setSelectionRange(k.s, k.e) } else if (w && w.querySelector('.next')) w.querySelector('.next').focus()
+      if (w) focusBox(w, k.box ? [k.s, k.e] : null)
     },
     message(m, post) {
       if (m.type !== 'focus') return false
@@ -124,9 +169,7 @@
       const go = () => {
         const w = boxOf(m.id)
         if (!w) return false
-        const t = w.querySelector('textarea')
-        const target = t || w.querySelector('.next')
-        if (target) { target.focus(); if (t) t.setSelectionRange(t.value.length, t.value.length) }
+        focusBox(w)
         w.scrollIntoView({ block: 'nearest' })
         return true
       }
