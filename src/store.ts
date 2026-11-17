@@ -3,47 +3,16 @@ import { wfs } from './wfs'
 import * as fs from 'fs'
 import * as path from 'path'
 import { placeFile } from './paths'
+import { jsonFilesIn, watchJsonFiles } from './jsonFolder'
+import { NoteData, folderProblem, merge, parseNote, serialize, titleOf } from './noteModel'
 
 // One JSON file per note in <workspace folder>/<codeNotes.folder>/<name>.json. One file per note so an agent and
 // the extension never overwrite each other's notes. A note IS its file: the file name is its identity (an "id"
 // field that disagrees is ignored). Deleted notes move to <folder>/.trash/. The format is documented in the README
-// the extension writes into the folder (agentReadme below), which also names the person.
+// the extension writes into the folder (agentReadme below), which also names the person. What is in a note file
+// (fields, parsing, merging) is noteModel.ts; this reads, watches and writes the files.
 
-export type Role = 'human' | 'agent'
-export interface Message { author: string; body: string; at?: string; role?: Role }
-export const SEVERITIES = ['high', 'medium', 'low', 'nit'] as const
-export type Severity = typeof SEVERITIES[number]
-/** A status change: who resolved or reopened the note, and when (shown as a grey line in the thread). */
-export interface NoteEvent { type: 'resolved' | 'reopened'; by: string; role?: Role; at: string }
-/** Fields this version knows: everything else in a note file is kept as is when the extension rewrites it. */
-const KNOWN = new Set(['id', 'file', 'range', 'anchor', 'selection', 'session', 'status', 'stale', 'claudeSession', 'createdAt', 'messages', 'severity', 'events', 'target'])
-
-export interface NoteData {
-  id: string
-  /** Path relative to the workspace folder, with forward slashes. */
-  file: string
-  /** 1-based, inclusive. */
-  range: { start: number; end: number }
-  anchor: { text: string; before: string; after: string; commit?: string; branch?: string }
-  /** The exact text selected when the note was made, when that was part of a line (e.g. one token). */
-  selection?: { text: string; startCol: number; endCol: number }
-  /** A set of notes that belong together (one review, one topic). The sidebar groups by it; it can be hidden. */
-  session?: string
-  status: 'open' | 'resolved'
-  stale?: boolean
-  /** The Claude Code session that answered this note: follow-ups resume it. */
-  claudeSession?: string
-  createdAt?: string
-  messages: Message[]
-  /** Review findings: how much it matters (sidebar icon and order). */
-  severity?: Severity
-  /** Status changes, oldest first. */
-  events?: NoteEvent[]
-  /** A note on a whole file or folder: no lines (range is 1-1 in memory and not written). */
-  target?: 'file' | 'folder'
-  /** Fields of the file this version doesn't know (a newer extension or an agent wrote them): written back as they were. */
-  extra?: Record<string, unknown>
-}
+export { Role, Message, SEVERITIES, Severity, NoteEvent, NoteData, merge, folderProblem, titleOf, serialize, parseNote } from './noteModel'
 
 export interface Note {
   data: NoteData
@@ -54,39 +23,6 @@ export interface Note {
   raw?: string
   /** The note as last read or written: the common ancestor when the file changed under us (merge). */
   base?: NoteData
-}
-
-const msgKey = (m: Message) => `${m.author}\u0000${m.at ?? ''}\u0000${m.body}`
-const evKey = (e: NoteEvent) => `${e.type}\u0000${e.by}\u0000${e.at}`
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-
-/**
- * Three-way merge of a note that changed on disk (an agent wrote it) while we changed it in memory. Messages are
- * append-only: theirs plus our new ones. Every other field: ours if we changed it, else theirs.
- */
-export function merge(base: NoteData, ours: NoteData, theirs: NoteData): NoteData {
-  const known = new Set([...base.messages, ...theirs.messages].map(msgKey))
-  const pick = <K extends keyof NoteData>(k: K) => (same(ours[k], base[k]) ? theirs[k] : ours[k])
-  const out: NoteData = {
-    ...theirs,
-    file: pick('file'), range: pick('range'), anchor: pick('anchor'), status: pick('status'), stale: pick('stale'), session: pick('session'), claudeSession: pick('claudeSession'),
-    severity: pick('severity'), target: pick('target'),
-    messages: [...theirs.messages, ...ours.messages.filter((m) => !known.has(msgKey(m)))],
-  }
-  const knownEv = new Set([...(base.events ?? []), ...(theirs.events ?? [])].map(evKey))
-  const events = [...(theirs.events ?? []), ...(ours.events ?? []).filter((e) => !knownEv.has(evKey(e)))]
-  if (events.length) out.events = events; else delete out.events
-  for (const k of ['severity', 'target'] as const) if (out[k] === undefined) delete out[k]
-  return out
-}
-
-/** Why a notes folder setting can't be used (C116), or undefined. */
-export function folderProblem(v: string): string | undefined {
-  const t = v.trim().replace(/\\/g, '/').replace(/\/+$/, '')
-  if (!t || t === '.' || t === './') return 'it must be a sub-folder of its own, like .code-notes'
-  if (t.startsWith('/') || /^[a-zA-Z]:/.test(t)) return 'it must be relative to the workspace folder'
-  if (t.split('/').includes('..')) return 'it must stay inside the workspace folder'
-  return undefined
 }
 
 export function folderName(): string {
@@ -173,11 +109,6 @@ A note on a whole file or folder:
 `
 }
 
-/** The first message of a note file that can't be used, to name it in the list. */
-export function titleOf(raw: string): string | undefined {
-  try { const b = JSON.parse(raw)?.messages?.[0]?.body; return typeof b === 'string' && b.trim() ? b : undefined } catch { return undefined }
-}
-
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
 
@@ -189,14 +120,6 @@ export function journeysFolderName(): string {
 
 export function notesDir(folder: vscode.WorkspaceFolder): vscode.Uri {
   return vscode.Uri.joinPath(folder.uri, folderName())
-}
-
-export function serialize(d: NoteData): string {
-  const { extra, ...rest } = d
-  const out: Record<string, unknown> = { ...rest }
-  // A file or folder note has no lines: no range or anchor in its file.
-  if (d.target) for (const k of ['range', 'anchor', 'stale', 'selection']) delete out[k]
-  return JSON.stringify({ ...out, ...extra }, null, 2) + '\n'
 }
 
 /**
@@ -215,60 +138,6 @@ export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> 
 
 const baseName = (uri: vscode.Uri) => uri.path.split('/').pop()!.replace(/\.json$/, '')
 
-/** Checks a note file's content; returns the note or why it is not one. `id` is the file's name. */
-export function parseNote(raw: string, id: string): NoteData | string {
-  let v: any
-  try { v = JSON.parse(raw) } catch (e) { return `not valid JSON (${(e as Error).message})` }
-  if (!v || typeof v !== 'object') return 'not a JSON object'
-  if (typeof v.file !== 'string' || !v.file) return 'missing "file"'
-  if (v.target !== undefined && v.target !== 'file' && v.target !== 'folder') return `"target" is "${v.target}": use "file" or "folder" (or leave it out for lines)`
-  const target: 'file' | 'folder' | undefined = v.target
-  if (target) v.range = { start: 1, end: 1 }
-  if (!v.range || !Number.isInteger(v.range.start) || !Number.isInteger(v.range.end)) return '"range" needs integer start and end (or "target": "file" for a whole file)'
-  if (v.range.start < 1) return `"range.start" is ${v.range.start}: lines are 1-based`
-  if (v.range.end < v.range.start) return `"range" ends (${v.range.end}) before it starts (${v.range.start})`
-  if (v.status !== undefined && v.status !== 'open' && v.status !== 'resolved') return `"status" is "${v.status}": use "open" or "resolved"`
-  if (!Array.isArray(v.messages)) return '"messages" must be an array'
-  if (!v.messages.length) return '"messages" is empty: a note needs at least one message'
-  for (const [i, m] of v.messages.entries()) if (!m || typeof m.body !== 'string') return `message ${i + 1} needs a "body" string`
-  const start = Math.max(1, v.range.start)
-  // An unknown severity ("critical") is not an error: it is kept in the file but shown as none.
-  const severity = SEVERITIES.includes(v.severity) ? v.severity as Severity : undefined
-  const extra = Object.fromEntries(Object.entries(v).filter(([k]) => !KNOWN.has(k) || (k === 'severity' && !severity)))
-  const events: NoteEvent[] = (Array.isArray(v.events) ? v.events : [])
-    .filter((e: any) => e && (e.type === 'resolved' || e.type === 'reopened') && typeof e.at === 'string')
-    .map((e: any) => ({ type: e.type, by: String(e.by ?? 'unknown'), ...(e.role === 'human' || e.role === 'agent' ? { role: e.role } : {}), at: e.at }))
-  return {
-    id,
-    file: v.file.replace(/\\/g, '/').replace(/^\.\//, ''),
-    range: { start, end: Math.max(start, v.range.end) },
-    anchor: {
-      text: String(v.anchor?.text ?? ''), before: String(v.anchor?.before ?? ''), after: String(v.anchor?.after ?? ''),
-      ...(typeof v.anchor?.commit === 'string' ? { commit: v.anchor.commit } : {}),
-      ...(typeof v.anchor?.branch === 'string' ? { branch: v.anchor.branch } : {}),
-    },
-    ...(typeof v.session === 'string' && v.session.trim() ? { session: v.session.trim() } : {}),
-    ...(typeof v.claudeSession === 'string' && v.claudeSession ? { claudeSession: v.claudeSession } : {}),
-    // A plain string (the obvious shorthand) is the text; columns are only informational.
-    ...(typeof v.selection === 'string' && v.selection.trim() ? { selection: { text: v.selection, startCol: 0, endCol: 0 } }
-      : v.selection && typeof v.selection.text === 'string' ? { selection: { text: v.selection.text, startCol: Number(v.selection.startCol) || 0, endCol: Number(v.selection.endCol) || 0 } } : {}),
-    status: v.status === 'resolved' ? 'resolved' : 'open',
-    stale: !target && !!v.stale,
-    ...(typeof v.createdAt === 'string' ? { createdAt: v.createdAt } : {}),
-    // A missing "at" stays missing: unread state does not depend on it, and inventing one would be a lie.
-    messages: v.messages.map((m: any) => ({
-      author: String(m.author ?? 'unknown'),
-      ...(m.role === 'human' || m.role === 'agent' ? { role: m.role } : {}),
-      body: m.body,
-      ...(typeof m.at === 'string' ? { at: m.at } : {}),
-    })),
-    ...(severity ? { severity } : {}),
-    ...(events.length ? { events } : {}),
-    ...(target ? { target } : {}),
-    ...(Object.keys(extra).length ? { extra } : {}),
-  }
-}
-
 export class Store implements vscode.Disposable {
   /** By note file URI. */
   readonly notes = new Map<string, Note>()
@@ -283,6 +152,7 @@ export class Store implements vscode.Disposable {
   readonly onDidDeleteOnDisk = this.deletedOnDisk.event
   /** Files a save failed for (reported once until a save works again). */
   private readonly failed = new Set<string>()
+  /** Failures not shown yet: one message for those of the next half second. */
   private failNames: string[] = []
   private failWhy = ""
   private failTimer: ReturnType<typeof setTimeout> | undefined
@@ -304,30 +174,28 @@ export class Store implements vscode.Disposable {
     this.watchers = []
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       // Relative to the workspace folder, not the notes folder: that one may not exist yet (first note).
-      const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, `${folderName()}/*.json`))
-      w.onDidCreate((u) => this.readFile(folder, u).then((c) => c && this.changed.fire()))
-      w.onDidChange((u) => this.readFile(folder, u).then((c) => c && this.changed.fire()))
-      w.onDidDelete(async (u) => {
-        // A file replaced by a rename (our atomic save, an agent's tmp + mv) may be reported as deleted: it is there.
-        try { await wfs.stat(u); return } catch { /* really gone */ }
-        const n = this.notes.get(u.toString())
-        if (!this.forget(u)) return
-        // Not our own delete (trash forgets the note first): keep its last version in.trash so it can be restored.
-        if (n?.raw && u.path.startsWith(notesDir(n.folder).path + '/')) {
-          try { await wfs.writeFile(vscode.Uri.joinPath(notesDir(n.folder), '.trash', u.path.split('/').pop()!), encoder.encode(n.raw)) } catch { /* best effort */ }
-          this.log.appendLine(`${u.fsPath}: deleted on disk; the last version is in ${folderName()}/.trash`)
-          this.deletedOnDisk.fire(n)
-        }
-        this.changed.fire()
-      })
-      this.watchers.push(w)
-      let entries: [string, vscode.FileType][] = []
-      try { entries = await wfs.readDirectory(notesDir(folder)) } catch { continue }
-      for (const [name, type] of entries) {
-        if (type === vscode.FileType.File && name.endsWith('.json')) await this.readFile(folder, vscode.Uri.joinPath(notesDir(folder), name))
-      }
-      if (entries.length) await this.writeReadme(folder)
+      const reread = (u: vscode.Uri) => this.readFile(folder, u).then((c) => c && this.changed.fire())
+      this.watchers.push(watchJsonFiles(folder, folderName(), reread, (u) => this.deletedFile(u)))
+      const dir = await jsonFilesIn(notesDir(folder))
+      if (!dir) continue
+      for (const uri of dir.files) await this.readFile(folder, uri)
+      if (dir.entries) await this.writeReadme(folder)
       this.log.appendLine(`${folder.name}: ${[...this.notes.values()].filter((n) => n.folder === folder).length} notes in ${folderName()}/${this.broken.size ? `, ${this.broken.size} unreadable` : ''}`)
+    }
+    this.changed.fire()
+  }
+
+  /** A note file deleted on disk. */
+  private async deletedFile(u: vscode.Uri): Promise<void> {
+    // A file replaced by a rename (our atomic save, an agent's tmp + mv) may be reported as deleted: it is there.
+    try { await wfs.stat(u); return } catch { /* really gone */ }
+    const n = this.notes.get(u.toString())
+    if (!this.forget(u)) return
+    // Not our own delete (trash forgets the note first): keep its last version in.trash so it can be restored.
+    if (n?.raw && u.path.startsWith(notesDir(n.folder).path + '/')) {
+      try { await wfs.writeFile(vscode.Uri.joinPath(notesDir(n.folder), '.trash', u.path.split('/').pop()!), encoder.encode(n.raw)) } catch { /* best effort */ }
+      this.log.appendLine(`${u.fsPath}: deleted on disk; the last version is in ${folderName()}/.trash`)
+      this.deletedOnDisk.fire(n)
     }
     this.changed.fire()
   }
@@ -344,27 +212,26 @@ export class Store implements vscode.Disposable {
     const wasBroken = this.broken.delete(key)
     if (wasBroken) this.log.appendLine(`${uri.fsPath}: readable again`)
     if (existing && existing.raw === raw) return wasBroken
-    let parsed = parseNote(await this.folderNoteShorthand(folder, raw), baseName(uri))
-    if (typeof parsed !== 'string') {
-      const placed = placeFile(folder.uri.fsPath, parsed.file)
-      if (typeof placed !== 'string') parsed = placed.error
-      else {
-        if (placed !== parsed.file) this.log.appendLine(`note ${parsed.id}: path "${parsed.file}" read as "${placed}"`)
-        parsed.file = placed
-        const why = await this.targetProblem(folder, placed, parsed)
-        if (why) parsed = why
-      }
-    }
-    if (typeof parsed === 'string') {
-      // Half-written, most likely: keep the last good version and say why.
-      this.broken.set(key, parsed)
-      const title = titleOf(raw)
-      if (title) this.brokenTitle.set(key, title); else this.brokenTitle.delete(key)
-      this.log.warn(`${uri.fsPath}: ${parsed}`)
-      return true
-    }
+    const parsed = parseNote(await this.folderNoteShorthand(folder, raw), baseName(uri))
+    if (typeof parsed === 'string') return this.markBroken(uri, raw, parsed)
+    const placed = placeFile(folder.uri.fsPath, parsed.file)
+    if (typeof placed !== 'string') return this.markBroken(uri, raw, placed.error)
+    if (placed !== parsed.file) this.log.appendLine(`note ${parsed.id}: path "${parsed.file}" read as "${placed}"`)
+    parsed.file = placed
+    const why = await this.targetProblem(folder, placed, parsed)
+    if (why) return this.markBroken(uri, raw, why)
     this.brokenTitle.delete(key)
     this.notes.set(key, { data: parsed, folder, uri, raw, base: structuredClone(parsed) })
+    return true
+  }
+
+  /** A note file that can't be used (`why`): half-written, most likely; the last good version stays. */
+  private markBroken(uri: vscode.Uri, raw: string, why: string): true {
+    const key = uri.toString()
+    this.broken.set(key, why)
+    const title = titleOf(raw)
+    if (title) this.brokenTitle.set(key, title); else this.brokenTitle.delete(key)
+    this.log.warn(`${uri.fsPath}: ${why}`)
     return true
   }
 
@@ -432,23 +299,7 @@ export class Store implements vscode.Disposable {
       await this.ensureFolder(n.folder)
       await writeAtomic(n.uri, raw)
     } catch (e) {
-      // Not writable (an agent running as root wrote it, a read-only mount): say so once, never silently.
-      this.log.error(`${n.uri.fsPath}: couldn't save: ${(e as Error).message}`)
-      if (!this.failed.has(key)) {
-        this.failed.add(key)
-        // Several at once (a folder written by another user): one message, not a stack of toasts.
-        this.failNames.push(n.uri.path.split('/').pop()!)
-        this.failWhy = (e as Error).message
-        if (!this.failTimer) this.failTimer = setTimeout(() => {
-          const names = this.failNames.splice(0)
-          this.failTimer = undefined
-          const why = /EACCES|EPERM|permission/i.test(this.failWhy) ? 'permission denied (written by another user?)' : this.failWhy
-          const text = names.length === 1 ? `Code Notes: couldn't save ${folderName()}/${names[0]}: ${why}`
-            : `Code Notes: couldn't save ${names.length} notes in ${folderName()}/: ${why}`
-          this.log.error(text.replace(/^Code Notes: /, '')) // every error shown is in the Output channel too
-          vscode.window.showErrorMessage(text)
-        }, 500)
-      }
+      this.reportSaveFailure(n.uri, e as Error)
       return false
     }
     this.failed.delete(key)
@@ -458,6 +309,29 @@ export class Store implements vscode.Disposable {
     // Their change (a reply, a resolve) came in through our save, not the watcher: say so like the watcher would.
     if (merged) this.changed.fire()
     return true
+  }
+
+  /**
+   * Not writable (an agent running as root wrote it, a read-only mount): said once per file, never silently. Several
+   * at once (a folder written by another user): one message, not a stack of toasts.
+   */
+  private reportSaveFailure(uri: vscode.Uri, e: Error): void {
+    this.log.error(`${uri.fsPath}: couldn't save: ${e.message}`)
+    if (this.failed.has(uri.toString())) return
+    this.failed.add(uri.toString())
+    this.failNames.push(uri.path.split('/').pop()!)
+    this.failWhy = e.message
+    this.failTimer ??= setTimeout(() => this.showSaveFailures(), 500)
+  }
+
+  private showSaveFailures(): void {
+    const names = this.failNames.splice(0)
+    this.failTimer = undefined
+    const why = /EACCES|EPERM|permission/i.test(this.failWhy) ? 'permission denied (written by another user?)' : this.failWhy
+    const text = names.length === 1 ? `Code Notes: couldn't save ${folderName()}/${names[0]}: ${why}`
+      : `Code Notes: couldn't save ${names.length} notes in ${folderName()}/: ${why}`
+    this.log.error(text.replace(/^Code Notes: /, '')) // every error shown is in the Output channel too
+    vscode.window.showErrorMessage(text)
   }
 
   /** Moves the note's file to <folder>/.trash/ (restore brings it back). */
