@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, answerBox, linkParts, tourPrompt, writeFailure } from '../src/checkModel'
+import * as fs from 'fs'
+import * as path from 'path'
+import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, answerBox, linkParts, tourPrompt, writeFailure, commentMark, hunksOf, jsonErrorAt, missingMessages, runAction, samePerson, whoOf } from '../src/checkModel'
+import { importCli } from '../src/importCli'
 
 const bash = (command: string) => ({ name: 'Bash', input: { command } })
 const q = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({ id, kind, text: `Question ${id}?`, file: 'api/orders.js', start: 10, end: 12, attempts })
@@ -207,4 +210,44 @@ test('a failed write in plain words: never the CLI\'s own advice', () => {
   assert.deepEqual(writeFailure({ error: "couldn't start Claude Code (/home/a/.local/bin/claude): spawn /home/a/.local/bin/claude ENOENT" }), { text: "Claude Code wasn't found.", path: true })
   assert.equal(writeFailure({ text: 'UNCOMMITTED: this change is not committed yet' }).text, 'Commit your change first: questions are about committed code.')
   assert.equal(checkView(st(), W(), { failed: { text: 'x' } }).failed?.text, 'x')
+})
+
+test('a failure the extension raised is said by its kind, whatever its words', () => {
+  assert.deepEqual(writeFailure({ error: "couldn't start Claude Code (/x/claude): spawn /x/claude EACCES", errorKind: 'no-cli' }), { text: "Claude Code wasn't found.", path: true })
+  assert.equal(gradeFailure('Claude Code was not found.', 'no-cli'), "Claude Code wasn't found; your answer is saved.")
+  assert.equal(gradeFailure('Claude Code isn\'t logged in: 401'), "Claude Code isn't signed in; your answer is saved.")
+  assert.equal(gradeFailure('something else'), "Claude couldn't check it; your answer is saved.")
+})
+
+test('every function of Cli is in the CLI', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../src/checkModel.ts'), 'utf8')
+  const body = /export interface Cli \{([\s\S]*?)\n\}/.exec(src)![1]
+  const names = [...body.matchAll(/^ {2}([A-Za-z_]\w*)[(:]/gm)].map((m) => m[1])
+  assert.ok(names.length > 30, `found ${names.length} names`)
+  const cli = await importCli<Record<string, unknown>>(path.join(__dirname, '../../cli/understanding.mjs'))
+  assert.deepEqual(names.filter((n) => !(n in cli)), [])
+})
+
+test('the command does what the view offers, except where it says otherwise', () => {
+  assert.equal(runAction(st({ state: { phase: 'invalid', conflict: { line: 3, mergeable: true } } }), {}), 'openFile')
+  assert.equal(runAction(st({ state: { phase: 'none' } }), {}), 'start')
+  assert.equal(runAction(st({ state: { phase: 'drift', commitFirst: true } }), {}), 'scm')
+  assert.equal(runAction(st({ state: { phase: 'drift' } }), {}), 'topUp')
+  assert.equal(runAction(st({ state: { phase: 'done' }, dirty: true }), { commit: { tourOnly: true }, unpushed: false }), 'walk')
+  assert.equal(runAction(st({ state: { phase: 'done' }, dirty: false }), { unpushed: true }), 'commitPush')
+  assert.equal(runAction(st(), {}), 'walk')
+})
+
+test('people, comment marks, hunks, JSON errors, missing thread messages', () => {
+  assert.ok(samePerson({ name: 'A', email: 'a@x' }, { name: 'B', email: 'a@x' }))
+  assert.ok(!samePerson({ name: 'A', email: 'a@x' }, { name: 'A', email: 'b@x' }))
+  assert.ok(samePerson({ name: 'A' }, { name: 'A', email: 'b@x' }))
+  assert.deepEqual(whoOf({ name: 'A', email: '' }), { name: 'A' })
+  assert.deepEqual([commentMark('a/b.py'), commentMark('x/Dockerfile'), commentMark('a.vue'), commentMark('a.ts')], [['#', ''], ['#', ''], ['<!--', ' -->'], ['//', '']])
+  assert.deepEqual(hunksOf('diff\n@@ -1,2 +3,4 @@ x\n+a\n@@ -9 +12 @@\n@@ -20,3 +19,0 @@'), [{ start: 3, end: 6 }, { start: 12, end: 12 }, { start: 19, end: 19 }])
+  assert.deepEqual(jsonErrorAt('Unexpected token \'}\', "{\n "a"}" is not valid JSON at position 4', '{\n "a"}'), { line: 2, col: 3, text: 'Line 2: unexpected token \'}\'.' })
+  assert.equal(jsonErrorAt("Expected double-quoted property name in JSON at position 7 (line 2 column 3)", undefined)?.text, 'Line 2: expected double-quoted property name.')
+  assert.equal(jsonErrorAt('ENOENT: no such file', undefined), undefined)
+  const m = (role: string, body: string) => ({ role, body })
+  assert.deepEqual(missingMessages([m('agent', 'Q'), m('human', 'a1'), m('human', 'remark')], [m('agent', 'Q'), m('human', 'a1'), m('agent', 'g1')]), [m('agent', 'g1')])
 })

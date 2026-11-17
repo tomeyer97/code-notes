@@ -3,6 +3,20 @@
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/** A Markdown image: `![chart](img/a.png "title")` (alt, url). */
+const IMAGE = /!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g
+/** A Markdown link: `[the parser](src/parse.ts#L12 "title")` (text, target). */
+const MD_LINK = /\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/g
+/** A link target with a scheme (`https://…`, `mailto:…`): not a file in the repository. */
+const NOT_A_FILE = /^[a-z][\w+.-]*:/i
+/** A file link target and its line: `src/a.ts#L12`, `src/a.ts#L12-L20`, `src/a.ts:12`, `src/a.ts:12-20` (path, line). */
+const TARGET = /^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+)(?:-\d+)?)?$/
+/**
+ * A bare reference, also right after "(" or in a list, optionally in backticks: `src/a.ts:12`, `src/a.ts:12-20`,
+ * `src/a.ts#L12` (path, line, line). Never inside a longer word or path, nor after `~/` (outside the repo: left as text).
+ */
+const BARE_REF = /(?<![\w/~.\-\u0000])`?((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::(\d+)(?:-\d+)?|#L(\d+))`?/g
+
 /**
  * One piece of answer text (outside ``` fences) with its file references as links. `link(text, file, line)` makes
  * one link; `root`: the repository's absolute path (its prefix is dropped everywhere); `home`: shown as "~".
@@ -16,13 +30,12 @@ export function linkify(seg: string, root: string, home: string, link: (text: st
   const kept: string[] = []
   const keep = (x: string) => `\u0000${kept.push(x) - 1}\u0000`
   seg = seg
-    .replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_m, alt, url) => keep(`[image: ${alt || url}](${url})`))
-    .replace(/\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/g, (m, text: string, target: string) => {
-      if (/^[a-z][\w+.-]*:/i.test(target) || target.startsWith('#') || target.startsWith('~') || !target) return keep(m)
-      const t = /^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+)(?:-\d+)?)?$/.exec(target)!
+    .replace(IMAGE, (_m, alt, url) => keep(`[image: ${alt || url}](${url})`))
+    .replace(MD_LINK, (m, text: string, target: string) => {
+      if (NOT_A_FILE.test(target) || target.startsWith('#') || target.startsWith('~') || !target) return keep(m)
+      const t = TARGET.exec(target)!
       return keep(link(text, t[1].replace(/^\.\//, ''), t[2] ?? t[3]))
     })
-    // A bare reference, also right after "(" or in a list; `~/…` (outside the repo) is left as text.
-    .replace(/(?<![\w/~.\-\u0000])`?((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::(\d+)(?:-\d+)?|#L(\d+))`?/g, (m, file, l1, l2) => keep(link(m, file, l1 ?? l2)))
+    .replace(BARE_REF, (m, file, l1, l2) => keep(link(m, file, l1 ?? l2)))
   return seg.replace(/\u0000(\d+)\u0000/g, (_m, i) => kept[Number(i)])
 }

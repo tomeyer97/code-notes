@@ -58,8 +58,11 @@ export const fileFor = (branch) => `${DIR}/${slugOf(branch)}.json`
 export const CACHE = '.code-notes/.cache/checks'
 export const cachedFor = (branch) => `${CACHE}/${slugOf(branch)}.json`
 
+/** The branch a merge request's pipeline runs for (GitLab, GitHub): CI checks out a detached HEAD. Else undefined. */
+export const ciBranch = (env = process.env) => env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.GITHUB_HEAD_REF || undefined
+
 export function currentBranch(repo, env = process.env) {
-  return env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.GITHUB_HEAD_REF || gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'HEAD'
+  return ciBranch(env) || gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'HEAD'
 }
 
 /** The branch a change is compared with, locally: origin's default branch, else main/master. */
@@ -125,16 +128,35 @@ export function globRe(glob) {
 /** Documentation files: a change made only of these gets one question about what a reader sees differently. */
 export const isDoc = (file) => /\.(md|mdx|markdown|rst|adoc|txt)$/i.test(file) || /(^|\/)docs?\//i.test(file)
 /**
+ * The two sides of a text with git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`): [ours, theirs], each the text
+ * outside the conflicts plus that side's lines.
+ */
+export function conflictSides(text) {
+  const lines = String(text).split('\n')
+  const side = (keep) => {
+    let at = 'both'
+    const out = []
+    for (const l of lines) {
+      if (/^<{7}( |$)/.test(l)) at = 'ours'
+      else if (/^={7}$/.test(l) && at === 'ours') at = 'theirs'
+      else if (/^>{7}( |$)/.test(l)) at = 'both'
+      else if (at === 'both' || at === keep) out.push(l)
+    }
+    return out.join('\n')
+  }
+  return [side('ours'), side('theirs')]
+}
+
+/**
  * Git conflict markers in a check file: the first marker's line, and (when both sides read as checks) the two merged:
  * every question once, each with the side that has more graded attempts (the newer one when even). Else undefined.
  */
 export function conflictOf(text) {
-  const lines = String(text).split('\n')
-  const first = lines.findIndex((l) => /^<{7}( |$)/.test(l))
+  const first = String(text).split('\n').findIndex((l) => /^<{7}( |$)/.test(l))
   if (first < 0) return undefined
-  const side = (keep) => { let at = 'both'; const out = []; for (const l of lines) { if (/^<{7}( |$)/.test(l)) at = 'ours'; else if (/^={7}$/.test(l) && at === 'ours') at = 'theirs'; else if (/^>{7}( |$)/.test(l)) at = 'both'; else if (at === 'both' || at === keep) out.push(l) } return out.join('\n') }
+  const [oursText, theirsText] = conflictSides(text)
   let ours, theirs
-  try { ours = JSON.parse(side('ours')); theirs = JSON.parse(side('theirs')) } catch { return { line: first + 1 } }
+  try { ours = JSON.parse(oursText); theirs = JSON.parse(theirsText) } catch { return { line: first + 1 } }
   const graded = (q) => (q?.attempts ?? []).filter((a) => a.verdict).length
   const last = (q) => String((q?.attempts ?? []).at(-1)?.gradedAt ?? (q?.attempts ?? []).at(-1)?.at ?? '')
   const byId = new Map((theirs.questions ?? []).map((q) => [q.id, q]))

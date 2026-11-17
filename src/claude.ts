@@ -23,10 +23,20 @@ export interface AskOptions {
 
 export interface ToolCall { name: string; input: Record<string, unknown> }
 
-export interface AskResult { text: string; sessionId?: string; costUsd?: number; error?: string; cancelled?: boolean }
+/**
+ * Why a run failed, when the extension knows it (not from Claude's own words): `no-cli`, Claude Code couldn't be run at
+ * all (not installed, or not where the setting says).
+ */
+export type AskErrorKind = 'no-cli'
+
+export interface AskResult { text: string; sessionId?: string; costUsd?: number; error?: string; errorKind?: AskErrorKind; cancelled?: boolean }
 
 /** Read-only: Claude can look at the code but not change it. */
 export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob']
+/** What the activity line says while Claude uses a read-only tool ("Reading src/a.ts"); other tools: their name. */
+const TOOL_VERB: Record<string, string> = { Read: 'Reading', Grep: 'Searching for', Glob: 'Looking for' }
+/** How often the text streamed so far is reported (a tool starting is reported at once). */
+const PROGRESS_MS = 250
 
 /** "2.1.322 (Claude Code)" -> [2,1,322]. */
 export function parseVersion(out: string): number[] | undefined {
@@ -35,19 +45,19 @@ export function parseVersion(out: string): number[] | undefined {
 }
 const newer = (a: number[], b: number[]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 
+/** How long a candidate's `claude --version` may take. */
+const VERSION_TIMEOUT_MS = 5000
+
 let found: { key: string; cli?: string } | undefined
 /**
  * The `claude` CLI: the setting if given, else the NEWEST install among PATH and the usual places (VS Code's PATH
  * often finds an old global install before the one you update, e.g. nvm's).
  */
 export function findCli(setting: string | undefined): string | undefined {
-  const key = `${setting ?? ''}|${process.env.PATH ?? ''}`
-  if (found?.key === key) return found.cli
-  const all = candidates(setting)
-  if (setting && all[0] === setting) { found = { key, cli: setting }; return setting }
-  const cli = newest(all, (c) => `${spawnSync(c, ['--version'], { encoding: 'utf8', timeout: 5000 }).stdout ?? ''}`)
-  found = { key, cli: cli ?? all[0] }
-  return found.cli
+  const p = lookup(setting)
+  if (p.done) return p.cli
+  const versions = new Map(unique(p.all).map((c) => [c, `${spawnSync(c, ['--version'], { encoding: 'utf8', timeout: VERSION_TIMEOUT_MS }).stdout ?? ''}`]))
+  return choose(p, versions)
 }
 
 /**
@@ -55,23 +65,39 @@ export function findCli(setting: string | undefined): string | undefined {
  * host keeps going meanwhile (a `claude --version` takes a few hundred ms). Fills findCli's cache.
  */
 export async function findCliAsync(setting: string | undefined): Promise<string | undefined> {
-  const key = `${setting ?? ''}|${process.env.PATH ?? ''}`
-  if (found?.key === key) return found.cli
-  const all = candidates(setting)
-  if (setting && all[0] === setting) { found = { key, cli: setting }; return setting }
-  const out = new Map<string, string>()
-  await Promise.all(unique(all).map((c) => new Promise<void>((resolve) => {
-    execFile(c, ['--version'], { encoding: 'utf8', timeout: 5000 }, (_e, stdout) => { out.set(c, `${stdout ?? ''}`); resolve() })
+  const p = lookup(setting)
+  if (p.done) return p.cli
+  const versions = new Map<string, string>()
+  await Promise.all(unique(p.all).map((c) => new Promise<void>((resolve) => {
+    execFile(c, ['--version'], { encoding: 'utf8', timeout: VERSION_TIMEOUT_MS }, (_e, stdout) => { versions.set(c, `${stdout ?? ''}`); resolve() })
   })))
-  const cli = newest(all, (c) => out.get(c) ?? '')
-  found = { key, cli: cli ?? all[0] }
+  return choose(p, versions)
+}
+
+/** What findCli and findCliAsync share before any `--version` runs: the cache (per setting and PATH), the setting. */
+function lookup(setting: string | undefined): { done: true; cli: string | undefined } | { done: false; key: string; all: string[] } {
+  const key = `${setting ?? ''}|${process.env.PATH ?? ''}`
+  if (found?.key === key) return { done: true, cli: found.cli }
+  const all = candidates(setting)
+  if (setting && all[0] === setting) { found = { key, cli: setting }; return { done: true, cli: setting } }
+  return { done: false, key, all }
+}
+/** The newest candidate by its `--version` output (else the first), cached. */
+function choose(p: { key: string; all: string[] }, versions: Map<string, string>): string | undefined {
+  found = { key: p.key, cli: newest(p.all, (c) => versions.get(c) ?? '') ?? p.all[0] }
   return found.cli
 }
 
 /** The candidates, one per real file (the first path that leads to it). */
 function unique(all: string[]): string[] {
   const seen = new Set<string>()
-  return all.filter((c) => { let real: string; try { real = fs.realpathSync(c) } catch { return false } if (seen.has(real)) return false; seen.add(real); return true })
+  return all.filter((c) => {
+    let real: string
+    try { real = fs.realpathSync(c) } catch { return false }
+    if (seen.has(real)) return false
+    seen.add(real)
+    return true
+  })
 }
 /** The candidate whose `--version` says the newest version. */
 function newest(all: string[], version: (c: string) => string): string | undefined {
@@ -96,15 +122,38 @@ function candidates(setting: string | undefined): string[] {
   return candidates.filter((c) => { try { fs.accessSync(c, fs.constants.X_OK); return true } catch { return false } })
 }
 
+/** A line of `claude -p --output-format stream-json` (only the fields read here; events and content as Claude sends them). */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+interface StreamLine {
+  type?: string
+  event?: any
+  message?: { content?: any[] }
+  result?: unknown
+  session_id?: string
+  total_cost_usd?: number
+  is_error?: boolean
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /** Folds one stream-json line into the running state. Exported for tests. */
 export function foldEvent(state: { text: string; activity?: string; tool?: ToolCall; result?: AskResult }, line: string): boolean {
-  let e: any
+  let e: StreamLine
   try { e = JSON.parse(line) } catch { return false }
   if (e.type === 'stream_event') {
     const ev = e.event
-    if (ev?.type === 'message_start' && state.text && !state.text.endsWith('\n\n')) { state.text += '\n\n'; return true }
-    if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') { state.text += ev.delta.text; state.activity = undefined; return true }
-    if (ev?.type === 'content_block_start' && ev.content_block?.type === 'tool_use') { state.activity = `Using ${ev.content_block.name}…`; return true }
+    if (ev?.type === 'message_start' && state.text && !state.text.endsWith('\n\n')) {
+      state.text += '\n\n'
+      return true
+    }
+    if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+      state.text += ev.delta.text
+      state.activity = undefined
+      return true
+    }
+    if (ev?.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+      state.activity = `Using ${ev.content_block.name}…`
+      return true
+    }
     return false
   }
   if (e.type === 'assistant') {
@@ -113,8 +162,8 @@ export function foldEvent(state: { text: string; activity?: string; tool?: ToolC
       if (c.type !== 'tool_use') continue
       const i = c.input ?? {}
       state.tool = { name: String(c.name), input: i }
-      const target = i.file_path ?? i.pattern ?? i.path ?? ''
-      state.activity = `${c.name === 'Read' ? 'Reading' : c.name === 'Grep' ? 'Searching for' : c.name === 'Glob' ? 'Looking for' : c.name} ${String(target).replace(/^.*\/(?=[^/]+\/[^/]+$)/, '')}`.trim()
+      const target = String(i.file_path ?? i.pattern ?? i.path ?? '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, '')
+      state.activity = `${Object.hasOwn(TOOL_VERB, c.name) ? TOOL_VERB[c.name] : c.name} ${target}`.trim()
       return true
     }
     return false
@@ -150,7 +199,7 @@ export class Ask {
       const p = (this.proc = spawn(o.cli, args, { cwd: o.cwd, env: o.env ? { ...process.env, ...o.env } : process.env, stdio: ['ignore', 'pipe', 'pipe'] }))
       let last = 0
       const progress = (force = false) => {
-        if (!o.onProgress || (!force && Date.now() - last < 250)) return
+        if (!o.onProgress || (!force && Date.now() - last < PROGRESS_MS)) return
         last = Date.now()
         o.onProgress({ text: state.text, activity: state.activity, tool: state.tool })
       }
@@ -164,7 +213,7 @@ export class Ask {
         }
       })
       p.stderr!.on('data', (b: Buffer) => { if (err.length < 4000) err += b.toString() })
-      p.on('error', (e) => resolve({ text: state.text, error: `couldn't start Claude Code (${o.cli}): ${e.message}` }))
+      p.on('error', (e) => resolve({ text: state.text, error: `couldn't start Claude Code (${o.cli}): ${e.message}`, errorKind: 'no-cli' }))
       p.on('close', (code) => {
         if (buf.trim()) foldEvent(state, buf.trim())
         if (this.cancelled) return resolve({ text: state.text, cancelled: true, sessionId: state.result?.sessionId })

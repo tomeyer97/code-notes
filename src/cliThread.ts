@@ -3,6 +3,7 @@
 // Remote-SSH: the editor too) would wait with it. No vscode here: unit tests use it as is.
 import { Worker } from 'worker_threads'
 import * as path from 'path'
+import { READ_ONLY_GIT } from './git'
 
 /** A call that takes longer than this is given up (a git that hangs): the worker is stopped, the next call starts a new one. */
 const TIMEOUT_MS = 120_000
@@ -13,8 +14,8 @@ export class CliThread {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
 
   /**
-   * `cli`: the CLI file's path. `env`: the worker's environment (its git commands'); git never takes the index lock
-   * for a refresh it does on its own (GIT_OPTIONAL_LOCKS=0), so reading the status writes nothing another watcher sees.
+   * `cli`: the CLI file's path. `env`: the worker's environment (its git commands'), with READ_ONLY_GIT: reading the
+   * status writes nothing another watcher sees.
    */
   constructor(private cli: string, private env: NodeJS.ProcessEnv = process.env) {}
 
@@ -30,7 +31,7 @@ export class CliThread {
   }
 
   private start(): Worker {
-    const w = new Worker(path.join(__dirname, 'cliWorker.js'), { workerData: { cli: this.cli }, env: { ...this.env, GIT_OPTIONAL_LOCKS: '0' } })
+    const w = new Worker(path.join(__dirname, 'cliWorker.js'), { workerData: { cli: this.cli }, env: { ...this.env, ...READ_ONLY_GIT } })
     // Never what keeps a process alive (the unit tests, a host shutting down).
     w.unref()
     w.on('message', (m: { id: number; ok: boolean; v?: unknown; err?: string }) => {
