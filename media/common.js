@@ -26,5 +26,37 @@
     return b
   }
 
-  window.common = { el, svgEl, button }
+  // ---------- the extension: messages both ways ----------
+
+  /**
+   * The page's channel to the extension (call it once: VS Code hands out one API per page). Errors the page throws are
+   * posted as { type: 'error', message }.
+   */
+  function connect() {
+    const vscode = acquireVsCodeApi()
+    window.addEventListener('error', (e) => vscode.postMessage({ type: 'error', message: String(e.message) }))
+    return { vscode, post: (m) => vscode.postMessage(m) }
+  }
+
+  /** Messages from the extension: `handlers[m.type](m)`; a type with no handler goes to `other(m)` (when given). */
+  function onMessages(handlers, other) {
+    window.addEventListener('message', (ev) => {
+      const m = ev.data
+      const f = Object.hasOwn(handlers, m.type) ? handlers[m.type] : other
+      if (f) f(m)
+    })
+  }
+
+  // ---------- what a person would notice (for tests) ----------
+
+  /** The elements of `selector` in `root` that stick out past the page's right edge, as `describe(e)` says them; and
+   *  "the page scrolls sideways" when it does. */
+  function overflowing(root, selector, describe) {
+    const W = document.documentElement.clientWidth
+    const out = [...root.querySelectorAll(selector)].filter((e) => e.getBoundingClientRect().right > W + 1).map(describe)
+    if (document.documentElement.scrollWidth > W + 1) out.push('the page scrolls sideways')
+    return out
+  }
+
+  window.common = { el, svgEl, button, connect, onMessages, overflowing }
 })()

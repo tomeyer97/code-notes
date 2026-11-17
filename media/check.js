@@ -1,15 +1,23 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only. Needs common.js.
-// In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'openMr' | 'pull' | 'install' | 'pathSetting' | 'modelSetting' | 'retry' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
-//      (and the answer box's: media/checkAnswer.js)
-//      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
+// In:
+//   { type: 'check', view }     the view to draw (src/checkModel.ts CheckView, or null)
+//   { type: 'test', click }     click this selector (integration tests)
+//   anything else: the answer box's (media/checkAnswer.js)
+// Out:
+//   { type: 'ready' }  { type: 'error', message }
+//   { type: 'open', id }  { type: 'select', id }        a question: opened; selected with the arrows
+//   { type: 'retry' | 'modelSetting' | 'install' | 'pathSetting' }   writing the questions failed: what to do
+//   { type: 'openMr' }  { type: 'openFile' }
+//   { type: <the action's id> }   'start' | 'topUp' | 'scm' | 'commitPush' | 'pull' | 'merge' …: the one button
+//   { type: 'include', file, on }   a file ticked for Commit & push
+//   { type: 'tour' | 'writeTour' }  the tour of the change: walk it, write it
+//   { type: 'rendered', rows, overflow, height }   what is cut or sticks out (for tests)
+//   and the answer box's (media/checkAnswer.js)
 ;(function () {
-  const vscode = acquireVsCodeApi()
-  window.addEventListener('error', (e) => vscode.postMessage({ type: 'error', message: String(e.message) }))
+  const { el, connect, onMessages, overflowing } = window.common
+  const { post } = connect()
   const app = document.getElementById('app')
   const ICON = { todo: '○', ungraded: '…', pass: '✓', restated: '✓', retry: '↻', explained: '·' }
-  const { el } = window.common
-  const post = (m) => vscode.postMessage(m)
   let V
 
   function render() {
@@ -110,23 +118,25 @@
   })
 
   // What a person would notice: anything wider than the view, or a cut line.
+  const WATCHED = [
+    '.title', '.line', '.who', '.notice', '.setup', '.mr', '.failed', '.text', '.meta', '.flag', '.commits', '.also',
+    'button.primary', '.busy', '.answer .box', '.answer .grade p', '.answer .next', '.tour',
+  ].join(', ')
   function report() {
     requestAnimationFrame(() => {
-      const overflow = []
-      for (const e of app.querySelectorAll('.title, .line, .who, .notice, .setup, .mr, .failed, .text, .meta, .flag, .commits, .also, button.primary, .busy, .answer .box, .answer .grade p, .answer .next, .tour')) {
-        const r = e.getBoundingClientRect()
-        if (r.right > document.documentElement.clientWidth + 1) overflow.push(`${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
-      }
-      if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) overflow.push('the page scrolls sideways')
+      const overflow = overflowing(app, WATCHED, (e) => `${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
       post({ type: 'rendered', rows: V ? V.rows.length : 0, overflow, height: document.documentElement.scrollHeight })
     })
   }
 
-  window.addEventListener('message', (ev) => {
-    const m = ev.data
-    if (m.type === 'check') { V = m.view; render() }
-    else if (m.type === 'test' && m.click) { const t = document.querySelector(m.click); if (t) t.click() }
-    else if (window.checkAnswer) window.checkAnswer.message(m, post)
-  })
+  // Any other message is the answer box's (checkAnswer.js).
+  onMessages({
+    check(m) { V = m.view; render() },
+    test(m) {
+      if (!m.click) return
+      const t = document.querySelector(m.click)
+      if (t) t.click()
+    },
+  }, (m) => { if (window.checkAnswer) window.checkAnswer.message(m, post) })
   post({ type: 'ready' })
 })()

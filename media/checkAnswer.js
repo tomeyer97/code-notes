@@ -1,9 +1,15 @@
 // The Check view's answer box (loaded after common.js, before check.js, which calls these hooks): under the selected
 // question, a textarea for the answer (Ctrl+Enter sends it, Esc goes back to the code), its latest grade with the code
 // links clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
-// In:  { type: 'focus', id } (the keyboard into that question's box)
-// Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' } { type: 'regrade', id }
-//      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
+// In:
+//   { type: 'focus', id }            the keyboard into that question's box
+// Out:
+//   { type: 'answer', id, text }     Ctrl+Enter
+//   { type: 'draft', id, text }      what is typed, kept by the extension
+//   { type: 'link', id, i }          a code link in the grade
+//   { type: 'next' }  { type: 'escape' }  { type: 'regrade', id }
+//   { type: 'focused', id, ok }      whether the keyboard reached the box
+//   { type: 'concern', id, action }  'fix' | 'todo' | 'flag' | 'dismiss'
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}

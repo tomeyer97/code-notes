@@ -1,22 +1,38 @@
 // The journey panel (a webview). Plain DOM + SVG. Needs common.js, journeyModel.js (as `exports`), ELK, journey-graph.js
 // and journey-scene.js, loaded before it.
-// In:  { type: 'journey', journey,...tour }  { type: 'tour',...tour }  { type: 'deleted', file }  { type: 'tutorial' } (replay)
-//      { type: 'test', click?: selector, key?: key } (integration tests drive the real handlers)
-//      { type: 'anim', action: 'toggle' } (Ctrl+' P: the current step's animation on/off, as its row's toggle does)
-//      tour = { current, marks, resume, legendHidden, problems, key, list (home), tutorial (offer the bar), prov? ({ text, tip,
-//      changed }), card? (a step with no code to open: { n, lead, details?, refs, stale, staleText?, open }) }
 // Layout (0.21): "‹ Journeys" (home: every journey, one click walks it), the question, one provenance line, then the
 // storyline with the map beside it (wide) or above it (narrow, collapsible under "Map"). The map is the whole journey
 // at once (journey-graph.js): pan, zoom, it follows the step; boxes open their code, step numbers walk to the step.
-// Out: { type: 'ready' } { type: 'step', n } { type: 'end' } { type: 'rendered', boxes } { type: 'legend', hidden }
-//      { type: 'openPath', path } { type: 'home' } { type: 'walk', key } { type: 'view', node } (the box the map centred on)
-//      { type: 'tutorial', action: 'bar' | 'card' | 'skip' | 'done', card? } { type: 'error', message }
-//      { type: 'ref', i } (a link in the step card) { type: 'ask' } { type: 'details', open }
-//      { type: 'beat', n, i } (the animation's beat on step n; i = -1: the scene is gone)
+//
+// In (handled under "messages from the extension"):
+//   { type: 'journey', journey, ...tour }   a journey to show, and where its walk is
+//   { type: 'tour', ...tour }               where the walk is now
+//     tour = { current, marks, resume, legendHidden, problems, key, list (home), home (its model), tutorial (offer the
+//     bar), mapWidth, done, authors, asked, stops, prov? ({ text, tip, changed }), card? (a step with no code to open:
+//     { n, lead, details?, refs, stale, staleText?, open }) }
+//   { type: 'home' }                        the journey list in front
+//   { type: 'preview', key, journey, stale } a journey for the home's preview
+//   { type: 'deleted', file }               the journey's file is gone
+//   { type: 'tutorial' }                    replay the tutorial
+//   { type: 'anim', action: 'toggle' | 'off' } (Ctrl+' P: the current step's animation on/off, as its row's toggle does)
+//   { type: 'code', n, i, code }            the lines of beat i of step n's animation
+//   { type: 'hello' }                       answered with ready (the extension lost it)
+//   { type: 'test', click?: selector, key?: key } (integration tests drive the real handlers)
+// Out:
+//   { type: 'ready' }  { type: 'error', message }
+//   { type: 'step', n }  { type: 'end' }  { type: 'finish' }  { type: 'nextStop' } (a check's tour: Next)
+//   { type: 'rendered', boxes }  { type: 'story', steps, stops, cur, overflow, width } (what is drawn, for tests)
+//   { type: 'legend', hidden }  { type: 'view', node } (the box the map centred on)  { type: 'openPath', path }
+//   { type: 'mapWidth', w }  { type: 'panelWidth', w }
+//   { type: 'home', on }  { type: 'walk', key }  { type: 'list', query, kind, area, sort?, searchSort? }
+//   { type: 'preview', key }  { type: 'refresh', key }  { type: 'hereAll' }
+//   { type: 'tutorial', action: 'bar' | 'card' | 'skip' | 'done', card?, editor? }
+//   { type: 'ref', i } (a link in the step card)  { type: 'ask', update? }  { type: 'details', open }
+//   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
+//   { type: 'beat', n, i } (the animation's beat on step n; i = -1: the scene is gone)
 ;(function () {
-  const vscode = acquireVsCodeApi()
-  window.addEventListener('error', (e) => vscode.postMessage({ type: 'error', message: String(e.message) }))
-  const M = window.exports
+  const { el, connect, onMessages, overflowing } = window.common
+  const { vscode, post } = connect()
   const app = document.getElementById('app')
   /** @type {any} */ let J
   let cur = 0
@@ -50,7 +66,6 @@
   /** What the last scroll followed ("step|level"): the map scrolls to the current box once per change. */
   let scrolled = ''
 
-  const { el } = window.common
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
   /** Enough markdown for summaries: `code` and **bold**. */
   const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
@@ -69,33 +84,49 @@
       return `<p>${ls.map(inline).join('<br>')}</p>`
     }).join('')
   }
-  const plain = (s) => s.replace(/`|\*\*/g, '')
-  const post = (m) => vscode.postMessage(m)
   const markOf = (n) => marks[n] || ''
 
-  window.addEventListener('message', (ev) => {
-    const m = ev.data
-    if (m.type === 'journey') {
+  // ---------- messages from the extension (In: above), one handler each ----------
+
+  onMessages({
+    journey(m) {
       const fresh = !J || J.id !== m.journey.id
       // Another journey starts at the top, its map in view: never the last one's scroll.
-      if (fresh) { if (J) { savedScroll = 0; toTop = true } scrolled = ''; beatAt = {}; setHome(false) }
+      if (fresh) {
+        if (J) { savedScroll = 0; toTop = true }
+        scrolled = ''
+        beatAt = {}
+        setHome(false)
+      }
       J = m.journey
       deleted = ''
       tour(m)
       render()
-    } else if (m.type === 'home') { tcard = 0; setHome(true); render() }
-    else if (m.type === 'hello') post({ type: 'ready' })
-    else if (m.type === 'preview') { previews[m.key] = m.journey; staleOf[m.key] = m.stale || []; if (home && m.key === sel) render() }
-    else if (m.type === 'tour') { tour(m); render() }
-    else if (m.type === 'deleted') { deleted = m.file || 'the file'; tcard = 0; offer = false; render() }
-    else if (m.type === 'tutorial') startTutorial()
-    else if (m.type === 'anim' && m.action === 'toggle') toggleAnim()
-    else if (m.type === 'code') { if (scene && animOn && m.n === cur && m.i === scene.beat) scene.code(m.code) }
-    else if (m.type === 'anim' && m.action === 'off') { if (animOn) toggleAnim() }
-    else if (m.type === 'test') {
-      if (m.click) { const t = document.querySelector(m.click); if (t) t.dispatchEvent(new MouseEvent('click', { bubbles: true })) }
+    },
+    tour(m) { tour(m); render() },
+    home() { tcard = 0; setHome(true); render() },
+    hello() { post({ type: 'ready' }) },
+    preview(m) {
+      previews[m.key] = m.journey
+      staleOf[m.key] = m.stale || []
+      if (home && m.key === sel) render()
+    },
+    deleted(m) { deleted = m.file || 'the file'; tcard = 0; offer = false; render() },
+    tutorial() { startTutorial() },
+    // Ctrl+' P toggles the current step's animation; 'off' ends it.
+    anim(m) {
+      if (m.action === 'toggle') toggleAnim()
+      else if (m.action === 'off' && animOn) toggleAnim()
+    },
+    // The current beat's line and the lines around it, once the extension found them.
+    code(m) { if (scene && animOn && m.n === cur && m.i === scene.beat) scene.code(m.code) },
+    test(m) {
+      if (m.click) {
+        const t = document.querySelector(m.click)
+        if (t) t.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      }
       if (m.key) document.dispatchEvent(new KeyboardEvent('keydown', { key: m.key, bubbles: true }))
-    }
+    },
   })
 
   /** A new position: the map shows the level holding the step (reversed); a level opened by hand stays until the step changes. */
@@ -719,10 +750,15 @@
   /** What the storyline shows (for tests): its rows, the questions between them, anything cut or wider than the panel. */
   function reportStory() {
     requestAnimationFrame(() => {
-      const W = document.documentElement.clientWidth
-      const overflow = [...app.querySelectorAll('.story .st, .story .cp, .story .t')].filter((e) => e.getBoundingClientRect().right > W + 1).map((e) => e.textContent.slice(0, 40))
-      if (document.documentElement.scrollWidth > W + 1) overflow.push('the page scrolls sideways')
-      post({ type: 'story', steps: app.querySelectorAll('.story .st').length, stops: [...app.querySelectorAll('.story .cp')].map((b) => b.dataset.q), cur: (app.querySelector('.story .cp.cur') || {}).dataset?.q, overflow, width: W })
+      const overflow = overflowing(app, '.story .st, .story .cp, .story .t', (e) => e.textContent.slice(0, 40))
+      post({
+        type: 'story',
+        steps: app.querySelectorAll('.story .st').length,
+        stops: [...app.querySelectorAll('.story .cp')].map((b) => b.dataset.q),
+        cur: (app.querySelector('.story .cp.cur') || {}).dataset?.q,
+        overflow,
+        width: document.documentElement.clientWidth,
+      })
     })
   }
 
