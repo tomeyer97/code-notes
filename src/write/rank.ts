@@ -1,7 +1,7 @@
 // Which journeys answer a question: ranked by its telling words; a pick when several do, a confirm before writing one.
 
 import * as vscode from 'vscode'
-import { LoadedJourney } from '../journeys'
+import { LoadedJourney } from '../journeys/steps'
 import { scoreJourney } from '../match'
 import { journeyOrder } from '../sidebar/journeyRows'
 import { shortQ } from '../text'

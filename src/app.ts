@@ -3,10 +3,11 @@
 
 import * as vscode from 'vscode'
 import { Beats } from './beats'
-import { Understanding } from './check'
+import { Understanding } from './check/index'
 import { ClaudeLinks } from './claudeLinks'
 import { CodeLinks } from './codeLinks'
-import { Journeys, MapPanel } from './journeys'
+import { Journeys } from './journeys/journeys'
+import { MapPanel } from './journeys/mapPanel'
 import { Store } from './store'
 import { label } from './tour/stepText'
 import { TourItems } from './tour/walk'

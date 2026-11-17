@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { byId, cfg, log, mapPanel, now, provide, state, store, understanding } from './app'
 import { askAbout, claudeAllowed } from './ask'
-import { Understanding } from './check'
+import { Understanding } from './check/index'
 import { findCli } from './claude'
 import { me } from './identity'
 import { newId } from './notes/create'

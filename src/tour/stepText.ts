@@ -4,7 +4,7 @@
 // Four small steps, each its own function: parse the places the text names (once, into `Ref`s), relocate each to
 // where it is now (`relocate`), drop the refs already on screen (`onScreen`), and say each as a link or a struck-out
 // name (`label`). `stepText` composes them.
-import type { LoadedJourney } from '../journeys'
+import type { LoadedJourney } from '../journeys/steps'
 import type { JStep } from '../journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeyModel'
 import { readLinks } from '../codeLinkText'

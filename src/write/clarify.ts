@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { log } from '../app'
-import { LoadedJourney } from '../journeys'
+import { LoadedJourney } from '../journeys/steps'
 import { escapeHtml, nonce, page } from '../webview/page'
 import { writeJourney } from './writeJourney'
 

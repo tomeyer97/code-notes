@@ -5,7 +5,8 @@ import { anchor, Loc } from '../anchor'
 import { log, notes, store } from '../app'
 import { commitInfo, otherBranch } from '../identity'
 import { refreshAll } from '../refresh'
-import { folderName, Note, NoteData } from '../store'
+import { NoteData } from '../noteModel'
+import { folderName, Note } from '../store'
 import { diskLines, docLines, wfs } from '../wfs'
 
 const CONTEXT_LINES = 2

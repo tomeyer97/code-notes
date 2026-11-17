@@ -1,7 +1,7 @@
 // Picking a journey: words of its title, question or steps, best match first; nothing matches: write one.
 
 import * as vscode from 'vscode'
-import { LoadedJourney, posKey } from '../journeys'
+import { LoadedJourney, posKey } from '../journeys/steps'
 import { journeyOrder } from '../sidebar/journeyRows'
 import { Node } from '../sidebar/nodes'
 import { journeyScore } from '../write/rank'

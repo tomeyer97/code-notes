@@ -1,6 +1,6 @@
 // Who wrote a journey and when, as the map says it.
 
-import { LoadedJourney } from '../journeys'
+import { LoadedJourney } from '../journeys/steps'
 import { staleCount } from '../sidebar/listModel'
 
 /** "Fable" from "claude-fable-5-2"; '' when the model is unknown. */

@@ -12,8 +12,6 @@ import { NoteData, folderProblem, merge, parseNote, serialize, titleOf } from '.
 // the extension writes into the folder (agentReadme below), which also names the person. What is in a note file
 // (fields, parsing, merging) is noteModel.ts; this reads, watches and writes the files.
 
-export { Role, Message, SEVERITIES, Severity, NoteEvent, NoteData, merge, folderProblem, titleOf, serialize, parseNote } from './noteModel'
-
 export interface Note {
   data: NoteData
   folder: vscode.WorkspaceFolder

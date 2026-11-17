@@ -3,7 +3,7 @@
 
 import { journeys, notes, state } from './app'
 import { evMine, mine } from './identity'
-import { LoadedJourney, posKey } from './journeys'
+import { LoadedJourney, posKey } from './journeys/steps'
 import { refreshAll } from './refresh'
 import { Note } from './store'
 

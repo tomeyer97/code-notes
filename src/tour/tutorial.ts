@@ -2,7 +2,8 @@
 
 import * as vscode from 'vscode'
 import { gstate, journeys, mapPanel, state, tutorialSpot } from '../app'
-import { fileOf, LoadedJourney, MapMessage } from '../journeys'
+import { MapMessage } from '../journeys/mapPanel'
+import { fileOf, LoadedJourney } from '../journeys/steps'
 import { openMap } from './open'
 import { pickJourney } from './pick'
 import { card, tour, walk } from './tour'

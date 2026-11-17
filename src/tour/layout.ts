@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { gstate, KEY, log, mapPanel } from '../app'
-import { MAP_VIEW } from '../journeys'
+import { MAP_VIEW } from '../journeys/mapPanel'
 import { panelShare } from '../layout'
 import { walk } from './tour'
 

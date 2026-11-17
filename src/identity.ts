@@ -4,7 +4,8 @@ import * as vscode from 'vscode'
 import * as os from 'os'
 import { cfg, state } from './app'
 import { gitOut } from './git'
-import { Message, Note, NoteEvent } from './store'
+import { Message, NoteEvent } from './noteModel'
+import { Note } from './store'
 
 let gitName: string | undefined
 
