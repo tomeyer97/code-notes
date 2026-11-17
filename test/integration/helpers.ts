@@ -4,6 +4,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
+import assert from 'assert'
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -34,6 +35,21 @@ export function waiter(defaults: { ms?: number; dump?: () => unknown } = {}): Un
 
 /** The main suite's wait: 6 s by default. */
 export const until = waiter()
+
+/**
+ * Waits until `get()` deep-equals `want`; on a timeout the failure shows both (where `until` with several clauses
+ * joined by && only says it timed out).
+ */
+export async function untilEqual<T>(what: string, get: () => T, want: T, ms = 6000): Promise<void> {
+  const t0 = Date.now()
+  for (;;) {
+    let got: T | undefined
+    try { got = get() } catch { got = undefined }
+    try { assert.deepStrictEqual(got, want); return } catch { /* not yet */ }
+    if (Date.now() - t0 > ms * SCALE) assert.deepStrictEqual(got, want, `timed out waiting for: ${what}`)
+    await sleep(100)
+  }
+}
 
 /**
  * A fixed wait before asserting that something did NOT happen (no write, no event, no second message): there is no
