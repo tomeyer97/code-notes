@@ -216,7 +216,7 @@ test('ci: nothing changed passes; no file fails with what to do; no model is eve
   const r2 = await ci(d, { ...gitlabEnv(d), UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log })
   assert.equal(r2.code, 1)
   assert.match(r2.lines[0], /^✗ No understanding check yet: a few questions about your change \(3 questions, about 2 min\)\. Run "Code Notes: Check my understanding"/)
-  assert.match(r2.lines[1], /Without VS Code: .*node understanding\.mjs grade --question q1/)
+  assert.equal(r2.lines[1], `  Without VS Code: add the understanding-check skill to .claude/skills (${U.SKILL_URL}), then type /understanding-check in Claude Code.`)
   assert.match(r2.lines[2], /skip-understanding.*then re-run this job/)
   const f = writeQuestions(d)
   answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
@@ -824,7 +824,8 @@ test('init: .gitattributes and .ignore, idempotent, never duplicated, existing l
   const d = repo()
   fs.writeFileSync(path.join(d, '.gitattributes'), '*.png binary')
   let r = await run(d, ['init'])
-  assert.equal(r.out.split('\n')[0], 'Added: .gitattributes: understanding/*.json gitlab-generated linguist-generated; .gitattributes: understanding/config.json -gitlab-generated -linguist-generated; .ignore: understanding/.')
+  assert.equal(r.out.split('\n')[0], 'Added: .gitattributes: understanding/*.json gitlab-generated linguist-generated; .gitattributes: understanding/config.json -gitlab-generated -linguist-generated; .ignore: understanding/; the skill (.claude/skills/understanding-check: SKILL.md, questions.mjs, understanding.mjs).')
+  assert.equal(r.out.split('\n')[1], 'Commit them: git add .gitattributes .ignore .claude/skills/understanding-check && git commit -m "Add understanding check setup"')
   assert.match(r.out, /CI recipe: https:\/\/github\.com\/.*#in-ci/)
   // The settings file is not collapsed: a change to them stays in sight.
   assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
@@ -1273,7 +1274,7 @@ test('setup: never written by itself; setupMissing names what is missing; ci giv
   assert.ok(!r.lines.some((l) => /tip:/.test(l)))
 })
 
-test('a change that only removes code gets questions: at the removal, or where the removed code was used', () => {
+test('a change that only removes code: one evidence question from a search of the repository, at the removal or where the removed code was used', () => {
   const d = repo()
   gitIn(d, 'checkout', '-q', 'main')
   fs.writeFileSync(path.join(d, 'src/codes.js'), "export const CODES = {\n  SAVE10: 10,\n  SAVE15: 15,\n  SAVE20: 20,\n}\n")
@@ -1284,15 +1285,27 @@ test('a change that only removes code gets questions: at the removal, or where t
   fs.writeFileSync(path.join(d, 'src/codes.js'), "export const CODES = {\n  SAVE10: 10,\n  SAVE20: 20,\n}\n")
   fs.rmSync(path.join(d, 'src/old.sql'))
   commitAll(d, 'drop SAVE15')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.equal(U.stateWords(st.state, st).line, '2 code lines removed · 1 question, ~1 min.')
   const out = script(d, 'start', '--base', 'main').out
-  assert.match(out, /^REMOVED ONLY: this change only removes code\. .*src\/codes\.js:3/m)
+  assert.match(out, /^REMOVED ONLY: this change only removes code\. Write ONE evidence question .*src\/codes\.js:3/m)
+  assert.match(out, /^EVIDENCE \(search at [0-9a-f]{7}\): SAVE15: 0 hits$/m)
+  assert.match(out, /e\.g\. "Nothing calls SAVE15 any more \(search: 0 hits\) — right\?"/)
   assert.match(out, /WRITE: 1 question/)
   // At the removal (src/codes.js around line 3), or where it was used (src/use.js, not part of the diff).
   assert.equal(script(d, 'add', '--kind', 'failure', '--file', 'src/use.js', '--lines', '2-2', '--text', 'What does discount() return now for a customer who still enters SAVE15?').code, 0)
+  assert.match(script(d, 'finish').out, /PROBLEM: this change only removes code: its question is an evidence question/)
   assert.equal(script(d, 'remove', '1').code, 0)
-  const r = script(d, 'add', '--kind', 'failure', '--file', 'src/codes.js', '--lines', '2-3', '--text', 'What happens to orders that still carry the SAVE15 code after this?')
+  const r = script(d, 'add', '--evidence', '--kind', 'change', '--file', 'src/codes.js', '--lines', '2-3', '--text', 'Nothing uses SAVE15 any more (search: 0 hits) — right?')
   assert.equal(r.code, 0, r.out)
   assert.match(script(d, 'finish').out, /WROTE understanding\/chore-drop\.json: 1 questions/)
+  const q = U.readCheck(path.join(d, 'understanding/chore-drop.json')).questions[0]
+  assert.equal(q.evidence, true)
+  assert.match(U.graderPrompt({ q, answer: 'Yes, it was only in CODES.', attempt: 1, diff: '', code: '', canRead: true }), /confirm or correct what a search of the repository found[^.]*\. One sentence that confirms it/)
+  // --evidence is for removals only.
+  const e = repo()
+  script(e, 'start', '--base', 'main')
+  assert.match(script(e, 'add', '--evidence', '--kind', 'change', '--file', 'src/app.js', '--lines', '3-6', '--text', 'Nothing calls load any more (search: 0 hits) — right?').out, /PROBLEM: --evidence is for a change that only removes code/)
 })
 
 test('stacked branches: the change starts after the parent\'s committed check; once the parent is merged, the merge base takes over', async () => {
@@ -1618,15 +1631,18 @@ test('without VS Code: help links docs that exist, status and CI give the same w
   assert.match(st.out, /1 code line changed/); assert.doesNotMatch(st.out, /1 code lines/)
   const way = st.out.split('\n').find((l) => /Without VS Code/.test(l)).trim()
   const r = await ci(d, gitlabEnv(d))
-  assert.equal(r.lines[1].trim().replace(/node \S+ grade/, 'node X grade'), way.replace(/node \S+ grade/, 'node X grade'))
-  assert.match(way, /skills\/understanding-check\) into \.claude\/skills, ask Claude Code to "check my understanding"/)
+  assert.equal(r.lines[1].trim(), way)
+  assert.match(way, /^Without VS Code: add the understanding-check skill to \.claude\/skills \(.*\), then type \/understanding-check in Claude Code\.$/)
   // The skill copied into .claude/skills, the CLI committed as tools/understanding.mjs: found.
   const skill = path.join(d, '.claude/skills/understanding-check/scripts')
   fs.mkdirSync(skill, { recursive: true }); fs.copyFileSync(SCRIPT, path.join(skill, 'questions.mjs'))
+  fs.copyFileSync(path.join(root, 'skills/understanding-check/SKILL.md'), path.join(skill, '../SKILL.md'))
   fs.mkdirSync(path.join(d, 'tools')); fs.copyFileSync(path.join(root, 'cli/understanding.mjs'), path.join(d, 'tools/understanding.mjs'))
   gitIn(d, 'add', 'tools'); gitIn(d, 'commit', '-qm', 'cli')
   const out = execFileSync('node', [path.join(skill, 'questions.mjs'), 'start', '--base', 'main'], { cwd: d, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } })
   assert.match(out, /^CHANGE: branch feat\/x · /)
+  // With the skill in the repository: the short way.
+  assert.match((await run(d, ['status'])).out, /^ {2}Without VS Code: type \/understanding-check in Claude Code\.$/m)
 })
 
 test('stacked branches: commits the parent made after its check are the parent\'s, never asked about on the child', async () => {
@@ -1653,11 +1669,201 @@ test('tour: its length follows the change; a change that mostly removes code get
   const size = (st) => { const c = U.readCheck(f); c.diffStat = { files: 1, ...st }; U.writeCheck(f, c) }
   size({ added: 2, removed: 0 })
   let { out, dir } = tourStage(d)
-  assert.match(out, /: 2-4 steps through/); assert.doesNotMatch(out, /REMOVAL/)
+  assert.match(out, /: 2-3 steps through/); assert.doesNotMatch(out, /REMOVAL/)
+  assert.match(out, /^SMALL: a few lines changed\. Steps around the changed lines/m)
   writeTourSteps(d, dir)
-  assert.match(script(d, 'tour-finish', '--steps', 'q1=1,q2=2,q3=6').out, /PROBLEM: 6 steps: a tour of this change has 2-4 \(its size\)/)
+  assert.match(script(d, 'tour-finish', '--steps', 'q1=1,q2=2,q3=6').out, /PROBLEM: 6 steps: a tour of this change has 2-3 \(its size\)/)
+  size({ added: 15, removed: 0 })
+  ;({ out } = tourStage(d))
+  assert.match(out, /: 2-4 steps through/); assert.doesNotMatch(out, /SMALL/)
   size({ added: 1, removed: 40 })
   ;({ out } = tourStage(d))
   assert.match(out, /: 4-7 steps through/)
   assert.match(out, /^REMOVAL: this change mostly removes code\. Steps: what was removed/m)
+  // Only removes code: a short tour of where it was used and why removing it is safe.
+  size({ added: 0, removed: 40 })
+  ;({ out } = tourStage(d))
+  assert.match(out, /: 2-3 steps\. Its title/)
+  assert.match(out, /^REMOVAL: this change only removes code\. Steps on code that is still there: where the removed code used to be called/m)
+  assert.match(script(d, 'tour-finish', '--none').out, /PROBLEM: --none is only for a change to documentation/)
+})
+
+test('size rules: documentation, a removal and a change of a few lines get 1 question and a 2-3 step tour', () => {
+  // Questions: 1 for docs and a removal whatever their size; else by code lines.
+  assert.deepEqual([{ docsOnly: true, added: 300, removed: 0 }, { added: 0, removed: 500 }, { added: 3, removed: 2 }, { added: 30, removed: 0 }, { added: 200, removed: 10 }].map((st) => U.questionsForChange(st)), [1, 1, 1, 2, 4])
+  assert.deepEqual([{ docsOnly: true, added: 1, removed: 1 }, { added: 0, removed: 4 }, { added: 4, removed: 0 }, { added: 0, removed: 0 }].map(U.changeKind), ['docs', 'removal', 'code', 'code'])
+  // Tours: 2-3 for docs, a removal or under 10 code lines; then 2-4, 4-7, 6-10.
+  assert.deepEqual([['docs', 400], ['removal', 400], ['code', 9], ['code', 10], ['code', 19], ['code', 20], ['code', 59], ['code', 60]].map(([k, n]) => U.tourSize(k, n)), [[2, 3], [2, 3], [2, 3], [2, 4], [2, 4], [4, 7], [4, 7], [6, 10]])
+  assert.equal(U.checkKind({ questions: [{ docs: true }], diffStat: { added: 40, removed: 0 } }), 'docs')
+  assert.equal(U.checkKind({ questions: [{ evidence: true }], diffStat: { added: 0, removed: 40 } }), 'removal')
+  // The removed names a search starts from: definitions, keys; never keywords.
+  assert.deepEqual(U.removedNames([
+    { sign: '-', text: 'export async function refundReport(orderId) {' }, { sign: '-', text: 'if (x) {' }, { sign: '+', text: 'const kept = 1' },
+    { sign: '-', text: 'SAVE15: 15,' }, { sign: '-', text: 'def total(rows):' }, { sign: '-', text: 'class Ledger {' }, { sign: '-', text: 'case X:' },
+  ]), ['refundReport', 'SAVE15', 'total', 'Ledger'])
+  assert.equal(U.evidenceText({ name: 'a', hits: [] }), 'a: 0 hits')
+  assert.equal(U.evidenceText({ name: 'b', hits: [1, 2, 3, 4].map((line) => ({ file: 'x.js', line })) }), 'b: 4 hits (x.js:1, x.js:2, x.js:3, +1 more)')
+})
+
+test('a removal whose name is still used: the evidence names where; the estimate is 1 question', async () => {
+  const d = smallRepo(['export const one = 1'])
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'src/report.js'), 'export function refundReport(rows) {\n  return rows.length\n}\nexport const keep = 1\n')
+  fs.writeFileSync(path.join(d, 'src/admin.js'), "// refundReport moved to the ledger\nexport const page = 'refundReport'\n")
+  commitAll(d, 'report')
+  gitIn(d, 'checkout', '-qb', 'chore/no-report')
+  fs.writeFileSync(path.join(d, 'src/report.js'), 'export const keep = 1\n')
+  commitAll(d, 'drop refundReport')
+  const st = U.localStatus(d, { base: 'main' })
+  assert.deepEqual([st.state.want, st.state.removal], [1, true])
+  assert.match(U.stateWords(st.state, st).line, /^3 code lines removed · 1 question, ~1 min\.$/)
+  const out = script(d, 'start', '--base', 'main').out
+  assert.match(out, /^EVIDENCE \(search at [0-9a-f]{7}\): refundReport: 2 hits \(src\/admin\.js:1, src\/admin\.js:2\)$/m)
+  assert.match(out, /e\.g\. "refundReport is still named in src\/admin\.js \(search: 2 hits\) — what happens there now\?"/)
+  // CI says the same size.
+  const r = await ci(d, gitlabEnv(d, undefined, { CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: 'chore/no-report' }))
+  assert.match(r.lines[0], /\(1 question, about 1 min\)/)
+})
+
+test('a docs-only change: its tour shows the code the text describes (any step), or none when it describes no code', () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  fs.writeFileSync(path.join(d, 'README.md'), '# Shop\n\nmain() returns 0.\n')
+  commitAll(d, 'readme')
+  gitIn(d, 'checkout', '-qb', 'docs/main')
+  fs.writeFileSync(path.join(d, 'README.md'), '# Shop\n\nmain() returns 0 when every step loaded.\n')
+  commitAll(d, 'wording')
+  script(d, 'start', '--base', 'main')
+  assert.equal(script(d, 'add', '--kind', 'change', '--file', 'README.md', '--lines', '3-3', '--text', 'What can a reader of the README now tell about what main returns?').code, 0)
+  assert.match(script(d, 'finish').out, /WROTE understanding\/docs-main\.json: 1 questions/)
+  const f = path.join(d, 'understanding/docs-main.json')
+  const { out, dir } = tourStage(d)
+  assert.match(out, /: 2-3 steps\. Its title/)
+  assert.match(out, /^DOCS: the change edits documentation\. Steps on the EXISTING code the edited text describes.*tour-finish --none$/m)
+  // Two steps on src/app.js (the code the text describes): q1 is on README.md, any step shows its answer.
+  jpy(d, dir, ['new', d, 'tour', 'What does main return?', 'Saying what main returns'], 'The README now says what main returns. Main is in src/app.js.')
+  jpy(d, dir, ['node', d, 'tour', 'app', 'system', 'App', '--blurb', 'The program'], 'The program.')
+  jpy(d, dir, ['node', d, 'tour', 'f_main', 'function', 'main', 'app', 'src/app.js:1-3'], 'Main.')
+  jpy(d, dir, ['node', d, 'tour', 'f_end', 'function', 'the end of main', 'app', 'src/app.js:2-3'], 'Returns.')
+  jpy(d, dir, ['edge', d, 'tour', 'f_main', 'f_end', 'returns zero'])
+  jpy(d, dir, ['step', d, 'tour', 'f_main', 'src/app.js', '1', '1', 'Main is where the program starts'], 'Everything starts in main, which the README now describes.')
+  jpy(d, dir, ['step', d, 'tour', 'f_end', 'src/app.js', '2', '2', 'Main returns zero at the end'], 'Nothing is returned but zero, whatever happened before.')
+  assert.match(execFileSync('python3', [JPY, 'check', d, 'tour', 'quiet', '--dir', dir, '--steps', '2-3'], { cwd: d, encoding: 'utf8' }), /^ok: 2 steps, 0 problems/m)
+  const r = script(d, 'tour-finish', '--steps', 'q1=1')
+  assert.equal(r.code, 0, r.out)
+  assert.equal(U.readCheck(f).journey.steps.length, 2)
+  // Describes no code: no tour, on purpose; the file says so and stays valid.
+  const c = U.readCheck(f); delete c.journey; delete c.questions[0].step; U.writeCheck(f, c)
+  tourStage(d)
+  assert.match(script(d, 'tour-finish', '--none').out, /^WROTE understanding\/docs-main\.json: no tour/)
+  const after = U.readCheck(f)
+  assert.deepEqual([after.noTour, after.journey, U.validateCheck(after)], [true, undefined, []])
+  assert.deepEqual(U.validateCheck({ ...after, noTour: 'yes' }), ['"noTour" must be true or left out'])
+})
+
+test('without VS Code: the next question, the grader\'s rules, a grade recorded as the extension records it, a flag; no model call', async () => {
+  const d = repo()
+  const f = writeQuestions(d)
+  const log = path.join(d, '..', `grader-${path.basename(d)}.log`)
+  // A bad grader path and no API key: any model call would fail loudly (and the fake would log it).
+  const env = { UNDERSTANDING_CLAUDE: FAKE, FAKE_GRADER_LOG: log, ANTHROPIC_API_KEY: '' }
+  let r = await run(d, ['next'], env)
+  assert.equal(r.out, 'q1 (1 of 3) · failure · src/app.js:3-6\nWhat happens when load() throws for one of the steps here?')
+  r = await run(d, ['grade', '--question', 'q1', '--answer', 'It stops main.', '--prompt'], env)
+  assert.equal(r.code, 0)
+  assert.match(r.out, /^You grade one answer in an "understanding check"/)
+  assert.match(r.out, /<answer>\nIt stops main\.\n<\/answer>/)
+  assert.match(r.out, /"verdict": "pass" \| "retry"/)
+  assert.equal(U.readCheck(f).questions[0].attempts, undefined, '--prompt records nothing')
+  // A miss: retry with a hint; the next try is "try 2"; a second miss is explained (the attempt fixes the verdict).
+  r = await run(d, ['grade', '--question', 'q1', '--answer', 'It stops main.', '--reply', '{"verdict":"retry","feedback":"Re-check what load does.","hint":"What does load() do with errors?"}'], env)
+  assert.equal(r.out, '↻ q1 retry: Re-check what load does.\n  Hint: What does load() do with errors?\n0 of 3 done · next: q1')
+  assert.match((await run(d, ['next'], env)).out, /^q1 \(1 of 3, try 2\)[\s\S]*\nHint: What does load\(\) do with errors\?$/)
+  r = await run(d, ['grade', '--question', 'q1', '--answer', 'No idea.', '--reply', '```json\n{"verdict":"retry","feedback":"load() throws and nothing catches it, so main stops.","hint":"x","topic":"errors in load","concern":"A failing load() stops main: every later step is skipped."}\n```'], env)
+  assert.match(r.out, /^· q1 explained: load\(\) throws and nothing catches it, so main stops\.\n {2}Concern: A failing load\(\) stops main/)
+  let c = U.readCheck(f)
+  const q1 = c.questions[0]
+  assert.deepEqual(q1.attempts.map((a) => [a.verdict, a.answer]), [['retry', undefined], ['explained', 'No idea.']], 'only the final answer is kept')
+  assert.deepEqual([U.hashProblems(c), U.validateCheck(c)], [[], []])
+  assert.deepEqual([q1.concern.text, q1.concern.flagged], ['A failing load() stops main: every later step is skipped.', false])
+  // Said back in one sentence: restated (counts as passed).
+  r = await run(d, ['grade', '--question', 'q1', '--answer', 'Nothing catches a throw from load, so main ends there.', '--reply', '{"verdict":"pass","feedback":"Right."}'], env)
+  assert.match(r.out, /^✓ q1 restated: Right\./)
+  // Flag the concern for the reviewer.
+  r = await run(d, ['flag', '--question', 'q1'], env)
+  assert.equal(r.out, '⚠ Flagged for the reviewer: A failing load() stops main: every later step is skipped.')
+  assert.equal(U.readCheck(f).questions[0].concern.flagged, true)
+  assert.equal((await run(d, ['flag', '--question', 'q2'], env)).out, 'q2 has no concern to flag.')
+  for (const id of ['q2', 'q3']) await run(d, ['grade', '--question', id, '--answer', 'One at a time, in order.', '--reply', '{"verdict":"pass","feedback":"Right."}'], env)
+  c = U.readCheck(f)
+  assert.deepEqual([c.result.verdict, U.summarize(c).met], ['pass', true])
+  assert.match((await run(d, ['next'], env)).out, /^✓ Done: 3 of 3 passed \(2 needed\)\. Commit and push: node \S*understanding\.mjs commit$/)
+  // Bad replies are refused, nothing recorded.
+  r = await run(d, ['grade', '--question', 'q2', '--answer', 'x', '--reply', 'not json'], env)
+  assert.equal(r.code, 2); assert.match(r.out, /didn't reply with a verdict/)
+  assert.ok(!fs.existsSync(log), 'no grader was ever run')
+})
+
+test('commit: the check file, and the first check in a repository also folds check files in diffs (.gitattributes), once', async () => {
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-remote-'))
+  gitIn(bare, 'init', '-q', '--bare')
+  const d = repo()
+  gitIn(d, 'remote', 'add', 'origin', bare)
+  fs.writeFileSync(path.join(d, 'notes.txt'), 'mine\n')
+  assert.equal(U.foldMissing(d), true)
+  const f = writeQuestions(d)
+  answerAll(f, [{ text: 'a', verdict: 'pass' }, { text: 'b', verdict: 'pass' }, { text: 'c', verdict: 'pass' }])
+  let r = await run(d, ['commit'])
+  assert.equal(r.code, 0, r.out)
+  assert.equal(r.out, 'Committed feat-x.json, .gitattributes (also folds check files in diffs). Pushed.')
+  assert.deepEqual(gitIn(d, 'show', '--name-only', '--format=%s', 'HEAD').trim().split('\n').filter(Boolean), ['Understanding check: feat/x', '.gitattributes', 'understanding/feat-x.json'])
+  assert.equal(fs.readFileSync(path.join(d, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
+  assert.ok(!fs.existsSync(path.join(d, '.ignore')), '.ignore stays init\'s')
+  assert.equal(gitIn(d, 'status', '--porcelain', '--', 'notes.txt').trim(), '?? notes.txt', 'nothing else is committed')
+  assert.equal(gitIn(bare, 'rev-parse', 'feat/x').trim(), gitIn(d, 'rev-parse', 'HEAD').trim())
+  // The next commit of a check: the line is there, so only the check file.
+  assert.equal(U.foldMissing(d), false)
+  const c = U.readCheck(f); c.questions[0].text += ' '; U.writeCheck(f, c)
+  answerAll(f, [])
+  r = await run(d, ['commit', '--no-push'])
+  assert.equal(r.out, 'Committed feat-x.json.')
+  assert.deepEqual(gitIn(d, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['understanding/feat-x.json'])
+  // Another branch in the same repository: the line came with the first one.
+  gitIn(d, 'checkout', '-qb', 'feat/y')
+  fs.appendFileSync(path.join(d, 'src/app.js'), 'export const y = 1\n'); commitAll(d, 'y')
+  script(d, 'start', '--base', 'feat/x')
+  script(d, 'add', '--kind', 'why', '--file', 'src/app.js', '--lines', '74-74', '--text', 'Why is y exported from the app module and not kept inside main?')
+  assert.match(script(d, 'finish').out, /WROTE/)
+  r = await run(d, ['commit', '--no-push'])
+  assert.equal(r.out, 'Committed feat-y.json.')
+  assert.equal((await run(d, ['commit', '--no-push'])).out, 'Nothing to commit.')
+})
+
+test('init: puts the skill in the repository for /understanding-check, with the CLI beside it unless the repository has one; idempotent; never counted', async () => {
+  const d = repo()
+  const skill = path.join(d, '.claude/skills/understanding-check')
+  assert.deepEqual(U.installSkill(d), ['.claude/skills/understanding-check/SKILL.md', '.claude/skills/understanding-check/scripts/questions.mjs', '.claude/skills/understanding-check/scripts/understanding.mjs'])
+  assert.equal(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), fs.readFileSync(path.join(root, 'skills/understanding-check/SKILL.md'), 'utf8'))
+  assert.match(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), /^name: understanding-check$/m)
+  assert.deepEqual(U.installSkill(d), [], 'idempotent')
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'old')
+  assert.deepEqual(U.installSkill(d), ['.claude/skills/understanding-check/SKILL.md'], 'an older copy is updated')
+  // Committed: the skill and its CLI never count as part of the change.
+  const before = U.localStatus(d, { base: 'main' }).changed
+  commitAll(d, 'skill')
+  assert.equal(U.localStatus(d, { base: 'main' }).changed, before)
+  assert.equal(U.own('.claude/skills/understanding-check/scripts/understanding.mjs'), true)
+  // The installed script finds the CLI beside it: the whole flow works from the repository's copy.
+  const out = execFileSync('node', [path.join(skill, 'scripts/questions.mjs'), 'cli', 'status'], { cwd: d, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } })
+  assert.match(out, /^No check yet for feat\/x/)
+  assert.match(out, /^ {2}Without VS Code: type \/understanding-check in Claude Code\.$/m)
+  // A repository that commits its own copy of the CLI (tools/understanding.mjs): no second copy.
+  const e = repo()
+  fs.mkdirSync(path.join(e, 'tools')); fs.copyFileSync(path.join(root, 'cli/understanding.mjs'), path.join(e, 'tools/understanding.mjs'))
+  gitIn(e, 'add', 'tools'); gitIn(e, 'commit', '-qm', 'cli')
+  const r = await run(e, ['init'])
+  assert.match(r.out, /the skill \(\.claude\/skills\/understanding-check: SKILL\.md, questions\.mjs\)/)
+  assert.ok(!fs.existsSync(path.join(e, '.claude/skills/understanding-check/scripts/understanding.mjs')))
+  assert.match(execFileSync('node', [path.join(e, '.claude/skills/understanding-check/scripts/questions.mjs'), 'start', '--base', 'main'], { cwd: e, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } }), /^CHANGE: branch feat\/x/m)
+  assert.match((await run(e, ['init'])).out, /^Already set up\./)
 })

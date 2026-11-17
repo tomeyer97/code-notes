@@ -30,10 +30,15 @@ export const TOUR_LINE = 'A guided tour of this change: open it in VS Code with 
 /** The design notes and the CI recipes, for people who only have this file. */
 export const DOCS_URL = 'https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md'
 export const CI_URL = 'https://github.com/tomeyer97/code-notes#in-ci'
-/** The skill that writes the questions, for Claude Code without VS Code. */
+/** The skill that writes the questions (and, in Claude Code without VS Code, asks them in the chat). */
 export const SKILL_URL = 'https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check'
-/** The way without VS Code, the same in `status` and CI: Claude Code writes the questions, `grade` grades each answer. */
-export const withoutVsCode = (cli) => `Without VS Code: copy the understanding-check skill (${SKILL_URL}) into .claude/skills, ask Claude Code to "check my understanding", then answer each question with: node ${cli} grade --question q1 --answer "…" --write`
+/**
+ * The way without VS Code, the same in `status` and CI: /understanding-check in Claude Code (the skill, committed in
+ * the repository by `init`, asks the questions one at a time in the chat). `installed`: the repository has the skill.
+ */
+export const withoutVsCode = (installed) => installed ? 'Without VS Code: type /understanding-check in Claude Code.' : `Without VS Code: add the understanding-check skill to .claude/skills (${SKILL_URL}), then type /understanding-check in Claude Code.`
+/** The repository has the skill (`init` put it there). */
+export const hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
 
 // ---------- git ----------
 
@@ -144,8 +149,10 @@ export function stashedIn(repo, rel) {
   return refs.find((r) => gitOk(repo, ['cat-file', '-e', `${r}^3:${rel}`]) !== undefined || gitOk(repo, ['cat-file', '-e', `${r}:${rel}`]) !== undefined)
 }
 
-/** Files that never count: the check itself, Code Notes' notes, and the repository lines `init` writes for them. */
-export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore'
+/** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
+export const SKILL_DIR = '.claude/skills/understanding-check'
+/** Files that never count: the check itself, Code Notes' notes, and what `init` writes for them (its lines, the skill). */
+export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore' || file.startsWith(`${SKILL_DIR}/`)
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
 export function counted(file, exempt = []) {
   return !own(file) && !exempt.some((g) => globRe(g).test(file))
@@ -291,6 +298,77 @@ export function questionsFor(lines, cfg = DEFAULTS) {
   const { min = 1, max = 5 } = cfg.questions ?? {}
   return Math.max(1, Math.min(max, Math.max(min, n)))
 }
+
+/**
+ * What kind of change it is, for its size rules: `docs` (only documentation), `removal` (only removes code), else
+ * `code`. `st`: codeStat's shape (`docsOnly`, `added`, `removed`).
+ */
+export function changeKind(st) {
+  return st?.docsOnly ? 'docs' : st && st.added === 0 && st.removed > 0 ? 'removal' : 'code'
+}
+
+/** How many questions a change gets: one for documentation or a removal, else by its size (questionsFor). */
+export function questionsForChange(st, cfg = DEFAULTS) {
+  return changeKind(st) === 'code' ? questionsFor(linesOf(st), cfg) : 1
+}
+
+/**
+ * How many steps a check's tour has, `[min, max]`: 2-3 for documentation, a removal or a change under 10 code lines;
+ * 2-4 under 20; 4-7 under 60; else 6-10. A tour of documentation may have none (its text describes no code).
+ */
+export function tourSize(kind, lines) {
+  if (kind === 'docs' || kind === 'removal' || lines < 10) return [2, 3]
+  return lines < 20 ? [2, 4] : lines < 60 ? [4, 7] : [6, 10]
+}
+
+/** A check's kind (changeKind), from the file: its questions say docs; its recorded size says a removal. */
+export function checkKind(check) {
+  const qs = check?.questions ?? []
+  if (qs.length && qs.every((q) => q.docs)) return 'docs'
+  return changeKind(check?.diffStat)
+}
+
+const NOT_NAMES = new Set(['if', 'for', 'while', 'switch', 'catch', 'case', 'default', 'return', 'function', 'else', 'new', 'typeof', 'await', 'async', 'export', 'import', 'from', 'const', 'let', 'var', 'this', 'true', 'false', 'null', 'undefined', 'self', 'super', 'constructor', 'module', 'exports', 'require'])
+/**
+ * The names a removal took away (functions, classes, constants, keys), from its removed code lines: at most 5, in
+ * order. Pragmatic: definitions by their usual shape in common languages.
+ */
+export function removedNames(lines) {
+  const out = []
+  const shapes = [
+    /\b(?:function\*?|class|def|fn|interface|type|enum|struct|trait|sub)\s+([A-Za-z_$][\w$]*)/,
+    /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/,
+    /\b(?:const|let|var|val)\s+([A-Za-z_$][\w$]*)/,
+    /^(?:(?:export|public|private|protected|static|async)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{]+)?\{\s*$/,
+    /^["']?([A-Za-z_$][\w$]*)["']?\s*:\s*\S/,
+    /^([A-Za-z_]\w*)\s*=[^=]/,
+  ]
+  for (const x of lines) {
+    if (x.sign !== '-') continue
+    for (const re of shapes) {
+      const m = re.exec(x.text)
+      if (!m) continue
+      if (m[1].length >= 3 && !NOT_NAMES.has(m[1]) && !out.includes(m[1])) out.push(m[1])
+      break
+    }
+  }
+  return out.slice(0, 5)
+}
+
+/**
+ * Where each name still appears in the repository at commit `at` (whole words; the check's own files left out):
+ * `[{ name, hits: [{ file, line }] }]`. The evidence a removal's question starts from.
+ */
+export function searchNames(repo, at, names) {
+  return names.map((name) => {
+    const out = gitOk(repo, ['grep', '-n', '-I', '-w', '-F', '-e', name, at, '--', '.', `:!${DIR}`, ':!.code-notes']) ?? ''
+    const hits = out.split('\n').map((l) => /^[^:]+:(.+?):(\d+):/.exec(l)).filter(Boolean).map((m) => ({ file: m[1], line: Number(m[2]) }))
+    return { name, hits }
+  })
+}
+
+/** One search result in words: "refundReport: 0 hits", "SAVE15: 1 hit (src/use.js:2)". */
+export const evidenceText = (e) => `${e.name}: ${e.hits.length} hit${e.hits.length === 1 ? '' : 's'}${e.hits.length ? ` (${e.hits.slice(0, 3).map((h) => `${h.file}:${h.line}`).join(', ')}${e.hits.length > 3 ? `, +${e.hits.length - 3} more` : ''})` : ''}`
 
 /** `git diff --numstat` between two commits (or a commit and the working tree when `to` is undefined). */
 export function numstat(repo, from, to) {
@@ -470,6 +548,8 @@ export function validateCheck(c, { repo } = {}) {
   if (c.questions.length > MAX_QUESTIONS) errs.push(`${c.questions.length} questions: at most ${MAX_QUESTIONS}`)
   // Optional: older files have no journey, and CI never needs one.
   if (c.journey !== undefined) for (const e of tourProblems(c.journey)) errs.push(`journey: ${e}`)
+  // The change's text describes no code: no tour, on purpose.
+  if (c.noTour !== undefined && c.noTour !== true) errs.push('"noTour" must be true or left out')
   const tourSteps = Array.isArray(c.journey?.steps) ? c.journey.steps.length : 0
   const ids = new Set()
   c.questions.forEach((q, i) => {
@@ -748,7 +828,7 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
 export function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: 'none', changed: 0 }
   if (!st.exists && st.stashed) return { phase: 'stashed', stash: st.stashed }
-  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: st.change?.docsOnly ? 1 : questionsFor(st.changed, cfg), ...(st.change?.docsOnly ? { docs: true } : {}) }
+  if (!st.exists) return st.small || (!st.changed && !st.change?.renamed?.length) ? { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: 'none', changed: st.changed, want: st.change ? questionsForChange(st.change, cfg) : questionsFor(st.changed, cfg), ...(changeKind(st.change) === 'docs' ? { docs: true } : changeKind(st.change) === 'removal' ? { removal: true } : {}) }
   if (st.errors?.length || !st.summary) return { phase: 'invalid', why: st.errors?.[0] ?? 'the file is not valid', ...(st.conflict ? { conflict: st.conflict } : {}) }
   const s = st.summary
   const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) }
@@ -770,7 +850,7 @@ export function stateWords(state, st = {}) {
     case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
       return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
     case 'stashed': return { tone: 'warn', bar: 'Understanding: in a stash', title: 'Your check is in a git stash', line: `Run git stash pop (${state.stash}).`, rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} changed${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
+    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} ${state.removal ? 'removed' : 'changed'}${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
     case 'invalid': return state.conflict
       ? { tone: 'warn', bar: 'Understanding: merge conflict', title: 'The check file has a merge conflict', line: state.conflict.mergeable ? 'Both sides of the conflict can be kept.' : 'Open it at the conflict.', rule }
       : { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, '')}.`, rule }
@@ -861,6 +941,7 @@ export function graderPrompt({ q, answer, attempt, diff, code, canRead, explanat
       `- Judge against the actual code${canRead ? ' (read the repository as needed; read-only)' : ' and diff above'}. The answer must be right about THIS code.`,
       '- Be lenient. One to three sentences is a complete answer. Accept informal wording, approximate names, and answers that get the main point while missing details. Never ask for more than the question needs.',
       q.docs ? '- This question is about a documentation change: an honest answer that it is just wording, or what a reader now sees or understands differently, is a full pass.' : '',
+      q.evidence ? '- This question asks the author to confirm or correct what a search of the repository found about code the change removes. One sentence that confirms it (when the code agrees) or corrects it (a use the search missed: a dynamic call, a name in a string or a config file) is a full pass.' : '',
       restate ? '- "restated": their sentence gets the main point of the explanation right. Otherwise "explained".'
         : '- "pass": the answer shows they understand the main point. Most honest, roughly right answers pass.\n- Not a pass: wrong about the code, empty, evasive ("not sure", "the AI wrote it"), or only restating the question.',
       verify,
@@ -1024,11 +1105,52 @@ export async function gradeQuestion(repo, check, q, { backend, model, env, diff 
   const mode = gradeMode(q)
   const prompt = graderPrompt({ q, answer: a.answer, ...mode, diff: diffForGrader(d, q.file), code: codeWindow(repo, q), canRead: backend === 'claude', tour: tourText(check), others: openOthers(check, q) })
   const text = await runGrader(backend, { prompt, repo, model, env })
+  return applyGrade(repo, q, a, text)
+}
+
+/**
+ * The grader's reply (`text`) recorded on attempt `a` of `q`, as the extension records it: the verdict fixed by the
+ * attempt (parseVerdict), links to lines that are there, the time, the hash; a concern kept on the question (its flag
+ * survives a later grade).
+ */
+export function applyGrade(repo, q, a, text) {
+  const mode = gradeMode(q)
   const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
   if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
   Object.assign(a, v, { gradedAt: new Date().toISOString() })
   a.hash = attemptHash(q, a)
+  if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
   return a
+}
+
+/** The grader's prompt for an answer to `q` (not recorded): what Claude Code follows when it grades in a chat. */
+export function promptFor(repo, check, q, answer) {
+  const c = structuredClone(check)
+  const cq = c.questions.find((x) => x.id === q.id)
+  addAttempt(c, cq, answer)
+  let diff = ''
+  try { diff = diffText(repo, check.base ?? check.head, undefined) } catch { /* the grader reads the code */ }
+  return graderPrompt({ q: cq, answer, ...gradeMode(cq), diff: diffForGrader(diff, cq.file), code: codeWindow(repo, cq), canRead: true, tour: tourText(c), others: openOthers(c, cq) })
+}
+
+/**
+ * The question to answer next: the first one not done (to answer, try again, or not graded yet). An explained one is
+ * done; saying it back is optional.
+ */
+export const nextQuestion = (check) => (check.questions ?? []).find((q) => !isDone(stateOf(q)))
+
+/**
+ * Flags a question's concern for the reviewer (the merge request lists it), as Flag for reviewer does in VS Code. A
+ * question asked as "may be a bug" can be flagged once answered. Returns false when there is nothing to flag.
+ */
+export function flagConcern(check, q, who) {
+  const answered = (q.attempts ?? []).some((a) => a.verdict)
+  const text = q.concern?.text ?? (q.suspect && answered ? q.text : undefined)
+  if (!text || q.concern?.dismissed || q.concern?.fixed) return false
+  q.concern = { ...(q.concern ?? {}), text, flagged: true }
+  if (who && check.answeredBy && !sameWho(who, check.answeredBy)) q.concern.by = who
+  else delete q.concern.by
+  return true
 }
 
 /** Records the informational result in the file. */
@@ -1730,11 +1852,9 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
 async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet = false }) {
   const abs = path.join(repo, rel)
   if (!fs.existsSync(abs)) {
-    const me = path.relative(repo, fileURLToPath(import.meta.url))
-    const cli = me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
-    const size = sizeWords(change.docsOnly ? 1 : questionsFor(linesOf(change), cfg))
+    const size = sizeWords(questionsForChange(change, cfg))
     return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
-      `  ${withoutVsCode(cli)}`,
+      `  ${withoutVsCode(hasSkill(repo))}`,
       // Advisory, or the label is there already: no skip instructions.
       ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
   }
@@ -1816,9 +1936,10 @@ export function setupMissing(repo) {
   return out
 }
 
-export function initRepo(repo) {
+export function initRepo(repo, { only } = {}) {
   const added = []
   for (const [name, want] of Object.entries(INIT_LINES)) {
+    if (only && name !== only) continue
     const file = path.join(repo, name)
     let text = ''
     try { text = fs.readFileSync(file, 'utf8') } catch { /* a new file */ }
@@ -1834,6 +1955,68 @@ export function initRepo(repo) {
   return added
 }
 
+/**
+ * The first check committed in a repository also folds check files in merge request diffs: true while its
+ * `.gitattributes` lacks the line (`init` writes it too). `.ignore` stays `init`'s.
+ */
+export const foldMissing = (repo) => setupMissing(repo).some((l) => l.startsWith('.gitattributes:'))
+/** Writes the `.gitattributes` lines that fold check files in diffs (when missing); returns what it added. */
+export const foldDiffs = (repo) => initRepo(repo, { only: '.gitattributes' })
+/** What a check commit says it also does, beside the file: "also folds check files in diffs (.gitattributes)". */
+export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
+
+/**
+ * Commits this branch's check file and pushes (`push: false`: only the commit), as Commit & push does in VS Code: the
+ * first check of a repository takes the `.gitattributes` line along. Nothing else the person changed is committed.
+ */
+export async function commitCheck(repo, { env = process.env, push = true } = {}) {
+  const branch = currentBranch(repo, env)
+  const rel = fileFor(branch)
+  if (!fs.existsSync(path.join(repo, rel))) return { ok: false, line: `No check yet: ${rel} doesn't exist.` }
+  const files = [rel]
+  if (foldMissing(repo)) { foldDiffs(repo); files.push('.gitattributes') }
+  const message = `Understanding check: ${branch}`
+  if (push) return { ...(await commitAndPush(repo, files, message, { env })), files }
+  const g = (args) => gitRun(repo, args, { env })
+  if ((await g(['add', '--', ...files])).code) return { ok: false, files, line: "Couldn't stage the check file." }
+  if ((await g(['diff', '--cached', '--quiet', '--', ...files])).code !== 1) return { ok: true, committed: false, files, line: 'Nothing to commit.' }
+  const c = await g(['commit', '-q', '-m', message, '--', ...files])
+  return c.code ? { ok: false, files, line: `Commit failed: ${(c.err || c.out).trim().split('\n')[0]}` } : { ok: true, committed: true, files, line: 'Committed.' }
+}
+
+/** Where the skill ships beside this file (in the extension and in its repository), if it does. */
+const skillSource = () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  return [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
+}
+/** The CLI the repository has committed already (e.g. tools/understanding.mjs), outside the skill's folder. */
+const committedCli = (repo) => (gitOk(repo, ['ls-files', '--', ':(glob)**/understanding.mjs']) ?? '').split('\n').find((f) => f && !f.startsWith(`${SKILL_DIR}/`))
+
+/**
+ * Puts the skill in the repository (`.claude/skills/understanding-check`: SKILL.md and its script), so anyone running
+ * Claude Code there can type /understanding-check, and the CLI beside it unless the repository has a copy committed
+ * already (the script finds that one). Written when missing or different; returns the files written, or undefined
+ * when this copy of the CLI has no skill beside it.
+ */
+export function installSkill(repo) {
+  const src = skillSource()
+  if (!src) return undefined
+  const want = [['SKILL.md', path.join(src, 'SKILL.md')], ['scripts/questions.mjs', path.join(src, 'scripts/questions.mjs')]]
+  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', fileURLToPath(import.meta.url)])
+  const out = []
+  for (const [rel, from] of want) {
+    const to = path.join(repo, SKILL_DIR, rel)
+    const text = fs.readFileSync(from)
+    let have
+    try { have = fs.readFileSync(to) } catch { /* new */ }
+    if (have && have.equals(text)) continue
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.writeFileSync(to, text)
+    out.push(`${SKILL_DIR}/${rel}`)
+  }
+  return out
+}
+
 // ---------- the command line ----------
 
 const HELP = `understanding.mjs: an understanding check for a change (docs: ${DOCS_URL})
@@ -1844,14 +2027,25 @@ const HELP = `understanding.mjs: an understanding check for a change (docs: ${DO
                                           grade answers (local only): the ungraded ones, or one question;
                                           the file defaults to this branch's
                                           (--answer adds an attempt first; --write saves the result)
+  grade --question q2 --answer "text" --prompt
+                                          print the grader's instructions for that answer (nothing saved)
+  grade --question q2 --answer "text" --reply '{"verdict": …}'
+                                          record that answer with a grade written elsewhere (Claude Code in a
+                                          chat), checked and saved as the extension saves it; no model call
+  next                                    the question to answer next
+  flag --question q2                      flag its concern for the reviewer (the merge request lists it)
+  commit [--no-push]                      commit this branch's check file and push (the first check also adds
+                                          the .gitattributes line that folds check files in diffs)
   ci [--no-comment] [--base <sha>]        the CI job: never calls a model; exit 0 pass, 1 fail, 2 can't check,
                                           3 would fail but advisory (config "mode", UNDERSTANDING_MODE)
-  init                                    keep understanding/ out of diffs and search (.gitattributes, .ignore)
+  init                                    set up the repository: understanding/ out of diffs and search
+                                          (.gitattributes, .ignore) and the skill in .claude/skills, for
+                                          /understanding-check in Claude Code
 
 Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or claude when on PATH, else
 ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.
 The questions are written by the understanding-check skill: in VS Code by Code Notes, else by Claude Code
-(${SKILL_URL}).`
+(/understanding-check; ${SKILL_URL}).`
 
 export function parseArgs(argv) {
   const o = { _: [] }
@@ -1860,7 +2054,7 @@ export function parseArgs(argv) {
     if (!a.startsWith('--')) { o._.push(a); continue }
     const [k, v] = a.slice(2).split(/=(.*)/s)
     if (v !== undefined) o[k] = v
-    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && !['json', 'write', 'no-comment', 'suspect', 'whole-file', 'top-up', 'replace'].includes(k)) o[k] = argv[++i]
+    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && !['json', 'write', 'no-comment', 'suspect', 'whole-file', 'top-up', 'replace', 'evidence', 'none', 'prompt', 'no-push'].includes(k)) o[k] = argv[++i]
     else o[k] = true
   }
   return o
@@ -1877,9 +2071,8 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     const w = stateWords(s.state, s)
     print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
     if (s.state.phase === 'none') {
-      const me = path.relative(repo, fileURLToPath(import.meta.url))
       print('  Run "Code Notes: Check my understanding" in VS Code.')
-      print(`  ${withoutVsCode(me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs')}`)
+      print(`  ${withoutVsCode(hasSkill(repo))}`)
     }
     print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code line${s.changed === 1 ? '' : 's'} changed`)
     if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
@@ -1891,7 +2084,12 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
   }
   if (cmd === 'init') {
     const changed = initRepo(repo)
-    print(changed.length ? `Added: ${changed.join('; ')}.` : 'Already set up.')
+    const skill = installSkill(repo)
+    const files = [...new Set(changed.map((l) => l.split(':')[0]))]
+    print(changed.length || skill?.length ? `Added: ${[...changed, ...(skill?.length ? [`the skill (${SKILL_DIR}: ${skill.map((f) => path.basename(f)).join(', ')})`] : [])].join('; ')}.` : 'Already set up.')
+    if (files.length || skill?.length) print(`Commit them: git add ${[...files, ...(skill?.length ? [SKILL_DIR] : [])].join(' ')} && git commit -m "Add understanding check setup"`)
+    if (skill?.length || (skill && hasSkill(repo))) print('Without VS Code: type /understanding-check in Claude Code.')
+    else if (!skill) print(withoutVsCode(hasSkill(repo)))
     // The CI job goes in the last stage with needs: [] (in .pre, a missing check would skip lint and tests).
     print(`CI recipe: ${CI_URL}`)
     return 0
@@ -1914,10 +2112,22 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     if (errs.length) { print(`✗ not valid: ${errs[0]}`); return 2 }
     const cfg = loadConfig(repo)
     let list = c.questions.filter((q) => stateOf(q) === 'ungraded')
+    if ((o.prompt || o.reply !== undefined) && (typeof o.question !== 'string' || typeof o.answer !== 'string')) { print(`--${o.prompt ? 'prompt' : 'reply'} needs --question and --answer`); return 2 }
     if (typeof o.question === 'string') {
       const q = c.questions.find((x) => x.id === o.question)
       if (!q) { print(`✗ no question ${o.question}`); return 2 }
+      // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
+      if (o.prompt) { print(promptFor(repo, c, q, o.answer)); return 0 }
       if (typeof o.answer === 'string') addAttempt(c, q, o.answer, gitIdentity(repo))
+      // A grade written elsewhere (Claude Code in a chat): checked and recorded like the grader's own reply.
+      if (o.reply !== undefined) {
+        let a
+        try { a = applyGrade(repo, q, q.attempts.at(-1), String(o.reply)) } catch (e) { print(`✗ ${e.message}`); return 2 }
+        writeCheck(f, stamp(c, cfg))
+        print(gradeLine(q, a))
+        print(progressLine(c, cfg, repo, env))
+        return 0
+      }
       list = [q]
     } else if (typeof o.answer === 'string') { print('--answer needs --question'); return 2 }
     if (!list.length) { print('Nothing to grade: no answers without a verdict.'); return 0 }
@@ -1930,11 +2140,43 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
     await Promise.all(list.map(async (q) => {
       try {
         const a = await gradeQuestion(repo, c, q, { backend, model, env, diff })
-        print(`${MARK[a.verdict === 'retry' ? 'retry' : a.verdict]} ${q.id} ${a.verdict}: ${a.feedback}${a.hint ? `\n  Hint: ${a.hint}` : ''}`)
+        print(gradeLine(q, a))
       } catch (e) { failed++; print(`! ${q.id}: ${e.message}`) }
     }))
     if (o.write) { writeCheck(f, stamp(c, cfg)); print(`Saved ${path.relative(repo, f)}.`) }
     return failed ? 2 : 0
+  }
+  if (cmd === 'next') {
+    const f = path.join(repo, fileFor(currentBranch(repo, env)))
+    let c
+    try { c = readCheck(f) } catch { print(`No check yet: ${path.relative(repo, f)} doesn't exist.`); return 1 }
+    const q = nextQuestion(c)
+    if (!q) { print(progressLine(c, loadConfig(repo), repo, env)); return 0 }
+    const i = c.questions.indexOf(q)
+    const tries = (q.attempts ?? []).filter((a) => a.verdict).length
+    print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ''}) · ${q.kind} · ${q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`}${q.also?.length ? ` · also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''}`)
+    print(q.text)
+    const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts.at(-1).hint : ''
+    if (hint) print(`Hint: ${hint}`)
+    return 0
+  }
+  if (cmd === 'flag') {
+    const f = path.join(repo, fileFor(currentBranch(repo, env)))
+    let c
+    try { c = readCheck(f) } catch { print(`No check yet: ${path.relative(repo, f)} doesn't exist.`); return 1 }
+    const q = c.questions.find((x) => x.id === o.question)
+    if (!q) { print(`✗ no question ${o.question ?? '(--question q1)'}`); return 2 }
+    if (!flagConcern(c, q, gitIdentity(repo))) { print(`${q.id} has no concern to flag.`); return 1 }
+    writeCheck(f, c)
+    print(`⚠ Flagged for the reviewer: ${q.concern.text}`)
+    return 0
+  }
+  if (cmd === 'commit') {
+    const r = await commitCheck(repo, { env, push: !o['no-push'] })
+    if (!r.ok) { print(`✗ ${r.line}`); return 1 }
+    const what = `${r.files.map((x) => path.basename(x)).join(', ')}${r.files.includes('.gitattributes') ? ` (${FOLD_TEXT.replace(/ \(.*$/, '')})` : ''}`
+    print(`${r.committed ? `Committed ${what}. ` : ''}${r.line === 'Committed.' ? '' : r.line}${r.mr ? ` Open a merge request: ${r.mr}` : ''}`.trim())
+    return 0
   }
   if (cmd === 'ci') {
     const r = await runCi(repo, { env, comment: !o['no-comment'], base: typeof o.base === 'string' ? o.base : undefined })
@@ -1944,6 +2186,18 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
   print(`unknown command "${cmd}"\n\n${HELP}`)
   return 2
 }
+
+/** One grade in a line: "✓ q1 pass: Right: …", with the hint and a concern when there are. */
+const gradeLine = (q, a) => `${MARK[a.verdict]} ${q.id} ${a.verdict}${a.partial ? ' (mostly right)' : ''}: ${a.feedback}${a.hint ? `\n  Hint: ${a.hint}` : ''}${a.concern ? `\n  Concern: ${a.concern}` : ''}`
+/** Where the check stands after a grade, and what is next: the next question, or the commit. */
+function progressLine(check, cfg, repo, env) {
+  const s = summarize(check, cfg)
+  const next = nextQuestion(check)
+  if (next) return `${s.done} of ${s.total} done · next: ${next.id}`
+  return s.met ? `✓ Done: ${s.passed} of ${s.total} passed (${s.needed} needed). Commit and push: node ${cliName(repo)} commit` : `${s.passed} passed, ${s.needed} must pass: say an explained answer back in one sentence (grade --question <id> --answer "…" --reply …).`
+}
+/** This file's path for a command line: relative to the repository when it is inside it. */
+const cliName = (repo) => { const me = path.relative(repo, fileURLToPath(import.meta.url)); return me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs' }
 
 const self = fileURLToPath(import.meta.url)
 if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(self) } catch { return false } })()) {
