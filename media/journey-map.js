@@ -31,7 +31,7 @@
 //   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
 //   { type: 'beat', n, i } (the animation's beat on step n; i = -1: the scene is gone)
 ;(function () {
-  const { el, button, connect, onMessages, runKey, overflowing } = window.common
+  const { el, button, connect, onMessages, runKey, overflowing, QSTATE } = window.common
   const { vscode, post } = connect()
   const app = document.getElementById('app')
 
@@ -116,15 +116,29 @@
   const saveState = () => vscode.setState({ id: J && J.id, q: J && J.question, cur, n: J ? J.steps.length : 0, scroll: window.scrollY, mapShut, mapW, animOn })
   const sceneOf = (n) => { const s = J && J.steps[n - 1]; return s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length ? s.scene : undefined }
 
+  // ---------- markdown: the little a journey's text uses, as HTML (escaped first, then marked up) ----------
+
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
   /** Enough markdown for summaries: `code` and **bold**. */
-  const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-  /** Step text: md plus [text](ref:i) links, ~~gone~~, paragraphs, "- " lists, ---. */
+  const md = (s) => esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>') // `code`
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>') // **bold**
+  /** A line of step text: md, links (posted back by the step card's click handler) and ~~gone~~. */
+  const inline = (t) => md(t)
+    .replace(/\[([^\]]+)\]\(ref:(\d+)\)/g, '<button class="ref link" data-i="$2">$1</button>') // [text](ref:i): code
+    .replace(/\[([^\]]+)\]\(note:([\w.-]+)\)/g, '<button class="noteq link" data-id="$2">$1</button>') // a question
+    .replace(/\[([^\]]+)\]\(ask:update\)/g, '<button class="askupd link">$1</button>') // ask for the step's update
+    .replace(/~~([^~]+)~~/g, '<s>$1</s>') // ~~gone~~
+  /** A fenced block's lines; a diff's (a stale step's) coloured: - deleted, + inserted. */
+  const fence = (lang, body) => {
+    const cls = (l) => (lang === 'diff' && /^[-+]/.test(l) ? (l[0] === '-' ? 'del' : 'ins') : '')
+    return `<pre class="code">${body.split('\n').map((l) => `<span class="${cls(l)}">${esc(l)}</span>`).join('\n')}</pre>`
+  }
+  /** Step text: inline markup, fenced blocks, paragraphs, "- " lists, ---. */
   function mdBlock(s) {
-    const inline = (t) => md(t).replace(/\[([^\]]+)\]\(ref:(\d+)\)/g, '<button class="ref link" data-i="$2">$1</button>').replace(/\[([^\]]+)\]\(note:([\w.-]+)\)/g, '<button class="noteq link" data-id="$2">$1</button>').replace(/\[([^\]]+)\]\(ask:update\)/g, '<button class="askupd link">$1</button>').replace(/~~([^~]+)~~/g, '<s>$1</s>')
-    // A fenced diff (a stale step:) is lines, coloured.
+    // The fenced blocks first, each left as a placeholder line (\u0000n\u0000) the paragraphs don't split.
     const fences = []
-    s = s.replace(/```(\w*)\n([\s\S]*?)\n```/g, (_m, lang, body) => { fences.push(`<pre class="code">${body.split('\n').map((l) => `<span class="${lang === 'diff' && /^[-+]/.test(l) ? (l[0] === '-' ? 'del' : 'ins') : ''}">${esc(l)}</span>`).join('\n')}</pre>`); return `\u0000${fences.length - 1}\u0000` })
+    s = s.replace(/```(\w*)\n([\s\S]*?)\n```/g, (_m, lang, body) => { fences.push(fence(lang, body)); return `\u0000${fences.length - 1}\u0000` })
     return s.split(/\n{2,}/).map((p) => {
       const f = /^\u0000(\d+)\u0000$/.exec(p.trim())
       if (f) return fences[Number(f[1])]
@@ -313,20 +327,20 @@
     return ol
   }
 
-  /** A check's question as a row of the storyline, after the step that shows its answer: "? Why …", its state. */
-  const STOP_ICON = { todo: '?', ungraded: '…', pass: '✓', restated: '✓', retry: '↻', explained: '·' }
-  const STOP_WORD = { ungraded: 'checking', retry: 'try again', explained: 'explained' }
+  /** A check's question as a row of the storyline, after the step that shows its answer: "? Why …", its state
+   *  (common.js QSTATE: the icon here is `storyIcon` when it has one). */
   function stopRow(q) {
     const li = el('li', 'cpl')
     const b = el('button', ['cp', q.state, q.cur ? 'cur' : ''].filter(Boolean).join(' '))
     b.dataset.q = q.id
-    const icon = el('span', 'n', STOP_ICON[q.state] || '?')
+    const st = Object.hasOwn(QSTATE, q.state) ? QSTATE[q.state] : {}
+    const icon = el('span', 'n', st.storyIcon || st.icon || '?')
     icon.setAttribute('aria-hidden', 'true')
     const t = el('span', 't', q.text)
     b.append(icon, t)
-    if (STOP_WORD[q.state]) b.append(el('span', 'w', STOP_WORD[q.state]))
+    if (st.word) b.append(el('span', 'w', st.word))
     b.title = `Question ${q.n}: ${q.text}`
-    b.setAttribute('aria-label', `Question ${q.n}${q.state === 'pass' || q.state === 'restated' ? ', answered' : ''}: ${q.text}`)
+    b.setAttribute('aria-label', `Question ${q.n}${st.answered ? ', answered' : ''}: ${q.text}`)
     if (q.cur) b.setAttribute('aria-current', 'step')
     b.onclick = () => { if (!tcard && !deleted) post({ type: 'checkpoint', id: q.id }) }
     li.append(b)
@@ -335,35 +349,21 @@
 
   /** The step card in the panel: lead, More, refs, ‹ ›, Ask. Links are posted back by index. */
   function stepCard() {
-    const { card, stops, asked } = T
+    const { card } = T
     const c = el('div', 'scard')
     c.setAttribute('role', 'region')
     c.setAttribute('aria-label', `Step ${cur}`)
-    if (card.staleText) { const d = el('div', 'sstale'); d.innerHTML = mdBlock(card.staleText); c.append(d) }
-    if (card.lead) { const d = el('div', 'slead'); d.innerHTML = mdBlock(card.lead); c.append(d) }
-    const nav = el('div', 'snav')
-    if (cur > 1) { const b = el('button', 'link sprev', '‹ Previous'); b.onclick = () => goStep(cur - 1); nav.append(b) }
-    // A check's tour: Next goes through the extension, which stops at the questions between the steps.
-    if (stops.length) { const b = el('button', 'link snext', cur < J.steps.length ? 'Next ›' : 'Finish'); b.onclick = () => post({ type: 'nextStop' }); nav.append(b) }
-    else if (cur < J.steps.length) { const b = el('button', 'link snext', 'Next ›'); b.onclick = () => goStep(cur + 1); nav.append(b) }
-    else if (!stops.length) { const b = el('button', 'link send', 'Finish'); b.onclick = () => post({ type: 'finish' }); nav.append(b) }
-    // The step's questions live here only: a count, the unread colour for a new reply.
-    if (asked[cur]) { const a = asked[cur], k = a.count || 1; const q = el('button', `link squestion${a.unread ? ' unread' : ''}`, `${k} asked ›`); q.onclick = () => post({ type: 'question', id: a.id }); nav.append(q) }
-    // One Ask in a stale card: the banner's, which opens the request prefilled.
-    if (!card.staleText) { const ask = el('button', 'link sask', 'Ask'); ask.onclick = () => post({ type: 'ask' }); nav.append(ask) }
-    // More holds the details and the references (no bare link row).
-    if (card.details || card.refs) {
-      const m = el('button', 'link smore', card.open ? 'Less' : 'More')
-      m.onclick = () => post({ type: 'details', open: !card.open })
-      nav.append(m)
-    }
-    c.append(nav)
-    if (card.open && card.details) { const d = el('div', 'sdetails'); d.innerHTML = mdBlock(card.details); c.append(d) }
-    if (card.open && card.refs) { const d = el('div', 'srefs'); d.innerHTML = mdBlock(card.refs); c.append(d) }
+    const text = (cls, s) => { const d = el('div', cls); d.innerHTML = mdBlock(s); c.append(d) }
+    if (card.staleText) text('sstale', card.staleText)
+    if (card.lead) text('slead', card.lead)
+    c.append(stepNav(card))
+    if (card.open && card.details) text('sdetails', card.details)
+    if (card.open && card.refs) text('srefs', card.refs)
     // A notice last, quiet.
     if (card.notice) c.append(el('div', 'snotice', `ℹ ${card.notice}`))
     // A reference reads as its file name; the whole path on hover.
     for (const r of c.querySelectorAll('.ref')) { const t = (card.paths || [])[Number(r.dataset.i)]; if (t) r.title = t }
+    // The links in its text (mdBlock's buttons).
     c.addEventListener('click', (e) => {
       const r = e.target.closest('.ref')
       if (r) { e.stopPropagation(); post({ type: 'ref', i: Number(r.dataset.i) }) }
@@ -372,6 +372,26 @@
       if (nq) { e.stopPropagation(); post({ type: 'question', id: nq.dataset.id }) }
     })
     return c
+  }
+
+  /** The step card's links: ‹ Previous, Next › (or Finish), the step's questions, Ask, More / Less. */
+  function stepNav(card) {
+    const { stops, asked } = T
+    const last = cur === J.steps.length
+    const nav = el('div', 'snav')
+    if (cur > 1) nav.append(button('link sprev', '‹ Previous', () => goStep(cur - 1)))
+    // A check's tour: Next goes through the extension, which stops at the questions between the steps.
+    if (stops.length) nav.append(button('link snext', last ? 'Finish' : 'Next ›', () => post({ type: 'nextStop' })))
+    else if (!last) nav.append(button('link snext', 'Next ›', () => goStep(cur + 1)))
+    else nav.append(button('link send', 'Finish', () => post({ type: 'finish' })))
+    // The step's questions live here only: a count, the unread colour for a new reply.
+    const a = asked[cur]
+    if (a) nav.append(button(`link squestion${a.unread ? ' unread' : ''}`, `${a.count || 1} asked ›`, () => post({ type: 'question', id: a.id })))
+    // One Ask in a stale card: the banner's, which opens the request prefilled.
+    if (!card.staleText) nav.append(button('link sask', 'Ask', () => post({ type: 'ask' })))
+    // More holds the details and the references (no bare link row).
+    if (card.details || card.refs) nav.append(button('link smore', card.open ? 'Less' : 'More', () => post({ type: 'details', open: !card.open })))
+    return nav
   }
 
   // ---------- the map (0.21): the whole journey at once, panned and zoomed (journey-graph.js) ----------
