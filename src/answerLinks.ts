@@ -1,6 +1,8 @@
 // Links in an agent's answer: `path:line` references and relative Markdown links open the file, also inside
 // "(…)" and lists; absolute paths are shown repo-relative (never the home folder). No vscode API here (unit-tested).
 
+import { PATH } from './journeyModel'
+
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** A Markdown image: `![chart](img/a.png "title")` (alt, url). */
@@ -14,8 +16,9 @@ const TARGET = /^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+)(?:-\d+)?)?$/
 /**
  * A bare reference, also right after "(" or in a list, optionally in backticks: `src/a.ts:12`, `src/a.ts:12-20`,
  * `src/a.ts#L12` (path, line, line). Never inside a longer word or path, nor after `~/` (outside the repo: left as text).
+ * The path is journeyModel's PATH, as in step text (REF_IN_TEXT); what may come before it and the line forms differ.
  */
-const BARE_REF = /(?<![\w/~.\-\u0000])`?((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::(\d+)(?:-\d+)?|#L(\d+))`?/g
+const BARE_REF = new RegExp(`(?<![\\w/~.\\-\\u0000])\`?(${PATH})(?::(\\d+)(?:-\\d+)?|#L(\\d+))\`?`, 'g')
 
 /**
  * One piece of answer text (outside ``` fences) with its file references as links. `link(text, file, line)` makes
