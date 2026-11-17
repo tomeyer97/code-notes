@@ -14,25 +14,37 @@ export function minutes(ms: number): string {
   return m < 1 ? 'under a minute' : `${m} min`
 }
 
+/** Claude Code's tools that only read: the phase is "reading the code" until the map is started. */
+const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Skill', 'LS']
+
+/**
+ * journey.py's subcommands (its `cmd_*` functions, skills/code-journey/scripts/journey.py) by the phase they belong
+ * to. A subcommand added there and not here keeps the previous phase. `range` only reads; the rest (reset, restore,
+ * migrate…) don't say what Claude is at.
+ */
+const PHASES: Record<string, string[]> = {
+  'drawing the map': ['new', 'meta', 'node', 'edge', 'set', 'setedge', 'rmnode', 'rmedge'],
+  'writing the steps': ['step', 'restep', 'rmstep', 'mvstep', 'stepnode'],
+  // What each step gets after it is written: its code links, its value hints, its animation.
+  'adding links and animations': ['link', 'value', 'scene', 'rmlink', 'rmvalue', 'rmscene'],
+  'checking': ['check'],
+}
+
 /**
  * What Claude is doing, in plain words, from its last tool call: reading the code, drawing the map, writing the
- * steps, adding links and animations, checking. journey.py's subcommand says which (the commands it runs are `…/journey.py [--dir x] <cmd> …`).
+ * steps, adding links and animations, checking. journey.py's subcommand says which (the commands it runs are
+ * `…/journey.py [--dir x] <cmd> …`).
  */
 export function phaseOf(tool: ToolCall | undefined, prev: string): string {
   if (!tool) return prev
-  if (['Read', 'Grep', 'Glob', 'Skill', 'LS'].includes(tool.name)) return prev === 'starting' || prev === 'reading the code' ? 'reading the code' : prev
+  const reading = prev === 'starting' || prev === 'reading the code'
+  if (READ_TOOLS.includes(tool.name)) return reading ? 'reading the code' : prev
   if (tool.name !== 'Bash') return prev
-  const cmd = String(tool.input?.command ?? '')
-  const m = /journey\.py((?:\s+--dir(?:=|\s+)\S+)?)\s+([a-z-]+)/.exec(cmd)
+  const m = /journey\.py((?:\s+--dir(?:=|\s+)\S+)?)\s+([a-z-]+)/.exec(String(tool.input?.command ?? ''))
   if (!m) return prev
   const sub = m[2]
   if (sub === 'range') return prev === 'starting' ? 'reading the code' : prev
-  if (['new', 'meta', 'node', 'edge', 'set', 'setedge', 'rmnode', 'rmedge'].includes(sub)) return 'drawing the map'
-  if (['step', 'restep', 'rmstep', 'mvstep', 'stepnode'].includes(sub)) return 'writing the steps'
-  // What each step gets after it is written: its code links, its value hints, its animation.
-  if (['link', 'value', 'scene', 'rmlink', 'rmvalue', 'rmscene'].includes(sub)) return 'adding links and animations'
-  if (sub === 'check') return 'checking'
-  return prev
+  return Object.keys(PHASES).find((phase) => PHASES[phase].includes(sub)) ?? prev
 }
 
 /**

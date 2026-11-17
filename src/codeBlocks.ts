@@ -68,12 +68,14 @@ export function blockAt(line: number, blocks: Block[]): Block | undefined {
 /** One lens per group: steps whose lines start in (or lead into) the same function; the rest by nearby lines. */
 export function groupSteps<T extends { line: number; end?: number }>(hits: T[], blocks: Block[], near = 10): { line: number; steps: T[] }[] {
   const groups = new Map<string, { line: number; steps: T[] }>()
-  const loose: T[] = []
+  /** Steps outside every function, and the line each is grouped by. */
+  const loose: { at: number; step: T }[] = []
   for (const h of hits) {
     // In a function; or starting just above one (its comment, the line before it) and running into it.
     const b = blockAt(h.line, blocks) ?? blocks.find((x) => x.kind === 'fn' && x.start > h.line && x.start <= (h.end ?? h.line) + 2)
-    // A top-level const (one line or several) is one of the file's top lines: grouped with its neighbours below.
-    if (!b || b.kind === 'var') { loose.push(b ? { ...h, line: b.start, at: h.line } as T : h); continue }
+    // A top-level const (one line or several) is one of the file's top lines: grouped by its first line, with its
+    // neighbours below.
+    if (!b || b.kind === 'var') { loose.push({ at: b ? b.start : h.line, step: h }); continue }
     const k = `${b.start}`
     const g = groups.get(k) ?? { line: b.start, steps: [] }
     g.steps.push(h)
@@ -82,12 +84,10 @@ export function groupSteps<T extends { line: number; end?: number }>(hits: T[], 
   // Outside every function (a file's top-level consts): one lens for steps a few lines apart in the same gap.
   const gapOf = (line: number) => blocks.filter((b) => b.kind !== 'var' && b.end < line).length
   let cur: { line: number; steps: T[]; last: number; gap: number } | undefined
-  for (const h of [...loose].sort((a, b) => a.line - b.line)) {
-    const orig = ((h as { at?: number }).at !== undefined ? { ...h, line: (h as { at?: number }).at } : h) as T
-    delete (orig as { at?: number }).at
-    if (cur && cur.gap === gapOf(h.line) && h.line - cur.last <= near) { cur.steps.push(orig); cur.last = Math.max(h.line, orig.line); continue }
-    cur = { line: h.line, steps: [orig], last: orig.line, gap: gapOf(h.line) }
-    groups.set(`l${h.line}`, cur)
+  for (const { at, step } of [...loose].sort((a, b) => a.at - b.at)) {
+    if (cur && cur.gap === gapOf(at) && at - cur.last <= near) { cur.steps.push(step); cur.last = Math.max(at, step.line); continue }
+    cur = { line: at, steps: [step], last: step.line, gap: gapOf(at) }
+    groups.set(`l${at}`, cur)
   }
   return [...groups.values()].map((g) => ({ line: g.line, steps: g.steps })).sort((a, b) => a.line - b.line)
 }

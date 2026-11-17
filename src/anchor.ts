@@ -66,6 +66,13 @@ export function relocate(lines: string[], anchor: string[], before: string[], af
   return ok[0]?.at
 }
 
+/** A candidate beats the best so far: a higher score, or the same score nearer to where the note was. */
+function better(c: { at: number; score: number }, best: { at: number; score: number } | undefined, tracked: number): boolean {
+  if (!best) return true
+  if (c.score !== best.score) return c.score > best.score
+  return Math.abs(c.at - tracked) < Math.abs(best.at - tracked)
+}
+
 /** A note on blank lines: where its context (the code around it) is now. */
 function relocateByContext(lines: string[], len: number, before: string[], after: string[], tracked: number): { at: number; exact: boolean } | undefined {
   let best: { at: number; score: number } | undefined
@@ -77,7 +84,8 @@ function relocateByContext(lines: string[], len: number, before: string[], after
     const c = contextScore(lines, i, len, before, after)
     max = c.max
     if (c.score === 0) continue
-    if (!best || c.score > best.score || (c.score === best.score && Math.abs(i - tracked) < Math.abs(best.at - tracked))) best = { at: i, score: c.score }
+    const cand = { at: i, score: c.score }
+    if (better(cand, best, tracked)) best = cand
   }
   if (!best) return undefined
   return { at: best.at, exact: best.score === max }
@@ -128,27 +136,38 @@ export function anchor(lines: string[], text: string, before: string, after: str
   return stay(true, len)
 }
 
+/** How far (in lines) from where it was edited code is looked for. */
+const SEARCH_WINDOW = 40
+/** A line of the block counts when found this many lines from where it would be (an insertion inside it shifts the
+ *  rest); it scores NEAR + 1 - distance, so a line in place counts most. */
+const NEAR = 3
+/** A context line that matches counts as much as this many block lines in place (context says it is the same code). */
+const CONTEXT_WEIGHT = 2
+/** The block's last recognisable line is looked for this far from where it would be, to find the block's end. */
+const END_SLACK = 6
+
 /** Where edited code most likely is now: the offset near `tracked` that keeps most of its (and its context's) lines. */
-export function closest(lines: string[], anchor: string[], before: string[], after: string[], tracked: number, window = 40): Loc | undefined {
+export function closest(lines: string[], anchor: string[], before: string[], after: string[], tracked: number, window = SEARCH_WINDOW): Loc | undefined {
   const len = anchor.length
   const want = anchor.map((l) => (weak(l) ? '' : norm(l)))
   let best: { at: number; score: number } | undefined
   for (let at = Math.max(0, tracked - window); at <= Math.min(lines.length - 1, tracked + window); at++) {
-    // Lines of the block found within a few lines of where they would be (an insertion inside it shifts the rest).
     let score = 0
     for (let i = 0; i < len; i++) {
       if (!want[i]) continue
-      for (let d = 0; d <= 3; d++) if ([at + i + d, at + i - d].some((k) => k >= 0 && k < lines.length && norm(lines[k]) === want[i])) { score += 4 - d; break }
+      const isWant = (k: number) => k >= 0 && k < lines.length && norm(lines[k]) === want[i]
+      for (let d = 0; d <= NEAR; d++) if (isWant(at + i + d) || isWant(at + i - d)) { score += NEAR + 1 - d; break }
     }
-    score += contextScore(lines, at, len, before, after).score * 2
-    if (score > 0 && (!best || score > best.score || (score === best.score && Math.abs(at - tracked) < Math.abs(best.at - tracked)))) best = { at, score }
+    score += contextScore(lines, at, len, before, after).score * CONTEXT_WEIGHT
+    const cand = { at, score }
+    if (score > 0 && better(cand, best, tracked)) best = cand
   }
   if (!best) return undefined
   // Its end: where the block's last recognisable line is now, if it is close; else its own length.
   let end = best.at + len - 1
   const lastI = want.map((w, i) => (w ? i : -1)).filter((i) => i >= 0).pop()
   if (lastI !== undefined) {
-    for (let d = 0; d <= 6; d++) {
+    for (let d = 0; d <= END_SLACK; d++) {
       const hit = [best.at + lastI + d, best.at + lastI - d].find((k) => k >= best!.at && k < lines.length && norm(lines[k]) === want[lastI])
       if (hit !== undefined) { end = hit + (len - 1 - lastI); break }
     }
@@ -161,7 +180,9 @@ export function lineDiff(a: string[], b: string[]): { del: string[]; ins: string
   if (a.length * b.length > 250_000) return { del: a, ins: b }
   const n = a.length, m = b.length
   const L: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = norm(a[i]) === norm(b[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) L[i][j] = norm(a[i]) === norm(b[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  }
   const del: string[] = [], ins: string[] = []
   let i = 0, j = 0
   while (i < n && j < m) {

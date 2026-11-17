@@ -3,7 +3,8 @@ import { setDecorations } from './decorations'
 import { fileLines } from './wfs'
 import { ownSelection } from './claudeLinks'
 import { StepLink } from './codeLinkText'
-import { findLine, followLine, shiftLine } from './beatLine'
+import { LineEdit, findLine, followLine, shiftLine } from './beatLine'
+import { EditFollower } from './followEdits'
 
 // Code links: a click on a linked phrase of the step's card lights that phrase's lines and brings them
 // into view. Nothing is marked before a click (VS Code tells an extension nothing about hovering a link in a comment,
@@ -34,45 +35,51 @@ export class CodeLinks implements vscode.Disposable {
   readonly onDidChange = this.lens.event
   /** Selections this class makes itself, so they do not count as the reader moving away. */
   private own = 0
-  private follow: ReturnType<typeof setTimeout> | undefined
 
   constructor(private log: vscode.LogOutputChannel) {
-    this.subs = [this.strong, this.lens, vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
-      vscode.languages.registerCodeLensProvider({ scheme: 'file' }, {
-        onDidChangeCodeLenses: this.lens.event,
-        provideCodeLenses: (doc) => {
-          const b = this.backAt
-          if (!b || b.uri !== doc.uri.toString() || b.line >= doc.lineCount) return []
-          return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), { title: this.backTitle, command: 'codeNotes.codeLinkBack', ...(this.backTip ? { tooltip: this.backTip } : {}) })]
-        },
-      }),
-      // VS Code's Go Back (or any move of the caret out of the lit lines, or to another file) ends the link.
-      vscode.window.onDidChangeTextEditorSelection((e) => {
-        const a = this.at.get(this.active)
-        if (!a || Date.now() < this.own || e.textEditor.document.uri.scheme !== 'file') return
-        const line = e.selections[0]?.active.line ?? -1
-        if (e.textEditor.document.uri.toString() !== a.uri || line < a.start || line > a.end) this.unlight()
-      }),
-      vscode.window.onDidChangeActiveTextEditor((ed) => {
-        const a = this.at.get(this.active)
-        if (a && ed && Date.now() >= this.own && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== a.uri) this.unlight()
-      }),
-      // The lines follow edits to their file: moved at once, their text checked once the typing pauses.
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        const u = e.document.uri.toString()
-        if (!e.contentChanges.length || ![...this.at.values()].some((a) => a.uri === u)) return
-        const edits = e.contentChanges.map((c) => ({ start: c.range.start.line, end: c.range.end.line, text: c.text }))
-        for (const a of this.at.values()) if (a.uri === u) { const len = a.end - a.start; a.start = shiftLine(a.start, edits); a.end = a.start + len }
-        this.paint()
-        clearTimeout(this.follow)
-        this.follow = setTimeout(() => this.refind(e.document), 150)
-      })]
+    this.subs = [this.strong, this.lens,
+      vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
+      vscode.languages.registerCodeLensProvider({ scheme: 'file' }, { onDidChangeCodeLenses: this.lens.event, provideCodeLenses: (doc) => this.backLens(doc) }),
+      vscode.window.onDidChangeTextEditorSelection((e) => this.onSelection(e)),
+      vscode.window.onDidChangeActiveTextEditor((ed) => this.onActiveEditor(ed)),
+      // The lit lines follow edits to their file.
+      new EditFollower((uri) => [...this.at.values()].some((a) => a.uri === uri), (edits, uri) => this.shift(uri, edits), (doc, lines) => this.refind(doc, lines)),
+    ]
   }
 
-  private refind(doc: vscode.TextDocument): void {
+  /** The Back row, above the lit lines. */
+  private backLens(doc: vscode.TextDocument): vscode.CodeLens[] {
+    const b = this.backAt
+    if (!b || b.uri !== doc.uri.toString() || b.line >= doc.lineCount) return []
+    return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), { title: this.backTitle, command: 'codeNotes.codeLinkBack', ...(this.backTip ? { tooltip: this.backTip } : {}) })]
+  }
+
+  /** VS Code's Go Back (or any move of the caret out of the lit lines, or to another file) ends the link. */
+  private onSelection(e: vscode.TextEditorSelectionChangeEvent): void {
+    const a = this.at.get(this.active)
+    if (!a || Date.now() < this.own || e.textEditor.document.uri.scheme !== 'file') return
+    const line = e.selections[0]?.active.line ?? -1
+    if (e.textEditor.document.uri.toString() !== a.uri || line < a.start || line > a.end) this.unlight()
+  }
+
+  private onActiveEditor(ed: vscode.TextEditor | undefined): void {
+    const a = this.at.get(this.active)
+    if (a && ed && Date.now() >= this.own && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== a.uri) this.unlight()
+  }
+
+  private shift(uri: string, edits: LineEdit[]): void {
+    for (const a of this.at.values()) {
+      if (a.uri !== uri) continue
+      const len = a.end - a.start
+      a.start = shiftLine(a.start, edits)
+      a.end = a.start + len
+    }
+    this.paint()
+  }
+
+  private refind(doc: vscode.TextDocument, lines: string[]): void {
     const u = doc.uri.toString(), links = this.step?.links
     if (!links) return
-    const lines = Array.from({ length: doc.lineCount }, (_, k) => doc.lineAt(k).text)
     for (const [i, a] of [...this.at]) {
       if (a.uri !== u) continue
       const start = followLine(lines, a.start, links[i]?.text ?? '', [])
@@ -194,5 +201,5 @@ export class CodeLinks implements vscode.Disposable {
 
   clear(): void { this.seq++; this.step = undefined; this.at.clear(); this.active = -1; this.back = false; this.paint() }
 
-  dispose(): void { clearTimeout(this.follow); for (const s of this.subs) s.dispose() }
+  dispose(): void { for (const s of this.subs) s.dispose() }
 }

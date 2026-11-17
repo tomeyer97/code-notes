@@ -3,6 +3,8 @@ import { setDecorations } from './decorations'
 import { ownSelection } from './claudeLinks'
 import { JBeat } from './journeyModel'
 import { findLine, followLine, shiftLine } from './beatLine'
+import { EditFollower } from './followEdits'
+import { docLines } from './wfs'
 
 // A step's animation: the beat on screen lights the one line that does what it shows, nothing else
 // (values are the step's value hints: valueHints.ts).
@@ -24,28 +26,20 @@ export class Beats implements vscode.Disposable {
   private readonly subs: vscode.Disposable[]
   /** The newest request wins (beats can be stepped through faster than files open). */
   private seq = 0
-  private follow: ReturnType<typeof setTimeout> | undefined
+  /** The lit line follows edits to its file. */
+  private readonly follow = new EditFollower(
+    (uri) => this.here?.uri === uri,
+    (edits) => { this.here!.line = shiftLine(this.here!.line, edits); this.paint() },
+    (doc, lines) => this.refind(doc, lines),
+  )
 
   constructor(private log: vscode.LogOutputChannel) {
-    this.subs = [
-      this.deco,
-      vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
-      // The lit line follows edits to its file.
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (!this.here || e.document.uri.toString() !== this.here.uri || !e.contentChanges.length) return
-        // Moved at once by the lines added or removed above it; its text checked once the typing pauses.
-        this.here.line = shiftLine(this.here.line, e.contentChanges.map((c) => ({ start: c.range.start.line, end: c.range.end.line, text: c.text })))
-        this.paint()
-        clearTimeout(this.follow)
-        this.follow = setTimeout(() => this.refind(e.document), 150)
-      }),
-    ]
+    this.subs = [this.deco, this.follow, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
   }
 
-  private refind(doc: vscode.TextDocument): void {
+  private refind(doc: vscode.TextDocument, lines: string[]): void {
     const h = this.here
     if (!h || doc.uri.toString() !== h.uri) return
-    const lines = Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
     const at = followLine(lines, h.line, h.text, [])
     this.here = at < 0 ? undefined : { ...h, line: at }
     this.paint()
@@ -65,7 +59,7 @@ export class Beats implements vscode.Disposable {
   }
 
   /** Nothing lit; a request still opening its file is dropped. */
-  clear(): void { this.seq++; clearTimeout(this.follow); if (this.here) { this.here = undefined; this.paint() } }
+  clear(): void { this.seq++; this.follow.cancel(); if (this.here) { this.here = undefined; this.paint() } }
 
   /** Lights the beat's line in the code group (the panel keeps the focus); no beat, or no code: nothing is lit. */
   async show(folder: vscode.Uri, beat: JBeat | undefined, renames: Map<string, string>, column: () => vscode.ViewColumn | undefined): Promise<BeatShown> {
@@ -77,7 +71,7 @@ export class Beats implements vscode.Disposable {
     let doc: vscode.TextDocument
     try { doc = await vscode.workspace.openTextDocument(uri) } catch { this.log.info(`animation: ${c.file} can't be opened`); return mine === this.seq ? none() : 'superseded' }
     if (mine !== this.seq) return 'superseded'
-    const lines = Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
+    const lines = docLines(doc)
     const at = findLine(lines, c.line, String(c.text ?? ''))
     if (at < 0) { this.log.info(`animation: the line at ${c.file}:${c.line} changed; nothing lit`); return none() }
     this.here = { uri: uri.toString(), line: at, text: String(c.text ?? '') }
@@ -110,5 +104,5 @@ export class Beats implements vscode.Disposable {
     return true
   }
 
-  dispose(): void { clearTimeout(this.follow); for (const s of this.subs) s.dispose() }
+  dispose(): void { for (const s of this.subs) s.dispose() }
 }
