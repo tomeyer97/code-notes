@@ -34,10 +34,6 @@ export function callCounter(api: { mementos?: () => vscode.Memento[] }) {
   // Commands the extension registered itself run in the extension host; the window's own ones (setContext, focus, …) don't.
   wrap(vscode.commands, 'executeCommand', (id: string, ...a: any[]) => (id.startsWith('codeNotes.') && !id.endsWith('.focus') ? undefined : `command ${id}${id === 'setContext' ? ` ${a[0]}` : ''}`))
   for (const m of api.mementos?.() ?? []) wrap(m, 'update', (k: string) => `store ${k}`)
-  // The workspace's file system API: from a remote extension host each call goes to the window and back.
-  for (const f of ['readFile', 'writeFile', 'stat', 'readDirectory', 'rename', 'delete', 'createDirectory']) {
-    try { wrap(vscode.workspace.fs, f, (u: any) => `fs ${f} ${path.basename(u?.path ?? '')}`) } catch { /* read-only: not counted */ }
-  }
   return {
     rtt,
     async measure(what: string, run: () => PromiseLike<unknown>, settled: () => boolean | Promise<boolean>): Promise<{ calls: string[]; ms: number }> {
@@ -63,7 +59,7 @@ export async function roundTrips(api: any, ws: string, until: <T>(what: string, 
   const c = callCounter(api)
   const r0: Record<string, { calls: string[]; ms: number }> = {}
   try {
-    // Reading every note and journey, as at activation.
+    // Reading every note and journey, as at activation (files: test/wfs.test.ts checks none go through the window).
     r0.load = await c.measure('reading the notes and journeys', () => vscode.commands.executeCommand('codeNotes.refresh'), () => true)
     await vscode.commands.executeCommand('codeNotes.openJourney', 'anim')
     await until('walking anim', () => bt().journey === 'anim' && bt().step >= 1, 10000)
@@ -82,6 +78,24 @@ export async function roundTrips(api: any, ws: string, until: <T>(what: string, 
     r.same = await c.measure('code link into the card\'s file', () => vscode.commands.executeCommand('codeNotes.codeLink', bt().codeLinks.key, 1), () => bt().codeLinks.active === 1)
     await vscode.commands.executeCommand('codeNotes.codeLink', bt().codeLinks.key, 1)
     await until('off again', () => bt().codeLinks.active === -1, 10000)
+    // Next, Next, Next before the first has shown anything: the walk ends on the last step asked for, its file and
+    // its card (an older step never shows its file or takes the newer card away). Steps in four files.
+    const files = ['anim.ts', 'tok.ts', 'flow.ts', 'flow2.ts'].filter((f) => require('fs').existsSync(path.join(ws, 'src', f)))
+    require('fs').writeFileSync(path.join(ws, '.code-notes', 'journeys', 'hop.json'), JSON.stringify({
+      version: 2, id: 'hop', question: 'Where does it go?', title: 'Hop', summary: '', nodes: [{ id: 'f', kind: 'function', label: 'f' }], edges: [],
+      steps: files.map((f, k) => ({ id: `h${k}`, title: `In ${f}`, node: 'f', file: `src/${f}`, range: { start: 1, end: 1 }, lead: `Step ${k + 1}.`, refs: [] })),
+    }))
+    await until('hop read', () => api.snapshot().journeys.some((x: any) => x.id === 'hop'), 10000)
+    await vscode.commands.executeCommand('codeNotes.openJourney', 'hop')
+    await until('walking hop', () => bt().journey === 'hop' && bt().step === 1 && !!bt().card, 10000)
+    await sleep(500)
+    const last = files.length
+    r.rapid = await c.measure(`Next ×${last - 1} at once`, async () => { await Promise.all(files.slice(1).map(() => vscode.commands.executeCommand('codeNotes.nextStep'))) },
+      () => bt().step === last && !!bt().card && vscode.window.activeTextEditor?.document.uri.path.endsWith(`/src/${files[last - 1]}`) === true)
+    await sleep(1000)
+    assert.ok(bt().step === last && !!bt().card && vscode.window.activeTextEditor?.document.uri.path.endsWith(`/src/${files[last - 1]}`), `after quick Nexts: step ${bt().step}, card ${!!bt().card}, editor ${vscode.window.activeTextEditor?.document.uri.path}`)
+    await vscode.commands.executeCommand('codeNotes.endJourney')
+    require('fs').rmSync(path.join(ws, '.code-notes', 'journeys', 'hop.json'))
     // A link from a chat (its vscode:// link): its lines lit, Back to where the reader was.
     await vscode.commands.executeCommand('codeNotes.endJourney')
     await until('the walk ended', () => !bt().journey || !bt().step, 10000)
@@ -114,7 +128,6 @@ export async function roundTrips(api: any, ws: string, until: <T>(what: string, 
     // What each action may call at most besides storing its place (stored in the background, not waited for; each one a
     // round trip over a remote link).
     const most: Record<string, number> = { next: 1, previous: 1, link: 1, back: 1, same: 0, chatBack: 1 }
-    assert.ok(!r0.load.calls.some((x) => x.startsWith('fs ')), `reading notes and journeys went through the window: ${r0.load.calls.length} calls`)
     for (const [k, n] of Object.entries(most)) {
       const waited = r[k].calls.filter((x) => !x.startsWith('store '))
       assert.ok(waited.length <= n, `${k}: ${waited.length} calls into the window (at most ${n}): ${waited.join(', ')}`)
