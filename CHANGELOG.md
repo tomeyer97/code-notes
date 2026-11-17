@@ -9,6 +9,12 @@
   Check view say their step and go there. The tour is stored in the check file (`journey`); a top-up adds steps for
   the new part. The grader may point at a step; the merge request comment gets one line about the tour. A question,
   and the tour's last step, may say "See also" a journey of the repository that walks the same code.
+- **Faster over Remote-SSH and on big repositories.** The understanding check reads git on a worker thread: the
+  extension host (shared with every other extension, and over Remote-SSH with the editor) never waits for git. It
+  reads again only when something it shows can have changed: another `git status` (the Git view, a terminal, an agent)
+  no longer makes it refresh, and a burst of triggers is one refresh. A code link, Back, the next or previous step, a
+  link from a chat and opening a question each wait for at most one call into the window (fixed waits and repeated
+  context keys, decorations and lens refreshes are gone), so they slow down less with the network's latency.
 
 ## 0.24.0
 
