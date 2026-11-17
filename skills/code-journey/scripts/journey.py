@@ -3,7 +3,7 @@
 plus an ordered storyline of steps, all in ONE file: <repo>/journeys/<slug>.json (committed, reviewed in PRs like
 code). Rules: ../SKILL.md. The folder: <repo>/journeys/, or <repo>/.code-notes/journeys/ when only that exists;
 `--dir <folder>` (anywhere on the command line; relative to <repo>) overrides. Last good copies go in its .bak/
-(git-ignored).
+(git-ignored). `--steps A-B` (anywhere) changes the step count `check` wants (6-14), e.g. for a short tour of a change.
 
   journey.py new   <repo> <slug> "<question>" "<title>"      < summary     (<= 2 plain sentences, no code in the first)
                    question: one natural question, <= 80 chars (it is the map header and the row's tooltip)
@@ -3186,6 +3186,15 @@ if __name__ == '__main__':
         if x.startswith('--dir='):
             DIR = x[6:]
             del sys.argv[i]
+            break
+    for i, x in enumerate(sys.argv):          # --steps A-B (anywhere): the step count to check (a short tour of a change)
+        v = sys.argv[i + 1] if x == '--steps' and i + 1 < len(sys.argv) else x[8:] if x.startswith('--steps=') else None
+        if v is not None:
+            m = re.match(r'^(\d+)-(\d+)$', v)
+            if not m or int(m.group(1)) < 1 or int(m.group(1)) > int(m.group(2)):
+                usage('check', f'--steps {v}: write it as A-B (e.g. 2-3)')
+            MIN_STEPS, MAX_STEPS = int(m.group(1)), int(m.group(2))
+            del sys.argv[i:i + (2 if x == '--steps' else 1)]
             break
     if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help', 'help'):
         what = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == 'help' else ''
