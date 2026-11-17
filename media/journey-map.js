@@ -717,6 +717,15 @@
   function leaveTutorial() { tcard = 0; post({ type: 'tutorial', action: 'skip' }); render() }
   function finishTutorial() { tcard = 0; post({ type: 'tutorial', action: 'done' }); render() }
 
+  /** The space between the card and what it points at, around the screen's edges (GAP); the ring's padding (PAD). */
+  const GAP = 10, PAD = 4
+  /** The card's widest (px) and its margin from the panel's sides. */
+  const CARD_W = 320, EDGE = 12
+  /** In the scoring of the card's places: covering what it points at is never chosen if anything else fits, and
+   *  covering the map counts this many times its area (the rest once). */
+  const ON_TARGET = 1e9, MAP_WEIGHT = 1e4
+
+  /** The current card: the dim with a hole around what it points at, a ring in the hole, the card next to it. */
   function placeTutorial() {
     spot?.remove(); tc?.remove(); dim?.remove(); spot = tc = dim = undefined
     if (!tcard) return
@@ -725,11 +734,37 @@
     const target = c.target()
     if (!target) return
     // The card first (hidden), to know its size before choosing where things go.
-    tc = el('div', 'tcard')
-    tc.setAttribute('role', 'dialog')
+    const { card, next } = buildCard(cs, c)
+    tc = card
+    tc.style.visibility = 'hidden'
+    document.body.append(tc)
+    const W = document.documentElement.clientWidth, H = window.innerHeight
+    const cw = Math.min(CARD_W, W - 2 * EDGE)
+    tc.style.width = `${cw}px`
+    const ch = tc.offsetHeight
+    // What scrolls goes below the sticky header, never under it; the target and the card both in view.
+    const head = app.querySelector('.head')
+    const inHead = !!head && head.contains(target)
+    const top0 = inHead || !head ? 0 : head.getBoundingClientRect().bottom
+    const box = { W, H, cw, ch }
+    const R = scrollIntoRoom(target, inHead, top0, box)
+    const sx = window.scrollX, sy = window.scrollY
+    dimAround(R, sx, sy)
+    // Next to the element, never over it, never over the header, and over as little else as possible (R6).
+    const at = bestSpot(R, target, (inHead ? 0 : top0) + 4, box)
+    tc.style.left = `${at.x + sx}px`
+    tc.style.top = `${at.y + sy}px`
+    tc.style.visibility = ''
+    ;(next || target).focus({ preventScroll: true })
+  }
+
+  /** Card `c` of `cs`: its text, the dots (where you are), Skip / Back / Next (Done on the last). */
+  function buildCard(cs, c) {
+    const card = el('div', 'tcard')
+    card.setAttribute('role', 'dialog')
     const live = cs.filter((x) => !x.skip)
-    tc.setAttribute('aria-label', `Tutorial ${live.indexOf(c) + 1} of ${live.length}`)
-    if (c.node) { const p = el('div', 'ttext'); p.append(c.node); tc.append(p) } else tc.append(el('p', 'ttext', c.text))
+    card.setAttribute('aria-label', `Tutorial ${live.indexOf(c) + 1} of ${live.length}`)
+    if (c.node) { const p = el('div', 'ttext'); p.append(c.node); card.append(p) } else card.append(el('p', 'ttext', c.text))
     const foot = el('div', 'tfoot')
     // Dots only: where you are, no "1/6" beside them.
     const dots = el('span', 'dots')
@@ -738,70 +773,83 @@
     foot.append(dots)
     const nav = el('span', 'tnav')
     // The last card: no Skip (Esc leaves); Done finishes.
-    let nb
     const last = live.indexOf(c) === live.length - 1
     if (!last) {
-      const x = el('button', 'link tclose', 'Skip')
+      const x = button('link tclose', 'Skip', leaveTutorial)
       x.title = 'Leave the tutorial (Esc)'
-      x.onclick = leaveTutorial
       nav.append(x)
     }
-    if (live.indexOf(c) > 0) { const b = el('button', 'link tback', 'Back'); b.onclick = () => tutorialMove(-1); nav.append(b) }
-    nb = el('button', 'btn tnext', last ? 'Done' : 'Next'); nb.onclick = () => tutorialMove(1); nav.append(nb)
+    if (live.indexOf(c) > 0) nav.append(button('link tback', 'Back', () => tutorialMove(-1)))
+    const next = button('btn tnext', last ? 'Done' : 'Next', () => tutorialMove(1))
+    nav.append(next)
     foot.append(nav)
-    tc.append(foot)
-    tc.style.visibility = 'hidden'
-    document.body.append(tc)
-    const de = document.documentElement
-    const W = de.clientWidth, H = window.innerHeight, G = 10, P = 4
-    const cw = Math.min(320, W - 24)
-    tc.style.width = `${cw}px`
-    const ch = tc.offsetHeight
-    // What scrolls goes below the sticky header, never under it; the target and the card both in view.
-    const head = app.querySelector('.head')
-    const inHead = !!head && head.contains(target)
-    const top0 = inHead || !head ? 0 : head.getBoundingClientRect().bottom
+    card.append(foot)
+    return { card, next }
+  }
+
+  /** Scrolls `target` into view with room for the card (ch high, cw wide; the panel W × H) below the header (its
+   *  bottom at top0), and returns its visible rectangle (viewport px): of a target taller than the room, its top part. */
+  function scrollIntoRoom(target, inHead, top0, { W, H, cw, ch }) {
     let r = target.getBoundingClientRect()
-    const room = (q) => q.bottom + G + ch + G <= H || q.top - G - ch - G >= top0 || Math.max(W - q.right, q.left) >= cw + 2 * G
-    if (!inHead && (r.top < top0 + P || r.bottom > H - P || !room(r))) {
+    // Room for the card below it, above it, or beside it.
+    const room = (q) => q.bottom + GAP + ch + GAP <= H || q.top - GAP - ch - GAP >= top0 || Math.max(W - q.right, q.left) >= cw + 2 * GAP
+    if (!inHead && (r.top < top0 + PAD || r.bottom > H - PAD || !room(r))) {
       const free = H - top0
-      const want = r.height + G + ch + 2 * G <= free ? top0 + Math.max(G, (free - r.height - G - ch) / 2) : top0 + G
+      const want = r.height + GAP + ch + 2 * GAP <= free ? top0 + Math.max(GAP, (free - r.height - GAP - ch) / 2) : top0 + GAP
       window.scrollBy(0, r.top - want)
       r = target.getBoundingClientRect()
     }
     // A target taller than the room (the storyline on a short panel): its visible top part, the card under it.
-    const R = { left: r.left, right: r.right, top: Math.max(r.top, top0 + P), bottom: Math.min(r.bottom, H - P) }
-    if (!room(R)) R.bottom = Math.max(R.top + 40, H - 2 * G - ch - P)
-    const sx = window.scrollX, sy = window.scrollY
+    const R = { left: r.left, right: r.right, top: Math.max(r.top, top0 + PAD), bottom: Math.min(r.bottom, H - PAD) }
+    if (!room(R)) R.bottom = Math.max(R.top + 40, H - 2 * GAP - ch - PAD)
+    return R
+  }
+
+  /** The dim over the whole page with a hole at R (viewport px), and the ring in the hole. One layer with a clip-path
+   *  (a huge box-shadow is not always painted everywhere). */
+  function dimAround(R, sx, sy) {
+    const de = document.documentElement
     spot = el('div', 'spot')
-    Object.assign(spot.style, { left: `${R.left + sx - P}px`, top: `${R.top + sy - P}px`, width: `${R.right - R.left + 2 * P}px`, height: `${R.bottom - R.top + 2 * P}px` })
-    // The dim: one layer over the whole page with a hole at the spot (a huge box-shadow is not always painted everywhere).
+    Object.assign(spot.style, { left: `${R.left + sx - PAD}px`, top: `${R.top + sy - PAD}px`, width: `${R.right - R.left + 2 * PAD}px`, height: `${R.bottom - R.top + 2 * PAD}px` })
     dim = el('div', 'tdim')
+    // The page's size, and the hole (page px).
     const PW = Math.max(de.scrollWidth, de.clientWidth), PH = Math.max(de.scrollHeight, window.innerHeight)
-    const x1 = R.left + sx - P, y1 = R.top + sy - P, x2 = R.right + sx + P, y2 = R.bottom + sy + P
+    const x1 = R.left + sx - PAD, y1 = R.top + sy - PAD, x2 = R.right + sx + PAD, y2 = R.bottom + sy + PAD
     Object.assign(dim.style, { width: `${PW}px`, height: `${PH}px` })
     dim.style.clipPath = `polygon(evenodd, 0 0, ${PW}px 0, ${PW}px ${PH}px, 0 ${PH}px, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`
     document.body.insertBefore(dim, tc)
     document.body.insertBefore(spot, tc)
-    // Next to the element, never over it, never over the header, and over as little else as possible (R6).
-    const minY = (inHead ? 0 : top0) + 4
-    const clampX = (v) => Math.max(12, Math.min(v, W - cw - 12))
+  }
+
+  /** Where the card goes (viewport px, its top left): of the places beside R that fit on screen (below minY), the one
+   *  that covers least of what matters (never R itself if anything else fits); none fits: under R, kept on screen. */
+  function bestSpot(R, target, minY, { W, H, cw, ch }) {
+    const clampX = (v) => Math.max(EDGE, Math.min(v, W - cw - EDGE))
     const clampY = (v) => Math.max(minY, Math.min(v, H - ch - 8))
-    const opts = [
-      { x: clampX(R.left), y: R.bottom + G }, { x: clampX(R.right - cw), y: R.bottom + G },
-      { x: clampX(R.left), y: R.top - G - ch }, { x: clampX(R.right - cw), y: R.top - G - ch },
-      { x: R.right + G, y: clampY(R.top) }, { x: R.left - G - cw, y: clampY(R.top) },
-      { x: clampX(W - cw - 12), y: R.bottom + G }, { x: 12, y: R.bottom + G },
-    ].filter((o) => o.x >= 12 && o.x + cw <= W - 12 && o.y >= minY && o.y + ch <= H - 4)
-    const avoid = [...app.querySelectorAll('.mapwrap, .story, h1.q, .prov, .tour')].filter((e) => e !== target && !e.contains(target) && !target.contains(e)).map((e) => { const q = e.getBoundingClientRect(); return { left: q.left, right: q.right, top: q.top, bottom: q.bottom, w: e.classList.contains('mapwrap') ? 1e4 : 1 } })
+    const below = R.bottom + GAP, above = R.top - GAP - ch
+    const candidates = [
+      { x: clampX(R.left), y: below }, // below, left-aligned
+      { x: clampX(R.right - cw), y: below }, // below, right-aligned
+      { x: clampX(R.left), y: above }, // above, left-aligned
+      { x: clampX(R.right - cw), y: above }, // above, right-aligned
+      { x: R.right + GAP, y: clampY(R.top) }, // to the right
+      { x: R.left - GAP - cw, y: clampY(R.top) }, // to the left
+      { x: clampX(W - cw - EDGE), y: below }, // below, at the right edge
+      { x: EDGE, y: below }, // below, at the left edge
+    ]
+    const fits = candidates.filter((o) => o.x >= EDGE && o.x + cw <= W - EDGE && o.y >= minY && o.y + ch <= H - 4)
+    if (!fits.length) return { x: clampX(R.left), y: clampY(R.bottom + GAP) }
+    // What the card should not cover (besides the target): the map most of all, the storyline, the title, the header.
+    const avoid = [...app.querySelectorAll('.mapwrap, .story, h1.q, .prov, .tour')]
+      .filter((e) => e !== target && !e.contains(target) && !target.contains(e))
+      .map((e) => {
+        const q = e.getBoundingClientRect()
+        return { left: q.left, right: q.right, top: q.top, bottom: q.bottom, w: e.classList.contains('mapwrap') ? MAP_WEIGHT : 1 }
+      })
     const area = (o, q) => Math.max(0, Math.min(o.x + cw, q.right) - Math.max(o.x, q.left)) * Math.max(0, Math.min(o.y + ch, q.bottom) - Math.max(o.y, q.top))
-    const hitsTarget = (o) => area(o, { left: R.left - P, right: R.right + P, top: R.top - P, bottom: R.bottom + P }) > 0
-    const score = (o) => (hitsTarget(o) ? 1e9 : 0) + avoid.reduce((sum, q) => sum + area(o, q) * q.w, 0)
-    const at = opts.length ? opts.reduce((b, o) => (score(o) < score(b) ? o : b)) : { x: clampX(R.left), y: clampY(R.bottom + G) }
-    tc.style.left = `${at.x + sx}px`
-    tc.style.top = `${at.y + sy}px`
-    tc.style.visibility = ''
-    ;(nb || target).focus({ preventScroll: true })
+    const hitsTarget = (o) => area(o, { left: R.left - PAD, right: R.right + PAD, top: R.top - PAD, bottom: R.bottom + PAD }) > 0
+    const score = (o) => (hitsTarget(o) ? ON_TARGET : 0) + avoid.reduce((sum, q) => sum + area(o, q) * q.w, 0)
+    return fits.reduce((b, o) => (score(o) < score(b) ? o : b))
   }
 
   // While a card is up: Esc leaves, → (or Enter, but on a button or box: its own click) goes on, ← back.
