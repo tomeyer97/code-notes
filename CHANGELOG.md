@@ -15,6 +15,12 @@
   no longer makes it refresh, and a burst of triggers is one refresh. A code link, Back, the next or previous step, a
   link from a chat and opening a question each wait for at most one call into the window (fixed waits and repeated
   context keys, decorations and lens refreshes are gone), so they slow down less with the network's latency.
+- **Remote-SSH: files are read where they are.** Notes, journeys and step files are read and written with Node's fs
+  instead of through the window (a round trip each): opening a folder with many notes and journeys no longer takes a
+  round trip per file. A quick Next, Next, Next ends on the last step asked for, with its file and card. A reply, a
+  note or an answer sent twice with a quick double Ctrl+Enter is saved once, and shows at once ("Checking…" for an
+  answer). Links from a Claude Code chat are recognised on newer VS Code versions too. A code link's Back names its
+  step and goes away once the walk moves on. Copied link text has no hidden zero-width spaces.
 
 ## 0.24.0
 
