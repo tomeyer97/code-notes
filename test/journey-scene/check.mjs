@@ -15,14 +15,27 @@ import fs from 'node:fs'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), OUT = process.argv[3]
 if (!process.argv[2]) { console.error('usage: node check.mjs <journey.json> [<dir for screenshots>]'); process.exit(2) }
 const MIN_PX = 11, SCENE_MIN = 400
+/** How long a beat may take to come to rest (its packets, moves and fades run well under a second). */
+const STILL_TIMEOUT_MS = 10000
 let bad = 0
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
 const journey = { ...r, steps: r.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] }
 const tour = (x = {}) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list: [], moved: {}, ...x })
 const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
 let smallest = { px: Infinity }
+let page
+/**
+ * The scene at beat `i` of `beats` and at rest: its counter says so, and after two frames (a beat starts its moves on
+ * the next one) no finite animation is running (a packet on a wire, a box moving, a fade). The pulsing marks loop for
+ * ever and are left out.
+ */
+async function still(i, beats) {
+  await page.waitForFunction((want) => document.querySelector('.scn-pos')?.textContent === want, `${i} / ${beats}`, { timeout: STILL_TIMEOUT_MS })
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, { timeout: STILL_TIMEOUT_MS })
+}
 for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
-  const page = await (await b.newContext({ viewport: { width: w, height: 900 } })).newPage()
+  page = await (await b.newContext({ viewport: { width: w, height: 900 } })).newPage()
   const errors = []
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.text()) })
   page.on('pageerror', (e) => errors.push('pageerror ' + e.message))
@@ -34,12 +47,13 @@ for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
   await send({ type: 'journey', journey, ...tour({ current: animated[0] }) })
   await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
   for (const n of animated) {
-    await send({ type: 'tour', ...tour({ current: n }) }); await page.waitForTimeout(300)
+    await send({ type: 'tour', ...tour({ current: n }) })
+    // The storyline on step n (its "Show animation" is that row's).
+    await page.waitForFunction((n) => !!document.querySelector(`.story .st.cur[data-n="${n}"]`), n)
     if (!(await page.locator('.scn').count())) await page.click('li:has(.st.cur) .animbtn')
-    await page.waitForTimeout(900)
     const beats = journey.steps[n - 1].scene.beats.length
     for (let i = 1; i <= beats; i++) {
-      await page.waitForTimeout(1250)
+      await still(i, beats)
       const res = await page.evaluate(({ MIN_PX, SCENE_MIN }) => {
         const out = []
         for (const e of document.querySelectorAll('.scn-check, .scn-row, .tm-line, .scn-inner-label, .fl-line, .ch-msg.on, .ap-msg.on, .ap-box, .ap-row.on span, .ap-banner.on, .qu-note, .br-addr, .ga-note, .ap-dialog *, .ap-top *, .ap-title, .ap-title > b, .ap-ctitle, .scn-pod, .scn-label, .scn-fn, .ap-ev, .ap-ev span, .ap-card, .ap-signin, .ap-stitle, .ap-notice, .ap-tr, .ap-picnote, .br-name, .br-btn, .br-top > b, .br-cart, .br-url')) if (e.scrollWidth > e.clientWidth + 1) out.push(e.className + ':' + e.textContent.slice(0, 40))
