@@ -1,4 +1,4 @@
-// The understanding check (check.ts) wired to the notes, the tour and the journeys; its commands.
+// The understanding check (src/check/) wired to the notes, the tour and the journeys; its commands.
 
 import * as vscode from 'vscode'
 import { byId, cfg, log, mapPanel, now, provide, state, store, understanding } from './app'
@@ -35,7 +35,7 @@ export const gradeCheck = async (id?: string) => {
   if (q) await understanding!.grade(q)
 }
 
-/** The understanding check: questions about this branch's change, answered in their threads (check.ts). */
+/** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
 export function createUnderstanding(context: vscode.ExtensionContext): void {
   provide({ understanding: new Understanding({
     log, store, extUri: context.extensionUri, memento: state, me, now, newId,

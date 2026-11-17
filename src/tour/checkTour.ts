@@ -1,4 +1,4 @@
-// A check's tour (check.ts): a journey of the change; its questions are stops between the steps.
+// A check's tour (src/check/): a journey of the change; its questions are stops between the steps.
 
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'

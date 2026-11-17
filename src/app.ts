@@ -25,7 +25,7 @@ export let extUri: vscode.Uri
 /** This extension's version (a request may need a newer one). */
 export let extVersion = '0.0.0'
 export let journeys: Journeys
-/** The understanding check (check.ts): its questions are notes of a session "Check · <branch>". */
+/** The understanding check (src/check/): its questions are notes of a session "Check · <branch>". */
 export let understanding: Understanding | undefined
 export let mapPanel: MapPanel
 export let beats: Beats
