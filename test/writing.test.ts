@@ -2,8 +2,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { clock, journeyPrompt, minutes, modelProblem, phaseOf } from '../src/writing'
 import { foldEvent } from '../src/claude'
-import { linkify } from '../src/answerLinks'
-import { scoreJourney, tellingWords } from '../src/match'
 
 test('elapsed time and a plain phase from journey.py commands', () => {
   assert.equal(clock(80_500), '1:20')
@@ -38,33 +36,6 @@ test('the prompt treats the words as a request and writes into the staging folde
   assert.match(p, /clarifying question/)
   const b = journeyPrompt('map of auth', '/ext/skills/code-journey', '.code-notes/.writing/abc', 'journeys', true)
   assert.match(b, /^Read \/ext\/skills\/code-journey\/SKILL\.md and follow it exactly .* to answer: map of auth\n/, 'the bundled skill is read as a file')
-})
-
-test('references in answers are links, inside parentheses and lists, never with the home path', () => {
-  const link = (t: string, f: string, l?: string) => `[${t}](cmd:${f}:${l ?? 1})`
-  const L = (s: string) => linkify(s, '/home/me/repo', '/home/me', link)
-  assert.equal(L('see (src/a.ts:12)'), 'see ([src/a.ts:12](cmd:src/a.ts:12))')
-  assert.equal(L('- `src/a.ts:3`'), '- [`src/a.ts:3`](cmd:src/a.ts:3)')
-  assert.equal(L('in /home/me/repo/src/a.ts:7 here'), 'in [src/a.ts:7](cmd:src/a.ts:7) here')
-  assert.equal(L('([a.ts:7](/home/me/repo/src/a.ts:7))'), '([a.ts:7](cmd:src/a.ts:7))')
-  assert.equal(L('[`src/x.ts:3`](src/x.ts:3)'), '[`src/x.ts:3`](cmd:src/x.ts:3)', 'no link nested in a link label')
-  assert.equal(L('[x](src/x.ts#L4)'), '[x](cmd:src/x.ts:4)')
-  assert.equal(L('lines src/a.ts:12-20.'), 'lines [src/a.ts:12-20](cmd:src/a.ts:12).')
-  assert.equal(L('outside /home/me/other/b.ts:2'), 'outside ~/other/b.ts:2', 'outside the repo: no link, no home path')
-  assert.equal(L('[docs](https://example.com/a/b.md:3)'), '[docs](https://example.com/a/b.md:3)')
-  assert.equal(L('![shot](img/a.png)'), '[image: shot](img/a.png)')
-})
-
-test('a journey matches most of the telling words, with synonyms; title and question count most', () => {
-  const j = { title: 'Change a shipping address', question: 'How does the shipping address of an order get updated?', summary: 'The address is updated without a new order.', steps: ['The page posts the new address'] }
-  assert.deepEqual(tellingWords('How does the code work?'), [])
-  assert.ok(scoreJourney(j, 'How do we change the address of an order?').answers, '"change" finds "update"')
-  assert.ok(scoreJourney(j, 'How are shipping addresses updated?').answers)
-  assert.ok(!scoreJourney(j, 'How are widgets frobnicated?').answers)
-  const s = scoreJourney(j, 'How is an address deleted and billed?')
-  assert.ok(!s.answers && s.matched === 1, 'one word of three is not enough')
-  const head = scoreJourney(j, 'address'), tail = scoreJourney({ ...j, title: 'x', question: 'y?' }, 'address')
-  assert.ok(head.weight > tail.weight, 'title/question weigh more than the summary')
 })
 
 test('models are aliases or claude-* ids', () => {

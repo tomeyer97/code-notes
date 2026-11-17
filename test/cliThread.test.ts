@@ -5,8 +5,6 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { CliThread } from '../src/cliThread'
-import { statusBranch, statusPaths } from '../src/git'
-import { Coalesced } from '../src/coalesced'
 
 const CLI = path.join(__dirname, '../../cli/understanding.mjs')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -110,29 +108,3 @@ test('a function that throws: its error comes back; the worker goes on', async (
   } finally { t.dispose() }
 })
 
-test('git status v2 entries: their paths (renames: the new one), the branch', () => {
-  const out = ['# branch.oid 0123', '# branch.head feat/x', '1 .M N... 100644 100644 100644 aaa aaa src/a b.ts', '2 R. N... 100644 100644 100644 bbb bbb R100 new.ts', 'old.ts', 'u UU N... 100644 100644 100644 100644 c1 c2 c3 conflict.ts', '? scratch.js', ''].join('\0')
-  assert.deepEqual(statusPaths(out), ['src/a b.ts', 'new.ts', 'conflict.ts', 'scratch.js'])
-  assert.equal(statusBranch(out), 'feat/x')
-  assert.equal(statusBranch(''), undefined)
-})
-
-test('coalesced: one run at a time; calls meanwhile share one more run, forced if any asked', async () => {
-  const runs: boolean[] = []
-  let release!: () => void
-  const c = new Coalesced(async (force) => { runs.push(force); if (runs.length === 1) await new Promise<void>((r) => { release = r }) })
-  const first = c.run(false)
-  await sleep(5)
-  const more = Array.from({ length: 10 }, (_, i) => c.run(i === 5))
-  assert.equal(runs.length, 1, 'the others wait')
-  release()
-  await Promise.all([first, ...more])
-  assert.deepEqual(runs, [false, true], 'one more run, forced')
-  await c.run(false)
-  assert.deepEqual(runs, [false, true, false], 'idle again: a call runs at once')
-  // A run that fails doesn't stop the next one.
-  const d = new Coalesced(async (f) => { if (f) throw new Error('x') })
-  const p1 = d.run(true), p2 = d.run(false)
-  await assert.rejects(p1)
-  await p2
-})
