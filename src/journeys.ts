@@ -626,6 +626,7 @@ export class MapPanel implements vscode.Disposable {
 <script nonce="${nonce}" src="${uri('media', 'journey-layout.js')}"></script>
 <script nonce="${nonce}" src="${uri('media', 'journey-graph.js')}"></script>
 <script nonce="${nonce}" src="${uri('media', 'journey-scene.js')}"></script>
+<script nonce="${nonce}" src="${uri('media', 'journey-home.js')}"></script>
 <script nonce="${nonce}" src="${uri('media', 'journey-map.js')}"></script></body></html>`
   }
 
