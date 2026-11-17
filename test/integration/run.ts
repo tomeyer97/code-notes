@@ -100,12 +100,25 @@ async function check() {
       extensionDevelopmentPath: root,
       extensionTestsPath: path.join(__dirname, 'index-check.js'),
       launchArgs: [ws, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${roomyEditor(userData)}`, `--remote-debugging-port=${port}`],
-      extensionTestsEnv: { CODE_NOTES_SHOTS: process.env.CODE_NOTES_SHOTS ?? '', CODE_NOTES_CDP: String(port), CODE_NOTES_CONSOLE: consoleLog },
+      extensionTestsEnv: { CODE_NOTES_SHOTS: process.env.CODE_NOTES_SHOTS ?? '', CODE_NOTES_CDP: String(port), CODE_NOTES_CONSOLE: consoleLog, CODE_NOTES_SLOW_GIT: slowGit(userData) },
     })
   } finally { watcher.stop() }
   const errors = (JSON.parse(fs.readFileSync(consoleLog, 'utf8')) as string[]).filter((e) => /TrustedHTML|TrustedScript|code-notes|codeNotes/i.test(e))
   if (errors.length) throw new Error(`workbench console errors:\n${errors.join('\n')}`)
   console.log('  ✓ workbench console: no Trusted Types or Code Notes errors')
+}
+
+/**
+ * A folder with a `git` that takes 0.25 s a call while the repository it runs in has .git/slow-git (the suite puts it
+ * first on PATH for a moment, to see that the extension host never waits for git). Not PATH itself: VS Code may take
+ * PATH from the login shell.
+ */
+function slowGit(dir: string): string {
+  const bin = path.join(dir, '..', `slow-git-${path.basename(dir)}`)
+  fs.mkdirSync(bin, { recursive: true })
+  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nif [ -e .git/slow-git ]; then sleep 0.25; fi\nexec ${real} "$@"\n`, { mode: 0o755 })
+  return bin
 }
 
 /** Collects the workbench window's console errors (and page errors) into `file` until stopped. */

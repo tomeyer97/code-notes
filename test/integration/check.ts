@@ -6,6 +6,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import assert from 'assert'
+import { callCounter } from './roundTrips'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const SCALE = Number(process.env.CODE_NOTES_TIMEOUT_SCALE) || (process.env.CI ? 3 : 1)
@@ -723,4 +724,54 @@ export async function run(): Promise<void> {
   const p = chk().panel
   assert.deepEqual(p.errors, []); assert.deepEqual(p.overflow, [])
   ok('Check view: no errors, nothing cut or sticking out')
+  // 16. Refreshing costs nothing when nothing changed, and never stops the extension host.
+  await until('settled on feat/limits', () => chk().item === '$(pass) Understanding')
+  await api.checkRefresh()
+  await sleep(1500)
+  const r0 = chk().refreshes
+  // `git status` (VS Code's Git view, a terminal, an agent) rewrites .git/index: nothing the check shows changed.
+  for (let k = 0; k < 5; k++) git('status')
+  await sleep(2000)
+  assert.equal(chk().refreshes.full, r0.full, `git status refreshed the check: ${JSON.stringify([r0, chk().refreshes])}`)
+  // A burst of triggers (focus, saves, the Git view): one check of the key, plus at most one more; nothing read again.
+  const r1 = chk().refreshes
+  await Promise.all(Array.from({ length: 10 }, () => api.checkRefresh(false)))
+  const r2 = chk().refreshes
+  assert.equal(r2.full, r1.full, 'nothing changed: no full refresh')
+  assert.ok(r2.same - r1.same <= 2, `coalesced: ${r2.same - r1.same} checks for 10 triggers`)
+  // Ten asked for at once while one runs: two refreshes, not ten.
+  await Promise.all(Array.from({ length: 10 }, () => api.checkRefresh()))
+  assert.ok(chk().refreshes.full - r2.full <= 2, `coalesced: ${chk().refreshes.full - r2.full} refreshes for 10 calls`)
+  // A change does go through: a commit (HEAD moves), seen without being asked.
+  const r3 = chk().refreshes
+  fs.writeFileSync(path.join(ws, 'api', 'gate.js'), 'export const gate = 1\n')
+  git('add', 'api/gate.js'); git('commit', '-qm', 'gate')
+  await until('the commit refreshed the check', () => chk().refreshes.full > r3.full && chk().status?.head === git('rev-parse', 'HEAD'))
+  // With git taking 0.25 s a call, a refresh takes seconds; the extension host's event loop never waits on it.
+  const pathWas = process.env.PATH
+  process.env.PATH = `${process.env.CODE_NOTES_SLOW_GIT}${path.delimiter}${pathWas}`
+  api.checkRestartWorker() // its git: the slow one first on PATH
+  fs.writeFileSync(path.join(ws, '.git', 'slow-git'), '')
+  let worst = 0, last = Date.now()
+  const tick = setInterval(() => { const t = Date.now(); worst = Math.max(worst, t - last - 10); last = t }, 10)
+  const tSlow = Date.now()
+  try { await api.checkRefresh() } finally {
+    clearInterval(tick); fs.rmSync(path.join(ws, '.git', 'slow-git'))
+    process.env.PATH = pathWas; api.checkRestartWorker()
+  }
+  const took = Date.now() - tSlow
+  assert.ok(took > 1500, `git was slow (${took} ms)`)
+  assert.ok(worst < 30 * SCALE, `the extension host waited ${worst} ms during a ${took} ms refresh`)
+  ok(`refresh: git status refreshes nothing, triggers coalesce, a commit goes through; a ${took} ms refresh held the event loop ${worst} ms at most`)
+
+  // 17. Opening a question: calls into the window (each a round trip over a remote link).
+  const c = callCounter(api)
+  try {
+    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')
+    await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'README.md')))
+    await sleep(500)
+    const r = await c.measure('opening a question', () => api.checkOpenQuestion('q1'), () => inLines(3, 6) && /limits\.js$/.test(codeEditor()?.document.uri.path ?? ''))
+    assert.ok(r.calls.filter((x) => x.startsWith('show')).length <= 1 && r.calls.length <= 3, `opening a question: ${r.calls.join(', ')}`)
+  } finally { c.dispose() }
+  ok('opening a question: one show, few calls into the window')
 }
