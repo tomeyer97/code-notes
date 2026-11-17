@@ -3,10 +3,16 @@
 // Pure (no imports): the extension uses it, and the map webview loads the compiled file as is.
 
 /** `store`: the app's own record/queue/table two parts of the path meet through: dashed on the map, never "external". */
-export type Kind = 'system' | 'module' | 'external' | 'store' | 'function'
-/** `blurb`: the short text shown in the box (the summary is then its tooltip); `path`: where it lives (tooltip, small text). */
-/** `lane`: still read, but the whole-journey map (0.21, ELK) lays boxes out itself and ignores it. */
-export interface JNode { id: string; kind: Kind; label: string; summary: string; blurb?: string; path?: string; parent?: string; lane?: 'main' | 'side'; at?: { file: string; start: number; end: number; anchor?: JAnchor } }
+export const KINDS = ['system', 'module', 'external', 'store', 'function'] as const
+export type Kind = typeof KINDS[number]
+/**
+ * `blurb`: the short text shown in the box (the summary is then its tooltip); `path`: where it lives (tooltip, small
+ * text). `lane`: still read, but the whole-journey map (0.21, ELK) lays boxes out itself and ignores it.
+ */
+export interface JNode {
+  id: string; kind: Kind; label: string; summary: string; blurb?: string; path?: string; parent?: string; lane?: 'main' | 'side'
+  at?: { file: string; start: number; end: number; anchor?: JAnchor }
+}
 /** `label`: what the map shows; `detail`: the sentence (tooltip). */
 export interface JEdge { from: string; to: string; label: string; detail?: string; async?: boolean }
 /**
@@ -47,8 +53,14 @@ export const FORMAT_VERSION = 2
 export const READ_VERSIONS = [2, 3]
 export const MAX_REFS = 3
 
-const KINDS: Kind[] = ['system', 'module', 'external', 'store', 'function']
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
+/** `{ [k]: v }` when `keep`, else nothing: spread into an object for an optional field. (This file has no imports:
+ *  the map webview loads it as a plain script, so noteModel.ts has its own copy.) */
+const opt = <K extends string, V>(keep: unknown, k: K, v: V) => (keep ? { [k]: v } as { [P in K]: V } : {})
+/** `{ [k]: text }` when `v` is a string with something in it (trimmed), else nothing. */
+const optText = <K extends string>(k: K, v: unknown) => opt(str(v).trim(), k, str(v).trim())
+const line = (x: unknown) => (Number.isInteger(x) && (x as number) >= 1 ? (x as number) : undefined)
+
 /** An anchor as written (v2 full text, or v3 compact); undefined when it is neither. */
 export function readAnchor(v: any): JAnchor | undefined {
   if (!v || typeof v !== 'object') return undefined
@@ -60,6 +72,74 @@ export function readAnchor(v: any): JAnchor | undefined {
   return typeof v.text === 'string' ? { text: v.text, before: str(v.before), after: str(v.after) } : undefined
 }
 
+/** A node as written; why it is left out (no id, or one already used), as a string. */
+function readNode(n: any, ids: Set<string>): JNode | string {
+  if (!n || typeof n.id !== 'string' || !n.id) return 'a node without an id was left out'
+  if (ids.has(n.id)) return `node "${n.id}" is defined twice (the second one was left out)`
+  const anchor = n.at ? readAnchor(n.at.anchor) : undefined
+  const at = n.at && typeof n.at.file === 'string' && Number.isInteger(n.at.start)
+    ? { file: n.at.file, start: n.at.start, end: Number.isInteger(n.at.end) ? n.at.end : n.at.start, ...opt(anchor, 'anchor', anchor) } : undefined
+  return {
+    id: n.id, kind: KINDS.includes(n.kind) ? n.kind : 'module', label: str(n.label) || n.id, summary: str(n.summary),
+    ...optText('blurb', n.blurb), ...optText('path', n.path),
+    ...opt(typeof n.parent === 'string' && n.parent, 'parent', n.parent as string),
+    ...opt(n.lane === 'main' || n.lane === 'side', 'lane', n.lane as 'main' | 'side'),
+    ...opt(at, 'at', at!),
+  }
+}
+
+/** A parent that doesn't exist, or a loop of parents: the node goes to the top level. */
+function dropBadParents(nodes: JNode[], problems: string[]): void {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  for (const n of nodes) {
+    const seen = new Set<string>([n.id])
+    for (let p = n.parent; p; p = byId.get(p)?.parent) {
+      if (!byId.has(p) || seen.has(p)) { problems.push(`node "${n.id}": parent "${p}" ${byId.has(p) ? 'makes a loop' : 'doesn\'t exist'}`); delete n.parent; break }
+      seen.add(p)
+    }
+  }
+}
+
+/** An arrow between two boxes that exist; why it is hidden, as a string. */
+function readEdge(e: any, nodes: JNode[]): JEdge | string {
+  const label = (id: unknown) => {
+    const n = nodes.find((x) => x.id === id)
+    return n ? `"${n.label}"` : `a box that doesn't exist ("${id ?? '?'}")`
+  }
+  if (e && e.from === e.to) return `an arrow from ${label(e.from)} to itself is hidden`
+  if (!e || !nodes.some((n) => n.id === e.from) || !nodes.some((n) => n.id === e.to)) return `an arrow from ${label(e?.from)} to ${label(e?.to)} is hidden`
+  return { from: e.from, to: e.to, label: str(e.label), ...optText('detail', e.detail), ...opt(e.async, 'async', true as const) }
+}
+
+/** Why step `s` can't be shown, or ''. */
+function stepProblem(s: any, ids: Set<string>): string {
+  if (!s) return 'is empty'
+  if (!ids.has(s.node)) return `is in an unknown box "${s.node}"`
+  if (!str(s.file).trim()) return 'has no file'
+  if (!(s.range && line(s.range.start))) return 'has no line range'
+  return ''
+}
+
+/** Step `n` (1-based, after the steps left out) as written; `stepIds`: ids taken so far. */
+function readStep(s: any, n: number, stepIds: Set<string>, problems: string[]): JStep {
+  const start = line(s.range.start)!
+  const end = Math.max(start, line(s.range.end) ?? start)
+  const refs = (Array.isArray(s.refs) ? s.refs : []).filter((r: unknown) => typeof r === 'string' && r.trim()).map((r: string) => r.trim())
+  if (refs.length > MAX_REFS) problems.push(`step ${n}: ${refs.length} references (at most ${MAX_REFS} are shown)`)
+  let id = str(s.id).trim() || `#${n}`
+  if (stepIds.has(id)) { problems.push(`step ${n}: id "${id}" is used twice`); id = `#${n}` }
+  stepIds.add(id)
+  const a = readAnchor(s.anchor)
+  const scene = s.scene && Array.isArray(s.scene.beats) && Array.isArray(s.scene.actors) && s.scene.beats.length
+  return {
+    id, n, title: str(s.title).trim() || `Step ${n}`, node: s.node, file: str(s.file).trim(), range: { start, end },
+    ...opt(a, 'anchor', a!), lead: str(s.lead).trim(), ...optText('details', s.details), refs: refs.slice(0, MAX_REFS),
+    ...opt(Array.isArray(s.links) && s.links.length, 'links', s.links),
+    ...opt(Array.isArray(s.values) && s.values.length, 'values', s.values),
+    ...opt(scene, 'scene', s.scene as JScene),
+  }
+}
+
 /** Reads a journey file loosely: bad edges/steps are dropped; only an unusable file is refused (returns why). */
 export function parseJourney(raw: string, name: string): Journey | string {
   let v: any
@@ -69,70 +149,27 @@ export function parseJourney(raw: string, name: string): Journey | string {
   if (!Array.isArray(v.nodes) || !v.nodes.length) return '"nodes" must be a non-empty array'
   if (!Array.isArray(v.steps)) return '"steps" must be an array'
   const problems: string[] = []
+  const keep = <T>(x: T | string): x is T => { if (typeof x === 'string') problems.push(x); return typeof x !== 'string' }
   const nodes: JNode[] = []
   const ids = new Set<string>()
-  for (const n of v.nodes) {
-    if (!n || typeof n.id !== 'string' || !n.id) { problems.push('a node without an id was left out'); continue }
-    if (ids.has(n.id)) { problems.push(`node "${n.id}" is defined twice (the second one was left out)`); continue }
-    ids.add(n.id)
-    const at = n.at && typeof n.at.file === 'string' && Number.isInteger(n.at.start)
-      ? { file: n.at.file, start: n.at.start, end: Number.isInteger(n.at.end) ? n.at.end : n.at.start, ...(readAnchor(n.at.anchor) ? { anchor: readAnchor(n.at.anchor) } : {}) } : undefined
-    nodes.push({
-      id: n.id, kind: KINDS.includes(n.kind) ? n.kind : 'module', label: str(n.label) || n.id, summary: str(n.summary),
-      ...(str(n.blurb).trim() ? { blurb: str(n.blurb).trim() } : {}), ...(str(n.path).trim() ? { path: str(n.path).trim() } : {}),
-      ...(typeof n.parent === 'string' && n.parent ? { parent: n.parent } : {}), ...(n.lane === 'main' || n.lane === 'side' ? { lane: n.lane } : {}), ...(at ? { at } : {}),
-    })
-  }
-  // A parent that doesn't exist, or a loop of parents: the node goes to the top level.
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  for (const n of nodes) {
-    const seen = new Set<string>([n.id])
-    for (let p = n.parent; p; p = byId.get(p)?.parent) {
-      if (!byId.has(p) || seen.has(p)) { problems.push(`node "${n.id}": parent "${p}" ${byId.has(p) ? 'makes a loop' : 'doesn\'t exist'}`); delete n.parent; break }
-      seen.add(p)
-    }
-  }
-  const rawEdges = Array.isArray(v.edges) ? v.edges : []
-  const edges: JEdge[] = rawEdges
-    .filter((e: any) => {
-      const ok = e && ids.has(e.from) && ids.has(e.to) && e.from !== e.to
-      const lbl = (id: unknown) => (ids.has(id as string) ? `"${nodes.find((n) => n.id === id)!.label}"` : `a box that doesn't exist ("${id ?? '?'}")`)
-      if (!ok) problems.push(e && e.from === e.to ? `an arrow from ${lbl(e.from)} to itself is hidden` : `an arrow from ${lbl(e?.from)} to ${lbl(e?.to)} is hidden`)
-      return ok
-    })
-    .map((e: any) => ({ from: e.from, to: e.to, label: str(e.label), ...(str(e.detail).trim() ? { detail: str(e.detail).trim() } : {}), ...(e.async ? { async: true } : {}) }))
-  const line = (x: unknown) => (Number.isInteger(x) && (x as number) >= 1 ? (x as number) : undefined)
+  for (const x of v.nodes) { const n = readNode(x, ids); if (keep(n)) { ids.add(n.id); nodes.push(n) } }
+  dropBadParents(nodes, problems)
+  const edges = (Array.isArray(v.edges) ? v.edges : []).map((e: any) => readEdge(e, nodes)).filter(keep)
   const stepIds = new Set<string>()
-  const steps: JStep[] = v.steps
+  const steps = v.steps
     .filter((s: any, i: number) => {
-      const why = !s ? 'is empty' : !ids.has(s.node) ? `is in an unknown box "${s.node}"` : !str(s.file).trim() ? 'has no file' : !(s.range && line(s.range.start)) ? 'has no line range' : ''
+      const why = stepProblem(s, ids)
       if (why) problems.push(`step ${i + 1}${s?.title ? ` ("${str(s.title)}")` : ''} ${why}: left out`)
       return !why
     })
-    .map((s: any, i: number) => {
-      const start = line(s.range.start)!
-      const end = Math.max(start, line(s.range.end) ?? start)
-      const a = readAnchor(s.anchor)
-      const refs = (Array.isArray(s.refs) ? s.refs : []).filter((r: unknown) => typeof r === 'string' && r.trim()).map((r: string) => r.trim())
-      if (refs.length > MAX_REFS) problems.push(`step ${i + 1}: ${refs.length} references (at most ${MAX_REFS} are shown)`)
-      let id = str(s.id).trim() || `#${i + 1}`
-      if (stepIds.has(id)) { problems.push(`step ${i + 1}: id "${id}" is used twice`); id = `#${i + 1}` }
-      stepIds.add(id)
-      return {
-        id, n: i + 1, title: str(s.title).trim() || `Step ${i + 1}`, node: s.node, file: str(s.file).trim(), range: { start, end },
-        ...(a ? { anchor: a } : {}), lead: str(s.lead).trim(), ...(str(s.details).trim() ? { details: str(s.details).trim() } : {}), refs: refs.slice(0, MAX_REFS),
-        ...(Array.isArray(s.links) && s.links.length ? { links: s.links } : {}),
-        ...(Array.isArray(s.values) && s.values.length ? { values: s.values } : {}),
-        ...(s.scene && Array.isArray(s.scene.beats) && Array.isArray(s.scene.actors) && s.scene.beats.length ? { scene: s.scene as JScene } : {}),
-      }
-    })
+    .map((s: any, i: number) => readStep(s, i + 1, stepIds, problems))
   const title = str(v.title) || str(v.question) || name
   return {
     id: str(v.id) || name, question: str(v.question) || title, title, summary: str(v.summary),
-    ...(str(v.model).trim() ? { model: str(v.model).trim() } : {}),
-    ...(typeof v.commit === 'string' && v.commit ? { commit: v.commit } : {}),
-    ...(typeof v.createdAt === 'string' ? { createdAt: v.createdAt } : {}),
-    ...(v.start === true ? { start: true } : {}),
+    ...optText('model', v.model),
+    ...opt(typeof v.commit === 'string' && v.commit, 'commit', v.commit as string),
+    ...opt(typeof v.createdAt === 'string', 'createdAt', v.createdAt as string),
+    ...opt(v.start === true, 'start', true as const),
     nodes, edges, steps, problems: [...problems, ...rules(nodes)],
   }
 }
