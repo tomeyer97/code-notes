@@ -889,6 +889,10 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
   await until('second unread', () => note('20261111-200001-unr2')?.unread === 1)
   const ed = await vscode.window.showTextDocument(vscode.Uri.file(path.join(ws, 'src', 'flow2.ts')))
   ed.selection = new vscode.Selection(0, 0, 0, 0)
+  // Settled where it is (a file opened over the journey panel moves to the code group, and takes the focus with it).
+  await sleep(600)
+  await until('flow2 in front', () => vscode.window.activeTextEditor?.document.uri.path.endsWith('/src/flow2.ts'))
+  vscode.window.activeTextEditor!.selection = new vscode.Selection(0, 0, 0, 0)
   void vscode.commands.executeCommand('codeNotes.resolveNext')
   await until('R resolved it', () => readJson(jp('20261111-200000-unr1')).status === 'resolved')
   await until('R went on to the next unread', () => j.at() === 'src/flow.ts:1' && note('20261111-200001-unr2').unread === 0)
@@ -1350,14 +1354,15 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
     await until('walking it, map drawn', () => bt().journey === 'anim' && bt().step === 1 && bt().mapBoxes > 0, 10000)
     assert.equal(bt().beat, undefined, 'nothing lit before the animation is on')
     // Code links: phrases of the card's text link to their lines (own colour), marked faintly while the step is open; a click lights one.
-    await until('the card has the two phrases as code links, the linked lines found (one had moved)', () => /\[<span style="color:var\(--vscode-foreground\);background-color:var\(--vscode-toolbar-hoverBackground\);">encodes <\/span>​<span [^>]*>the <\/span>​<span [^>]*>run<\/span>\]\(command:codeNotes\.codeLink/.test(bt().card?.body ?? '') && bt().codeLinks.at[0]?.start === 1 && bt().codeLinks.at[1]?.start === 2, 10000)
-    assert.ok(/>stores <\/span>​<span [^>]*>it<\/span>\]\(command:codeNotes\.codeLink/.test(bt().card.body) && !/said<\/span>/.test(bt().card.body), `a phrase not in the text is no link: ${bt().card.body}`)
+    await until('the card has the two phrases as code links, the linked lines found (one had moved)', () => /\[<span style="color:var\(--vscode-foreground\);background-color:var\(--vscode-toolbar-hoverBackground\);">encodes <\/span><wbr><span [^>]*>the <\/span><wbr><span [^>]*>run<\/span>\]\(command:codeNotes\.codeLink/.test(bt().card?.body ?? '') && bt().codeLinks.at[0]?.start === 1 && bt().codeLinks.at[1]?.start === 2, 10000)
+    assert.ok(/>stores <\/span><wbr><span [^>]*>it<\/span>\]\(command:codeNotes\.codeLink/.test(bt().card.body) && !/said<\/span>/.test(bt().card.body), `a phrase not in the text is no link: ${bt().card.body}`)
     assert.ok(bt().card.body.includes('\\<fast\\>'), 'other tags in the text stay text')
+    assert.ok(!bt().card.body.includes('\u200b'), 'no zero-width spaces in the card (copied text must match a search)')
     assert.equal(bt().codeLinks.active, -1, 'none lit before a click')
     // Only phrases on the card have their lines marked: the one behind More only while it is open.
     assert.deepEqual(bt().codeLinks.visible, [0, 1, 4], 'More closed: the phrase in the details marks nothing')
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
-    await until('More open: its phrase is a link and its lines are marked', () => />reports <\/span>​<span [^>]*>the <\/span>​<span [^>]*>length<\/span>/.test(bt().card?.body ?? '') && bt().codeLinks.visible.join() === '0,1,3,4', 10000)
+    await until('More open: its phrase is a link and its lines are marked', () => />reports <\/span><wbr><span [^>]*>the <\/span><wbr><span [^>]*>length<\/span>/.test(bt().card?.body ?? '') && bt().codeLinks.visible.join() === '0,1,3,4', 10000)
     // A file:line under More that a code link already points at is not listed again.
     assert.ok(/\[tok\.ts:5\]/.test(bt().card.body) && !/\[tok\.ts:3\]/.test(bt().card.body), `the ref repeating a link is dropped: ${bt().card.body}`)
     await vscode.commands.executeCommand('codeNotes.stepDetails', false)

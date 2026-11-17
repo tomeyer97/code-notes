@@ -34,6 +34,10 @@ export function callCounter(api: { mementos?: () => vscode.Memento[] }) {
   // Commands the extension registered itself run in the extension host; the window's own ones (setContext, focus, …) don't.
   wrap(vscode.commands, 'executeCommand', (id: string, ...a: any[]) => (id.startsWith('codeNotes.') && !id.endsWith('.focus') ? undefined : `command ${id}${id === 'setContext' ? ` ${a[0]}` : ''}`))
   for (const m of api.mementos?.() ?? []) wrap(m, 'update', (k: string) => `store ${k}`)
+  // The workspace's file system API: from a remote extension host each call goes to the window and back.
+  for (const f of ['readFile', 'writeFile', 'stat', 'readDirectory', 'rename', 'delete', 'createDirectory']) {
+    try { wrap(vscode.workspace.fs, f, (u: any) => `fs ${f} ${path.basename(u?.path ?? '')}`) } catch { /* read-only: not counted */ }
+  }
   return {
     rtt,
     async measure(what: string, run: () => PromiseLike<unknown>, settled: () => boolean | Promise<boolean>): Promise<{ calls: string[]; ms: number }> {
@@ -45,7 +49,7 @@ export function callCounter(api: { mementos?: () => vscode.Memento[] }) {
         for (let i = 0; i < 200 && !(await settled()); i++) await sleep(25)
       } finally { on = false }
       const ms = Date.now() - t0
-      console.log(`    ${what}: ${calls.length} call${calls.length === 1 ? '' : 's'} into the window, ${ms} ms${rtt ? ` with ${rtt} ms per round trip` : ''}${calls.length ? ` (${calls.join(', ')})` : ''}`)
+      console.log(`    ${what}: ${calls.length} call${calls.length === 1 ? '' : 's'} into the window, ${ms} ms${rtt ? ` with ${rtt} ms per round trip` : ''}${calls.length ? ` (${calls.length > 12 ? Object.entries(calls.reduce((m: Record<string, number>, x) => { const k = x.split(' ').slice(0, 2).join(' '); m[k] = (m[k] ?? 0) + 1; return m }, {})).map(([k, n]) => `${n}× ${k}`).join(', ') : calls.join(', ')})` : ''}`)
       return { calls: [...calls], ms }
     },
     dispose() { for (const u of undo.splice(0)) u() },
@@ -57,7 +61,10 @@ export async function roundTrips(api: any, ws: string, until: <T>(what: string, 
   const bt = () => api.snapshot().tour
   const animUri = vscode.Uri.file(path.join(ws, 'src', 'anim.ts')).toString(), tokUri = vscode.Uri.file(path.join(ws, 'src', 'tok.ts')).toString()
   const c = callCounter(api)
+  const r0: Record<string, { calls: string[]; ms: number }> = {}
   try {
+    // Reading every note and journey, as at activation.
+    r0.load = await c.measure('reading the notes and journeys', () => vscode.commands.executeCommand('codeNotes.refresh'), () => true)
     await vscode.commands.executeCommand('codeNotes.openJourney', 'anim')
     await until('walking anim', () => bt().journey === 'anim' && bt().step >= 1, 10000)
     if (bt().step !== 1) await vscode.commands.executeCommand('codeNotes.previousStep')
@@ -88,14 +95,26 @@ export async function roundTrips(api: any, ws: string, until: <T>(what: string, 
     await links.update('claudeLinks', undefined, vscode.ConfigurationTarget.Workspace)
     await until('nothing lit', () => api.snapshot().claudeLinks && !api.snapshot().claudeLinks.lit, 10000)
     await sleep(1200)
-    const pkg = JSON.parse(require('fs').readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'))
-    r.chat = await c.measure('link from a chat', () => vscode.env.openExternal(vscode.Uri.parse(`${vscode.env.uriScheme}://${pkg.publisher}.${pkg.name}/link?file=src/anim.ts&start=2&end=3`)),
+    // Whole lines selected in an editor that was already in front (a command, an extension): not a link.
+    tok.selection = new vscode.Selection(4, 0, 5, 0)
+    await sleep(400)
+    assert.ok(!api.snapshot().claudeLinks.lit, 'whole lines selected in the editor in front: not a chat link')
+    tok.selection = new vscode.Selection(3, 2, 3, 2)
+    await sleep(300)
+    // As the chat opens a link: the file shown with its lines selected (VS Code reports no kind up to 1.14x, Command after).
+    r.chat = await c.measure('link from a chat', () => vscode.window.showTextDocument(vscode.Uri.parse(animUri), { preview: true, selection: new vscode.Selection(1, 0, 2, 0) }),
       () => api.snapshot().claudeLinks.lit?.start === 1 && api.snapshot().claudeLinks.back)
     await sleep(300)
     r.chatBack = await c.measure('Back from a chat link', () => vscode.commands.executeCommand('codeNotes.claudeLinkBack'), () => !api.snapshot().claudeLinks.lit && vscode.window.activeTextEditor?.document.uri.toString() === tokUri && vscode.window.activeTextEditor.selection.active.line === 3)
+    // Its vscode:// link (a terminal) lights the lines too.
+    const pkg = JSON.parse(require('fs').readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'))
+    await vscode.env.openExternal(vscode.Uri.parse(`${vscode.env.uriScheme}://${pkg.publisher}.${pkg.name}/link?file=src/anim.ts&start=2&end=3`))
+    await until('the vscode:// link lit its lines', () => api.snapshot().claudeLinks.lit?.start === 1, 10000)
+    await vscode.commands.executeCommand('codeNotes.claudeLinkBack')
     // What each action may call at most besides storing its place (stored in the background, not waited for; each one a
     // round trip over a remote link).
-    const most: Record<string, number> = { next: 1, previous: 1, link: 1, back: 1, same: 0, chat: 1, chatBack: 1 }
+    const most: Record<string, number> = { next: 1, previous: 1, link: 1, back: 1, same: 0, chatBack: 1 }
+    assert.ok(!r0.load.calls.some((x) => x.startsWith('fs ')), `reading notes and journeys went through the window: ${r0.load.calls.length} calls`)
     for (const [k, n] of Object.entries(most)) {
       const waited = r[k].calls.filter((x) => !x.startsWith('store '))
       assert.ok(waited.length <= n, `${k}: ${waited.length} calls into the window (at most ${n}): ${waited.join(', ')}`)
