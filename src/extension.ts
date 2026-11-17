@@ -14,7 +14,7 @@ import { Ask, AskResult, findCli, findCliAsync } from './claude'
 import { folderName, folderProblem, journeysFolderName, Message, Note, NoteData, NoteEvent, serialize, Severity, Store } from './store'
 import { fileOf, Journeys, LoadedJourney, MAP_VIEW, MapMessage, MapPanel, posKey, StepAt } from './journeys'
 import { escapeTags } from './journeyModel'
-import { StepRef, StepTextInput, staleText as stepStaleText, stepText as stepTextOf } from './tour/stepText'
+import { StepRef, StepTextInput, refFiles, staleText as stepStaleText, stepText as stepTextOf } from './tour/stepText'
 import { linkify } from './answerLinks'
 import { scoreJourney } from './match'
 import { clock, journeyPrompt, journeyRules, minutes, modelProblem, phaseOf } from './writing'
@@ -1858,11 +1858,7 @@ const refLines = new Map<string, number>()
 async function checkRefs(lj: LoadedJourney, n: number): Promise<void> {
   const s = lj.j.steps[n - 1]
   const moved = journeys.renames(lj)
-  const files = new Set<string>()
-  for (const r of s.refs) if (!/\s/.test(r.trim())) files.add(r.replace(/(:\d+)?([-–]\d+)?$/, ''))
-  for (const r of s.refs) for (const m of r.matchAll(/((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::\d+|#L\d+)/g)) files.add(m[1])
-  for (const t of [s.lead, s.details ?? '']) for (const m of t.matchAll(/((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::\d+|#L\d+)/g)) files.add(m[1])
-  for (const f0 of files) {
+  for (const f0 of refFiles(s)) {
     const f = moved.get(f0) ?? f0
     const k = `${lj.folder.uri}|${f}`
     const ls = await linesOfUri(vscode.Uri.joinPath(lj.folder.uri, f))
