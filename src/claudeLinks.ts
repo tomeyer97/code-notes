@@ -14,6 +14,11 @@ import { setDecorations } from './decorations'
 
 interface Spot { uri: vscode.Uri; line: number; character: number }
 
+/** Until then, a selection is the extension's own (a step's caret, a note opened): never taken as a chat link. */
+let ownUntil = 0
+/** The extension is about to put the caret somewhere itself. */
+export function ownSelection(ms = 800): void { ownUntil = Math.max(ownUntil, Date.now() + ms) }
+
 export class ClaudeLinks implements vscode.Disposable {
   private lit: { uri: string; start: number; end: number } | undefined
   private back: Spot | undefined
@@ -52,8 +57,14 @@ export class ClaudeLinks implements vscode.Disposable {
   private selected(e: vscode.TextEditorSelectionChangeEvent): void {
     const doc = e.textEditor.document, s = e.selections[0]
     if (doc.uri.scheme !== 'file' || !s || Date.now() < this.own) return
-    const linkLike = this.enabled() && e.kind === undefined && e.selections.length === 1 && s.start.character === 0 && s.end.character === 0
-      && (s.end.line > s.start.line || (s.isEmpty && Date.now() - this.frontAt < 1000))
+    // VS Code up to 1.14x reports a selection set by another extension with no kind; newer ones say Command (as for
+    // Go to Definition): then only whole lines (column 0 to column 0, more than one) of an editor that has just come
+    // to the front count, and never a selection of this extension's own.
+    const shape = e.selections.length === 1 && s.start.character === 0 && s.end.character === 0
+    const fresh = Date.now() - this.frontAt < 1000
+    const linkLike = this.enabled() && shape && Date.now() >= ownUntil && (e.kind === undefined
+      ? s.end.line > s.start.line || (s.isEmpty && fresh)
+      : e.kind === vscode.TextEditorSelectionChangeKind.Command && s.end.line > s.start.line && fresh)
     if (linkLike) {
       // Claude Code selects up to column 0 of the end line: the end line is the link's last line.
       void this.light(doc.uri, s.start.line, s.end.line, true)

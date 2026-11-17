@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
+import { ownSelection } from './claudeLinks'
 import { JBeat } from './journeyModel'
 import { findLine, followLine, shiftLine } from './beatLine'
 
@@ -98,6 +99,7 @@ export class Beats implements vscode.Disposable {
   private async bring(doc: vscode.TextDocument, column: () => vscode.ViewColumn | undefined): Promise<boolean> {
     const mine = this.seq
     const col = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === doc.uri.toString())?.viewColumn ?? column()
+    ownSelection()
     const ed = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: true, ...(col ? { viewColumn: col } : {}) })
     if (mine !== this.seq || !this.here) return false
     const at = this.here.line
