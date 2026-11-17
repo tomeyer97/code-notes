@@ -153,11 +153,16 @@ function rules(nodes: JNode[]): string[] {
 /** "calls", "calls per environment": say nothing a solid arrow doesn't; not drawn on the map. */
 export const isGeneric = (label: string) => !label.trim() || /^calls?(\s|$)/i.test(label.trim())
 
+/** A file's name (`orders.go`) and the folders before it (`api/`): the pieces of every path in step text. */
+export const FILE_NAME = /[\w.-]+\.[a-zA-Z]{1,6}/.source
+export const DIR = /[\w.-]+\//.source
+/** A path with at least one folder: `api/orders.go`. */
+export const PATH = `(?:${DIR})+${FILE_NAME}`
 /**
  * Every `path/to/file.ext:line` (also `:a-b` and `#Ln`) in step text, in or out of backticks and parentheses, but
  * not one that already is a markdown link's text or target.
  */
-export const REF_IN_TEXT = /(?<![\w/[])(?<!\]\()`?((?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z]{1,6})(?::(\d+)(?:[-–]\d+)?|#L(\d+))`?/g
+export const REF_IN_TEXT = new RegExp(`(?<![\\w/[])(?<!\\]\\()\`?(${PATH})(?::(\\d+)(?:[-–]\\d+)?|#L(\\d+))\`?`, 'g')
 /** Replaces each reference in `t` with what `link` makes of it (its text without backticks, the file, the first line). */
 export function linkPaths(t: string, link: (text: string, file: string, line: number) => string): string {
   return t.replace(REF_IN_TEXT, (m: string, file: string, l1?: string, l2?: string) => link(m.replace(/`/g, ''), file, Number(l1 ?? l2) || 1))

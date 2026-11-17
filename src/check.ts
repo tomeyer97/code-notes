@@ -17,6 +17,7 @@ import { Check, CheckView, Cli, CommitPlan, Link, QState, Question, Status, Who,
 import { clock } from './writing'
 import { CliThread } from './cliThread'
 import { Coalesced } from './gitKey'
+import { nonce as newNonce } from './webview/page'
 
 /** What the check needs from the rest of the extension (extension.ts). */
 export interface CheckHost {
@@ -1341,7 +1342,7 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
   state() { return { open: !!this.wv, visible: !!this.wv?.visible, ...this.reported } }
 
   private html(w: vscode.Webview): string {
-    const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')
+    const nonce = newNonce()
     const uri = (f: string) => w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'media', f))
     return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">

@@ -28,3 +28,19 @@ export function linkPhrases(text: string, links: StepLink[], used: Set<number>, 
   for (const c of cuts) text = text.slice(0, c.at) + make(c.i, text.slice(c.at, c.at + c.len)) + text.slice(c.at + c.len)
   return text
 }
+
+/**
+ * A code link's markup: the phrase in the text's own colour on a faint tint, a command link that lights its lines.
+ * VS Code styles every span in a comment `white-space: pre`, so one span around the phrase can't wrap: a span per word
+ * (its space inside, so the tint has no gaps) and a <wbr> between them to break at (a zero-width space was copied
+ * with the text: copied words no longer matched a search).
+ */
+export function codeLinkMarkup(key: string, i: number, l: { file: string; start: number; end: number }, phrase: string, tint = 'var(--vscode-toolbar-hoverBackground)', what = 'show the code that does this'): string {
+  const tip = `${l.file.split('/').pop()}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · ${what}`
+  const words = String(phrase).split(/ +/).filter(Boolean)
+  const tinted = words.map((w, k) => `<span style="color:var(--vscode-foreground);background-color:${tint};">${w}${k < words.length - 1 ? ' ' : ''}</span>`).join('<wbr>')
+  return `[${tinted}](command:codeNotes.codeLink?${encodeURIComponent(JSON.stringify([key, i]))} "${tip}")`
+}
+/** A phrase marked as code link i in text that is escaped next; PH_RE finds the marks again to put the markup in. */
+export const PH = (i: number, phrase: string) => `\u27E6${i}\u27E7${phrase}\u27E6/\u27E7`
+export const PH_RE = /\u27E6(\d+)\u27E7([\s\S]*?)\u27E6\/\u27E7/g
