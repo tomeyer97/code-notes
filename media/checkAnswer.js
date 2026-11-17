@@ -1,6 +1,6 @@
-// The Check view's answer box (loaded before check.js, which calls these hooks): under the selected question, a
-// textarea for the answer (Ctrl+Enter sends it, Esc goes back to the code), its latest grade with the code links
-// clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
+// The Check view's answer box (loaded after common.js, before check.js, which calls these hooks): under the selected
+// question, a textarea for the answer (Ctrl+Enter sends it, Esc goes back to the code), its latest grade with the code
+// links clickable, and "Next question ›" once it is done. Plain DOM, textContent only.
 // In:  { type: 'focus', id } (the keyboard into that question's box)
 // Out: { type: 'answer', id, text } { type: 'draft', id, text } { type: 'link', id, i } { type: 'next' } { type: 'escape' } { type: 'regrade', id }
 //      { type: 'focused', id, ok } (whether the keyboard reached the box) { type: 'concern', id, action }
@@ -10,7 +10,7 @@
   let timer
   /** The question whose answer was just sent from its box: once graded, the keyboard goes back into it (or onto "Next"). */
   let sent
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
+  const { el } = window.common
   const boxOf = (id) => document.querySelector(`.answer[data-id="${CSS.escape(id)}"]`)
 
   function parts(ps, id, post, w) {

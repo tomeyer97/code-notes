@@ -1,4 +1,5 @@
-// The journey panel (a webview). Plain DOM + SVG. Needs journeyModel.js (as `exports`), ELK and journey-graph.js, loaded before it.
+// The journey panel (a webview). Plain DOM + SVG. Needs common.js, journeyModel.js (as `exports`), ELK, journey-graph.js
+// and journey-scene.js, loaded before it.
 // In:  { type: 'journey', journey,...tour }  { type: 'tour',...tour }  { type: 'deleted', file }  { type: 'tutorial' } (replay)
 //      { type: 'test', click?: selector, key?: key } (integration tests drive the real handlers)
 //      { type: 'anim', action: 'toggle' } (Ctrl+' P: the current step's animation on/off, as its row's toggle does)
@@ -49,8 +50,7 @@
   /** What the last scroll followed ("step|level"): the map scrolls to the current box once per change. */
   let scrolled = ''
 
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
-  const svgEl = (tag, attrs) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e }
+  const { el } = window.common
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
   /** Enough markdown for summaries: `code` and **bold**. */
   const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')

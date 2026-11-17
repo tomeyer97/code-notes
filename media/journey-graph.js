@@ -2,14 +2,12 @@
 // edge between its real ends, with its label. Laid out by ELK (layered, hierarchical: out/vendor/elk.bundled.js, loaded
 // before this file as window.ELK), cached per journey. Pan (drag, wheel), zoom (Ctrl+wheel, + − Fit, keys), and it
 // follows the step: the current step's box centred at a readable zoom, ringed. Function boxes carry their step numbers.
-// Needs journeyModel.js (`exports`) for isGeneric.
+// Needs common.js, and journeyModel.js (`exports`) for isGeneric.
 // API: const g = JourneyGraph({ goStep(n), open(path), quiet (true: the tutorial is up, nothing moves), legend(hidden), rendered(boxes), view(node), error(message) })
 //      g.el (the viewport, re-appended on every render)  g.set(J, cur, legendHidden)  g.follow(animate)  g.resized
 ;(function () {
   const M = window.exports
-  const SVG = 'http://www.w3.org/2000/svg'
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
-  const svgEl = (tag, attrs) => { const e = document.createElementNS(SVG, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e }
+  const { el, svgEl } = window.common
   const plain = (s) => (s || '').replace(/`|\*\*/g, '')
   /** An arrow label as a plain verb phrase: the first clause, without timings ("polls every 3 s, max 10 min" → "polls"). */
   const UNIT = '(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)'

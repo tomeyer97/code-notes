@@ -1,4 +1,4 @@
-// The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
+// The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only. Needs common.js.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
 // Out: { type: 'openMr' | 'pull' | 'install' | 'pathSetting' | 'modelSetting' | 'retry' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
 //      (and the answer box's: media/checkAnswer.js)
@@ -8,7 +8,7 @@
   window.addEventListener('error', (e) => vscode.postMessage({ type: 'error', message: String(e.message) }))
   const app = document.getElementById('app')
   const ICON = { todo: '○', ungraded: '…', pass: '✓', restated: '✓', retry: '↻', explained: '·' }
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
+  const { el } = window.common
   const post = (m) => vscode.postMessage(m)
   let V
 
