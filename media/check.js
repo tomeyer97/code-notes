@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only.
 // In:  { type: 'check', view } (src/checkModel.ts CheckView, or null)   { type: 'test', click: selector }
-// Out: { type: 'setup' | 'setupHide' | 'openMr' | 'pull' | 'install' | 'pathSetting' | 'modelSetting' | 'retry' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
+// Out: { type: 'openMr' | 'pull' | 'install' | 'pathSetting' | 'modelSetting' | 'retry' } { type: 'ready' } { type: 'open', id } { type: 'select', id } { type: 'start' | 'topUp' | 'scm' | 'commitPush' | 'tour' | 'writeTour' } { type: 'include', file, on }
 //      (and the answer box's: media/checkAnswer.js)
 //      { type: 'rendered', rows, overflow, height } (what is cut or sticks out, for tests) { type: 'error', message }
 ;(function () {
@@ -36,13 +36,6 @@
         p.append(`${V.failed.text} `, i, ' · ', s, ' · ', r, el('span', 'waive', " (or a reviewer's approval waives the check)"))
       }
       h.append(p)
-    }
-    // Once per repository, the person's choice: the lines that collapse check files in diffs, in a commit of their own.
-    if (V.setup) {
-      const p = el('p', 'setup'), b = el('button', 'link', 'Set up'), x = el('button', 'link hide', 'Hide')
-      b.onclick = () => post({ type: 'setup' }); x.onclick = () => post({ type: 'setupHide' }); x.title = "Don't show this again here"
-      b.title = 'Adds .gitattributes and .ignore lines in a commit of their own'
-      p.append(`${V.setup} `, b, ' · ', x); h.append(p)
     }
     if (V.said) h.append(el('p', 'setup said', V.said))
     // Pushed a branch without a merge request: the link the push printed.

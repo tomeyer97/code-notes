@@ -33,9 +33,7 @@ footer { margin: 0 0 8px; }
 .link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
 .setup { margin: 2px 0 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-.setup .link { display: inline; }
 .mr { margin: 2px 0 0; overflow-wrap: anywhere; }
-.setup .hide { color: var(--vscode-descriptionForeground); }
 .failed { margin: 2px 0 0; color: var(--vscode-editorWarning-foreground, #cca700); overflow-wrap: anywhere; }
 .failed .link { display: inline; }
 .failed .waive { color: var(--vscode-descriptionForeground); }

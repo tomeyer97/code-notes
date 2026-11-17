@@ -27,7 +27,7 @@ export interface Question {
 }
 /** The check's tour: a journey of the change (the journey file format), its steps walked in the journey panel. */
 export interface Tour { title: string; steps: { id?: string; title: string; file: string; range: { start: number; end: number } }[]; [k: string]: unknown }
-export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[]; journey?: Tour }
+export interface Check { version: 1; branch: string; base?: string; head: string; answeredBy?: Who; diffStat?: { files: number; added: number; removed: number }; model?: string; createdAt?: string; questions: Question[]; journey?: Tour; noTour?: true }
 export interface Summary { total: number; passed: number; done: number; explained: number; restated: number; retry: number; todo: number; ungraded: number; open: number; needed: number; met: boolean; states: QState[] }
 export type Phase = 'stashed' | 'nothing' | 'none' | 'invalid' | 'drift' | 'answering' | 'short' | 'done'
 export interface State { stash?: string; conflict?: { line: number; mergeable: boolean }; phase: Phase; passed?: number; done?: number; total?: number; needed?: number; maxDrift?: number; grew?: number; commitFirst?: boolean; changed?: number; exemptOnly?: boolean; why?: string }
@@ -77,10 +77,12 @@ export interface Cli {
   concernLink(q: Question): Link | undefined
   /** The check file, Code Notes' notes and the setup files: never part of the change, never "uncommitted work". */
   own(file: string): boolean
-  /** The .gitattributes and .ignore lines for check files the repository doesn't have yet. */
-  setupMissing(repo: string): string[]
-  /** Writes the repository's .gitattributes and .ignore lines for check files; returns the lines it added. */
-  initRepo(repo: string): string[]
+  /** The repository's .gitattributes lacks the line that folds check files in diffs (the first check commit adds it). */
+  foldMissing(repo: string): boolean
+  /** Writes that .gitattributes line; returns what it added. */
+  foldDiffs(repo: string): string[]
+  /** "also folds check files in diffs (.gitattributes)" */
+  FOLD_TEXT: string
   /** Conflict markers in a check file: the first one's line, and both sides merged when they read. */
   conflictOf(text: string): { line: number; merged?: Check } | undefined
   codeLinksIn(repo: string, links: Link[]): Link[]
@@ -215,9 +217,7 @@ export interface CheckView {
   /** Writing the questions failed: why, in plain words, with Retry (and the model setting when it was the model; install
    *  and the path setting when Claude Code wasn't found). */
   failed?: { text: string; setting?: boolean; path?: boolean }
-  /** The repository lacks the lines that collapse check files in diffs: a link that adds them in a commit of their own. */
-  setup?: string
-  /** One line saying what was just done (Set up committed the setup files, a merge kept both answers). */
+  /** One line saying what was just done (a merge kept both answers). */
   said?: string
   /** The tour of the change: walk it ("Walk the tour · 9 steps"), or write one (an older check, a failed run). */
   tour?: { label: string; action?: 'walk' | 'write' }
@@ -283,7 +283,7 @@ const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; mr?: string; me?: Who; notice?: string; commit?: CommitPlan; selected?: string; draft?: string; setup?: boolean; said?: string; failed?: { text: string; setting?: boolean; path?: boolean }; error?: string; uncommitted?: boolean; invalidAt?: string } = {}): CheckView {
+export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: string; tourFailed?: boolean; grading?: Set<string>; unpushed?: boolean; pushed?: string; mr?: string; me?: Who; notice?: string; commit?: CommitPlan; selected?: string; draft?: string; said?: string; failed?: { text: string; setting?: boolean; path?: boolean }; error?: string; uncommitted?: boolean; invalidAt?: string } = {}): CheckView {
   const s = st.summary
   const rows: CheckRow[] = (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
@@ -326,8 +326,10 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
     ...(o.commit.fixes ?? []).map((f) => ({ file: f, label: `${base(f)} (your fix)`, on: !o.commit!.exclude?.has(f) })),
     ...o.commit.todos.filter((f) => !(o.commit!.fixes ?? []).includes(f)).map((f) => ({ file: f, label: `also ${base(f)} (TODO added)`, on: o.commit!.include.has(f) })),
   ] : []
+  // The first check commit of a repository also folds check files in diffs: said on the same line.
+  const fold = !!o.commit?.fold && st.dirty
   const commit = action?.id === 'commitPush' && o.commit ? {
-    ...(files.length ? { commits: `Commits ${files.map(base).join(', ')}${o.commit.tourOnly && st.dirty ? ' (the tour)' : ''}` } : {}),
+    ...(files.length ? { commits: `Commits ${files.map(base).join(', ')}${o.commit.tourOnly && st.dirty ? ' (the tour)' : ''}${fold ? `, ${o.commit.foldText ?? 'also folds check files in diffs (.gitattributes)'}` : ''}` } : {}),
     ...(also.length ? { also } : {}),
   } : {}
   // The selected question's answer box.
@@ -337,7 +339,8 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
   const answer = si >= 0 ? answerBox(qs[si], si + 1, s?.states[si] ?? 'todo', { draft: o.draft, grading: !!o.grading?.has(qs[si].id), others: rows.some((_r, k) => k !== si && open(k)), applied: !!o.commit?.applied?.includes(qs[si].id), error: o.error }) : undefined
   // The tour: walk it; an older check (or a run that failed) offers to write one. Nothing while one is being written.
   const steps = st.check?.journey?.steps?.length ?? 0
-  const tour: CheckView['tour'] = !st.check || o.busy ? undefined : o.tourBusy ? { label: o.tourBusy } : steps ? { label: `Walk the tour · ${steps} steps`, action: 'walk' }
+  // Documentation that describes no code: no tour, on purpose; nothing offers one.
+  const tour: CheckView['tour'] = !st.check || o.busy || (st.check.noTour && !steps) ? undefined : o.tourBusy ? { label: o.tourBusy } : steps ? { label: `Walk the tour · ${steps} steps`, action: 'walk' }
     : p === 'answering' || p === 'short' || p === 'done' ? { label: o.tourFailed ? "Couldn't write the tour · Try again" : 'Write a tour', action: 'write' } : undefined
   const by = st.check?.answeredBy
   const sameWho = !by || !o.me || (by.email && o.me.email ? by.email === o.me.email : by.name === o.me.name)
@@ -349,9 +352,6 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
     ...(answer ? { answer } : {}),
     ...(o.mr && p === 'done' && !o.busy ? { mr: o.mr } : {}),
     ...(o.failed && !o.busy ? { failed: o.failed } : {}),
-    // Once done, beside Commit & push (never while answering: the questions get the room), and never while busy: the
-    // person decides; nothing is written to the repository by itself.
-    ...(o.setup && st.check && p === 'done' && !o.busy ? { setup: 'Collapse check files in diffs:' } : {}),
     ...(o.said && st.check ? { said: o.said } : {}),
   }
 }
@@ -359,9 +359,10 @@ export function checkView(st: Status, w: Words, o: { busy?: string; tourBusy?: s
 /**
  * What Commit & push would commit: the check file and setup files (`files`), files a TODO went to (`todos`, ticked
  * into `include`), files an applied fix changed (`fixes`, going unless in `exclude`; `applied`: the questions whose fix
- * they hold), and whether the check file's only change is its tour.
+ * they hold), whether the check file's only change is its tour, and whether the repository's first check commit also
+ * adds the .gitattributes line that folds check files in diffs (`fold`, said as `foldText`).
  */
-export interface CommitPlan { files: string[]; todos: string[]; include: Set<string>; fixes?: string[]; exclude?: Set<string>; applied?: string[]; tourOnly?: boolean }
+export interface CommitPlan { files: string[]; todos: string[]; include: Set<string>; fixes?: string[]; exclude?: Set<string>; applied?: string[]; tourOnly?: boolean; fold?: boolean; foldText?: string }
 
 /**
  * A TODO comment with the whole concern (never cut): lines of at most `max` characters after `indent`, wrapped at
