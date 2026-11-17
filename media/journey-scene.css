@@ -60,31 +60,47 @@
 @keyframes scn-pulse { 50% { opacity: 0.55; } }
 
 /* ---------- the app window (a dark web app) ----------
-   Every text rule here is ≥ 11.5 px: the window is drawn at about scale 1 in a 400 px scene. */
-.ap-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; border: 1px solid #232329; border-radius: 7px; background: #09090b; color: #ededf0; overflow: hidden; opacity: 0; transition: opacity 350ms; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
+   Every text rule here is ≥ 11.5 px: the window is drawn at about scale 1 in a 400 px scene.
+   Its own dark colours (and the terminal's), named once: they read as an app in any editor theme. A tint is one of
+   them over the background, as `color-mix(… N / 255 …)` of the colour (the same as its 8-digit hex). */
+.scn-app, .scn-terminal {
+  --app-bg: #09090b;        /* the window */
+  --app-surface: #111114;   /* a card, a dialog, the table */
+  --app-raised: #18181c;    /* a picked row, a message */
+  --app-line: #232329;      /* borders */
+  --app-line-strong: #33333b; /* an input's border */
+  --app-fg: #ededf0;
+  --app-muted: #a1a1aa;
+  --app-accent: #818cf8;    /* active, new, the button */
+  --app-ok: #4ade80;        /* passed; the terminal's "$" */
+  --app-bad: #f87171;       /* failed */
+  --app-alert: #fca5a5;     /* a notice's text */
+  --app-alert-line: #ef4444; /* a notice's frame */
+}
+.ap-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; border: 1px solid var(--app-line); border-radius: 7px; background: var(--app-bg); color: var(--app-fg); overflow: hidden; opacity: 0; transition: opacity 350ms; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
 .ap-win.on { opacity: 1; }
-.ap-top { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid #232329; font-size: 12.5px; }
-.ap-logo { flex: none; min-width: 20px; height: 20px; padding: 0 3px; box-sizing: border-box; border-radius: 5px; background: #3f3f46; color: #ededf0;
+.ap-top { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--app-line); font-size: 12.5px; }
+.ap-logo { flex: none; min-width: 20px; height: 20px; padding: 0 3px; box-sizing: border-box; border-radius: 5px; background: #3f3f46; color: var(--app-fg);
   display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
 .ap-top > b { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ap-tabs { margin-left: auto; align-self: stretch; display: flex; gap: 12px; font-size: 12px; color: #a1a1aa; flex: none; }
+.ap-tabs { margin-left: auto; align-self: stretch; display: flex; gap: 12px; font-size: 12px; color: var(--app-muted); flex: none; }
 .ap-tabs span { display: flex; align-items: center; border-bottom: 2px solid transparent; white-space: nowrap; }
-.ap-tabs span.on { color: #ededf0; font-weight: 500; border-bottom-color: #818cf8; }
+.ap-tabs span.on { color: var(--app-fg); font-weight: 500; border-bottom-color: var(--app-accent); }
 .ap-pad { padding: 12px; }
-.ap-table { border: 1px solid #232329; border-radius: 6px; background: #111114; font-weight: 500; }
+.ap-table { border: 1px solid var(--app-line); border-radius: 6px; background: var(--app-surface); font-weight: 500; }
 .ap-tr { padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ap-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); }
-.ap-dialog { position: absolute; left: 20px; right: 20px; top: 26px; border: 1px solid #232329; border-radius: 9px; background: #111114; padding: 12px 14px; }
+.ap-dialog { position: absolute; left: 20px; right: 20px; top: 26px; border: 1px solid var(--app-line); border-radius: 9px; background: var(--app-surface); padding: 12px 14px; }
 .ap-dh { font-size: 14px; font-weight: 600; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ap-radio { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; background: #18181c; font-weight: 500; white-space: nowrap; }
+.ap-radio { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; background: var(--app-raised); font-weight: 500; white-space: nowrap; }
 .ap-radio span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ap-radio i { width: 12px; height: 12px; border-radius: 6px; border: 1.5px solid #ededf0; background: #ededf0; box-shadow: inset 0 0 0 2.5px #18181c; flex: none; }
+.ap-radio i { width: 12px; height: 12px; border-radius: 6px; border: 1.5px solid var(--app-fg); background: var(--app-fg); box-shadow: inset 0 0 0 2.5px var(--app-raised); flex: none; }
 .ap-line { display: flex; align-items: center; margin-top: 8px; white-space: nowrap; }
 .ap-line b { width: 92px; flex: none; font-weight: 500; }
-.ap-line span { min-width: 0; color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; }
+.ap-line span { min-width: 0; color: var(--app-muted); overflow: hidden; text-overflow: ellipsis; }
 .ap-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 .ap-startwrap { position: relative; display: inline-block; }
-.ap-start { display: inline-block; background: #818cf8; color: #09090b; font-weight: 600; border-radius: 5px; padding: 5px 12px; white-space: pre; }
+.ap-start { display: inline-block; background: var(--app-accent); color: var(--app-bg); font-weight: 600; border-radius: 5px; padding: 5px 12px; white-space: pre; }
 .ap-start.busy { opacity: 0.65; }
 .scn-cursor { position: absolute; left: 22px; top: 12px; width: 15px; height: 18px; opacity: 0; transform: translate(-70px, 46px); pointer-events: none; }
 .scn-app.clicked .scn-cursor { opacity: 1; transform: none; transition: transform 800ms cubic-bezier(0.3, 0, 0.2, 1) 500ms, opacity 200ms 400ms; }
@@ -95,43 +111,46 @@
 .ap-signinpage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 34px; text-align: center; }
 .ap-signinpage .ap-logo { min-width: 30px; height: 30px; border-radius: 7px; font-size: 15px; }
 .ap-stitle { max-width: 100%; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ap-notice { display: none; align-self: stretch; border: 1px solid #ef44444d; border-radius: 6px; background: #ef44440d; padding: 6px 10px; color: #fca5a5; font-weight: 500; }
+.ap-notice { display: none; align-self: stretch; border: 1px solid color-mix(in srgb, var(--app-alert-line) calc(100% * 77 / 255), transparent); border-radius: 6px; background: color-mix(in srgb, var(--app-alert-line) calc(100% * 13 / 255), transparent); padding: 6px 10px; color: var(--app-alert); font-weight: 500; }
 .ap-notice.on { display: block; }
 .ap-signwrap { position: relative; align-self: stretch; }
-.ap-signin { display: block; border: 1px solid #33333b; border-radius: 6px; background: #111114; padding: 7px 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-signin { display: block; border: 1px solid var(--app-line-strong); border-radius: 6px; background: var(--app-surface); padding: 7px 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ap-signin.busy { opacity: 0.7; }
 .ap-signwrap .scn-cursor { left: 50%; top: 14px; }
 /* the detail page: title + status, cards, the last timeline rows */
-.ap-title { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #232329; font-size: 14px; white-space: nowrap; }
+.ap-title { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--app-line); font-size: 14px; white-space: nowrap; }
 .ap-title > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ap-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; border-radius: 10px; padding: 1px 8px; font-size: 11.5px; font-weight: 500; color: #a1a1aa; background: #a1a1aa18; box-shadow: inset 0 0 0 1px #a1a1aa55; }
-.ap-chip i { width: 6px; height: 6px; border-radius: 3px; background: #a1a1aa; }
-.ap-chip.active { color: #818cf8; background: #818cf818; box-shadow: inset 0 0 0 1px #818cf855; }
-.ap-chip.active i { background: #818cf8; }
-.ap-chip.good { color: #4ade80; background: #4ade8018; box-shadow: inset 0 0 0 1px #4ade8055; }
-.ap-chip.good i { background: #4ade80; }
-.ap-chip.bad { color: #f87171; background: #f8717118; box-shadow: inset 0 0 0 1px #f8717155; }
-.ap-chip.bad i { background: #f87171; }
+/* A status chip in its tone's colour (neutral, active, good, bad): the text, a faint fill, a frame and the dot. */
+.ap-chip {
+  --tone: var(--app-muted);
+  flex: none; display: inline-flex; align-items: center; gap: 5px; border-radius: 10px; padding: 1px 8px; font-size: 11.5px; font-weight: 500;
+  color: var(--tone); background: color-mix(in srgb, var(--tone) calc(100% * 24 / 255), transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) calc(100% * 85 / 255), transparent);
+}
+.ap-chip i { width: 6px; height: 6px; border-radius: 3px; background: var(--tone); }
+.ap-chip.active { --tone: var(--app-accent); }
+.ap-chip.good { --tone: var(--app-ok); }
+.ap-chip.bad { --tone: var(--app-bad); }
 .ap-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .ap-none { color: #86868f; }
 .ap-none.off { display: none; }
-.ap-card { display: none; align-items: baseline; gap: 8px; border: 1px solid #232329; border-radius: 5px; background: #111114; padding: 6px 9px; transition: border-color 350ms; }
+.ap-card { display: none; align-items: baseline; gap: 8px; border: 1px solid var(--app-line); border-radius: 5px; background: var(--app-surface); padding: 6px 9px; transition: border-color 350ms; }
 .ap-card.on { display: flex; animation: scn-in 350ms; }
-.ap-card.new { border-color: #818cf8; }
+.ap-card.new { border-color: var(--app-accent); }
 @keyframes scn-in { from { opacity: 0; transform: translateY(-6px); } }
 /* severity as a coloured dot (its name on hover), not a word too small to read */
-.ap-sev { flex: none; width: 8px; height: 8px; border-radius: 4px; background: #a1a1aa; }
+.ap-sev { flex: none; width: 8px; height: 8px; border-radius: 4px; background: var(--app-muted); }
 .ap-sev.medium { background: #facc15; }
 .ap-sev.high { background: #fb923c; }
-.ap-sev.critical { background: #f87171; }
+.ap-sev.critical { background: var(--app-bad); }
 .ap-ctitle { min-width: 0; font-weight: 500; line-height: 1.3; }
 .ap-tl { display: flex; flex-direction: column; gap: 5px; }
-.ap-ev { display: none; align-items: center; gap: 7px; color: #a1a1aa; white-space: nowrap; transition: color 300ms; }
+.ap-ev { display: none; align-items: center; gap: 7px; color: var(--app-muted); white-space: nowrap; transition: color 300ms; }
 .ap-ev span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ap-ev.on { display: flex; animation: scn-in 300ms; }
 .ap-ev i { width: 5px; height: 5px; border-radius: 3px; background: #52525b; flex: none; }
-.ap-ev.new { color: #ededf0; }
-.ap-ev.new i { background: #818cf8; }
+.ap-ev.new { color: var(--app-fg); }
+.ap-ev.new i { background: var(--app-accent); }
 
 /* ---------- a web page in a browser (a light page: it is another app) ---------- */
 .br-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: #18181b; overflow: hidden; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
@@ -197,12 +216,12 @@
 .scn-inner-pods { position: absolute; left: 12px; right: 12px; top: 34px; display: flex; gap: 10px; }
 .scn-inner-pods .scn-pod { height: 60px; padding: 0 12px; }
 /* A terminal: dark in every theme. Commands bright behind a green "$", what they print quieter. */
-.tm-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; padding: 8px 12px; border: 1px solid #232329; border-radius: 7px; background: #0c0c0e; color: #a1a1aa; overflow: hidden;
+.tm-win { position: absolute; left: 6px; right: 6px; top: 34px; bottom: 6px; padding: 8px 12px; border: 1px solid var(--app-line); border-radius: 7px; background: #0c0c0e; color: var(--app-muted); overflow: hidden;
   font-family: var(--vscode-editor-font-family, monospace); font-size: 12.5px; line-height: 22px; }
 .tm-line { display: none; margin: 0 -6px; padding: 0 6px; border-radius: 3px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
 .tm-line.on { display: block; }
 .tm-line.cmd { color: #f4f4f5; }
-.tm-line.cmd i { margin-right: 8px; font-style: normal; color: #4ade80; }
+.tm-line.cmd i { margin-right: 8px; font-style: normal; color: var(--app-ok); }
 .tm-line.hi { background: rgba(255, 255, 255, 0.09); color: #f4f4f5; }
 
 /* An existing pod pointed at, or gone (stopped, evicted, replaced). */
@@ -238,26 +257,26 @@
 .ap-win[data-pane="picture"] .ap-pic { display: block; }
 .ap-win[data-pane="chat"] .ap-chat { display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; }
 .ap-win[data-pane="picture"] .ap-body, .ap-win[data-pane="chat"] .ap-body { display: none; }
-.ap-picwin { position: absolute; left: 0; right: 0; top: 0; bottom: 22px; border: 1px solid #232329; border-radius: 5px; background: #18181c; overflow: hidden; }
+.ap-picwin { position: absolute; left: 0; right: 0; top: 0; bottom: 22px; border: 1px solid var(--app-line); border-radius: 5px; background: var(--app-raised); overflow: hidden; }
 .ap-picwin i { position: absolute; left: 18%; right: 18%; top: 14%; height: 12px; border-radius: 3px 3px 0 0; background: #d4d4d8; }
 .ap-picwin b { position: absolute; left: 18%; right: 18%; top: calc(14% + 12px); bottom: 12%; background: #fafafa; }
 .ap-picwin b + b { left: 26%; right: 50%; top: 46%; bottom: 26%; border-radius: 3px; background: #c7d2fe; }
-.ap-picnote { position: absolute; left: 2px; bottom: 0; color: #a1a1aa; font-size: 11.5px; white-space: nowrap; }
-.ap-msg { display: none; align-self: flex-start; max-width: 92%; padding: 3px 9px; border-radius: 10px 10px 10px 3px; background: #18181c; color: #d4d4d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-picnote { position: absolute; left: 2px; bottom: 0; color: var(--app-muted); font-size: 11.5px; white-space: nowrap; }
+.ap-msg { display: none; align-self: flex-start; max-width: 92%; padding: 3px 9px; border-radius: 10px 10px 10px 3px; background: var(--app-raised); color: #d4d4d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ap-msg.on { display: block; animation: scn-in 300ms; }
-.ap-msg.me { align-self: flex-end; border-radius: 10px 10px 3px 10px; background: #818cf833; color: #ededf0; }
-.ap-msg.new { box-shadow: inset 0 0 0 1px #818cf8; }
-.ap-box { border: 1px solid #33333b; border-radius: 6px; padding: 5px 9px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ap-box.typed { color: #ededf0; border-color: #818cf8; }
+.ap-msg.me { align-self: flex-end; border-radius: 10px 10px 3px 10px; background: color-mix(in srgb, var(--app-accent) calc(100% * 51 / 255), transparent); color: var(--app-fg); }
+.ap-msg.new { box-shadow: inset 0 0 0 1px var(--app-accent); }
+.ap-box { border: 1px solid var(--app-line-strong); border-radius: 6px; padding: 5px 9px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-box.typed { color: var(--app-fg); border-color: var(--app-accent); }
 .ap-pagebody { padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
-.ap-banner { display: none; border: 1px solid #f8717155; border-radius: 6px; background: #f8717112; padding: 5px 9px; color: #fca5a5; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-banner { display: none; border: 1px solid color-mix(in srgb, var(--app-bad) calc(100% * 85 / 255), transparent); border-radius: 6px; background: color-mix(in srgb, var(--app-bad) calc(100% * 18 / 255), transparent); padding: 5px 9px; color: var(--app-alert); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ap-banner.on { display: block; animation: scn-in 300ms; }
 .ap-row { display: none; align-items: baseline; gap: 8px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; transition: background 300ms; }
 .ap-row.on { display: flex; }
 .ap-row b { width: 96px; flex: none; font-weight: 500; }
-.ap-row span { color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; }
-.ap-row.hi { background: #818cf822; }
-.ap-row.hi span { color: #ededf0; }
+.ap-row span { color: var(--app-muted); overflow: hidden; text-overflow: ellipsis; }
+.ap-row.hi { background: color-mix(in srgb, var(--app-accent) calc(100% * 34 / 255), transparent); }
+.ap-row.hi span { color: var(--app-fg); }
 .ap-page .ap-foot { margin-top: 2px; }
 /* The browser's address bar: a padlock, or "Not secure". */
 .br-url { display: flex; align-items: center; gap: 6px; overflow: hidden; }
