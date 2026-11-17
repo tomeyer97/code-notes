@@ -34,22 +34,58 @@
   const { el, connect, onMessages, overflowing } = window.common
   const { vscode, post } = connect()
   const app = document.getElementById('app')
-  /** @type {any} */ let J
-  let cur = 0
-  /** step number -> 'stale' */
-  let marks = {}
-  let resume = 0
-  let legendHidden = false
-  let problems = []
-  let problemsOpen = false
-  let KEY = "Ctrl+'"
-  let deleted = ''
-  /** The step card, when it lives here ("panel"); undefined: it is in the editor. */
-  let card
+
+  // ---------- state: everything the panel keeps between renders (render() draws from it) ----------
+
+  /** The walk as the last tour message said it (tour()), drawn from until the next one. */
+  const tourOf = (m, cur) => ({
+    /** The walk was just finished: Done, the summary. */
+    done: !!m.done,
+    /** step number -> 'stale' */
+    marks: m.marks || {},
+    /** Rule breaks only the author can fix (a link to the Output panel). */
+    authors: m.authors || 0,
+    /** Why the journey can't be read, for readers. */
+    problems: m.problems || [],
+    /** The step card, when it lives here ("panel"); undefined: it is in the editor. */
+    card: m.card && cur ? m.card : undefined,
+    /** Steps asked about: n -> { id, count, unread }. */
+    asked: m.asked || {},
+    /** A check's tour: its questions, each after the step that shows its answer ({ id, n, step, text, state, cur }). */
+    stops: m.stops || [],
+    /** Who wrote it and when; steps whose code changed since: { text, tip, changed }. */
+    prov: m.prov,
+  })
   const saved = vscode.getState() || {}
-  /** The scroll to restore once after a reload. */
+
+  // The journey and the walk.
+  /** @type {any} The journey shown. */
+  let J
+  /** The current step (0: not walking). */
+  let cur = 0
+  let T = tourOf({}, 0)
+  /** The journey's file is gone: its name ('' while it is there). */
+  let deleted = ''
+  /** The keys' prefix (Ctrl+' …), as the extension binds them. */
+  let KEY = "Ctrl+'"
+
+  // The panel.
+  let legendHidden = false
+  /** Narrow panels: the map above the storyline, folded away under "Map" by hand (0.20: shown by default). */
+  let mapShut = !!saved.mapShut
+  /** The map column's width when wide, dragged on the splitter (0.21.1); 0: the default. Kept here and by the extension. */
+  let mapW = saved.mapW || 0
+  /** The splitter is being dragged (a tour message doesn't move it meanwhile). */
+  let dragging = false
+  /** The next render starts at the top. */
+  let toTop = false
+  /** The scroll to restore once after a reload (the first render). */
   let savedScroll = saved.scroll || 0
-  const saveState = () => vscode.setState({ id: J && J.id, q: J && J.question, cur, n: J ? J.steps.length : 0, scroll: window.scrollY, mapShut, mapW, animOn })
+  let firstRender = true
+  /** What the last scroll followed ("step|question"): the storyline scrolls to the current row once per change. */
+  let scrolled = ''
+
+  // The step's animation.
   /** The step's animation is shown in place of the map: a toggle on the rows of steps that have one. */
   let animOn = !!saved.animOn
   /** The scene on screen ("journey|step"), so the editor's highlight is cleared when it goes. */
@@ -58,13 +94,20 @@
   let beatAt = {}
   /** The next render puts the keyboard focus in the scene (it was started: ← → work at once). */
   let focusScene = false
-  const sceneOf = (n) => { const s = J && J.steps[n - 1]; return s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length ? s.scene : undefined }
-  let firstRender = true
-  /** The tutorial: offered (the bar), and the card shown (0: none). */
+
+  // The tutorial.
+  /** The bar is offered ("New here?"); the card shown (0: none). */
   let offer = false
   let tcard = 0
-  /** What the last scroll followed ("step|level"): the map scrolls to the current box once per change. */
-  let scrolled = ''
+  /** The bar was dropped in this panel (skipped, or the walk got going): never offered again here. */
+  let offerGone = false
+  /** Steps walked since the bar was offered (at two it goes). */
+  let offerSteps = 0
+  /** The tutorial's elements on the page: the ring, the card, the dim. */
+  let spot, tc, dim
+
+  const saveState = () => vscode.setState({ id: J && J.id, q: J && J.question, cur, n: J ? J.steps.length : 0, scroll: window.scrollY, mapShut, mapW, animOn })
+  const sceneOf = (n) => { const s = J && J.steps[n - 1]; return s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length ? s.scene : undefined }
 
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
   /** Enough markdown for summaries: `code` and **bold**. */
@@ -84,7 +127,7 @@
       return `<p>${ls.map(inline).join('<br>')}</p>`
     }).join('')
   }
-  const markOf = (n) => marks[n] || ''
+  const markOf = (n) => T.marks[n] || ''
 
   // ---------- messages from the extension (In: above), one handler each ----------
 
@@ -125,22 +168,7 @@
     },
   })
 
-  /** A new position: the map shows the level holding the step (reversed); a level opened by hand stays until the step changes. */
-  let authors = 0
-  /** Narrow panels: the map above the storyline, folded away under "Map" by hand (0.20: shown by default). */
-  let mapShut = !!saved.mapShut
-  /** The map column's width when wide, dragged on the splitter (0.21.1); 0: the default. Kept here and by the extension. */
-  let mapW = saved.mapW || 0
-  /** Who wrote it and when; steps whose code changed since. */
-  let prov
-  /** The walk was just finished: Done, the summary, the list. */
-  let done = false
-  /** The next render starts at the top. */
-  let toTop = false
-  /** Steps asked about: n -> { id, state 'q'|'a', unread }. */
-  let asked = {}
-  /** A check's tour: its questions, each after the step that shows its answer ({ id, n, step, text, state, cur }). */
-  let stops = []
+  /** A tour message: where the walk is, and what that resets. */
   function tour(m) {
     // Never past the last step (the step you were on was removed).
     const N = J ? J.steps.length : 0
@@ -151,17 +179,9 @@
     if (!cur && was) { toTop = true; scrolled = ''; beatAt = {}; animOn = false }
     // The "New here?" bar goes once the walk is under way: two steps on, as if skipped.
     if (cur && cur !== was && offer && ++offerSteps >= 2) dropOffer()
-    done = !!m.done
-    marks = m.marks || {}
-    resume = Math.min(m.resume || 0, N)
-    authors = m.authors || 0
+    T = tourOf(m, cur)
     legendHidden = !!m.legendHidden
     if (!dragging) mapW = m.mapWidth || 0
-    problems = m.problems || []
-    card = m.card && cur ? m.card : undefined
-    asked = m.asked || {}
-    stops = m.stops || []
-    prov = m.prov
     if (m.key) KEY = m.key
     home.take(m)
     if (m.tutorial && !offer && !tcard && !offerGone) { offer = true; offerSteps = 0; post({ type: 'tutorial', action: 'bar' }) }
@@ -200,6 +220,7 @@
     }
     // No summary under the question: the storyline is the answer; the summary is in the picker.
     // One muted line: who wrote it, when; amber when steps are out of date. Nothing else.
+    const prov = T.prov
     if (prov && (prov.text || prov.changed)) {
       const p = el('p', 'prov', prov.text || '')
       if (prov.tip) p.title = prov.tip
@@ -207,7 +228,7 @@
       if (prov.changed) { const c = el('span', 'changed', `${prov.text ? ' · ' : ''}⚠ ${prov.changed} step${prov.changed === 1 ? '' : 's'} out of date`); c.title = 'The code changed after this journey was written'; p.append(c) }
       h.append(p)
     }
-    if (problems.length) h.append(problemLine())
+    if (T.problems.length) h.append(problemLine())
     return h
   }
 
@@ -215,8 +236,8 @@
   /** Readers see only what affects reading: the file can't be read now. */
   function problemLine() {
     const d = el('div', 'problems')
-    const b = el('span', 'plink', `⚠ ${problems[0]} `)
-    b.title = problems.join('\n')
+    const b = el('span', 'plink', `⚠ ${T.problems[0]} `)
+    b.title = T.problems.join('\n')
     const o = el('button', 'link openfile', 'Open file')
     o.onclick = () => post({ type: 'openFile' })
     d.append(b, o)
@@ -224,7 +245,7 @@
   }
   /** Rule breaks only the author can fix: a quiet link to the Output channel. */
   function authorLink() {
-    const a = el('button', 'link authors', `${authors} rule break${authors === 1 ? '' : 's'}`)
+    const a = el('button', 'link authors', `${T.authors} rule break${T.authors === 1 ? '' : 's'}`)
     a.title = 'In the Output panel'
     a.onclick = () => post({ type: 'authors' })
     return a
@@ -250,6 +271,7 @@
   // ---------- storyline: the step titles; the current one expanded when the card lives here ----------
 
   function storyline() {
+    const { stops, card } = T
     const ol = el('ol', 'story')
     ol.setAttribute('aria-label', 'Steps')
     // Every step, always (no folded "n steps elsewhere").
@@ -306,6 +328,7 @@
 
   /** The step card in the panel: lead, More, refs, ‹ ›, Ask. Links are posted back by index. */
   function stepCard() {
+    const { card, stops, asked } = T
     const c = el('div', 'scard')
     c.setAttribute('role', 'region')
     c.setAttribute('aria-label', `Step ${cur}`)
@@ -391,7 +414,7 @@
   function mapEl() {
     const wrap = el('div', 'mapwrap')
     wrap.append(graph.el)
-    if (authors && !deleted) { const a = el('div', 'note'); a.append(authorLink()); wrap.append(a) }
+    if (T.authors && !deleted) { const a = el('div', 'note'); a.append(authorLink()); wrap.append(a) }
     return wrap
   }
 
@@ -411,7 +434,6 @@
 
   // ---------- the splitter (0.21.1): the map column's width, dragged (wide panels only) ----------
 
-  let dragging = false
   const MAPMIN = 240, STORYMIN = 280
   /** While the animation plays its column is at least SCENEMIN wide (Q6a: its text ≥ 11 px), still beside the
    *  storyline, which may narrow to STORYANIM. */
@@ -486,7 +508,7 @@
     const head = el('div', 'head')
     head.append(header())
     app.append(head)
-    if (done && !cur && !deleted) app.append(doneView())
+    if (T.done && !cur && !deleted) app.append(doneView())
     // The storyline leads: the map beside it (wide) or above it (narrow, foldable under "Map"); too narrow for
     // boxes: none.
     const anim0 = !!scene && animOn && !!cur && !!sceneOf(cur) && !tcard && !deleted
@@ -556,7 +578,7 @@
   /** Once per step change: the current storyline row in view under the sticky header (the map follows on its own). */
   function follow() {
     if (tcard) return
-    const at = stops.find((q) => q.cur)
+    const at = T.stops.find((q) => q.cur)
     const k = `${cur}|${at ? at.id : ''}`
     if (!cur || k === scrolled) return
     scrolled = k
@@ -568,8 +590,6 @@
 
   // ---------- the tutorial: two cards on the real map (the storyline with the keys, the map) ----------
 
-  /** The bar was dropped in this panel (skipped, or the walk got going): never offered again here. */
-  let offerGone = false, offerSteps = 0
   function dropOffer() {
     if (!offer) return
     offer = false
@@ -628,7 +648,6 @@
   function leaveTutorial() { tcard = 0; post({ type: 'tutorial', action: 'skip' }); render() }
   function finishTutorial() { tcard = 0; post({ type: 'tutorial', action: 'done' }); render() }
 
-  let spot, tc, dim
   function placeTutorial() {
     spot?.remove(); tc?.remove(); dim?.remove(); spot = tc = dim = undefined
     if (!tcard) return
