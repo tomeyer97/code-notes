@@ -61,7 +61,7 @@ the repository's copy wins.
 ## Understanding check
 
 **Code Notes: Check my understanding** (or **Understanding: start** in the status bar) has Claude Code read your
-branch's change and ask a few questions about it (1 for a small change, up to 5 for a big one): how a part behaves, why
+branch's change and ask a few questions about it (1 for a small change, documentation or a removal, up to 5 for a big one): how a part behaves, why
 it is built this way, how it fails. The first question opens as a thread on its lines; the list is the **Check** view
 in the Code Notes sidebar. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
 replies in the thread, naming the code it means as links you can click. A miss gets a hint and a second try; a second
@@ -70,14 +70,16 @@ the next open question. You can also answer in the Check view: the selected ques
 sends, Esc goes back to the code).
 
 Right after the questions, Claude writes a **tour of the change**: a short journey through the changed code and the code
-it depends on, in the order things happen, with each question placed after the step that shows its answer. The questions
+it depends on, in the order things happen, with each question placed after the step that shows its answer (2-3 steps
+for a few lines, documentation or a removal). The questions
 can be answered while it is written (about 3 minutes). **Walk the tour** in the Check view (or Check my understanding)
 opens it in the journey panel: Next walks the steps and stops at each open question, with its thread on the code. The
 Check view's rows say which step a question belongs to and go straight there. Walking it is optional.
 
 Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
 questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and
-pushes. When the grader finds a problem in the code itself, the thread offers **Suggest a fix**, **Add TODO** and **Flag for
+pushes; the first check in a repository also adds the `.gitattributes` line that folds check files in GitLab and GitHub
+diffs (the button's line says so). When the grader finds a problem in the code itself, the thread offers **Suggest a fix**, **Add TODO** and **Flag for
 reviewer** (flagged ones go on the merge request). When you push a branch that has no check yet, its questions are written in the background
 (the status bar says "3 questions ready"; setting `codeNotes.understanding.background`).
 
@@ -97,12 +99,15 @@ make you look, not to police.
 
 Only the final answer to each question is kept in the file; earlier tries keep their verdict, not their text.
 
-To keep the files out of diffs and search, run `node cli/understanding.mjs init` once and commit the result (or use
-**Set up** in the Check view, which commits just those two files). It adds `understanding/*.json gitlab-generated linguist-generated` to `.gitattributes` (collapsed in GitLab and
-GitHub diffs; `understanding/config.json` stays visible) and `understanding/` to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
+**Without VS Code**, teammates use [Claude Code](https://claude.com/claude-code): `/understanding-check` asks the
+questions one at a time in the chat, grades each answer with the same rules, records it in the same file and commits
+it. Run `node cli/understanding.mjs init` once and commit what it prints: it puts the skill in
+`.claude/skills/understanding-check/`, adds `understanding/*.json gitlab-generated linguist-generated` to
+`.gitattributes` (collapsed in GitLab and GitHub diffs; `understanding/config.json` stays visible) and `understanding/`
+to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
 
 The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
-`grade` (local; Claude Code or `ANTHROPIC_API_KEY`), `init` and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).
+`grade` (local; Claude Code or `ANTHROPIC_API_KEY`), `next`, `flag`, `commit`, `init` and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).
 
 ### In CI
 
