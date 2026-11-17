@@ -47,6 +47,21 @@
     })
   }
 
+  // ---------- keys ----------
+
+  /**
+   * A key → action table: runs `keys[e.key]` when it is a function (an entry that is false, or missing, leaves the key
+   * alone). A key it ran: its default prevented and, with `stop`, kept from going further. Returns whether it ran.
+   */
+  function runKey(e, keys, stop) {
+    const f = Object.hasOwn(keys, e.key) ? keys[e.key] : undefined
+    if (typeof f !== 'function') return false
+    e.preventDefault()
+    if (stop) e.stopPropagation()
+    f()
+    return true
+  }
+
   // ---------- what a person would notice (for tests) ----------
 
   /** The elements of `selector` in `root` that stick out past the page's right edge, as `describe(e)` says them; and
@@ -58,5 +73,5 @@
     return out
   }
 
-  window.common = { el, svgEl, button, connect, onMessages, overflowing }
+  window.common = { el, svgEl, button, connect, onMessages, runKey, overflowing }
 })()
