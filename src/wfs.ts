@@ -20,7 +20,8 @@ function wrap(e: unknown, u: vscode.Uri): Error {
   return e instanceof Error ? e : new Error(String(e))
 }
 
-function typeOf(st: fs.Stats, link = false): vscode.FileType {
+/** A file's type from its stats or its directory entry (both have isFile / isDirectory). */
+function typeOf(st: fs.Stats | fs.Dirent, link = false): vscode.FileType {
   const t = st.isFile() ? vscode.FileType.File : st.isDirectory() ? vscode.FileType.Directory : vscode.FileType.Unknown
   return link ? t | vscode.FileType.SymbolicLink : t
 }
@@ -52,8 +53,12 @@ async function readDirectory(u: vscode.Uri): Promise<[string, vscode.FileType][]
   try {
     const ents = await fs.promises.readdir(u.fsPath, { withFileTypes: true })
     return Promise.all(ents.map(async (d): Promise<[string, vscode.FileType]> => {
-      if (!d.isSymbolicLink()) return [d.name, d.isFile() ? vscode.FileType.File : d.isDirectory() ? vscode.FileType.Directory : vscode.FileType.Unknown]
-      try { return [d.name, typeOf(await fs.promises.stat(path.join(u.fsPath, d.name)), true)] } catch { return [d.name, vscode.FileType.Unknown | vscode.FileType.SymbolicLink] }
+      if (!d.isSymbolicLink()) return [d.name, typeOf(d)]
+      try {
+        return [d.name, typeOf(await fs.promises.stat(path.join(u.fsPath, d.name)), true)]
+      } catch {
+        return [d.name, vscode.FileType.Unknown | vscode.FileType.SymbolicLink]
+      }
     }))
   } catch (e) { throw wrap(e, u) }
 }
@@ -83,9 +88,14 @@ async function createDirectory(u: vscode.Uri): Promise<void> {
 
 export const wfs = { stat, readFile, writeFile, readDirectory, rename, delete: del, createDirectory }
 
+/** An open document's lines (unsaved edits count). */
+export function linesOf(doc: vscode.TextDocument): string[] {
+  return Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
+}
+
 /** A file's lines: its open document's (unsaved edits count), else the disk's. Opens no document (a round trip). */
 export async function fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && !d.isClosed)
-  if (open) return Array.from({ length: open.lineCount }, (_, i) => open.lineAt(i).text)
+  if (open) return linesOf(open)
   try { return new TextDecoder().decode(await readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }

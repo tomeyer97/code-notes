@@ -2,6 +2,24 @@
 // visible columns; the panel takes at most 40 % unless the reader made it wider; too little room left: no panel (the
 // step card in the editor is enough to walk).
 
+/** A character's width, as a share of the font size (a monospace font). */
+const CHAR_WIDTH_EM = 0.6
+/** The gutter: line numbers (about 5 characters) and the glyph, comment and folding margins (px). */
+const GUTTER_CHARS = 5
+const GUTTER_MARGINS_PX = 40
+/** The vertical scrollbar (px). */
+const SCROLLBAR_PX = 14
+/** The minimap's own margin (px). */
+const MINIMAP_MARGIN_PX = 8
+/** The panel's share when the reader set none (and the most it takes unless they made it wider). */
+const DEFAULT_SHARE = 0.35
+const MAX_SHARE = 0.4
+/** A remembered share outside these is a mistake (a panel dragged shut or over everything): the default is used. */
+const MIN_REMEMBERED = 0.1
+const MAX_REMEMBERED = 0.9
+/** Below this the panel is not worth opening (px). */
+const PANEL_MIN_PX = 260
+
 export interface ShareOptions {
   /** The reader's last width for the panel, as a share of the editor area. */
   remembered?: number
@@ -20,16 +38,18 @@ export interface ShareOptions {
  * of the width left after the gutter (a ninth of it at 14 px), so it grows with the editor.
  */
 export function codeWidth(chars: number, fontSize: number, minimap = true): number {
-  const cw = fontSize * 0.6
-  const gutter = 5 * cw + 40
-  const text = chars * cw + 14
-  return gutter + (minimap ? (text * (cw + 1)) / cw + 8 : text)
+  const cw = fontSize * CHAR_WIDTH_EM
+  const gutter = GUTTER_CHARS * cw + GUTTER_MARGINS_PX
+  const text = chars * cw + SCROLLBAR_PX
+  // The minimap: about one pixel per character of `text`.
+  return gutter + (minimap ? (text * (cw + 1)) / cw + MINIMAP_MARGIN_PX : text)
 }
 
 /** The panel's share of an editor area `total` px wide; 0: no room for it. */
 export function panelShare(total: number, o: ShareOptions): number {
   const need = codeWidth(o.minChars ?? 80, o.fontSize, o.minimap ?? true)
-  const want = o.remembered && o.remembered > 0.1 && o.remembered < 0.9 ? o.remembered : 0.35
-  const share = Math.min(o.remembered ? want : Math.min(want, 0.4), (total - need) / total)
-  return total * share < (o.panelMin ?? 260) ? 0 : Math.round(share * 1000) / 1000
+  const want = o.remembered && o.remembered > MIN_REMEMBERED && o.remembered < MAX_REMEMBERED ? o.remembered : DEFAULT_SHARE
+  const share = Math.min(o.remembered ? want : Math.min(want, MAX_SHARE), (total - need) / total)
+  // Rounded to a thousandth (the share is stored and compared).
+  return total * share < (o.panelMin ?? PANEL_MIN_PX) ? 0 : Math.round(share * 1000) / 1000
 }
