@@ -83,9 +83,14 @@ async function createDirectory(u: vscode.Uri): Promise<void> {
 
 export const wfs = { stat, readFile, writeFile, readDirectory, rename, delete: del, createDirectory }
 
+/** A document's lines, unsaved edits included. */
+export function docLines(doc: vscode.TextDocument): string[] {
+  return Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
+}
+
 /** A file's lines: its open document's (unsaved edits count), else the disk's. Opens no document (a round trip). */
 export async function fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && !d.isClosed)
-  if (open) return Array.from({ length: open.lineCount }, (_, i) => open.lineAt(i).text)
+  if (open) return docLines(open)
   try { return new TextDecoder().decode(await readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }

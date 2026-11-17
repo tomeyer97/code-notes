@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { fileLines } from './wfs'
-import { capValue, findLine, followLine, shiftLine } from './beatLine'
+import { LineEdit, capValue, findLine, followLine, shiftLine } from './beatLine'
+import { EditFollower } from './followEdits'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
 // says what it holds in the example run: `objs = [Secret run-…, Pod run-…]`. Like a debugger's inline values, but
@@ -25,7 +26,6 @@ export class ValueHints implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>()
   private readonly subs: vscode.Disposable[]
   private seq = 0
-  private follow: ReturnType<typeof setTimeout> | undefined
 
   /** `back`: where the code link's way back is shown; no hint shares its row. */
   constructor(private log: vscode.LogOutputChannel, private back: () => { uri: string; line: number } | undefined, backChanged: vscode.Event<void>) {
@@ -37,23 +37,20 @@ export class ValueHints implements vscode.Disposable {
           .map((h) => new vscode.CodeLens(new vscode.Range(h.line, 0, h.line, 0), { title: h.title, command: '' }))
       },
     }),
-    // The hints follow edits to their file: moved at once, their lines' text checked once the typing pauses.
-    vscode.workspace.onDidChangeTextDocument((e) => {
-      const hs = this.at.get(e.document.uri.toString())
-      if (!hs || !e.contentChanges.length) return
-      const edits = e.contentChanges.map((c) => ({ start: c.range.start.line, end: c.range.end.line, text: c.text }))
-      for (const h of hs) h.line = shiftLine(h.line, edits)
-      this.changed.fire()
-      clearTimeout(this.follow)
-      this.follow = setTimeout(() => this.refind(e.document), 150)
-    })]
+    // The hints follow edits to their file.
+    new EditFollower((uri) => this.at.has(uri), (edits, uri) => this.shift(uri, edits), (doc, lines) => this.refind(doc, lines))]
   }
 
-  private refind(doc: vscode.TextDocument): void {
+  private shift(uri: string, edits: LineEdit[]): void {
+    for (const h of this.at.get(uri) ?? []) h.line = shiftLine(h.line, edits)
+    this.changed.fire()
+  }
+
+  private refind(doc: vscode.TextDocument, lines: string[]): void {
     const u = doc.uri.toString(), hs = this.at.get(u)
     if (!hs) return
-    const lines = Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
-    this.at.set(u, hs.flatMap((h) => { const line = followLine(lines, h.line, h.text, []); return line < 0 ? [] : [{ ...h, line }] }))
+    const found = hs.map((h) => ({ ...h, line: followLine(lines, h.line, h.text, []) }))
+    this.at.set(u, found.filter((h) => h.line >= 0))
     this.changed.fire()
   }
 
@@ -89,5 +86,5 @@ export class ValueHints implements vscode.Disposable {
 
   clear(): void { if (!this.key && !this.at.size) return; this.seq++; this.key = ''; this.at = new Map(); this.changed.fire() }
 
-  dispose(): void { clearTimeout(this.follow); for (const s of this.subs) s.dispose() }
+  dispose(): void { for (const s of this.subs) s.dispose() }
 }
