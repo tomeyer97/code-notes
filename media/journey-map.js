@@ -31,7 +31,7 @@
 //   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
 //   { type: 'beat', n, i } (the animation's beat on step n; i = -1: the scene is gone)
 ;(function () {
-  const { el, connect, onMessages, overflowing } = window.common
+  const { el, button, connect, onMessages, runKey, overflowing } = window.common
   const { vscode, post } = connect()
   const app = document.getElementById('app')
 
@@ -105,6 +105,13 @@
   let offerSteps = 0
   /** The tutorial's elements on the page: the ring, the card, the dim. */
   let spot, tc, dim
+
+  // Waiting (startup, at the end): the size last rendered and the frame a re-layout waits for; the scroll saved and
+  // the panel's width reported once things settle.
+  let renderedSize = ''
+  let relayoutFrame = 0
+  let scrollTimer = 0
+  let widthTimer = 0
 
   const saveState = () => vscode.setState({ id: J && J.id, q: J && J.question, cur, n: J ? J.steps.length : 0, scroll: window.scrollY, mapShut, mapW, animOn })
   const sceneOf = (n) => { const s = J && J.steps[n - 1]; return s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length ? s.scene : undefined }
@@ -434,14 +441,21 @@
 
   // ---------- the splitter (0.21.1): the map column's width, dragged (wide panels only) ----------
 
+  /** The map column and the storyline beside it are at least this wide (px); a panel narrower than MAPMIN shows no map. */
   const MAPMIN = 240, STORYMIN = 280
   /** While the animation plays its column is at least SCENEMIN wide (Q6a: its text ≥ 11 px), still beside the
    *  storyline, which may narrow to STORYANIM. */
   const SCENEMIN = 400, STORYANIM = 160
+  /** The splitter's column with the gaps beside it (13 + 2 × 4 px), and the panel's padding (16 px each side). */
+  const SPLITTER_W = 21, GUTTER = 32
+  /** The map goes beside the storyline from this panel width (no animation playing). */
+  const WIDE_MIN = 520
+  /** How far ← → move the splitter (px). */
+  const SPLITTER_STEP = 24
   const animating = (body) => body.classList.contains('anim')
   const minW = (body) => (animating(body) ? SCENEMIN : MAPMIN)
   /** The widest the map may be in this body: the storyline keeps STORYMIN. */
-  const maxW = (body) => Math.max(minW(body), body.clientWidth - (animating(body) ? STORYANIM : STORYMIN) - 21)
+  const maxW = (body) => Math.max(minW(body), body.clientWidth - (animating(body) ? STORYANIM : STORYMIN) - SPLITTER_W)
   /** Sets the map column to `w` px (0: the default), clamped; the map keeps its step in view. */
   function widthTo(body, w) {
     if (!w && animating(body)) w = Math.max(SCENEMIN, body.clientWidth * 0.54)
@@ -475,32 +489,31 @@
       widthTo(body, w0 + (x0 - e.clientX))
       graph.resized()
     })
-    const done = () => { if (!dragging) return; dragging = false; document.body.classList.remove('resizing'); keepW(shownW()) }
-    s.addEventListener('pointerup', done)
-    s.addEventListener('pointercancel', done)
+    const release = () => {
+      if (!dragging) return
+      dragging = false
+      document.body.classList.remove('resizing')
+      keepW(shownW())
+    }
+    s.addEventListener('pointerup', release)
+    s.addEventListener('pointercancel', release)
     s.addEventListener('dblclick', () => { widthTo(body, 0); graph.resized(); keepW(0) })
     s.addEventListener('keydown', (e) => {
-      const d = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0
-      if (!d) return
-      e.preventDefault()
-      widthTo(body, shownW() + d)
-      graph.resized()
-      keepW(shownW())
+      const by = (d) => () => {
+        widthTo(body, shownW() + d)
+        graph.resized()
+        keepW(shownW())
+      }
+      runKey(e, { ArrowLeft: by(SPLITTER_STEP), ArrowRight: by(-SPLITTER_STEP) })
     })
     return s
   }
 
+  // ---------- render: the whole panel again from the state ----------
+
   function render() {
     if (!J) return
-    // The home's search keeps the keyboard across a re-render (the list is drawn again under it); so do a row, a chip.
-    home.beforeRender()
-    // The scene keeps the keyboard across a re-render (its element is taken out and put back).
-    if (scene && scene.el.contains(document.activeElement)) focusScene = true
-    // A re-render keeps the scroll; the first render after a reload goes back to where it was.
-    const keepY = toTop ? 0 : firstRender ? savedScroll : window.scrollY
-    if (toTop) window.scrollTo(0, 0)
-    toTop = false
-    firstRender = false
+    const keepY = beforeRender()
     app.textContent = ''
     app.classList.toggle('deleted', !!deleted)
     if (home.on) { home.draw(); saveState(); return }
@@ -511,35 +524,71 @@
     if (T.done && !cur && !deleted) app.append(doneView())
     // The storyline leads: the map beside it (wide) or above it (narrow, foldable under "Map"); too narrow for
     // boxes: none.
-    const anim0 = !!scene && animOn && !!cur && !!sceneOf(cur) && !tcard && !deleted
-    // Beside the storyline when both fit: the scene SCENEMIN wide, the storyline STORYANIM (Q6a); else above it.
-    const wide = app.clientWidth >= (anim0 ? SCENEMIN + STORYANIM + 21 + 32 : 520)
-    const tooNarrow = app.clientWidth < 240 && !tcard
+    const L = chooseLayout()
     const body = el('div', 'body')
     const story = J.steps.length ? storyline() : el('p', 'note', 'This journey has no steps yet.')
-    const hasMap = !tooNarrow
-    const anim = anim0 && hasMap
-    const shown = hasMap && (wide || !mapShut || !!tcard || !J.steps.length || anim)
-    const m = shown ? (anim ? sceneEl() : mapEl()) : undefined
-    if (!(shown && anim) && sceneKey) { sceneKey = ''; scene.forget(); post({ type: 'beat', n: 0, i: -1 }) }
-    if (wide) { body.classList.add('wide'); body.classList.toggle('anim', anim); body.append(story, ...(m ? [splitter(body), m] : [])) }
-    else {
-      if (hasMap && J.steps.length && !tcard && !anim) {
-        const t = el('button', 'link maptoggle', 'Map')
-        t.setAttribute('aria-expanded', String(shown))
-        t.title = shown ? 'Hide the map' : 'Show the map'
-        t.onclick = () => { mapShut = !mapShut; render() }
-        body.append(t)
-      }
+    const m = L.shown ? (L.anim ? sceneEl() : mapEl()) : undefined
+    // No animation on screen any more: the editor's highlight of its beat goes too.
+    if (!(L.shown && L.anim) && sceneKey) { sceneKey = ''; scene.forget(); post({ type: 'beat', n: 0, i: -1 }) }
+    if (L.wide) {
+      body.classList.add('wide')
+      body.classList.toggle('anim', L.anim)
+      body.append(story, ...(m ? [splitter(body), m] : []))
+    } else {
+      if (L.hasMap && J.steps.length && !tcard && !L.anim) body.append(mapToggle(L.shown))
       body.append(...(m ? [m] : []), story)
     }
     app.append(body)
-    if (wide && m) widthTo(body, mapW)
+    afterRender(body, head, m, L, keepY)
+  }
+
+  /** Before the panel is emptied: the keyboard and the scroll it keeps. Returns the scroll to go back to (0: none). */
+  function beforeRender() {
+    // The home's search keeps the keyboard across a re-render (the list is drawn again under it); so do a row, a chip.
+    home.beforeRender()
+    // The scene keeps the keyboard across a re-render (its element is taken out and put back).
+    if (scene && scene.el.contains(document.activeElement)) focusScene = true
+    // A re-render keeps the scroll; the first render after a reload goes back to where it was.
+    const keepY = toTop ? 0 : firstRender ? savedScroll : window.scrollY
+    if (toTop) window.scrollTo(0, 0)
+    toTop = false
+    firstRender = false
+    return keepY
+  }
+
+  /** What goes where at this panel's width: { wide: the map beside the storyline (else above it), hasMap: room for
+   *  boxes, anim: the step's animation in place of the map, shown: the map (or the animation) is on screen }. */
+  function chooseLayout() {
+    // The step's animation is on (and nothing else is in front).
+    const animOnStep = !!scene && animOn && !!cur && !!sceneOf(cur) && !tcard && !deleted
+    // Beside the storyline when both fit: the scene SCENEMIN wide, the storyline STORYANIM (Q6a); else above it.
+    const wide = app.clientWidth >= (animOnStep ? SCENEMIN + STORYANIM + SPLITTER_W + GUTTER : WIDE_MIN)
+    const tooNarrow = app.clientWidth < MAPMIN && !tcard
+    const hasMap = !tooNarrow
+    const anim = animOnStep && hasMap
+    // Narrow: folded under "Map" by hand, but never while the tutorial points at it, with no steps, or animating.
+    const shown = hasMap && (wide || !mapShut || !!tcard || !J.steps.length || anim)
+    return { wide, hasMap, anim, shown }
+  }
+
+  /** Narrow panels: "Map", which folds the map away (or back). */
+  function mapToggle(shown) {
+    const t = el('button', 'link maptoggle', 'Map')
+    t.setAttribute('aria-expanded', String(shown))
+    t.title = shown ? 'Hide the map' : 'Show the map'
+    t.onclick = () => { mapShut = !mapShut; render() }
+    return t
+  }
+
+  /** Once the panel is in the page: the map column's width, the header's height, the map (or the scene) placed, the
+   *  scroll back, the current row in view, the reports, the tutorial. */
+  function afterRender(body, head, m, L, keepY) {
+    if (L.wide && m) widthTo(body, mapW)
     const headH = head.offsetHeight
     document.documentElement.style.setProperty('--headH', `${headH}px`)
     graph.set(J, cur, legendHidden)
-    if (m && !anim) graph.placed()
-    if (m && anim) placeScene()
+    if (m && !L.anim) graph.placed()
+    if (m && L.anim) placeScene()
     if (keepY) window.scrollTo(0, keepY)
     savedScroll = 0
     follow()
@@ -735,27 +784,37 @@
     ;(nb || target).focus({ preventScroll: true })
   }
 
+  // While a card is up: Esc leaves, → (or Enter, but on a button or box: its own click) goes on, ← back.
   document.addEventListener('keydown', (e) => {
-    if (tcard) {
-      if (e.key === 'Escape') { e.preventDefault(); leaveTutorial(); return }
-      // Enter on a button or box is its own click; anywhere else it is Next.
-      if (e.key === 'ArrowRight' || (e.key === 'Enter' && !e.target.closest?.('button, .box'))) { e.preventDefault(); tutorialMove(1); return }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); tutorialMove(-1); return }
-      return
-    }
+    if (!tcard) return
+    runKey(e, {
+      Escape: () => leaveTutorial(),
+      ArrowRight: () => tutorialMove(1),
+      Enter: !e.target.closest?.('button, .box') && (() => tutorialMove(1)),
+      ArrowLeft: () => tutorialMove(-1),
+    })
   })
+
+  // ---------- startup ----------
+
   // Re-lay out when the size changes, a frame later (rendering inside the observer would loop it).
-  let size = '', frame = 0
   const relayout = () => {
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(() => { const s = `${app.clientWidth}x${window.innerHeight}`; if (J && s !== size) { size = s; render() } })
+    cancelAnimationFrame(relayoutFrame)
+    relayoutFrame = requestAnimationFrame(() => {
+      const s = `${app.clientWidth}x${window.innerHeight}`
+      if (J && s !== renderedSize) { renderedSize = s; render() }
+    })
+  }
+  // The panel's width as the reader drags it: the extension keeps it for the next walk.
+  const reportWidth = () => {
+    clearTimeout(widthTimer)
+    widthTimer = setTimeout(() => post({ type: 'panelWidth', w: window.innerWidth }), 500)
   }
   new ResizeObserver(relayout).observe(app)
-  let st = 0
-  window.addEventListener('scroll', () => { clearTimeout(st); st = setTimeout(() => { if (J) saveState() }, 300) })
-  window.addEventListener('resize', relayout)
-  // The panel's width as the reader drags it: the extension keeps it for the next walk.
-  let pw = 0
-  window.addEventListener('resize', () => { clearTimeout(pw); pw = setTimeout(() => post({ type: 'panelWidth', w: window.innerWidth }), 500) })
+  window.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer)
+    scrollTimer = setTimeout(() => { if (J) saveState() }, 300)
+  })
+  window.addEventListener('resize', () => { relayout(); reportWidth() })
   post({ type: 'ready' })
 })()
