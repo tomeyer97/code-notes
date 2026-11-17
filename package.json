@@ -1306,6 +1306,11 @@
           "default": "journeys",
           "description": "Folder (relative to the workspace folder) holding the repository's journeys, committed and shared with the team. Journeys in the notes folder's journeys/ are read too (personal ones, the old place); with the same id, the one here wins."
         },
+        "codeNotes.claudeLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Code links in a Claude Code chat (\"[the phrase](src/file.ts#L12-L20)\") light the lines they open, with \"← Back\" above them to where you were."
+        },
         "codeNotes.journeys.codeLens": {
           "type": "boolean",
           "default": true,

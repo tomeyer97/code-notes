@@ -3,6 +3,7 @@ import { Beats } from './beats'
 import { TutorialSpot } from './tutorialSpot'
 import { devReload } from './devReload'
 import { CodeLinks } from './codeLinks'
+import { ClaudeLinks, linkTarget } from './claudeLinks'
 import { readValues, ValueHints } from './valueHints'
 import { linkPhrases, readLinks } from './codeLinkText'
 import { execFile } from 'child_process'
@@ -75,6 +76,7 @@ let mapPanel: MapPanel
 let beats: Beats
 let tutorialSpot: TutorialSpot
 let codeLinks: CodeLinks
+let claudeLinks: ClaudeLinks
 let valueHints: ValueHints
 /** The journey whose map is open (its file URI), and the step shown (1-based; 0: browsing the map, no tour running). */
 let tourKey: string | undefined
@@ -2669,6 +2671,15 @@ function parseExplain(v: any, where: string): ExplainRequest | undefined {
 
 /** vscode://<publisher>.code-notes/explain?action=…&q=…[&repo=<path>] (old scripts): `model` is ignored. */
 async function onUri(uri: vscode.Uri): Promise<void> {
+  if (uri.path.replace(/\/+$/, '') === '/link') {
+    const t = linkTarget(uri.query)
+    if (!t) { log.warn(`link: no file or start: ${uri.toString(true)}`); return }
+    const path = require('path') as typeof import('path')
+    const folder = vscode.workspace.workspaceFolders?.[0]
+    const file = path.isAbsolute(t.file) || !folder ? vscode.Uri.file(t.file) : vscode.Uri.joinPath(folder.uri, t.file)
+    await claudeLinks.light(file, t.start - 1, t.end - 1)
+    return
+  }
   if (uri.path.replace(/\/+$/, '') !== '/explain') { log.warn(`unknown link: ${uri.toString(true)}`); return }
   const p = new URLSearchParams(uri.query)
   const repo = p.get('repo')
@@ -3869,6 +3880,8 @@ export async function activate(context: vscode.ExtensionContext) {
   tutorialSpot = new TutorialSpot()
   context.subscriptions.push(tutorialSpot)
   codeLinks = new CodeLinks(log)
+  claudeLinks = new ClaudeLinks(log, () => vscode.workspace.getConfiguration('codeNotes').get<boolean>('claudeLinks', true))
+  context.subscriptions.push(claudeLinks)
   valueHints = new ValueHints(log, () => codeLinks.backAt, codeLinks.onDidChange)
   context.subscriptions.push(beats, codeLinks, valueHints, vscode.commands.registerCommand('codeNotes.codeLink', async (key: string, i: number) => {
     // A link in a check thread: its note's lines are the card; the way back is the question.
