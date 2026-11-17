@@ -15,6 +15,8 @@ import { findCompact } from './compact'
 import { Note, NoteData, Store } from './store'
 import { Check, CheckView, Cli, CommitPlan, Link, QState, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, writeFailure, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, tourPrompt } from './checkModel'
 import { clock } from './writing'
+import { CliThread } from './cliThread'
+import { Coalesced } from './gitKey'
 
 /** What the check needs from the rest of the extension (extension.ts). */
 export interface CheckHost {
@@ -91,6 +93,14 @@ const notDone = (s: string) => s === 'todo' || s === 'retry' || s === 'ungraded'
 
 export class Understanding implements vscode.Disposable {
   private U!: Cli
+  /** The CLI's git work (status, diffs, identity), on a worker thread: never waited for by the extension host. */
+  private T!: CliThread
+  /** What the last full refresh read, as one hash (cliWorker.ts, gateKey): a trigger that finds it unchanged stops there. */
+  private key: string | undefined
+  /** Who answers (git's user.name and user.email), as the last refresh read it. */
+  private who: Who | undefined
+  /** Refreshes done in full and skipped as unchanged (integration test). */
+  private counts = { full: 0, same: 0 }
   private item: vscode.StatusBarItem
   readonly view: CheckViewProvider
   private subs: vscode.Disposable[] = []
@@ -153,21 +163,25 @@ export class Understanding implements vscode.Disposable {
   async init(): Promise<void> {
     const p = vscode.Uri.joinPath(this.host.extUri, 'cli', 'understanding.mjs')
     this.U = (await importFn(pathToFileURL(p.fsPath).href)) as Cli
+    this.T = new CliThread(p.fsPath)
     // Claude runs the skill's script by its path: it must be executable (an unzip may have dropped the bit).
     const script = vscode.Uri.joinPath(this.host.extUri, 'skills', SKILL, 'scripts', 'questions.mjs').fsPath
     try { fs.accessSync(script, fs.constants.X_OK) } catch { try { fs.chmodSync(script, 0o755) } catch { /* read-only install */ } }
     if (!this.folder || this.folder.uri.scheme !== 'file') return
     const f = this.folder
-    const later = () => this.refreshSoon()
+    // Every trigger goes through the same check (gated): a refresh reads git only when something it shows can have
+    // changed. No watcher on .git/index: any `git status` (VS Code's own Git view, a terminal, an agent) rewrites it,
+    // which kept the check refreshing over and over; VS Code's git extension says when the working tree changed.
+    const later = () => this.refreshSoon(400, false)
     // A commit moves the branch (logs/HEAD), not .git/HEAD; a checkout changes both.
-    for (const glob of ['understanding/*.json', '.git/{HEAD,index}', '.git/logs/HEAD', '.git/refs/remotes/**']) {
+    for (const glob of ['understanding/*.json', '.git/HEAD', '.git/logs/HEAD', '.git/refs/remotes/**']) {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, glob))
       w.onDidChange(later); w.onDidCreate(later); w.onDidDelete(later)
       this.subs.push(w)
     }
     this.subs.push(vscode.window.onDidChangeWindowState((s) => { if (s.focused) later() }), vscode.workspace.onDidSaveTextDocument(later),
       // An applied fix undone (or edited) before it is saved: what Commit & push offers follows.
-      vscode.workspace.onDidChangeTextDocument((e) => { if (this.repo && Object.values(this.fixes()).some((f) => e.document.uri.fsPath === path.join(this.repo!, f))) this.refreshSoon() }))
+      vscode.workspace.onDidChangeTextDocument((e) => { if (this.repo && e.contentChanges.length && Object.values(this.fixes()).some((f) => e.document.uri.fsPath === path.join(this.repo!, f))) later() }))
     this.watchPushes()
     await this.refresh()
   }
@@ -175,26 +189,42 @@ export class Understanding implements vscode.Disposable {
   private get repo(): string | undefined { return this.folder?.uri.fsPath }
   private get abs(): string | undefined { return this.st && this.repo ? path.join(this.repo, this.st.file) : undefined }
 
-  refreshSoon(ms = 400): void {
+  /** `force` false: a trigger (a file event, focus, a save): skipped when nothing the refresh reads changed. */
+  refreshSoon(ms = 400, force = true): void {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.refresh(), ms)
+    this.soonForce ||= force
+    this.timer = setTimeout(() => { const f = this.soonForce; this.soonForce = false; void this.refresh(f) }, ms)
   }
+  private soonForce = false
 
-  private chain: Promise<void> = Promise.resolve()
-  /** Reads where the branch stands, then the status bar, the threads and the view follow (one at a time). */
-  refresh(): Promise<void> {
-    this.chain = this.chain.then(() => this.doRefresh(), (e) => this.host.log.error(`understanding check: ${e}`))
-    return this.chain
-  }
-  private async doRefresh(): Promise<void> {
+  /** One refresh at a time; the calls made meanwhile share one more (coalesced). */
+  private runs = new Coalesced((force) => this.doRefresh(force).catch((e) => { this.key = undefined; this.host.log.error(`understanding check: ${e}`) }))
+  /**
+   * Reads where the branch stands, then the status bar, the threads and the view follow. `force` false: only when
+   * something it reads changed since the last refresh (HEAD, a ref, the working tree, the check file, …).
+   */
+  refresh(force = true): Promise<void> { return this.runs.run(force) }
+  private async doRefresh(force: boolean): Promise<void> {
     const repo = this.repo
     if (!repo || !this.U) return
+    // An applied fix edited and not saved yet: only the editor knows (Commit & push offers it).
+    const fixFiles = Object.values(this.fixes())
+    const edited = fixFiles.filter((f) => vscode.workspace.textDocuments.some((d) => d.isDirty && d.uri.fsPath === path.join(repo, f)))
+    const r = await this.T.call<{ key?: string; same?: boolean; st?: Status; error?: string; ident?: Who }>('refreshState', repo,
+      { prev: force ? undefined : this.key, files: [...REPO_FILES, ...this.todoFiles(), ...fixFiles], untracked: !!this.notice, extra: edited.join('\0') })
+      .catch((e: Error) => ({ error: e.message } as { key?: string; same?: boolean; st?: Status; error?: string; ident?: Who }))
+    if (r.same) { this.counts.same++; return }
+    this.counts.full++
+    // Unknown until this refresh is through (a failure part way leaves it unknown: the next trigger reads again).
+    this.key = undefined
     const before = this.st?.branch
-    try { this.st = this.U.localStatus(repo) } catch (e) { this.st = undefined; this.host.log.info(`understanding check: no status (${(e as Error).message.split('\n')[0]})`) }
+    this.st = r.st
+    this.who = r.ident
+    if (!r.st) this.host.log.info(`understanding check: no status (${r.error ?? 'unknown'})`)
     if (this.st && this.st.branch !== before) {
       this.pushed = undefined; this.mr = undefined; this.selected = undefined; this.said = undefined
       // The branch left behind had an unfinished check (untracked): it waits in the cache, not in this branch's tree.
-      if (before && this.park(before)) this.parkedQuiet.add(before)
+      if (before && (await this.park(before))) this.parkedQuiet.add(before)
     }
     // What the last Commit & push said (a rejected push, a failed commit) is stale once HEAD has moved on.
     if (this.pushed && this.pushed !== 'Pushed.' && this.pushedHead !== undefined && (await gitOut(repo, ['rev-parse', 'HEAD'])) !== this.pushedHead) this.pushed = undefined
@@ -212,11 +242,11 @@ export class Understanding implements vscode.Disposable {
       this.host.log.info(`understanding check: back on ${p.branch}: the tour goes on`)
       setTimeout(() => void this.writeTour(p.topUp, { session: p.session }), 0)
     }
-    if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh()
+    if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh(true)
     this.words = this.st ? this.U.stateWords(this.st.state, this.st) : undefined
     // No check yet and nothing of the change committed: the questions would have nothing to ask about.
     const st0 = this.st
-    this.uncommittedOnly = st0?.state.phase === 'none' && !!st0.base && !!st0.head && st0.changed > 0 && (() => { try { return this.U.linesOf(this.U.codeStat(repo, st0.base!, st0.head!, this.cfg().exempt)) === 0 } catch { return false } })()
+    this.uncommittedOnly = st0?.state.phase === 'none' && !!st0.base && !!st0.head && st0.changed > 0 && await this.T.call<{ added: number; removed: number }>('codeStat', repo, st0.base, st0.head, this.cfg().exempt).then((s) => this.U.linesOf(s) === 0, () => false)
     if (this.startAfterCommit && this.startAfterCommit === st0?.branch && st0.state.phase === 'none' && !this.uncommittedOnly && !this.writing) {
       this.startAfterCommit = undefined
       setTimeout(() => void this.write(false), 0)
@@ -234,26 +264,36 @@ export class Understanding implements vscode.Disposable {
       // Done: the same words as the Check view ("Pushed.", "Not pushed yet."), not the file's alone.
       const line = this.st?.state.phase === 'done' ? this.current()?.line : undefined
       if (t && line) t.tip = [this.words?.title, line].filter(Boolean).join(' · ')
-      if (t) {
-        this.item.text = t.text; this.item.tooltip = t.tip
-        // Read out as words (VS Code would read the icon's id: "pass Understanding").
-        this.item.accessibilityInformation = { label: `Understanding check: ${t.tip.replace(/^✓\s*/, '').replace(/ · /g, '. ')}`, role: 'button' }
-        this.item.backgroundColor = t.warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined
-        this.item.show()
-      } else this.item.hide()
+      // Only what changed is sent to the window (each change is a message to it).
+      const shown = t ? JSON.stringify([t.text, t.tip, !!t.warn]) : ''
+      if (shown !== this.itemShown) {
+        this.itemShown = shown
+        if (t) {
+          this.item.text = t.text; this.item.tooltip = t.tip
+          // Read out as words (VS Code would read the icon's id: "pass Understanding").
+          this.item.accessibilityInformation = { label: `Understanding check: ${t.tip.replace(/^✓\s*/, '').replace(/ · /g, '. ')}`, role: 'button' }
+          this.item.backgroundColor = t.warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined
+          this.item.show()
+        } else this.item.hide()
+      }
     }
     if (this.st?.check) await this.syncThreads(this.st.check)
     // While there is a check, an empty Code Notes view steps aside: the Check view gets its room (package.json).
-    void vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', !!this.st?.check)
+    const open = !!this.st?.check
+    if (open !== this.checkOpen) { this.checkOpen = open; void vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', open) }
     // A file that can't be read (a bad edit, a conflict) keeps the tour shown as it was until it reads again.
     if (this.st?.state.phase !== 'invalid') await this.host.tourChanged?.(this.st?.check, this.abs, this.st?.branch)
     this.post()
     this.host.listChanged?.()
+    this.key = r.key
   }
+  private checkOpen: boolean | undefined
+  /** What the status bar item shows (set elsewhere too: then this is reset). */
+  private itemShown: string | undefined
 
   private cfg() { return this.repo && this.U ? this.U.loadConfig(this.repo) : { maxDrift: 40, passRatio: 0.6, questions: { min: 1, max: 5 }, model: null } }
 
-  private me(): Who | undefined { return this.repo && this.U ? this.U.gitIdentity(this.repo) : undefined }
+  private me(): Who | undefined { return this.who }
 
   current(): CheckView | undefined {
     if (!this.st || !this.words) return undefined
@@ -369,6 +409,7 @@ export class Understanding implements vscode.Disposable {
     }
     const model = this.host.model()
     const w = (this.writing = { started: Date.now(), phase: 'starting', branch: st.branch } as NonNullable<Understanding['writing']>)
+    this.itemShown = undefined
     this.item.text = '$(sync~spin) Understanding'
     this.item.accessibilityInformation = { label: 'Understanding check: writing questions', role: 'button' }
     this.item.show()
@@ -396,7 +437,7 @@ export class Understanding implements vscode.Disposable {
     // nothing opens, nothing is written to the branch checked out now.
     const now = await gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
     if (now && now !== w.branch) {
-      this.park(w.branch)
+      await this.park(w.branch)
       const kept = fs.existsSync(path.join(repo, this.U.cachedFor(w.branch)))
       if (kept && !bg) void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
       this.host.log.info(`understanding check: the branch changed to ${now} while writing for ${w.branch}${kept ? '; kept for it' : ''}`)
@@ -514,6 +555,9 @@ export class Understanding implements vscode.Disposable {
         // Per branch: pushed as last seen. A branch first seen already pushed (a checkout) starts nothing.
         const was = new Map<string, boolean>()
         this.subs.push(r.state.onDidChange(() => {
+          // The Git view read the repository again (a file changed, a commit, a checkout): whatever the check shows
+          // follows, if it changed (gated: nothing is read again otherwise).
+          this.refreshSoon(400, false)
           const h = r.state.HEAD
           if (!h?.name) return
           const pushed = !!h.upstream && h.ahead === 0
@@ -545,7 +589,7 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** Moves the questions written for `branch` out of a working tree that has another branch now. */
-  private park(branch: string): boolean {
+  private async park(branch: string): Promise<boolean> {
     const repo = this.repo!
     const rel = this.U.fileFor(branch)
     const src = path.join(repo, rel)
@@ -555,7 +599,7 @@ export class Understanding implements vscode.Disposable {
       const ignore = path.join(repo, '.code-notes/.cache/.gitignore')
       if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n')
       // Tracked on this branch (it has a check of that name): leave it, it is not ours to move.
-      const tracked = !!(execFileSyncQuiet(repo, ['ls-files', '--', rel]))
+      const tracked = !!(await gitOut(repo, ['ls-files', '--', rel]))
       if (tracked) return false
       fs.renameSync(src, path.join(repo, this.U.cachedFor(branch)))
       this.host.log.info(`understanding check: questions for ${branch} kept in ${CACHE} until it is checked out`)
@@ -584,8 +628,7 @@ export class Understanding implements vscode.Disposable {
     if (!this.abs) return
     const pe = this.parseError()
     const line = Math.max(0, (this.st?.conflict?.line ?? pe?.line ?? 1) - 1), col = Math.max(0, (pe?.col ?? 1) - 1)
-    const ed = await vscode.window.showTextDocument(vscode.Uri.file(this.abs), { preview: false })
-    ed.selection = new vscode.Selection(line, col, line, col)
+    const ed = await vscode.window.showTextDocument(vscode.Uri.file(this.abs), { preview: false, selection: new vscode.Selection(line, col, line, col) })
     ed.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter)
   }
   /** Keep both answers: each question once, from the side with more graded answers. */
@@ -1015,7 +1058,7 @@ export class Understanding implements vscode.Disposable {
     if (this.grading.has(q.id)) return
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
     if (!(await this.host.addReply(n, body))) return
-    this.U.addAttempt(check, q, body, this.U.gitIdentity(this.repo))
+    this.U.addAttempt(check, q, body, this.who)
     this.save(abs, check)
     // Not awaited: the reply box clears once the answer is in (VS Code clears it when the command returns).
     void this.grade(q.id)
@@ -1044,7 +1087,9 @@ export class Understanding implements vscode.Disposable {
     if (!q || !last) return
     const mode = this.U.gradeMode(q)
     let diff = ''
-    try { diff = this.U.diffText(repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
+    // Graded from here on (a second click while the diff is read starts nothing).
+    this.grading.set(id, undefined)
+    try { diff = await this.T.call<string>('diffText', repo, check.base ?? check.head) } catch { /* no diff: the grader reads the code */ }
     const prompt = this.U.graderPrompt({ q, answer: last.answer ?? "", ...mode, diff: this.U.diffForGrader(diff, q.file), code: this.U.codeWindow(repo, q), canRead: true, tour: this.U.tourText(check), others: this.U.openOthers(check, q) })
     const ask = new Ask({ cli, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
@@ -1173,17 +1218,17 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** For the integration test. */
-  snapshot() { return { itemLabel: this.item.accessibilityInformation?.label, tourBusy: !!this.touring, bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()] } }
+  snapshot() { return { itemLabel: this.item.accessibilityInformation?.label, tourBusy: !!this.touring, bg: this.bgTrace, status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor, view: this.current(), panel: this.view.state(), grading: [...this.grading.keys()], errors: [...this.gradeErrors.values()], refreshes: { ...this.counts } } }
   panelSend(m: unknown): void { this.view.send(m) }
+  /** The worker stops; the next call starts a new one (integration test: with another PATH). */
+  restartWorker(): void { this.T?.dispose() }
 
-  dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer) }
+  dispose(): void { for (const s of this.subs) s.dispose(); this.item.dispose(); clearTimeout(this.timer); this.T?.dispose() }
 }
 
+/** git's output (trimmed), or undefined. Reads never take the index lock (a `git status` here rewrites nothing). */
 function gitOut(repo: string, args: string[], allowEmpty = false): Promise<string | undefined> {
-  return new Promise((resolve) => execFile('git', args, { cwd: repo, timeout: 5000 }, (err, out) => resolve(err ? undefined : out.trim() || (allowEmpty ? '' : undefined))))
-}
-function execFileSyncQuiet(repo: string, args: string[]): string {
-  try { return require('child_process').execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return '' }
+  return new Promise((resolve) => execFile('git', args, { cwd: repo, timeout: 5000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => resolve(err ? undefined : out.trim() || (allowEmpty ? '' : undefined))))
 }
 /** Both sides of a check file with conflict markers, as checks (undefined: a side that doesn't read). */
 function conflictSides(text: string): (Check | undefined)[] {
@@ -1231,13 +1276,13 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     view.webview.html = this.html(view.webview)
     view.webview.onDidReceiveMessage((m: { type: string; id?: string; file?: string; on?: boolean; ok?: boolean; text?: string; i?: number; action?: string; rows?: number; overflow?: string[]; message?: string; height?: number }) => {
-      if (m.type === 'ready') { this.ready = true; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
+      if (m.type === 'ready') { this.ready = true; this.sent = undefined; this.post(); for (const q of this.queue.splice(0)) void view.webview.postMessage(q) }
       else if (m.type === 'rendered') this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
       else if (m.type === 'error') { this.reported.errors.push(String(m.message)); this.log.error(`check view: ${m.message}`) }
       else if (m.type === 'focused' && m.id) this.focused(m.id, !!m.ok)
       this.onMessage(m)
     })
-    view.onDidDispose(() => { this.wv = undefined; this.ready = false })
+    view.onDidDispose(() => { this.wv = undefined; this.ready = false; this.sent = undefined })
   }
 
   /** Shows the view (opening the sidebar on it), keeping the keyboard where it is. */
@@ -1268,9 +1313,15 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     this.wv.show(false)
     this.send({ type: 'focus', id })
   }
+  /** The view as last sent to the webview: the same view again is not sent (a message to the window each time). */
+  private sent: string | undefined
   private post(): void {
     if (!this.wv || !this.ready) return
-    void this.wv.webview.postMessage({ type: 'check', view: this.last ?? null })
+    const msg = { type: 'check', view: this.last ?? null }
+    const text = JSON.stringify(msg, (_k, v) => (v instanceof Set ? [...v] : v))
+    if (text === this.sent) return
+    this.sent = text
+    void this.wv.webview.postMessage(msg)
   }
   send(m: unknown): void { if (this.wv && this.ready) void this.wv.webview.postMessage(m); else this.queue.push(m) }
   state() { return { open: !!this.wv, visible: !!this.wv?.visible, ...this.reported } }
