@@ -4,7 +4,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { findCompact } from '../compact'
-import type { NoteData } from '../noteModel'
+import { captureAnchor, type NoteData } from '../noteModel'
 import type { Note } from '../store'
 import { Attempt, Check, Question, gradeBody, missingMessages, notDone, questionBody } from '../checkModel'
 import { AUTHOR, SESSION } from './constants'
@@ -117,7 +117,7 @@ export class CheckThreads {
       folder, uri: this.host.store.uriFor(folder, id),
       data: {
         id, file: q.file, range: { start, end },
-        anchor: q.target ? { text: '', before: '', after: '' } : anchorOf(lines, start, end),
+        anchor: q.target ? { text: '', before: '', after: '' } : captureAnchor(lines, start - 1, end - 1),
         session: SESSION(u.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
         messages: messages.map((m) => ({ ...m, at: m.at ?? at })),
         ...(q.target ? { target: 'file' as const } : {}),
@@ -129,12 +129,3 @@ export class CheckThreads {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(lo, v), hi)
-
-/** A note's anchor on lines start..end (1-based): their text, two lines before and two after (the note file format). */
-function anchorOf(lines: string[], start: number, end: number): { text: string; before: string; after: string } {
-  return {
-    text: lines.slice(start - 1, end).join('\n'),
-    before: lines.slice(Math.max(0, start - 3), start - 1).join('\n'),
-    after: lines.slice(end, end + 2).join('\n'),
-  }
-}

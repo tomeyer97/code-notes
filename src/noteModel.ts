@@ -86,6 +86,18 @@ export function merge(base: NoteData, ours: NoteData, theirs: NoteData): NoteDat
   return out
 }
 
+/** Lines of context kept around a note's lines in its anchor (before and after). */
+const ANCHOR_CONTEXT_LINES = 2
+
+/** A note's anchor on lines start..end (0-based, inclusive): their text, two lines before and two after. */
+export function captureAnchor(lines: string[], start: number, end: number): NoteData['anchor'] {
+  return {
+    text: lines.slice(start, end + 1).join('\n'),
+    before: lines.slice(Math.max(0, start - ANCHOR_CONTEXT_LINES), start).join('\n'),
+    after: lines.slice(end + 1, end + 1 + ANCHOR_CONTEXT_LINES).join('\n'),
+  }
+}
+
 /** Why a notes folder setting can't be used (C116), or undefined. Stricter than a note's "file" (paths.ts placeFile):
  *  no `..` at all, even one that stays inside. */
 export function folderProblem(v: string): string | undefined {

@@ -1,7 +1,7 @@
 // A note file's content (src/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NoteData, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
+import { NoteData, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
 
 const note = (o: Record<string, unknown> = {}) => JSON.stringify({
   file: 'src/a.ts', range: { start: 3, end: 5 }, status: 'open', messages: [{ author: 'ann', role: 'human', body: 'Why?' }], ...o,
@@ -92,4 +92,11 @@ test('titleOf: the first message of a file that is JSON', () => {
   assert.equal(titleOf(note()), 'Why?')
   assert.equal(titleOf('{'), undefined)
   assert.equal(titleOf('{"messages":[{"body":" "}]}'), undefined)
+})
+
+test('captureAnchor: the lines (0-based, inclusive) and two lines of context each side, cut at the file\'s ends', () => {
+  const lines = ['a', 'b', 'c', 'd', 'e', 'f']
+  assert.deepEqual(captureAnchor(lines, 2, 3), { text: 'c\nd', before: 'a\nb', after: 'e\nf' })
+  assert.deepEqual(captureAnchor(lines, 0, 0), { text: 'a', before: '', after: 'b\nc' })
+  assert.deepEqual(captureAnchor(lines, 5, 5), { text: 'f', before: 'd\ne', after: '' })
 })

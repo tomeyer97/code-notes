@@ -5,11 +5,9 @@ import { anchor, Loc } from '../anchor'
 import { log, notes, store } from '../app'
 import { commitInfo, otherBranch } from '../identity'
 import { refreshAll } from '../refresh'
-import { NoteData } from '../noteModel'
+import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
 import { diskLines, docLines, wfs } from '../wfs'
-
-const CONTEXT_LINES = 2
 
 /** Notes whose code file does not exist (deleted or moved). */
 export const missing = new Set<string>()
@@ -150,14 +148,6 @@ export async function reanchorAll(): Promise<void> {
       }
       if (reanchor(n, lines)) await saveIfClean(n)
     }
-  }
-}
-
-export function captureAnchor(lines: string[], start: number, end: number): NoteData['anchor'] {
-  return {
-    text: lines.slice(start, end + 1).join('\n'),
-    before: lines.slice(Math.max(0, start - CONTEXT_LINES), start).join('\n'),
-    after: lines.slice(end + 1, end + 1 + CONTEXT_LINES).join('\n'),
   }
 }
 

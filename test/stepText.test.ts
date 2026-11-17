@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { Journey, JStep, parseJourney } from '../src/journeyModel'
 import { StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
-import type { StepAt } from '../src/journeys'
+import type { StepAt } from '../src/journeys/steps'
 
 /** Each link as `[label](file:line-end)`: what the card would link, in one string. */
 const link = (r: StepRef) => `[${r.label}](${r.file}:${r.line}-${r.end})`

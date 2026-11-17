@@ -3,8 +3,9 @@
 import * as vscode from 'vscode'
 import { byId, showError, understanding } from '../app'
 import { commitInfo } from '../identity'
+import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
-import { captureAnchor, docUri, missing, otherAnchor, pastEnd } from '../threads/anchoring'
+import { docUri, missing, otherAnchor, pastEnd } from '../threads/anchoring'
 import { lines, suggestionOf } from '../threads/comments'
 import { docLines } from '../wfs'
 

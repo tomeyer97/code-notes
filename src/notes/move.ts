@@ -3,15 +3,16 @@
 import * as vscode from 'vscode'
 import { byId, setCtx, store } from '../app'
 import { commitInfo } from '../identity'
+import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
 import { plain } from '../text'
-import { captureAnchor, docUri, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
+import { docUri, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
 import { lines } from '../threads/comments'
+import { docLines } from '../wfs'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './status'
 import { notesFrom } from './target'
-import { docLines } from '../wfs'
 
 export let moveItem: vscode.StatusBarItem
 
