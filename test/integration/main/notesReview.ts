@@ -6,7 +6,7 @@ import * as fs from 'fs'
 import assert from 'assert'
 import { appendMessage, now, quiet, readJson, settle, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
-import { at, bodyOf, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
+import { at, bodyOf, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
 import { UNREAD_FINDING } from './keysAndMap'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -28,8 +28,7 @@ export const notesReviewTests = [
     const editor = await vscode.window.showTextDocument(vscode.Uri.file(wsPath('src', 'flow2.ts')))
     editor.selection = new vscode.Selection(0, 0, 0, 0)
     // Settled where it is (a file opened over the journey panel moves to the code group, and takes the focus with it).
-    await settle(600, 'flow2.ts moving out of the journey panel\'s group')
-    await until('flow2 in front', () => vscode.window.activeTextEditor?.document.uri.path.endsWith('/src/flow2.ts'))
+    await until('flow2 in front', () => vscode.window.activeTextEditor?.document.uri.path.endsWith('/src/flow2.ts') && vscode.window.tabGroups.activeTabGroup.viewColumn !== tour().mapColumn)
     vscode.window.activeTextEditor!.selection = new vscode.Selection(0, 0, 0, 0)
     void vscode.commands.executeCommand('codeNotes.resolveNext')
     await until('R resolved it', () => readJson(notePath(UNREAD_FINDING)).status === 'resolved')
