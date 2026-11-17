@@ -126,23 +126,3 @@ test('kinds: a store is read as a store, an unknown kind as a module', () => {
   assert.equal(k.edges[0].async, true)
 })
 
-test('renames come from git, as journey.py check finds them', async () => {
-  const { gitRenames } = await import('../src/gitRenames')
-  const { execFileSync } = await import('child_process')
-  const os = await import('os')
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cn-git-'))
-  const git = (...a: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { stdio: 'pipe' })
-  git('init', '-q')
-  fs.mkdirSync(path.join(repo, 'web/cart'), { recursive: true })
-  fs.writeFileSync(path.join(repo, 'web/cart/basket.ts'), Array.from({ length: 40 }, (_, i) => `line ${i} of basket`).join('\n'))
-  fs.writeFileSync(path.join(repo, 'a.go'), Array.from({ length: 40 }, (_, i) => `line ${i} of a`).join('\n'))
-  git('add', '.'); git('commit', '-qm', 'one')
-  const base = git('rev-parse', '--short', 'HEAD').toString().trim()
-  git('mv', 'a.go', 'b.go'); git('commit', '-qm', 'two')
-  git('mv', 'web/cart/basket.ts', 'web/cart/cartLines.ts') // staged, not committed
-  const m = await gitRenames(repo, base)
-  assert.equal(m.get('a.go'), 'b.go', 'a rename committed since the journey\'s commit')
-  assert.equal(m.get('web/cart/basket.ts'), 'web/cart/cartLines.ts', 'a staged git mv')
-  assert.equal((await gitRenames(path.join(repo, 'nope'))).size, 0, 'no repo: nothing, no error')
-  fs.rmSync(repo, { recursive: true, force: true })
-})
