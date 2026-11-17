@@ -2,12 +2,13 @@
 // and short ways to read its state. Every test file of the main suite imports these; suite.ts fills `ctx` once.
 import * as vscode from 'vscode'
 import * as path from 'path'
+import type { TestApi } from '../../../src/testApi'
 import { waiter } from '../helpers'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const ctx = {
-  /** The extension's test API (src/extension.ts: what `activate` returns). */
-  api: undefined as any,
+  /** The extension's test API (src/testApi.ts: what `activate` returns). */
+  api: undefined as unknown as TestApi,
   folder: undefined as unknown as vscode.WorkspaceFolder,
   /** The workspace folder on disk. */
   ws: '',

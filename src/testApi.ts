@@ -23,6 +23,9 @@ import { explainLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/writer'
 
+/** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
+export type TestApi = ReturnType<typeof testApi>
+
 export function testApi() {
   return {
     snapshot: () => ({

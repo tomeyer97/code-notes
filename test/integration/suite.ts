@@ -2,14 +2,14 @@
 // agent would, in one window and one workspace, each test starting from what the one before left.
 //
 // Where the tests are (and the source files they cover most):
-//   main/notes.ts          notes from the first one to the trash   store.ts, anchor.ts, claude.ts, extension.ts
-//   main/journeyTour.ts    walking a journey, step cards, lenses   journeys.ts, journeyModel.ts, extension.ts
+//   main/notes.ts          notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask.ts, claude.ts
+//   main/journeyTour.ts    walking a journey, step cards, lenses   journeys/, journeyModel.ts, tour/
 //   main/keysAndMap.ts     chord keys, the tutorial, the whole map package.json keybindings, tutorialSpot.ts
-//   main/journeyFiles.ts   a journey's files changing under it     journeys.ts, gitRenames.ts, anchor.ts, compact.ts
-//   main/notesReview.ts    findings: R, severity, history, suggestions, file and folder notes   store.ts, extension.ts
-//   main/writeJourney.ts   the agent writes a journey              writing.ts, claude.ts
-//   main/repoJourneys.ts   journeys in the repo, compact anchors   journeys.ts, compact.ts
-//   main/requests.ts       the request file and vscode:// links    extension.ts, match.ts, writing.ts
+//   main/journeyFiles.ts   a journey's files changing under it     journeys/, gitRenames.ts, anchor.ts, compact.ts
+//   main/notesReview.ts    findings: R, severity, history, suggestions, file and folder notes   notes/, sidebar/, noteModel.ts
+//   main/writeJourney.ts   the agent writes a journey              write/, writing.ts, claude.ts
+//   main/repoJourneys.ts   journeys in the repo, compact anchors   journeys/, compact.ts
+//   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
 //   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, beatLine.ts
 //   roundTrips.ts          calls into the window per action (remote performance)
 // The pure modules have unit tests next to this folder (test/<module>.test.ts).

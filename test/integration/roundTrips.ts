@@ -7,6 +7,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
+import type { TestApi } from '../../src/testApi'
 import { EXT_ID, Until, quiet, settle, sleep } from './helpers'
 import { journey, step, writeJourney } from './fixtures'
 
@@ -54,7 +55,7 @@ export function callCounter(api: { mementos?: () => vscode.Memento[] }) {
 }
 
 /** The main suite's journey with code links ("anim", step 1: links into its own file and into tok.ts). */
-export async function roundTrips(api: any, ws: string, until: Until): Promise<void> {
+export async function roundTrips(api: TestApi, ws: string, until: Until): Promise<void> {
   const tour = () => api.snapshot().tour
   const animUri = vscode.Uri.file(path.join(ws, 'src', 'anim.ts')).toString(), tokUri = vscode.Uri.file(path.join(ws, 'src', 'tok.ts')).toString()
   const c = callCounter(api)

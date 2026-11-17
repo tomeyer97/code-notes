@@ -1,6 +1,7 @@
 // Notes as review findings: R (resolve and next), severity order and icons, grouping by session or file, the
 // history of resolves and reopens, suggestions with Apply, file and folder notes, Add Note without commenting ranges.
-// Source: src/extension.ts (commands, threads, the tree), src/store.ts (events, unknown fields kept).
+// Source: src/notes/ (commands, suggestions), src/threads/, src/sidebar/ (the tree), src/noteModel.ts (events,
+// unknown fields kept).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import assert from 'assert'

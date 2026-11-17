@@ -111,7 +111,7 @@ export class StepCard {
   staleText(lj: LoadedJourney, n: number, ask: string) { return staleText(lj, n, ask, this.tour.fileGone && this.tour.step === n) }
 
   /** The panel's step card, and the links it shows (posted back by index). */
-  panelCard(lj: LoadedJourney, n: number): object {
+  panelCard(lj: LoadedJourney, n: number) {
     const tour = this.tour
     const refs: StepRef[] = []
     const t = this.text(lj, n, (r) => { refs.push(r); return `[${r.label.replace(/[[\]]/g, '').replace(/^.*\//, '')}](ref:${refs.length - 1})` })

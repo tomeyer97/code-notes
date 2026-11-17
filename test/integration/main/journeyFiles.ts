@@ -1,7 +1,7 @@
 // A journey's files changing under it: the journey file deleted mid-walk, a step's file renamed (on disk, with git mv),
 // changed on disk with no editor open, refreshed by the journey writer; and a long file: the map follows the step,
 // cards stay in view after jumps, arriving at a step reads no note, leaving for another journey says so, a step whose
-// file is gone opens no stand-in tab. Source: src/journeys.ts, src/gitRenames.ts, src/anchor.ts, src/compact.ts.
+// file is gone opens no stand-in tab. Source: src/journeys/, src/gitRenames.ts, src/anchor.ts, src/compact.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -56,7 +56,7 @@ export const journeyFilesTests = [
     // Its code deleted: "removed", the card at the top of the file, never on the code now there.
     // Its card goes to the map; nothing in the editor pretends to be the step (no card on line 1).
     await until('stale', () => firstStepOf('mv').stale && !tour().card && /can't find these lines/.test(tour().panelCard?.staleText ?? ''), 8000)
-    assert.equal(tour().panelCard.staleText, "**⚠ Code changed: can't find these lines** · [Ask](ask:update)", 'one line, one Ask, never "gone"')
+    assert.equal(tour().panelCard!.staleText, "**⚠ Code changed: can't find these lines** · [Ask](ask:update)", 'one line, one Ask, never "gone"')
     await vscode.commands.executeCommand('codeNotes.endJourney')
     fs.unlinkSync(mvPath)
     await until('mv gone', () => !snap().journeys.some((x: any) => x.id === 'mv'))
@@ -126,7 +126,7 @@ export const journeyFilesTests = [
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
     await until('More open', () => /long\.ts:100/.test(tour().card?.body ?? ''))
     await vscode.commands.executeCommand('codeNotes.openAt', ctx.folder.uri.toString(), 'src/long.ts', 100, 104, 1)
-    await until('ref peeked', () => /^code-notes-ref:.*long\.ts/.test(tour().peek?.uri ?? '') && tour().peek.start === 99 && tour().peek.end === 103 && !tour().ref)
+    await until('ref peeked', () => /^code-notes-ref:.*long\.ts/.test(tour().peek?.uri ?? '') && tour().peek!.start === 99 && tour().peek!.end === 103 && !tour().ref)
     await vscode.commands.executeCommand('closeReferenceSearch').then(undefined, () => undefined)
     await until('still at the step', () => /^src\/long\.ts:/.test(at()) && tour().card?.title === 'At line 20')
     // The map follows the step (0.21: the whole map, centred on the step's box).

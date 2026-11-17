@@ -1,6 +1,7 @@
 // Walking a journey (format v2): it loads (steps are never notes), opens as a map with step cards in the editor,
 // follows edits, takes questions, survives reloads and edits of its file, and leaves "◇ Step n" lenses behind.
-// Source: src/journeys.ts (loading, the tour), src/journeyModel.ts (parsing), src/extension.ts (cards, lenses, commands).
+// Source: src/journeys/ (loading, where the steps are), src/journeyModel.ts (parsing), src/tour/ (the walk, cards,
+// lenses, commands).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -102,24 +103,25 @@ export const journeyTourTests = [
     const settled = await vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
     if (settled.groups.length === 2) { const total = settled.groups[0].size + settled.groups[1].size; assert.ok(settled.groups[1].size / total <= 0.41, `the panel takes ${JSON.stringify(settled)}`) }
     mapColumn = tour().mapColumn
-    const card1 = tour().card
+    const card1 = tour().card!
+    const cardBody = card1.body ?? ''
     assert.equal(card1.label, '1/3 · a calls b', 'the card\'s first line is "1/3 · title"')
     assert.equal(card1.canReply, false, 'no reply box on a step')
     assert.ok(card1.expanded)
     assert.equal(card1.line, 0, 'the card right above the step\'s first line')
-    assert.match(card1.body, /a calls b: the lead\./)
-    assert.match(card1.body, /\[More\]\(command:codeNotes\.stepDetails/)
-    assert.ok(!card1.body.includes('More about'), 'details folded')
-    assert.ok(!/flow\.ts:5|gone\.ts/.test(card1.body), 'no bare link row: the references are inside More')
-    assert.match(card1.body, /\[Ask\]\(command:codeNotes\.askStep\)/, 'one word, a command without arguments')
-    assert.ok(!/Previous/.test(card1.body), 'no Previous on step 1')
+    assert.match(cardBody, /a calls b: the lead\./)
+    assert.match(cardBody, /\[More\]\(command:codeNotes\.stepDetails/)
+    assert.ok(!cardBody.includes('More about'), 'details folded')
+    assert.ok(!/flow\.ts:5|gone\.ts/.test(cardBody), 'no bare link row: the references are inside More')
+    assert.match(cardBody, /\[Ask\]\(command:codeNotes\.askStep\)/, 'one word, a command without arguments')
+    assert.ok(!/Previous/.test(cardBody), 'no Previous on step 1')
     assert.equal(snap().notes.length, notesBefore, 'touring creates no notes')
     assert.equal(tour().statusShown, true)
     assert.equal(tour().status, '$(map) 1/3', 'the position only')
     // More: the details and the refs.
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
-    await until('details open', () => tour().card?.body.includes('More about'))
-    const body = () => tour().card.body as string
+    await until('details open', () => tour().card?.body?.includes('More about'))
+    const body = () => tour().card!.body as string
     assert.match(body(), /~~gone\.ts:3~~ \(file gone\)/, 'a ref to a missing file says so, inside More')
     assert.match(body(), /\n\nRecipients builds the list of addresses a receipt goes to in \[address\.go:31-54\]\(command:codeNotes\.openAt[^)]* "lib\/mail\/address\.go:31-54"\)\./, `a ref may be a sentence: its token (a file in another directory) a link inside it: ${body()}`)
     assert.ok(!/address\.go[^\n]*gone/.test(body()), `an existing file in another directory is never "gone": ${body()}`)
@@ -136,7 +138,7 @@ export const journeyTourTests = [
     const folderUri = ctx.folder.uri.toString()
     await vscode.commands.executeCommand('codeNotes.openAt', folderUri, 'src/flow2.ts', 2, 2, 1)
     await until('ref peeked', () => /flow2\.ts$/.test(tour().peek?.uri ?? ''))
-    assert.equal(tour().peek.under, tour().card.line, 'the peek opens right under the step card, not under the step\'s code')
+    assert.equal(tour().peek!.under, tour().card!.line, 'the peek opens right under the step card, not under the step\'s code')
     await quiet(300, 'the ref taking the editor or opening a tab')
     assert.match(vscode.window.activeTextEditor?.document.uri.path ?? '', /\/flow\.ts$/, 'the step stays the editor')
     assert.ok(!tabOpen(/\/flow2\.ts$/), 'no tab replaced or added for the ref')
@@ -146,7 +148,7 @@ export const journeyTourTests = [
     // A ref into the step's own file is a peek too, of a read-only copy (closing a peek of the file itself took the
     // card with it).
     await vscode.commands.executeCommand('codeNotes.openAt', folderUri, 'src/flow.ts', 5, 5, 1)
-    await until('same-file ref peeked (a copy)', () => /^code-notes-ref:.*\/flow\.ts/.test(tour().peek?.uri ?? '') && tour().peek.start === 4)
+    await until('same-file ref peeked (a copy)', () => /^code-notes-ref:.*\/flow\.ts/.test(tour().peek?.uri ?? '') && tour().peek!.start === 4)
     assert.ok(/^src\/flow\.ts:/.test(at()) && !tour().ref, `the step's editor stays, nothing jumped: ${at()}`)
     await windowShot('inline-ref-peek-same-file')
     await vscode.commands.executeCommand('closeReferenceSearch').then(undefined, () => undefined)
@@ -164,7 +166,7 @@ export const journeyTourTests = [
     await until('Go Back: on the step, card and marker shown', () => at() === 'src/flow.ts:2' && /\/flow\.ts$/.test(tour().card?.file ?? '') && tour().card?.expanded && (tour().marked as string[]).some((x) => /\/flow\.ts$/.test(x)), 8000)
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('step 2', () => tour().step === 2 && at() === 'src/flow.ts:6' && tour().card?.label === '2/3 · b returns')
-    assert.equal(tour().card.line, 4, 'step 2: the card right above its first line')
+    assert.equal(tour().card!.line, 4, 'step 2: the card right above its first line')
     await windowShot('inline-card-above-function')
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('step 3, another file', () => tour().step === 3 && at() === 'src/flow2.ts:2')
@@ -173,8 +175,8 @@ export const journeyTourTests = [
     assert.equal(textTabs.length, 1, `one reused preview tab for the tour's files, no pile-up: ${textTabs.map((x) => x.label)}`)
     assert.ok(textTabs[0].isPreview)
     assert.equal(tour().mapColumn, mapColumn, 'the map kept its group')
-    assert.match(tour().card.body, /\[Finish\]\(command:codeNotes\.nextStep/, 'the last step offers Finish')
-    assert.ok(!/How does a get to c/.test(tour().card.body), 'no recap on the last step')
+    assert.match(tour().card!.body!, /\[Finish\]\(command:codeNotes\.nextStep/, 'the last step offers Finish')
+    assert.ok(!/How does a get to c/.test(tour().card!.body!), 'no recap on the last step')
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('Next on the last step finishes', () => !tour().touring && tour().map === 'demo' && snap().journeys[0].resume === 0)
     await until('Finish closes the step tab the walk opened', () => !tabOpen(/\/flow2?\.ts$/))

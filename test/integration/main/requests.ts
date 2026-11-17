@@ -1,7 +1,8 @@
 // Asking for a journey from outside the window: the request file (.code-notes/.request.json, written by a script or
 // another tool, answered in .result.json) and vscode://<extension id>/explain links. A match opens; no match asks
 // first and then writes one with Claude (or Claude asks back); a link never starts Claude.
-// Source: src/extension.ts (requests, links, the confirm and pick), src/match.ts (matching), src/writing.ts.
+// Source: src/write/requests.ts (requests, links), src/write/rank.ts (the confirm and pick), src/match.ts (matching),
+// src/writing.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -70,7 +71,7 @@ export const requestsTests = [
     const runsBefore = claudeRuns().length
     request({ action: 'ask', question: 'How are saved widgets frobnicated?', model: 'claude-fake-x', id: 'req-2' })
     const confirm = await until('confirm shown', () => ctx.api.confirming())
-    assert.match(confirm.title, /^No journey answers this yet\. Write one with Claude \(claude-fake-x, about 3 min\)\?$/)
+    assert.match(confirm.title ?? '', /^No journey answers this yet\. Write one with Claude \(claude-fake-x, about 3 min\)\?$/)
     const closest = confirm.items.findIndex((x: string) => /Saving a note/.test(x))
     assert.ok(closest >= 0 && closest < confirm.items.indexOf('$(sparkle) Write') && confirm.items.at(-1) === 'Cancel', `closest journeys first, then Write, Cancel: ${confirm.items}`)
     await untilEqual('result: confirm', () => [result()?.id, result()?.outcome, result()?.model], ['req-2', 'confirm', 'claude-fake-x'])
@@ -147,7 +148,7 @@ export const requestsTests = [
     const notesBefore = snap().notes.length
     void vscode.commands.executeCommand('codeNotes.askStep')
     const box = await until('the Ask box', () => ctx.api.askBox())
-    assert.match(box.title, /^Ask about step \d+\/2: /)
+    assert.match(box.title ?? '', /^Ask about step \d+\/2: /)
     assert.ok(ctx.api.askBoxSend('Where is the note written?'))
     const asked = await until('step question saved', () => snap().notes.length === notesBefore + 1 && snap().notes.find((x: any) => x.messages[0].body.startsWith('Where is the note written?')))
     await untilEqual('its thread open, titled by the question', () => [!!noteById(asked.id)?.threadExpanded, noteById(asked.id)?.threadLabel], [true, 'Where is the note written?'])

@@ -1,6 +1,6 @@
 // The chord keys (Ctrl+< / Ctrl+' with C R D A V), the tutorial's extension side, and the whole map: step numbers,
-// function boxes and the "‹ Journeys" home list. Source: package.json (keybindings), src/extension.ts (next/previous,
-// the panel's messages), src/tutorialSpot.ts, media/journey-map.js (driven through its own click/key handlers).
+// function boxes and the "‹ Journeys" home list. Source: package.json (keybindings), src/tour/ (next/previous,
+// the panel's messages: tour/map.ts), src/tutorialSpot.ts, media/journey-map.js (driven through its own click/key handlers).
 // The tutorial's webview side (bar and card texts, where the cards sit, clicks blocked under it) is checked in the
 // panel harness, test/journey-map/shoot.mjs (`tutorial`); here: what the extension does with it.
 import * as vscode from 'vscode'

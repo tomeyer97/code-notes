@@ -2,7 +2,7 @@
 // value hint shows what a variable holds in the example run; the row's toggle plays the scene in place of the map and
 // each beat lights the line that does it; back, forward and "Map" all work. Then: files opened over the panel move to
 // the code group. Source: src/codeLinks.ts, src/codeLinkText.ts, src/valueHints.ts, src/beats.ts, src/beatLine.ts,
-// src/extension.ts; the panel's side in media/journey-scene.js (test/journey-scene/check.mjs).
+// src/tour/card.ts; the panel's side in media/journey-scene.js (test/journey-scene/check.mjs).
 import * as vscode from 'vscode'
 import assert from 'assert'
 import { execFileSync } from 'child_process'
@@ -77,7 +77,7 @@ export const animationTests = [
     assert.equal(tour().beat, undefined, 'nothing lit before the animation is on')
     // Phrases of the card's text link to their lines (own colour), marked faintly while the step is open; a click lights one.
     await until('the card has the two phrases as code links, the linked lines found (one had moved)', () => /\[<span style="color:var\(--vscode-foreground\);background-color:var\(--vscode-toolbar-hoverBackground\);">encodes <\/span><wbr><span [^>]*>the <\/span><wbr><span [^>]*>run<\/span>\]\(command:codeNotes\.codeLink/.test(tour().card?.body ?? '') && tour().codeLinks.at[0]?.start === 1 && tour().codeLinks.at[1]?.start === 2, 10000)
-    const body = () => tour().card.body as string
+    const body = () => tour().card!.body as string
     assert.ok(/>stores <\/span><wbr><span [^>]*>it<\/span>\]\(command:codeNotes\.codeLink/.test(body()) && !/said<\/span>/.test(body()), `a phrase not in the text is no link: ${body()}`)
     assert.ok(body().includes('\\<fast\\>'), 'other tags in the text stay text')
     assert.ok(!body().includes('​'), 'no zero-width spaces in the card (copied text must match a search)')
@@ -100,7 +100,7 @@ export const animationTests = [
     // A link into the card's file, on screen with the card: no scroll away from it, no way back needed.
     await quiet(300, 'a scroll away from the card, or a Back row')
     assert.equal(tour().codeLinks.back, false, 'the card is on screen with the lit lines: no Back row')
-    assert.ok(onScreen(tour().card.line) && onScreen(2), 'card and lit lines both on screen')
+    assert.ok(onScreen(tour().card!.line!) && onScreen(2), 'card and lit lines both on screen')
     assert.ok(!(await lensTitles()).some((x) => /Back/.test(x)), `no Back lens: ${await lensTitles()}`)
     await shot('anim-1-link-same-file')
     // A second click on the lit phrase turns it off.
@@ -151,7 +151,7 @@ export const animationTests = [
   test('a step\'s animation: toggle, beats forward and back, each lights its line (found again when moved, following edits); the step comes back when the scene stops; code links stay near the card, toggle, end on Go Back; files opened over the panel move to the code group', async () => {
     // (Code links: the tests above.)
     ctx.api.mapSend({ type: 'test', click: '.animbtn' })
-    await until('beat 1: its line lit, the caret on it (one lit line)', () => tour().beat?.uri === animUri() && tour().beat.line === 1 && codeEditor()?.selection.active.line === 1, 10000)
+    await until('beat 1: its line lit, the caret on it (one lit line)', () => tour().beat?.uri === animUri() && tour().beat!.line === 1 && codeEditor()?.selection.active.line === 1, 10000)
     // The step's own delayed scrolls do not take beat 1's line away.
     await settle(700, 'the step\'s delayed reveals')
     assert.ok(onScreen(1) && tour().beat?.line === 1, 'beat 1 still lit and on screen after the step\'s reveals')
@@ -165,7 +165,7 @@ export const animationTests = [
     await until('beat 2: the moved line is found by its text; no example, no lens', () => tour().beat?.line === 2, 10000)
     await shot('anim-3-beat-in-step')
     ctx.api.mapSend({ type: 'test', click: '.scn-next' })
-    await until('beat 3: a line in another file, the card out of sight', () => tour().beat?.uri === tokUri() && tour().beat.line === 3 && codeEditor()?.document.uri.toString() === tokUri(), 10000)
+    await until('beat 3: a line in another file, the card out of sight', () => tour().beat?.uri === tokUri() && tour().beat!.line === 3 && codeEditor()?.document.uri.toString() === tokUri(), 10000)
     // The panel gets that line with the lines around it, for its own small view of the code.
     const beatCode = tour().beatCode
     assert.ok(beatCode?.line === 4 && beatCode.lines[beatCode.line - beatCode.from]?.length > 0, `the beat's lines for the panel: ${JSON.stringify(beatCode)}`)
@@ -181,9 +181,9 @@ export const animationTests = [
     // ▶ then the next step: its beat 1 is what is on screen, not the step's own reveal.
     ctx.api.mapSend({ type: 'test', click: '.animbtn' })
     // The animation comes back at the beat it was left on (kept per step for the walk): beat 3, in the other file.
-    await until('the animation again, at the beat it was left on', () => tour().beat?.uri === tokUri() && tour().beat.line === 3, 10000)
+    await until('the animation again, at the beat it was left on', () => tour().beat?.uri === tokUri() && tour().beat!.line === 3, 10000)
     await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('step 2, the animation on: its beat 1 (another file) lit and on screen', () => tour().step === 2 && tour().beat?.uri === tokUri() && tour().beat.line === 2 && codeEditor()?.document.uri.toString() === tokUri(), 10000)
+    await until('step 2, the animation on: its beat 1 (another file) lit and on screen', () => tour().step === 2 && tour().beat?.uri === tokUri() && tour().beat!.line === 2 && codeEditor()?.document.uri.toString() === tokUri(), 10000)
     await settle(700, 'the step\'s delayed reveals')
     assert.ok(tour().beat?.line === 2 && codeEditor()?.document.uri.toString() === tokUri() && onScreen(2), 'still the beat after the step\'s delayed reveals')
     // Ctrl+' P: the command exists and runs (the panel's answer to it is the webview's).

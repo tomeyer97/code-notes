@@ -1,7 +1,7 @@
 // Notes, from the first one to the trash: adding, agent replies and unread counts, following the code (edits, renames,
 // deletes), resolving, sessions, invalid files, Ask Claude, paths outside the workspace, .gitignore.
-// Source: src/extension.ts (commands, threads), src/store.ts (files, unread, trash), src/anchor.ts (following code),
-// src/claude.ts (Ask Claude).
+// Source: src/notes/ (commands), src/threads/ (threads, following code), src/store.ts (files, trash), src/seen.ts
+// (unread), src/anchor.ts (finding lines), src/ask.ts and src/claude.ts (Ask Claude).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -63,7 +63,7 @@ export const notesTests = [
   test('Next Unread opens the thread, clears the badge and every "new"', async () => {
     void vscode.commands.executeCommand('codeNotes.nextUnread')
     await until('read after Next Unread', () => first()?.unread === 0 && first().threadExpanded && snap().badge === 0)
-    assert.doesNotMatch(first().threadLabel, /new/, 'read everywhere at once, the thread header too')
+    assert.doesNotMatch(first().threadLabel ?? '', /new/, 'read everywhere at once, the thread header too')
   }),
 
   test('edits above are followed live and saved with the file', async () => {
@@ -127,7 +127,7 @@ export const notesTests = [
   test('delete moves the note to .code-notes/.trash', async () => {
     const question = byBody('Why')
     const editor = await vscode.window.showTextDocument(vscode.Uri.file(renamedTs()))
-    caretAt(editor, question.range.start - 1)
+    caretAt(editor, question!.range.start - 1)
     void vscode.commands.executeCommand('codeNotes.delete')
     await until('moved to trash', () => fs.existsSync(path.join(ctx.notesDir, '.trash', path.basename(firstNotePath))) && !fs.existsSync(firstNotePath))
   }),
@@ -224,7 +224,7 @@ export const notesTests = [
 
   test('Mark as Unread', async () => {
     const editor = await vscode.window.showTextDocument(vscode.Uri.file(renamedTs()))
-    caretAt(editor, bySession('Visual review').range.start - 1)
+    caretAt(editor, bySession('Visual review')!.range.start - 1)
     await vscode.commands.executeCommand('codeNotes.reveal')
     await until('read', () => bySession('Visual review')?.unread === 0)
     await vscode.commands.executeCommand('codeNotes.markUnread')
@@ -244,7 +244,7 @@ export const notesTests = [
     // A fake CLI (test/fixtures/fake-claude.js) with its own log: other test runs on this machine share the temp folder.
     process.env.FAKE_CLAUDE_LOG = path.join(ctx.ws, '..', `fake-claude-${path.basename(ctx.ws)}.log`)
     await setting('claude.path', path.join(__dirname, '../../../../test/fixtures/fake-claude.js'))
-    const id = bySession('Classic review').id
+    const id = bySession('Classic review')!.id
     const asked = () => snap().notes.find((y: any) => y.id === id)
     const file = path.join(ctx.notesDir, `${id}.json`)
     void vscode.commands.executeCommand('codeNotes.askClaude', id)
@@ -268,7 +268,7 @@ export const notesTests = [
     void vscode.commands.executeCommand('codeNotes.askClaude', id)
     await until('asking slow', () => asked()?.asking)
     await vscode.commands.executeCommand('codeNotes.cancelClaude', id)
-    await until('cancelled, no answer added', () => { const x = asked(); return x && !x.asking && x.messages.at(-1).body === 'slow question' })
+    await until('cancelled, no answer added', () => { const x = asked(); return x && !x.asking && x.messages.at(-1)?.body === 'slow question' })
   }),
 
   test('mode "always": new notes are answered without a click', async () => {

@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import assert from 'assert'
+import type { TestApi } from '../../src/testApi'
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -13,13 +14,16 @@ export const SCALE = Number(process.env.CODE_NOTES_TIMEOUT_SCALE) || (process.en
 
 export type Until = <T>(what: string, fn: () => T | undefined | false | Promise<T | undefined | false>, ms?: number) => Promise<T>
 
+/** How long a wait waits by default (× SCALE): `waiter()`'s and `untilEqual`'s. */
+export const WAIT_MS = 6000
+
 /**
  * A wait for a condition: polls `fn` every 100 ms until it returns something truthy (which it returns), or throws
  * "timed out waiting for: <what>" after `ms` × SCALE. `ms` defaults to the waiter's; `dump`, when given, is printed on
  * a timeout (the state the condition was looking at).
  */
 export function waiter(defaults: { ms?: number; dump?: () => unknown } = {}): Until {
-  return async (what, fn, ms = defaults.ms ?? 6000) => {
+  return async (what, fn, ms = defaults.ms ?? WAIT_MS) => {
     const t0 = Date.now()
     for (;;) {
       const v = await fn()
@@ -40,7 +44,7 @@ export const until = waiter()
  * Waits until `get()` deep-equals `want`; on a timeout the failure shows both (where `until` with several clauses
  * joined by && only says it timed out).
  */
-export async function untilEqual<T>(what: string, get: () => T, want: T, ms = 6000): Promise<void> {
+export async function untilEqual<T>(what: string, get: () => T, want: T, ms = WAIT_MS): Promise<void> {
   const t0 = Date.now()
   for (;;) {
     let got: T | undefined
@@ -117,10 +121,9 @@ export const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../pac
 /** The extension's id, from package.json (publisher.name). */
 export const EXT_ID = `${pkg.publisher}.${pkg.name}`
 
-/** The extension activated: its test API (src/extension.ts, the object `activate` returns). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function activate(): Promise<any> {
-  return vscode.extensions.getExtension(EXT_ID)!.activate()
+/** The extension activated: its test API (src/testApi.ts, the object `activate` returns). */
+export async function activate(): Promise<TestApi> {
+  return vscode.extensions.getExtension<TestApi>(EXT_ID)!.activate()
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

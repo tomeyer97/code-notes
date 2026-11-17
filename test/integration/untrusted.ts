@@ -3,11 +3,11 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
+import type { TestApi } from '../../src/testApi'
 import { activate, claudeRuns, quiet, readJsonOr, runTests, test, until } from './helpers'
 
 const ws = vscode.workspace.workspaceFolders![0].uri.fsPath
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let api: any
+let api: TestApi
 
 const tests = [
   test('Restricted Mode: the folder\'s claude.path is ignored', async () => {
