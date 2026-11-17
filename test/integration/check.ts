@@ -774,4 +774,14 @@ export async function run(): Promise<void> {
     assert.ok(r.calls.filter((x) => x.startsWith('show')).length <= 1 && r.calls.length <= 3, `opening a question: ${r.calls.join(', ')}`)
   } finally { c.dispose() }
   ok('opening a question: one show, few calls into the window')
+
+  // 18. Ctrl+Enter twice msgsBefore the first one returns (the box keeps its text meanwhile): one message, not two.
+  const n1q = noteOf('q1')
+  const th = api.thread(n1q.id) as vscode.CommentThread
+  const msgsBefore = noteOf('q1').messages.length
+  await Promise.all([vscode.commands.executeCommand('codeNotes.answerCheck', { thread: th, text: 'Said twice.' }), vscode.commands.executeCommand('codeNotes.answerCheck', { thread: th, text: 'Said twice.' })])
+  await until('the remark in the thread', () => noteOf('q1').messages.length > msgsBefore)
+  await sleep(800)
+  assert.equal(noteOf('q1').messages.length, msgsBefore + 1, 'one message for two Ctrl+Enter')
+  ok('a double Ctrl+Enter posts once')
 }

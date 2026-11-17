@@ -306,7 +306,7 @@ export class Understanding implements vscode.Disposable {
     const tourBusy = this.touring && this.touring.branch === this.st.branch ? `Writing the tour · ${clock(Date.now() - this.touring.started)}` : undefined
     const sel = this.selected ? this.noteOf(this.selected) : undefined
     const gradeError = sel && this.gradeErrors.get(sel.data.id)
-    return checkView(this.st, this.words, { ...(gradeError ? { error: gradeFailure(gradeError) } : {}), busy: busy2, tourBusy, uncommitted: this.uncommittedOnly, invalidAt: this.parseError()?.text, tourFailed: this.tourFailed === this.st.branch, grading: new Set(this.grading.keys()), unpushed: this.unpushed, pushed: this.pushed, ...(this.mr ? { mr: this.mr } : {}), me: this.me(),
+    return checkView(this.st, this.words, { ...(gradeError ? { error: gradeFailure(gradeError) } : {}), busy: busy2, tourBusy, uncommitted: this.uncommittedOnly, invalidAt: this.parseError()?.text, tourFailed: this.tourFailed === this.st.branch, grading: new Set([...this.grading.keys(), ...this.answering]), unpushed: this.unpushed, pushed: this.pushed, ...(this.mr ? { mr: this.mr } : {}), me: this.me(),
       notice: this.notice?.branch === this.st.branch && this.st.state.phase !== 'done' ? this.notice.text : undefined,
       ...(this.commit ? { commit: { ...this.commit, include: this.include, exclude: this.exclude } } : {}),
       ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}),
@@ -696,9 +696,11 @@ export class Understanding implements vscode.Disposable {
   /** Sent from the box: the same path as a reply in the thread (the thread shows it, then its grade). */
   private async answerFromView(id: string, text: string): Promise<void> {
     const n = this.noteOf(id)
-    if (!n || !text.trim()) return
-    await this.setDraft(id, '')
-    await this.answer(n, text)
+    if (!n || !text.trim() || this.grading.has(id) || this.answering.has(id)) return
+    // The box empties and says "Checking…" at once (the draft is in memory before it is stored); a failed answer
+    // puts its text back.
+    void this.setDraft(id, '')
+    if (!(await this.answer(n, text)) && !this.grading.has(id)) void this.setDraft(id, text)
     this.post()
   }
   /** A code link in the box's grade: the same link as in the thread (lit, the keyboard stays in the box). */
@@ -1036,32 +1038,44 @@ export class Understanding implements vscode.Disposable {
   }
 
   /** The person answered in a question's thread: the answer goes into the file, then it is graded. */
-  async answer(n: Note, text: string): Promise<void> {
+  /** True when the answer was taken (saved in the thread, and in the file unless it is a remark). */
+  async answer(n: Note, text: string): Promise<boolean> {
     const link = linkOf(n)
-    if (!link || !this.repo) return
+    if (!link || !this.repo) return false
     const body = text.trim()
-    if (!body) return
-    await this.refresh()
-    const abs = path.join(this.repo, link.file)
+    if (!body) return false
+    // One answer at a time per question: a second Ctrl+Enter meanwhile is not a second answer.
+    if (this.answering.has(link.q)) return false
+    this.answering.add(link.q)
+    this.post(); this.host.refresh()
+    try { return await this.takeAnswer(n, link, body) } finally { this.answering.delete(link.q); this.post(); this.host.refresh() }
+  }
+  /** Questions whose answer is being taken: "Checking…" from the first moment. */
+  private answering = new Set<string>()
+  private async takeAnswer(n: Note, link: { file: string; q: string }, body: string): Promise<boolean> {
+    // Gated: reads git again only if something changed (the check file is read below anyway).
+    await this.refresh(false)
+    const abs = path.join(this.repo!, link.file)
     let check: Check
-    try { check = this.U.readCheck(abs) } catch { void vscode.window.showWarningMessage(`Code Notes: ${link.file} can't be read.`); return }
+    try { check = this.U.readCheck(abs) } catch { void vscode.window.showWarningMessage(`Code Notes: ${link.file} can't be read.`); return false }
     const q = check.questions.find((x) => x.id === link.q)
     // Only an answer to the question as it was shown: the file may have been rewritten since.
     if (!q || !sameQuestion(n, q)) {
       void vscode.window.showWarningMessage('This question changed: reopen it from the Check view.')
       await this.refresh()
-      return
+      return false
     }
     const state = this.U.stateOf(q)
     // Passed: a remark, not graded. Explained: a restatement, graded against the explanation.
-    if (state === 'pass' || state === 'restated') { await this.host.addReply(n, body); return }
-    if (this.grading.has(q.id)) return
+    if (state === 'pass' || state === 'restated') return this.host.addReply(n, body)
+    if (this.grading.has(q.id)) return false
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
-    if (!(await this.host.addReply(n, body))) return
+    if (!(await this.host.addReply(n, body))) return false
     this.U.addAttempt(check, q, body, this.who)
     this.save(abs, check)
     // Not awaited: the reply box clears once the answer is in (VS Code clears it when the command returns).
     void this.grade(q.id)
+    return true
   }
 
   /** Writes the check file with today's line numbers and its result. */
@@ -1124,7 +1138,7 @@ export class Understanding implements vscode.Disposable {
   threadStatus(n: Note): { checking?: boolean; error?: string; concern?: { text: string; flagged: boolean; suspect: boolean; by?: string; todo?: string }; next?: boolean } | undefined {
     const l = linkOf(n)
     if (!l) return undefined
-    if (this.grading.has(l.q)) return { checking: true }
+    if (this.grading.has(l.q) || this.answering.has(l.q)) return { checking: true }
     const e = this.gradeErrors.get(n.data.id)
     if (e) return { error: gradeFailure(e) }
     const q = this.st?.check?.questions.find((x) => x.id === l.q)

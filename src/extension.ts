@@ -859,6 +859,8 @@ function setCollapse(t: vscode.CommentThread, v: vscode.CommentThreadCollapsible
   whenSettled(t, `collapse:${key}`, () => setThread(t, 'collapsibleState', v))
 }
 
+/** Notes opened (a row clicked) before their thread was made (its editor was still opening): made expanded. */
+const expandWhenMade = new Set<string>()
 /** What each thread last rendered (see syncThread). */
 const shown = new Map<string, string>()
 
@@ -876,7 +878,9 @@ function syncThread(n: Note): void {
     t?.dispose()
     shown.delete(n.data.id)
     t = newThread(controller, docUri(n), threadRange(n))
-    t.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed
+    // The note just opened (a row clicked while its editor was still opening: the thread is made only now) opens
+    // expanded; any other starts collapsed.
+    t.collapsibleState = expandWhenMade.delete(n.data.id) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed
     threads.set(n.data.id, t)
   } else if (settling(t)) {
     // Made just now: its first state is still on the way to the workbench; this update follows once it is there.
@@ -1023,7 +1027,10 @@ const ownRow = (n: Note) => sameRow(n).length <= 1
 class NotesTree implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>()
   readonly onDidChangeTreeData = this.changed.event
-  refresh() { this.changed.fire(undefined); journeysTree?.refresh() }
+  /** One redraw for a burst of changes (as the Journeys view): VS Code asked for a row of one drawing after the next had
+   *  dropped it ("Cannot resolve tree item"). */
+  private timer: NodeJS.Timeout | undefined
+  refresh() { clearTimeout(this.timer); this.timer = setTimeout(() => this.changed.fire(undefined), 50); journeysTree?.refresh() }
 
   getChildren(node?: Node): Node[] {
     if (node?.kind === 'file') return [...node.notes].sort(rowOrder).map(noteNode)
@@ -3425,7 +3432,8 @@ async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, sele
     }
   }
   if (!(await store.save(n))) return undefined
-  await setSeen([[id, 1]])
+  // Stored in the background (a round trip to the window); read back from memory at once.
+  void setSeen([[id, 1]]).then(undefined, (e) => log.error(`seen: ${e}`))
   shape.set(id, shapeOf(n))
   refreshAll()
   // No "Note saved": the note is there, in its thread and the list.
@@ -3508,7 +3516,8 @@ async function addPathNote(uri?: vscode.Uri, text?: string): Promise<Note | unde
     },
   }
   if (!(await store.save(n))) return undefined
-  await setSeen([[id, 1]])
+  // Stored in the background (a round trip to the window); read back from memory at once.
+  void setSeen([[id, 1]]).then(undefined, (e) => log.error(`seen: ${e}`))
   shape.set(id, shapeOf(n))
   refreshAll()
   await reveal(n)
@@ -3643,8 +3652,8 @@ function orphanMarkdown(n: Note): string {
 }
 
 async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false): Promise<void> {
-  revealInList(n)
   if (missing.has(n.data.id)) {
+    revealInList(n)
     const uri = vscode.Uri.from({ scheme: ORPHAN_SCHEME, path: `/${n.data.file.split('/').pop()} (note).md`, query: n.data.id })
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true })
     await markRead([n])
@@ -3661,6 +3670,7 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   const col = column ?? (vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === docUri(n).toString()) ? columnFor(docUri(n))
     : mapPanel.viewColumn !== undefined && vscode.window.tabGroups.activeTabGroup.viewColumn === mapPanel.viewColumn ? codeColumn() : undefined)
   const r = threadRange(n)
+  ownSelection()
   // The caret goes with the show: one call into the window.
   const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, selection: new vscode.Selection(r.start, r.start), ...(col ? { viewColumn: col } : {}) })
   // A long range: its thread hangs below its last line, so that end (and the thread) is what comes into view, not a
@@ -3668,7 +3678,10 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   const tall = r.end.line - r.start.line > 12
   editor.revealRange(tall ? new vscode.Range(Math.max(r.start.line, r.end.line - 3), 0, r.end.line, 0) : new vscode.Range(r.start, r.end.translate(4)),
     tall ? vscode.TextEditorRevealType.AtTop : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+  // Its thread not made yet (its editor is still opening: made once it has settled): it is made expanded.
+  if (!threads.has(n.data.id)) expandWhenMade.add(n.data.id)
   syncThread(n)
+  if (threads.has(n.data.id)) expandWhenMade.delete(n.data.id)
   // Only this note's thread is open: others on the same lines collapse, so the one clicked is the one shown.
   for (const other of notesFor(docUri(n))) {
     const t = threads.get(other.data.id)
@@ -3679,6 +3692,8 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   }
   // Read: the threads and the list follow now; storing it is not waited for (a round trip to the window).
   void markRead([n], n).then(undefined, (e) => log.error(`mark read: ${e}`))
+  // Its row in the list, once the list has been redrawn for it (a row revealed while the list redraws can't be found).
+  revealInList(n)
 }
 
 /**
@@ -4247,8 +4262,12 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.add', (a?: unknown) => { prefixUsed(a); return addNote() })
   cmd('codeNotes.toggleAnimation', (a?: unknown) => { prefixUsed(a); toggleAnimation() })
   cmd('codeNotes.addQuick', addQuickNote)
+  /** New-note boxes being saved: a second Ctrl+Enter meanwhile (the box keeps its text until the save returns) makes no second note. */
+  const creating = new WeakSet<vscode.CommentThread>()
   const noteFromNewThread = async (reply: vscode.CommentReply): Promise<Note | undefined> => {
     const t = reply.thread
+    if (creating.has(t)) return undefined
+    creating.add(t)
     const body = reply.text.trim()
     if (!body) { t.dispose(); vscode.window.setStatusBarMessage('$(info) Empty note: not saved', 3000); return undefined } // no empty shell
     const doc = await vscode.workspace.openTextDocument(t.uri)
@@ -4287,22 +4306,31 @@ export async function activate(context: vscode.ExtensionContext) {
     for (const id of ids) cancelAsk(id)
   })
   /** Adds your message; on a failed save (an error toast is shown) the note is left as it was. */
+  /** Replies being saved (note and text): a second Ctrl+Enter meanwhile (the box keeps its text until the command returns) is not a second reply. */
+  const replying = new Set<string>()
   const addReply = async (n: Note, text: string, status?: 'open' | 'resolved'): Promise<boolean> => {
-    const before = { messages: n.data.messages.length, status: n.data.status, events: n.data.events }
-    if (text) n.data.messages.push({ author: me(), role: 'human', body: text, at: now() })
-    const next = status ?? (n.data.status === 'resolved' && text ? 'open' : n.data.status)
-    if (next !== n.data.status) addEvent(n, next === 'resolved' ? 'resolved' : 'reopened')
-    n.data.status = next
-    if (!(await store.save(n))) {
-      n.data.messages.length = before.messages
-      n.data.status = before.status
-      if (before.events) n.data.events = before.events; else delete n.data.events
-      refreshAll()
-      return false
-    }
-    shape.set(n.data.id, shapeOf(n))
-    await markRead([n])
-    return true
+    const k = `${n.data.id}\0${text}\0${status ?? ''}`
+    if (replying.has(k)) return false
+    replying.add(k)
+    try {
+      const before = { messages: n.data.messages.length, status: n.data.status, events: n.data.events }
+      if (text) n.data.messages.push({ author: me(), role: 'human', body: text, at: now() })
+      const next = status ?? (n.data.status === 'resolved' && text ? 'open' : n.data.status)
+      if (next !== n.data.status) addEvent(n, next === 'resolved' ? 'resolved' : 'reopened')
+      n.data.status = next
+      // In the thread at once, before it is saved (taken back if the save fails).
+      syncThread(n)
+      if (!(await store.save(n))) {
+        n.data.messages.length = before.messages
+        n.data.status = before.status
+        if (before.events) n.data.events = before.events; else delete n.data.events
+        refreshAll()
+        return false
+      }
+      shape.set(n.data.id, shapeOf(n))
+      void markRead([n]).then(undefined, (e) => log.error(`mark read: ${e}`))
+      return true
+    } finally { replying.delete(k) }
   }
   const reply = async (r: vscode.CommentReply) => {
     const n = noteOfThread(r.thread)
