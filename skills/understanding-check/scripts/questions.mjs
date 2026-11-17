@@ -27,7 +27,12 @@ if (!cliPath) { console.log('PROBLEM: understanding.mjs not found (set UNDERSTAN
 const U = await import(pathToFileURL(cliPath).href)
 
 // The CLI itself, for answering in a chat (SKILL.md, "Without VS Code"): one path to know.
-if (process.argv[2] === 'cli') process.exit(await U.main(process.argv.slice(3)))
+if (process.argv[2] === 'cli') {
+  const code = await U.main(process.argv.slice(3))
+  // A long output (the grader's instructions) is written out before the exit.
+  await new Promise((resolve) => process.stdout.write('', resolve))
+  process.exit(code)
+}
 
 const cwd = process.cwd()
 const repo = U.repoRoot(cwd) ?? cwd
