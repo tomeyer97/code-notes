@@ -111,7 +111,8 @@ instead of reading the code cold. Write it only when the request asks for the to
      puts two facts together to answer. A title or lead that says what a question asks for ("so a failed refund is
      not listed", "so a restart loses the job") gives it away: cut that clause.
    - Then 1-3 `link`s per step (a phrase of the lead to the lines doing it). No `value`, no `scene`.
-   - `check <repo> tour quiet --dir … --steps A-B` (as `tour` prints it): fix every PROBLEM and WARNING it prints.
+   - `check <repo> tour quiet --dir …`: fix every PROBLEM and WARNING it prints, except its step count (6-14 is for a
+     journey of the repository; `tour` prints the tour's own).
 3. `questions.mjs tour-finish --steps q1=3,q2=5,…`: for each question, the step after which its answer can be seen.
    Reply with the step titles, one per line.
 

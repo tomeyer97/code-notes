@@ -105,8 +105,8 @@ a tour of the EXISTING code they talk about, 2-3 steps: a change that only remov
 be called (or that nothing calls it) and why removing it is safe; documentation, the code the edited text describes
 (none at all when it describes no code: `tour-finish --none` records `"noTour": true`, and the Check view offers no
 tour). A change that mostly removes code gets a tour of what was removed, what used it (or that nothing does now) and
-the few lines that changed besides. `journey.py check` is run with the tour's own count (`--steps A-B`; a journey of
-the repository wants 6-14). Each question
+the few lines that changed besides. `tour-finish` checks the count itself: `journey.py check`'s own (6-14, for a
+journey of the repository) doesn't apply to a tour, so any `journey.py` version works. Each question
 is placed after the step that shows its answer (`step` on the question), so the answer can be reached by clicking.
 
 - **Written right after the questions**, by the same agent in the same session (`claude --resume`: the change is read

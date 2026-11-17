@@ -329,13 +329,13 @@ if (cmd === 'tour') {
   else if (!topUp && st && st.removed > 2 * st.added) say('REMOVAL: this change mostly removes code. Steps: what was removed (on the lines where it was), what used it before (or that nothing does now: say how you checked), and the one or two lines that changed besides; nothing else')
   else if (!topUp && sizeOf(check) < 10) say('SMALL: a few lines changed. Steps around the changed lines: what calls them and what they change; nothing else')
   // journey.py check wants 6-14 steps for a journey of the repository; a tour has its own count.
-  const steps = `--steps ${n0 + lo}-${n0 + hi}`
+  const steps = `(its "N steps (want 6-14 …)" line doesn't apply: this tour has ${n0 + lo}-${n0 + hi})`
   say(`JOURNEY: ${J} <command> <repo> ${TOUR} … --dir ${stage}   (repo: ${repo}; always --dir; slug ${TOUR})`)
   if (topUp) { say('STEPS SO FAR (keep them as they are):'); check.journey.steps.forEach((s, i) => say(`  ${i + 1}. ${s.title} (${s.file}:${s.range.start}-${s.range.end})`)) }
   say(`QUESTIONS ${topUp ? 'that need a step' : '(each needs the step after which its answer is visible)'}:`)
   for (const q of want) say(`  ${qLine(q)}`)
   if (ranges.size) say(`CHANGED: ${[...ranges].map(([f, rs]) => `${f}:${fmtRange(rs)}`).join(' · ')}`)
-  say(`THEN: ${J} check <repo> ${TOUR} quiet --dir ${stage} ${steps}; fix every PROBLEM; then questions.mjs tour-finish --steps ${want.map((q) => `${q.id}=<n>`).join(',')}`)
+  say(`THEN: ${J} check <repo> ${TOUR} quiet --dir ${stage}; fix every PROBLEM ${steps}; then questions.mjs tour-finish --steps ${want.map((q) => `${q.id}=<n>`).join(',')}`)
   process.exit(0)
 }
 
@@ -363,9 +363,11 @@ if (cmd === 'tour-finish') {
   const J = journeyPy()
   if (J) {
     let out = '', code = 0
-    // The count is checked below, by the change's size: journey.py only checks the rest.
-    try { out = execFileSync('python3', [J, 'check', repo, TOUR, 'quiet', '--dir', stageDir(), '--steps', `1-${U.MAX_TOUR_STEPS}`], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) } catch (e) { code = e.status ?? 1; out = `${e.stdout ?? ''}${e.stderr ?? ''}` }
-    if (code) { say(out.trim()); fail('journey.py check found problems: fix them, then tour-finish again') }
+    try { out = execFileSync('python3', [J, 'check', repo, TOUR, 'quiet', '--dir', stageDir()], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) } catch (e) { code = e.status ?? 1; out = `${e.stdout ?? ''}${e.stderr ?? ''}` }
+    // The count is checked below, by the change's size: journey.py's own count (6-14, for a journey of the repository)
+    // doesn't apply to a tour. Any other problem does.
+    const problems = out.split('\n').filter((l) => /^PROBLEM:/.test(l) && !/^PROBLEM: \d+ steps \(want \d+-\d+/.test(l))
+    if (code && (problems.length || !/^PROBLEM:/m.test(out))) { say(out.trim()); fail('journey.py check found problems: fix them, then tour-finish again') }
   }
   // The file as it is now: answers given while the tour was written are kept.
   const check = U.readCheck(abs)
