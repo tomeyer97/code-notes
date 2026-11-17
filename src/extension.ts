@@ -14,6 +14,7 @@ import { Ask, AskResult, findCli, findCliAsync } from './claude'
 import { folderName, folderProblem, journeysFolderName, Message, Note, NoteData, NoteEvent, serialize, Severity, Store } from './store'
 import { fileOf, Journeys, LoadedJourney, MAP_VIEW, MapMessage, MapPanel, posKey, StepAt } from './journeys'
 import { escapeTags } from './journeyModel'
+import { escapeHtml, nonce, page } from './webview/page'
 import { TourState } from './tour/state'
 import { StepCard, cardLine, stepUri } from './tour/card'
 import { MAP_KEY, POS_KEY, TOUR_KEY, TourItems, Walk } from './tour/walk'
@@ -1912,37 +1913,10 @@ let clarify: { panel: vscode.WebviewPanel; question: string; session: string; te
 async function showClarify(question: string, session: string, text: string, model?: string): Promise<void> {
   clarify?.panel.dispose()
   let body: string
-  const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
   try { body = await vscode.commands.executeCommand<string>('markdown.api.render', text) } catch { body = '' }
-  if (!body) body = `<pre>${escHtml(text)}</pre>`
+  if (!body) body = `<pre>${escapeHtml(text)}</pre>`
   const panel = vscode.window.createWebviewPanel('codeNotes.claudeAsks', 'Claude asks', { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, retainContextWhenHidden: true })
-  const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36)
-  panel.webview.html = `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${panel.webview.cspSource} https: data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'none'">
-<style>
-body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); max-width: 720px; padding: 8px 16px; }
-.q { color: var(--vscode-descriptionForeground); }
-.answer { margin: 12px 0; }
-textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 6px; }
-button { font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 4px 12px; margin-top: 6px; cursor: pointer; }
-.hint { color: var(--vscode-descriptionForeground); margin-left: 8px; }
-</style></head><body>
-<p class="q">Before writing a journey for “${escHtml(question)}”, Claude asks:</p>
-<div class="answer">${body}</div>
-<textarea id="r" rows="4" placeholder="Your answer" aria-label="Your answer to Claude"></textarea>
-<div><button id="send">Send</button><span class="hint">Ctrl+Enter</span></div>
-<script nonce="${nonce}">
-const vs = acquireVsCodeApi()
-window.addEventListener('error', (e) => vs.postMessage({ type: 'error', text: String(e.message) }))
-const r = document.getElementById('r')
-const st = vs.getState()
-if (st && st.text) r.value = st.text
-r.addEventListener('input', () => vs.setState({ text: r.value }))
-const send = () => { const t = r.value.trim(); if (t) vs.postMessage({ type: 'reply', text: t }) }
-document.getElementById('send').addEventListener('click', send)
-r.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send() } })
-r.focus()
-</script></body></html>`
+  panel.webview.html = page('clarify', { cspSource: panel.webview.cspSource, nonce: nonce(), question: escapeHtml(question), body })
   const c = { panel, question, session, text, model }
   clarify = c
   panel.webview.onDidReceiveMessage((m: { type?: string; text?: unknown }) => {

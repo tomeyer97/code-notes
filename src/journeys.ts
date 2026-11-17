@@ -5,6 +5,7 @@ import { anchor, shift, staleKind, swallows, Loc } from './anchor'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, isCompact, toCompact } from './compact'
 import { folderName, journeysFolderName, notesDir } from './store'
 import { gitRenames } from './gitRenames'
+import { nonce as newNonce } from './webview/page'
 
 // Journeys (format v2, docs/journey-format.md): <repo>/journeys/<slug>.json (codeNotes.journeys.folder: committed,
 // shared) and, as before, <notes folder>/journeys/<slug>.json (personal); steps embedded. A step is not a note. Its lines are found again in memory (anchor.ts) as the code changes; the journey file is never written.
@@ -609,7 +610,7 @@ export class MapPanel implements vscode.Disposable {
   }
 
   private html(w: vscode.Webview, loading?: string): string {
-    const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')
+    const nonce = newNonce()
     const uri = (...p: string[]) => w.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, ...p))
     return `<!doctype html>
 <html><head><meta charset="utf-8">
