@@ -1,10 +1,11 @@
 import * as vscode from 'vscode'
+import { wfs } from './wfs'
 import { Beats } from './beats'
 import { setDecorations } from './decorations'
 import { TutorialSpot } from './tutorialSpot'
 import { devReload } from './devReload'
 import { CodeLinks } from './codeLinks'
-import { ClaudeLinks, linkTarget } from './claudeLinks'
+import { ClaudeLinks, linkTarget, ownSelection } from './claudeLinks'
 import { readValues, ValueHints } from './valueHints'
 import { linkPhrases, readLinks } from './codeLinkText'
 import { execFile } from 'child_process'
@@ -253,7 +254,7 @@ async function linesOfUri(uri: vscode.Uri): Promise<string[] | undefined> {
   const open = openDoc(uri)
   // An editor with unsaved changes is the truth; otherwise the disk is (VS Code keeps closed or deleted files' documents around).
   if (open && !open.isClosed && open.isDirty) return linesOf(open)
-  try { return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
+  try { return new TextDecoder().decode(await wfs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }
 
 const toLoc = (d: NoteData): Loc => ({ start: d.range.start - 1, end: d.range.end - 1 })
@@ -296,7 +297,7 @@ async function saveIfClean(n: Note): Promise<void> {
 /** A file or folder note: only whether its file/folder is still there. True if that changed. */
 async function checkTarget(n: Note): Promise<boolean> {
   let there = false
-  try { const st = await vscode.workspace.fs.stat(pathUri(n)); there = n.data.target === 'folder' ? !!(st.type & vscode.FileType.Directory) : !(st.type & vscode.FileType.Directory) } catch { /* gone */ }
+  try { const st = await wfs.stat(pathUri(n)); there = n.data.target === 'folder' ? !!(st.type & vscode.FileType.Directory) : !(st.type & vscode.FileType.Directory) } catch { /* gone */ }
   const was = missing.has(n.data.id)
   if (there) missing.delete(n.data.id); else missing.add(n.data.id)
   n.data.stale = !there
@@ -349,7 +350,7 @@ async function reanchorAll(): Promise<void> {
 }
 
 async function linesOfDisk(uri: vscode.Uri): Promise<string[] | undefined> {
-  try { return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
+  try { return new TextDecoder().decode(await wfs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }
 
 async function commitInfo(folder: vscode.WorkspaceFolder): Promise<{ commit?: string; branch?: string }> {
@@ -382,7 +383,7 @@ async function followMovedFiles(): Promise<void> {
   while (recentCreates.length && recentCreates[0].at < cutoff) recentCreates.shift()
   for (const n of notes()) {
     if (n.data.target) { await checkTarget(n); continue }
-    try { await vscode.workspace.fs.stat(docUri(n)); continue } catch { /* gone */ }
+    try { await wfs.stat(docUri(n)); continue } catch { /* gone */ }
     let moved = false
     // Nothing to recognise the code by (an agent's note on a path that never existed): any file would "match".
     const a = n.data.anchor
@@ -1853,7 +1854,7 @@ async function refCopy(uri: vscode.Uri): Promise<string> {
   const real = uri.with({ scheme: uri.query || 'file', query: '', fragment: '' })
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === real.toString())
   if (open) return open.getText()
-  try { return new TextDecoder().decode(await vscode.workspace.fs.readFile(real)) } catch { return '' }
+  try { return new TextDecoder().decode(await wfs.readFile(real)) } catch { return '' }
 }
 /** The page shown for a step whose file doesn't exist. */
 const STEP_SCHEME = 'code-notes-step'
@@ -2711,7 +2712,7 @@ async function onUri(uri: vscode.Uri): Promise<void> {
 async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
   const uri = vscode.Uri.joinPath(folder.uri, REQUEST_FILE)
   let raw: string
-  try { raw = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)) } catch { return }
+  try { raw = new TextDecoder().decode(await wfs.readFile(uri)) } catch { return }
   let v: any
   try { v = JSON.parse(raw) } catch { v = undefined }
   if (v && typeof v.needs === 'string' && olderThan(extVersion, v.needs)) {
@@ -2719,7 +2720,7 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
     explainLog.push({ action: String(v.action), question: String(v.question ?? ''), via: 'file', outcome: 'too-new' })
     return
   }
-  try { await vscode.workspace.fs.delete(uri) } catch { /* gone already */ }
+  try { await wfs.delete(uri) } catch { /* gone already */ }
   if (!v) { log.warn(`explain: ${REQUEST_FILE} is not JSON: ignored`); return }
   const at = Date.parse(typeof v?.at === 'string' ? v.at : '')
   if (!at || Date.now() - at > REQUEST_MAX_AGE) { log.info(`explain: ${REQUEST_FILE} is ${at ? 'older than 2 minutes' : 'undated'}: ignored`); return }
@@ -2871,7 +2872,7 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'pick') void vscode.commands.executeCommand('codeNotes.openJourney')
   else if (m.type === 'restore') {
     const raw = journeys.lastGood.get(lj.key)
-    if (raw) void vscode.workspace.fs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(() => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000))
+    if (raw) void wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(() => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000))
   }
   else if (m.type === 'authors') { log.info(`journey ${lj.j.id} (${relPath(lj.folder, lj.uri)}): ${lj.j.problems.length} rule break(s) for its author:\n${lj.j.problems.map((p) => `  - ${p}`).join('\n')}`); log.show(true) }
   else if (m.type === 'tutorial') {
@@ -2952,7 +2953,7 @@ async function followJourneyFiles(): Promise<void> {
     let changed = false
     for (const s of lj.j.steps) {
       const f = fileOf(lj, s.n)
-      try { await vscode.workspace.fs.stat(vscode.Uri.joinPath(lj.folder.uri, f)); continue } catch { /* gone */ }
+      try { await wfs.stat(vscode.Uri.joinPath(lj.folder.uri, f)); continue } catch { /* gone */ }
       for (const c of recentCreates) {
         if (vscode.workspace.getWorkspaceFolder(c.uri)?.uri.toString() !== lj.folder.uri.toString()) continue
         const ls = await linesOfUri(c.uri)
@@ -3230,7 +3231,7 @@ async function openBoxPath(lj: LoadedJourney, p: string): Promise<void> {
   const lines = /:(\d+)(?:-(\d+))?$/.exec(p)
   const uri = vscode.Uri.joinPath(lj.folder.uri, p.replace(/:\d+(-\d+)?$/, ''))
   try {
-    const st = await vscode.workspace.fs.stat(uri)
+    const st = await wfs.stat(uri)
     if (st.type & vscode.FileType.Directory) await vscode.commands.executeCommand('revealInExplorer', uri)
     else {
       const a = lines ? Math.max(0, Number(lines[1]) - 1) : 0, b = lines ? Math.max(a, Number(lines[2] ?? lines[1]) - 1) : 0
@@ -3243,7 +3244,7 @@ async function openBoxPath(lj: LoadedJourney, p: string): Promise<void> {
 async function openRef(lj: LoadedJourney, file: string, line: number, end: number, n: number): Promise<void> {
   lastPeek = undefined
   const uri = vscode.Uri.joinPath(lj.folder.uri, file)
-  try { await vscode.workspace.fs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
+  try { await wfs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
   // The inline card lives in the step's tab: a ref opens as a peek right under the card, so the tab, the code and the
   // card stay. Esc closes it. A ref into the step's own file peeks a read-only copy (REF_SCHEME): a peek of the
   // file itself embeds a second editor on it, with its own copy of the card's thread, and closing that peek collapsed
@@ -3479,7 +3480,7 @@ async function addPathNote(uri?: vscode.Uri, text?: string): Promise<Note | unde
   const file = relPath(folder, uri)
   if (!file || file === '.') { vscode.window.setStatusBarMessage('$(info) Notes go on a file or a folder inside the workspace', 3000); return undefined }
   let isDir = false
-  try { isDir = !!((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) } catch { return undefined }
+  try { isDir = !!((await wfs.stat(uri)).type & vscode.FileType.Directory) } catch { return undefined }
   const body = text ?? (await vscode.window.showInputBox({ title: `Note on ${isDir ? 'folder' : 'file'} ${file}${isDir ? '/' : ''}`, placeHolder: 'Your note or question', ignoreFocusOut: true }))?.trim()
   if (!body) return undefined
   const at = now()
@@ -3787,18 +3788,18 @@ async function changeFolder(): Promise<void> {
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     const oldDir = vscode.Uri.joinPath(f.uri, from)
     let files: [string, vscode.FileType][] = []
-    try { files = (await vscode.workspace.fs.readDirectory(oldDir)).filter(([n, t]) => t === vscode.FileType.File && n.endsWith('.json') && !n.startsWith('.')) } catch { continue }
+    try { files = (await wfs.readDirectory(oldDir)).filter(([n, t]) => t === vscode.FileType.File && n.endsWith('.json') && !n.startsWith('.')) } catch { continue }
     if (!files.length) continue
     const pick = await vscode.window.showWarningMessage(`Move ${files.length} note${files.length === 1 ? '' : 's'} from ${from}/ to ${to}/?`,
       { modal: true, detail: `Cancel leaves them in ${from}/, where Code Notes no longer shows them.` }, 'Move Notes')
     if (pick !== 'Move Notes') continue
     const newDir = vscode.Uri.joinPath(f.uri, to)
-    await vscode.workspace.fs.createDirectory(newDir)
-    for (const [name] of files) await vscode.workspace.fs.rename(vscode.Uri.joinPath(oldDir, name), vscode.Uri.joinPath(newDir, name), { overwrite: false })
+    await wfs.createDirectory(newDir)
+    for (const [name] of files) await wfs.rename(vscode.Uri.joinPath(oldDir, name), vscode.Uri.joinPath(newDir, name), { overwrite: false })
     // The trash moves too; the old README and.gitignore go, so no agent writes into a dead folder.
-    try { await vscode.workspace.fs.rename(vscode.Uri.joinPath(oldDir, '.trash'), vscode.Uri.joinPath(newDir, '.trash'), { overwrite: false }) } catch { /* none */ }
-    for (const name of ['README.md', '.gitignore']) try { await vscode.workspace.fs.delete(vscode.Uri.joinPath(oldDir, name)) } catch { /* none */ }
-    try { if (!(await vscode.workspace.fs.readDirectory(oldDir)).length) await vscode.workspace.fs.delete(oldDir) } catch { /* keep */ }
+    try { await wfs.rename(vscode.Uri.joinPath(oldDir, '.trash'), vscode.Uri.joinPath(newDir, '.trash'), { overwrite: false }) } catch { /* none */ }
+    for (const name of ['README.md', '.gitignore']) try { await wfs.delete(vscode.Uri.joinPath(oldDir, name)) } catch { /* none */ }
+    try { if (!(await wfs.readDirectory(oldDir)).length) await wfs.delete(oldDir) } catch { /* keep */ }
     await store.writeGitignore(f)
     vscode.window.setStatusBarMessage(`$(check) Moved ${files.length} notes to ${to}/`, 4000)
   }
@@ -3812,7 +3813,7 @@ async function changeFolder(): Promise<void> {
 async function applyIgnoreInGit(): Promise<void> {
   const on = cfg().get<boolean>('ignoreInGit', true)
   for (const f of vscode.workspace.workspaceFolders ?? []) {
-    try { await vscode.workspace.fs.stat(vscode.Uri.joinPath(f.uri, folderName())) } catch { continue }
+    try { await wfs.stat(vscode.Uri.joinPath(f.uri, folderName())) } catch { continue }
     await store.writeGitignore(f) // shared through git: still not the trash
   }
   // Said once (no lasting status-bar item); after that it is in the notes item's tooltip.
@@ -4038,7 +4039,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const rel = uri.path.replace(/^\//, '').replace(/ \(folder\)$/, '')
       const dir = vscode.Uri.joinPath(vscode.Uri.parse(uri.query), rel)
       let entries: [string, vscode.FileType][] = []
-      try { entries = await vscode.workspace.fs.readDirectory(dir) } catch { return `${rel}/ (not found)\n` }
+      try { entries = await wfs.readDirectory(dir) } catch { return `${rel}/ (not found)\n` }
       entries.sort((a, b) => (b[1] & vscode.FileType.Directory) - (a[1] & vscode.FileType.Directory) || a[0].localeCompare(b[0]))
       return `${rel}/\n${entries.map(([name, t]) => `  ${name}${t & vscode.FileType.Directory ? '/' : ''}`).join('\n')}\n`
     },
@@ -4332,7 +4333,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const lj = tourJourney()
     if (step && lj && touring() && lj.folder.uri.toString() === folderUri) return openRef(lj, file, line, end ?? line, step)
     const uri = vscode.Uri.joinPath(vscode.Uri.parse(folderUri), file)
-    try { await vscode.workspace.fs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
+    try { await wfs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
     const ed = await vscode.window.showTextDocument(uri, { preview: true })
     const pos = new vscode.Position(Math.max(0, Math.min(line - 1, ed.document.lineCount - 1)), 0)
     ed.selection = new vscode.Selection(pos, pos)
@@ -4356,7 +4357,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (node?.kind !== 'broken') return
     const known = store.notes.get(node.uri)
     if (!known) return
-    await vscode.workspace.fs.writeFile(known.uri, new TextEncoder().encode(serialize(known.data)))
+    await wfs.writeFile(known.uri, new TextEncoder().encode(serialize(known.data)))
     vscode.window.setStatusBarMessage('$(check) Restored the last good version', 3000)
   })
   cmd('codeNotes.markUnread', async (arg?: any) => {

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
+import { fileLines } from './wfs'
+import { ownSelection } from './claudeLinks'
 import { StepLink } from './codeLinkText'
 import { findLine, followLine, shiftLine } from './beatLine'
 
@@ -25,6 +27,7 @@ export class CodeLinks implements vscode.Disposable {
   private seq = 0
   /** The way back, above the lit lines: "← Back to step 4"; only when the card is not on screen with them. */
   private backTitle = ''
+  private backTip = ''
   private back = false
   private readonly lens = new vscode.EventEmitter<void>()
   /** Something lit or the way back changed (value hints leave the Back row to it:). */
@@ -40,7 +43,7 @@ export class CodeLinks implements vscode.Disposable {
         provideCodeLenses: (doc) => {
           const b = this.backAt
           if (!b || b.uri !== doc.uri.toString() || b.line >= doc.lineCount) return []
-          return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), { title: this.backTitle, command: 'codeNotes.codeLinkBack' })]
+          return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), { title: this.backTitle, command: 'codeNotes.codeLinkBack', ...(this.backTip ? { tooltip: this.backTip } : {}) })]
         },
       }),
       // VS Code's Go Back (or any move of the caret out of the lit lines, or to another file) ends the link.
@@ -107,13 +110,13 @@ export class CodeLinks implements vscode.Disposable {
     const st = this.step, l = st?.links[i]
     if (!st || !l) return undefined
     const uri = vscode.Uri.joinPath(st.folder, st.renames.get(l.file) ?? l.file)
-    let doc: vscode.TextDocument
-    try { doc = await vscode.workspace.openTextDocument(uri) } catch { return undefined }
-    const lines = Array.from({ length: doc.lineCount }, (_, k) => doc.lineAt(k).text)
+    // Its lines without opening it (an open is a round trip to the window; the click's show opens it anyway).
+    const lines = await fileLines(uri)
+    if (!lines) return undefined
     // No text to go by: the lines as written.
-    const start = l.text.trim() ? findLine(lines, l.start, l.text) : Math.min(l.start, doc.lineCount) - 1
+    const start = l.text.trim() ? findLine(lines, l.start, l.text) : Math.min(l.start, lines.length) - 1
     if (start < 0) return undefined
-    return { uri, start, end: Math.min(doc.lineCount - 1, start + (l.end - l.start)) }
+    return { uri, start, end: Math.min(lines.length - 1, start + (l.end - l.start)) }
   }
 
   /** The step shown (its card is being drawn): which of its phrases are on the card. The same step again changes nothing else. */
@@ -147,15 +150,18 @@ export class CodeLinks implements vscode.Disposable {
    * lit, the caret and the keyboard stay where they are (a link in a thread being answered: typing must never land in
    * the code).
    */
-  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, backTitle: string, card?: CardAt, o: { keepFocus?: boolean } = {}): Promise<void> {
+  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, backTitle: string, card?: CardAt, o: { keepFocus?: boolean; backTip?: string } = {}): Promise<void> {
     if (this.step?.key !== key) return
     const a = await this.locate(i)
     if (!a) { void vscode.window.setStatusBarMessage('The code this phrase points at changed.', 4000); return }
     this.at.set(i, { uri: a.uri.toString(), start: a.start, end: a.end })
     this.active = i
+    // No title: nowhere to go back to, no Back row.
     this.backTitle = backTitle
+    this.backTip = o.backTip ?? ''
     this.back = false
     this.own = Date.now() + 400
+    ownSelection()
     const shown = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === a.uri.toString())
     const col = shown?.viewColumn ?? column()
     // On screen already and the keyboard stays where it is: nothing to show (no wait for the window), only lit and
@@ -179,7 +185,7 @@ export class CodeLinks implements vscode.Disposable {
     // that came and went while reading would push the code about). Another file: the card is out of sight.
     if (scrolled) await scrolled
     if (this.active !== i || this.step?.key !== key) return
-    this.back = !(same && ed.visibleRanges.some((r) => r.start.line <= card!.line && r.end.line >= card!.line))
+    this.back = !!this.backTitle && !(same && ed.visibleRanges.some((r) => r.start.line <= card!.line && r.end.line >= card!.line))
     this.paint()
   }
 

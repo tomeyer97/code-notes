@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { wfs } from './wfs'
 import * as fs from 'fs'
 import * as path from 'path'
 import { placeFile } from './paths'
@@ -206,10 +207,10 @@ let tmpSeq = 0
 export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> {
   // One temp file per write: two saves of a note at once must not rename each other's file away.
   const tmp = vscode.Uri.joinPath(uri, '..', `.${uri.path.split('/').pop()}.${process.pid}.${++tmpSeq}.tmp`)
-  await vscode.workspace.fs.writeFile(tmp, encoder.encode(text))
+  await wfs.writeFile(tmp, encoder.encode(text))
   // Node's rename replaces the file in one step; VS Code's rename with overwrite deletes it first (a moment with no file).
-  try { if (uri.scheme === 'file') await fs.promises.rename(tmp.fsPath, uri.fsPath); else await vscode.workspace.fs.rename(tmp, uri, { overwrite: true }) }
-  catch (e) { try { await vscode.workspace.fs.delete(tmp) } catch { /* gone */ } throw e }
+  try { if (uri.scheme === 'file') await fs.promises.rename(tmp.fsPath, uri.fsPath); else await wfs.rename(tmp, uri, { overwrite: true }) }
+  catch (e) { try { await wfs.delete(tmp) } catch { /* gone */ } throw e }
 }
 
 const baseName = (uri: vscode.Uri) => uri.path.split('/').pop()!.replace(/\.json$/, '')
@@ -308,12 +309,12 @@ export class Store implements vscode.Disposable {
       w.onDidChange((u) => this.readFile(folder, u).then((c) => c && this.changed.fire()))
       w.onDidDelete(async (u) => {
         // A file replaced by a rename (our atomic save, an agent's tmp + mv) may be reported as deleted: it is there.
-        try { await vscode.workspace.fs.stat(u); return } catch { /* really gone */ }
+        try { await wfs.stat(u); return } catch { /* really gone */ }
         const n = this.notes.get(u.toString())
         if (!this.forget(u)) return
         // Not our own delete (trash forgets the note first): keep its last version in.trash so it can be restored.
         if (n?.raw && u.path.startsWith(notesDir(n.folder).path + '/')) {
-          try { await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(notesDir(n.folder), '.trash', u.path.split('/').pop()!), encoder.encode(n.raw)) } catch { /* best effort */ }
+          try { await wfs.writeFile(vscode.Uri.joinPath(notesDir(n.folder), '.trash', u.path.split('/').pop()!), encoder.encode(n.raw)) } catch { /* best effort */ }
           this.log.appendLine(`${u.fsPath}: deleted on disk; the last version is in ${folderName()}/.trash`)
           this.deletedOnDisk.fire(n)
         }
@@ -321,7 +322,7 @@ export class Store implements vscode.Disposable {
       })
       this.watchers.push(w)
       let entries: [string, vscode.FileType][] = []
-      try { entries = await vscode.workspace.fs.readDirectory(notesDir(folder)) } catch { continue }
+      try { entries = await wfs.readDirectory(notesDir(folder)) } catch { continue }
       for (const [name, type] of entries) {
         if (type === vscode.FileType.File && name.endsWith('.json')) await this.readFile(folder, vscode.Uri.joinPath(notesDir(folder), name))
       }
@@ -336,7 +337,7 @@ export class Store implements vscode.Disposable {
     // Dot files are not notes (`.request.json`: a script's request for the extension).
     if (baseName(uri).startsWith('.')) return false
     let raw: string
-    try { raw = decoder.decode(await vscode.workspace.fs.readFile(uri)) } catch { return this.forget(uri) }
+    try { raw = decoder.decode(await wfs.readFile(uri)) } catch { return this.forget(uri) }
     const key = uri.toString()
     const existing = this.notes.get(key)
     // A file that parses again (an agent finished its write, or it was restored) is no longer broken.
@@ -374,7 +375,7 @@ export class Store implements vscode.Disposable {
     if (!v || typeof v !== 'object' || v.range !== undefined || v.target !== undefined || typeof v.file !== 'string') return raw
     const placed = placeFile(folder.uri.fsPath, v.file)
     if (typeof placed !== 'string') return raw
-    try { if (!((await vscode.workspace.fs.stat(vscode.Uri.joinPath(folder.uri, placed))).type & vscode.FileType.Directory)) return raw } catch { return raw }
+    try { if (!((await wfs.stat(vscode.Uri.joinPath(folder.uri, placed))).type & vscode.FileType.Directory)) return raw } catch { return raw }
     return JSON.stringify({ ...v, target: 'folder' })
   }
 
@@ -385,7 +386,7 @@ export class Store implements vscode.Disposable {
   private async targetProblem(folder: vscode.WorkspaceFolder, file: string, d: NoteData): Promise<string | undefined> {
     const uri = vscode.Uri.joinPath(folder.uri, file)
     try {
-      const dir = !!((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory)
+      const dir = !!((await wfs.stat(uri)).type & vscode.FileType.Directory)
       if (dir && d.target !== 'folder') { d.target = 'folder'; d.range = { start: 1, end: 1 }; d.anchor = { text: '', before: '', after: '' }; d.stale = false; delete d.selection }
       else if (!dir && d.target === 'folder') d.target = 'file'
     } catch { return undefined /* missing: shown as "file not found" */ }
@@ -416,7 +417,7 @@ export class Store implements vscode.Disposable {
     let merged = false
     if (n.raw !== undefined) {
       let disk: string | undefined
-      try { disk = decoder.decode(await vscode.workspace.fs.readFile(n.uri)) } catch { /* deleted: write ours */ }
+      try { disk = decoder.decode(await wfs.readFile(n.uri)) } catch { /* deleted: write ours */ }
       if (disk !== undefined && disk !== n.raw) {
         const theirs = parseNote(disk, n.data.id)
         if (typeof theirs === 'string') { this.log.appendLine(`${n.uri.fsPath}: not saved, the file is being written (${theirs})`); return false }
@@ -464,12 +465,12 @@ export class Store implements vscode.Disposable {
     this.notes.delete(n.uri.toString())
     this.broken.delete(n.uri.toString())
     const dest = vscode.Uri.joinPath(notesDir(n.folder), '.trash', n.uri.path.split('/').pop()!)
-    try { await vscode.workspace.fs.rename(n.uri, dest, { overwrite: true }) } catch { /* already gone */ }
+    try { await wfs.rename(n.uri, dest, { overwrite: true }) } catch { /* already gone */ }
   }
 
   async restore(n: Note): Promise<void> {
     const from = vscode.Uri.joinPath(notesDir(n.folder), '.trash', n.uri.path.split('/').pop()!)
-    try { await vscode.workspace.fs.rename(from, n.uri, { overwrite: false }) } catch { await this.save({ ...n, raw: undefined }) }
+    try { await wfs.rename(from, n.uri, { overwrite: false }) } catch { await this.save({ ...n, raw: undefined }) }
     this.notes.set(n.uri.toString(), n)
   }
 
@@ -477,8 +478,8 @@ export class Store implements vscode.Disposable {
     const u = vscode.Uri.joinPath(notesDir(folder), 'README.md')
     const want = agentReadme(this.person())
     let have = ''
-    try { have = decoder.decode(await vscode.workspace.fs.readFile(u)) } catch { /* none yet */ }
-    if (have !== want) await vscode.workspace.fs.writeFile(u, encoder.encode(want))
+    try { have = decoder.decode(await wfs.readFile(u)) } catch { /* none yet */ }
+    if (have !== want) await wfs.writeFile(u, encoder.encode(want))
   }
 
   private async ensureFolder(folder: vscode.WorkspaceFolder): Promise<void> {
@@ -486,18 +487,18 @@ export class Store implements vscode.Disposable {
     // Only a folder Code Notes made (or already uses) gets a.gitignore: never someone else's folder (C116).
     let ours = true
     try {
-      const entries = await vscode.workspace.fs.readDirectory(dir)
+      const entries = await wfs.readDirectory(dir)
       ours = entries.some(([n]) => n === 'README.md') || entries.every(([n]) => n.endsWith('.json'))
     } catch { /* new folder */ }
-    try { await vscode.workspace.fs.stat(vscode.Uri.joinPath(dir, 'README.md')) } catch { await this.writeReadme(folder) }
+    try { await wfs.stat(vscode.Uri.joinPath(dir, 'README.md')) } catch { await this.writeReadme(folder) }
     const gi = vscode.Uri.joinPath(dir, '.gitignore')
-    if (ours) try { await vscode.workspace.fs.stat(gi) } catch { await this.writeGitignore(folder) }
+    if (ours) try { await wfs.stat(gi) } catch { await this.writeGitignore(folder) }
   }
 
   /** Out of git: everything. Shared through git: still not the trash (deleted notes). */
   async writeGitignore(folder: vscode.WorkspaceFolder): Promise<void> {
     const on = vscode.workspace.getConfiguration('codeNotes').get<boolean>('ignoreInGit', true)
-    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(notesDir(folder), '.gitignore'), encoder.encode(on ? '*\n' : '.trash/\n'))
+    await wfs.writeFile(vscode.Uri.joinPath(notesDir(folder), '.gitignore'), encoder.encode(on ? '*\n' : '.trash/\n'))
   }
 
   dispose(): void {

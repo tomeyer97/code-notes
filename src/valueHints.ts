@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { fileLines } from './wfs'
 import { capValue, findLine, followLine, shiftLine } from './beatLine'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
@@ -67,12 +68,13 @@ export class ValueHints implements vscode.Disposable {
     const mine = ++this.seq
     void (async () => {
       const at = new Map<string, { line: number; title: string; text: string }[]>()
-      for (const v of values) {
+      // Read at once, without opening documents (each open is a round trip to the window).
+      const files = await Promise.all(values.map((v) => fileLines(vscode.Uri.joinPath(folder, renames.get(v.file) ?? v.file))))
+      for (const [k, v] of values.entries()) {
         const uri = vscode.Uri.joinPath(folder, renames.get(v.file) ?? v.file)
-        let doc: vscode.TextDocument
-        try { doc = await vscode.workspace.openTextDocument(uri) } catch { continue }
-        const lines = Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
-        const line = v.text.trim() ? findLine(lines, v.line, v.text) : Math.min(v.line, doc.lineCount) - 1
+        const lines = files[k]
+        if (!lines) continue
+        const line = v.text.trim() ? findLine(lines, v.line, v.text) : Math.min(v.line, lines.length) - 1
         if (line < 0) { this.log.info(`value hint ${v.name}: the line at ${v.file}:${v.line} changed; not shown`); continue }
         const list = at.get(uri.toString()) ?? []
         // The value cut to about 40 characters, so the note after it stays on screen.

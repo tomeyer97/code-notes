@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { wfs } from './wfs'
 import { Journey, parseJourney } from './journeyModel'
 import { anchor, shift, staleKind, swallows, Loc } from './anchor'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, isCompact, toCompact } from './compact'
@@ -151,7 +152,7 @@ export class Journeys implements vscode.Disposable {
       for (const rel of dirs) {
         const dir = vscode.Uri.joinPath(folder.uri, rel)
         let entries: [string, vscode.FileType][] = []
-        try { entries = await vscode.workspace.fs.readDirectory(dir) } catch { continue }
+        try { entries = await wfs.readDirectory(dir) } catch { continue }
         for (const [name, type] of entries.sort((a, b) => a[0].localeCompare(b[0]))) {
           if (type !== vscode.FileType.File || !name.endsWith('.json')) continue
           const v1 = await this.read(folder, vscode.Uri.joinPath(dir, name))
@@ -167,7 +168,7 @@ export class Journeys implements vscode.Disposable {
   private async prune(): Promise<void> {
     let gone = false
     for (const m of [this.list, this.invalid] as Map<string, { uri: vscode.Uri }>[]) for (const [k, x] of [...m]) {
-      try { await vscode.workspace.fs.stat(x.uri) } catch { m.delete(k); gone = true }
+      try { await wfs.stat(x.uri) } catch { m.delete(k); gone = true }
     }
     if (gone) this.changed.fire()
   }
@@ -188,7 +189,7 @@ export class Journeys implements vscode.Disposable {
   /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). */
   private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<string | undefined> {
     let raw: string
-    try { raw = decoder.decode(await vscode.workspace.fs.readFile(uri)) } catch { this.list.delete(uri.toString()); this.invalid.delete(uri.toString()); return undefined }
+    try { raw = decoder.decode(await wfs.readFile(uri)) } catch { this.list.delete(uri.toString()); this.invalid.delete(uri.toString()); return undefined }
     const name = uri.path.split('/').pop()!.replace(/\.json$/, '')
     const j = parseJourney(raw, name)
     if (typeof j !== 'string') { this.lastGood.set(uri.toString(), raw); this.invalid.delete(uri.toString()) }
@@ -236,7 +237,7 @@ export class Journeys implements vscode.Disposable {
   private async lines(uri: vscode.Uri): Promise<string[] | undefined> {
     const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && !d.isClosed)
     if (open) return Array.from({ length: open.lineCount }, (_, i) => open.lineAt(i).text)
-    try { return decoder.decode(await vscode.workspace.fs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
+    try { return decoder.decode(await wfs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
   }
 
   /** Finds the steps' code again (all of them, or some). True if any moved or changed staleness. */
