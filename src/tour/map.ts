@@ -1,4 +1,4 @@
-// The journey panel's messages (journeys.ts MapMessage) and what each does; the panel's state.
+// The journey panel's messages (journeys/mapPanel.ts MapMessage) and what each does; the panel's state.
 
 import * as vscode from 'vscode'
 import { beats, byId, cfg, gstate, journeys, KEY, log, mapPanel, state, understanding } from '../app'

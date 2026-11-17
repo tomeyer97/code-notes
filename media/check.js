@@ -8,11 +8,13 @@
 //   { type: 'open', id }  { type: 'select', id }        a question: opened; selected with the arrows
 //   { type: 'retry' | 'modelSetting' | 'install' | 'pathSetting' }   writing the questions failed: what to do
 //   { type: 'openMr' }  { type: 'openFile' }
-//   { type: <the action's id> }   'start' | 'topUp' | 'scm' | 'commitPush' | 'pull' | 'merge' …: the one button
+//   { type: <the action's id> }   'start' | 'topUp' | 'scm' | 'commitPush' | 'pull' | 'merge' | 'openFile': the one button
 //   { type: 'include', file, on }   a file ticked for Commit & push
 //   { type: 'tour' | 'writeTour' }  the tour of the change: walk it, write it
 //   { type: 'rendered', rows, overflow, height }   what is cut or sticks out (for tests)
 //   and the answer box's (media/checkAnswer.js)
+//   With checkAnswer.js's, these are src/check/view.ts CheckViewRequest and CheckViewReport: a name added here goes
+//   there too.
 ;(function () {
   const { el, button, connect, onMessages, runKey, overflowing, QSTATE } = window.common
   const { post } = connect()

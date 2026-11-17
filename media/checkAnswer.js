@@ -10,6 +10,7 @@
 //   { type: 'next' }  { type: 'escape' }  { type: 'regrade', id }
 //   { type: 'focused', id, ok }      whether the keyboard reached the box
 //   { type: 'concern', id, action }  'fix' | 'todo' | 'flag' | 'dismiss'
+//   (src/check/view.ts CheckViewRequest and CheckViewReport list these with check.js's: keep them the same.)
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}

@@ -4,7 +4,11 @@ import * as vscode from 'vscode'
 import type { CheckView } from '../checkModel'
 import { webviewPage } from '../webview/page'
 
-/** What the view's page asks the controller for (index.ts `viewHandlers`, one handler each). */
+/**
+ * What the view's page asks the controller for (index.ts `viewHandlers`, one handler each). These and CheckViewReport
+ * are the names media/check.js and media/checkAnswer.js list under "Out" (the action ids are checkModel.ts
+ * CheckView['action']['id']). JS can't import these types: a name added on one side goes in the other's list too.
+ */
 export type CheckViewRequest =
   | 'ready' | 'open' | 'tour' | 'writeTour' | 'select' | 'answer' | 'draft' | 'link' | 'next' | 'concern' | 'openFile' | 'merge'
   | 'retry' | 'modelSetting' | 'pathSetting' | 'install' | 'regrade' | 'escape' | 'include' | 'start' | 'topUp' | 'scm'

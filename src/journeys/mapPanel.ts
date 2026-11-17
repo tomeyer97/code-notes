@@ -6,7 +6,12 @@ import { LoadedJourney } from './steps'
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
 // messages between it and media/journey-map.js.
 
-/** What the webview (media/journey-map.js) sends. */
+/**
+ * What the webview sends: the names media/journey-map.js's header lists under "Out" (journey-map.js, journey-home.js
+ * and journey-scene.js post them). JS can't import this type: a name added on one side goes in the other's list too.
+ * Two more: `close` and `pick` have handlers (tour/map.ts) but no page posts them today; `closed` is this panel's own
+ * (disposed()).
+ */
 export type MapMessage =
   | { type: 'ready' }
   | { type: 'openPath'; path: string }
