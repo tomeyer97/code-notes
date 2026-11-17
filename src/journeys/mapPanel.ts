@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { ListKind, Sort } from '../journeyList'
-import { esc, webviewPage } from '../webviewHtml'
+import { escapeHtml, webviewPage } from '../webview/page'
 import { LoadedJourney } from './steps'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
@@ -244,7 +244,7 @@ export class MapPanel implements vscode.Disposable {
     const file = (...p: string[]) => vscode.Uri.joinPath(this.extensionUri, ...p)
     return webviewPage(w, {
       css: [file('media', 'journey-map.css'), file('media', 'journey-scene.css')],
-      body: `<div id="app"><p class="loading">${loading ? esc(loading) : 'Loading the map…'}</p></div>`,
+      body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
       // journeyModel.js is a CommonJS module loaded as a plain script.
       inline: 'var exports = {}',
       scripts: [file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'), file('media', 'journey-graph.js'), file('media', 'journey-scene.js'), file('media', 'journey-map.js')],

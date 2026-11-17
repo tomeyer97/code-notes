@@ -2,7 +2,7 @@
 // questions as rows, one button. This side only carries messages: the controller (index.ts) decides what they do.
 import * as vscode from 'vscode'
 import type { CheckView } from '../checkModel'
-import { webviewPage } from '../webviewHtml'
+import { webviewPage } from '../webview/page'
 
 /** What the view's page asks the controller for (index.ts `viewHandlers`, one handler each). */
 export type CheckViewRequest =
