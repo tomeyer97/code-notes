@@ -56,9 +56,9 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
     const media = (f: string) => vscode.Uri.joinPath(this.extUri, 'media', f)
     view.webview.html = webviewPage(view.webview, {
-      css: [media('check.css'), media('checkAnswer.css')],
+      css: [media('common.css'), media('check.css'), media('checkAnswer.css')],
       body: '<div id="app"></div>',
-      scripts: [media('checkAnswer.js'), media('check.js')],
+      scripts: [media('common.js'), media('checkAnswer.js'), media('check.js')],
     })
     view.webview.onDidReceiveMessage((m: CheckViewMessage) => {
       switch (m.type) {

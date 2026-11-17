@@ -3,7 +3,7 @@
      and sets VS Code's theme variables (?theme=dark|light). Driven by shoot.mjs. -->
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="../../media/check.css"><link rel="stylesheet" href="../../media/checkAnswer.css">
+<link rel="stylesheet" href="../../media/common.css"><link rel="stylesheet" href="../../media/check.css"><link rel="stylesheet" href="../../media/checkAnswer.css">
 <style>html { background: var(--vscode-editor-background); }</style>
 <script>
   window.__posted = []
@@ -19,4 +19,4 @@
   const t = themes[new URLSearchParams(location.search).get('theme') || 'dark']
   for (const k in t) document.documentElement.style.setProperty(`--vscode-${k}`, t[k])
 </script></head>
-<body><div id="app"></div><script src="../../media/checkAnswer.js"></script><script src="../../media/check.js"></script></body></html>
+<body><div id="app"></div><script src="../../media/common.js"></script><script src="../../media/checkAnswer.js"></script><script src="../../media/check.js"></script></body></html>

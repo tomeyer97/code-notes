@@ -1,21 +1,13 @@
-// The journey's whole map at once (0.21): systems contain their modules, modules their functions; every
-// edge between its real ends, with its label. Laid out by ELK (layered, hierarchical: out/vendor/elk.bundled.js, loaded
-// before this file as window.ELK), cached per journey. Pan (drag, wheel), zoom (Ctrl+wheel, + − Fit, keys), and it
-// follows the step: the current step's box centred at a readable zoom, ringed. Function boxes carry their step numbers.
-// Needs journeyModel.js (`exports`) for isGeneric.
+// The journey's whole map at once (0.21), as a view: the boxes and arrows where journey-layout.js put them (cached per
+// journey), far names when zoomed out, pan (drag, wheel), zoom (Ctrl+wheel, + − Fit, keys), and it follows the step:
+// the current step's box centred at a readable zoom, ringed. Function boxes carry their step numbers.
+// Needs common.js and journey-layout.js, loaded before it.
 // API: const g = JourneyGraph({ goStep(n), open(path), quiet (true: the tutorial is up, nothing moves), legend(hidden), rendered(boxes), view(node), error(message) })
 //      g.el (the viewport, re-appended on every render)  g.set(J, cur, legendHidden)  g.follow(animate)  g.resized
 ;(function () {
-  const M = window.exports
-  const SVG = 'http://www.w3.org/2000/svg'
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e }
-  const svgEl = (tag, attrs) => { const e = document.createElementNS(SVG, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e }
+  const { el, svgEl, runKey } = window.common
+  const { layout, signature, stepsOf, titleEl, leafEl, pathD } = window.JourneyLayout
   const plain = (s) => (s || '').replace(/`|\*\*/g, '')
-  /** An arrow label as a plain verb phrase: the first clause, without timings ("polls every 3 s, max 10 min" → "polls"). */
-  const UNIT = '(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)'
-  const verb = (l) => l.split(/[;,(]/)[0]
-    .replace(new RegExp(`\\s+(?:every|each|after|within|in|for|up to|for up to|max\\.?|at most)\\s+(?:up to\\s+)?[\\d.]+\\s*${UNIT}\\b.*$`, 'i'), '')
-    .replace(new RegExp(`\\s+[\\d.]+\\s*${UNIT}\\b`, 'gi'), '').trim()
   const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   /** Zoom bounds; below FAR the leaves' text and the arrow labels are hidden (too small to read), titles stay. */
@@ -61,220 +53,7 @@
     let followed = -1
     const nodeEls = new Map()
 
-    // ---------- layout (ELK), cached ----------
-
-    function signature(j) {
-      return JSON.stringify([j.nodes.map((n) => [n.id, n.kind, n.label, n.parent || '']), j.edges.map((e) => [e.from, e.to, e.label, !!e.async]), j.steps.map((s) => s.node)])
-    }
-    /** The size a box's text needs, measured with the real styles. */
-    function measurer() {
-      const box = el('div', 'gmeasure')
-      document.body.append(box)
-      const size = (e) => { box.append(e); const r = { w: Math.ceil(e.offsetWidth) + 1, h: Math.ceil(e.offsetHeight) }; e.remove(); return r }
-      return { size, done: () => box.remove() }
-    }
-    function stepsOf(j) {
-      const m = new Map()
-      for (const s of j.steps) { if (!m.has(s.node)) m.set(s.node, []); m.get(s.node).push(s.n) }
-      return m
-    }
-
-    async function layout(j) {
-      const byId = new Map(j.nodes.map((n) => [n.id, n]))
-      const kids = new Map()
-      for (const n of j.nodes) { const p = n.parent && byId.has(n.parent) ? n.parent : ''; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(n) }
-      const steps = stepsOf(j)
-      // Children in the order the path first reaches them (unvisited last): ELK keeps the model order where it can.
-      const firstMemo = new Map()
-      const first = (id) => {
-        if (firstMemo.has(id)) return firstMemo.get(id)
-        const v = Math.min(steps.get(id)?.[0] ?? Infinity, ...(kids.get(id) || []).map((c) => first(c.id)))
-        firstMemo.set(id, v)
-        return v
-      }
-      for (const list of kids.values()) list.sort((a, b) => first(a.id) - first(b.id))
-      const pathOf = (id) => { const o = []; for (let n = byId.get(id); n && o.length <= j.nodes.length; n = byId.get(n.parent)) o.unshift(n.id); return o }
-      const ms = measurer()
-      const titleH = {}
-      const mk = (n, parentTitle) => {
-        const ch = kids.get(n.id) || []
-        if (ch.length) {
-          const t = ms.size(titleEl(n))
-          titleH[n.id] = t.h
-          return { id: n.id, layoutOptions: { 'elk.padding': `[top=${t.h + 10},left=12,bottom=12,right=12]` }, children: ch.map((c) => mk(c, ch.length === 1 ? t.w : 0)), edges: [] }
-        }
-        const s = ms.size(leafEl(n, steps.get(n.id) || []))
-        // The only box in a module: at least as wide as the module's title (ELK can't be told a compound's minimum here).
-        return { id: n.id, width: Math.max(s.w, parentTitle - 4), height: s.h }
-      }
-      const root = {
-        id: '#root',
-        layoutOptions: {
-          'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.hierarchyHandling': 'INCLUDE_CHILDREN', 'elk.edgeRouting': 'ORTHOGONAL',
-          'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES', 'elk.layered.crossingMinimization.forceNodeModelOrder': 'false',
-          'elk.spacing.nodeNode': '22', 'elk.layered.spacing.nodeNodeBetweenLayers': '26', 'elk.spacing.edgeNode': '14', 'elk.spacing.edgeEdge': '10',
-          'elk.layered.spacing.edgeNodeBetweenLayers': '14', 'elk.layered.spacing.edgeEdgeBetweenLayers': '8', 'elk.spacing.edgeLabel': '3',
-          'elk.edgeLabels.placement': 'CENTER', 'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX', 'elk.padding': '[top=8,left=8,bottom=8,right=8]',
-        },
-        children: (kids.get('') || []).map((n) => mk(n, 0)), edges: [],
-      }
-      const elkById = new Map()
-      const walk = (g) => { elkById.set(g.id, g); for (const c of g.children || []) walk(c) }
-      walk(root)
-      // Each edge in the innermost box holding both ends (its coordinates come back relative to that box).
-      const edges = []
-      j.edges.forEach((e, i) => {
-        const pa = pathOf(e.from), pb = pathOf(e.to)
-        let c = 0
-        while (c < pa.length && c < pb.length && pa[c] === pb[c]) c++
-        let common = pa.slice(0, c)
-        while (common.length && (common[common.length - 1] === e.from || common[common.length - 1] === e.to)) common.pop()
-        const container = common[common.length - 1] || '#root'
-        const text = M.isGeneric(e.label) ? '' : verb(e.label)
-        const lab = text ? ms.size(el('div', 'glabel', text)) : undefined
-        const ee = { id: `e${i}`, sources: [e.from], targets: [e.to], ...(lab ? { labels: [{ id: `e${i}l`, text, width: lab.w, height: lab.h }] } : {}) }
-        elkById.get(container).edges.push(ee)
-        edges.push({ i, e, text, container, ee })
-      })
-      ms.done()
-      const out = await new window.ELK().layout(root)
-      // Absolute positions.
-      const abs = new Map()
-      const place = (g, ox, oy) => { const ax = ox + (g.x || 0), ay = oy + (g.y || 0); abs.set(g.id, { x: ax, y: ay, w: g.width, h: g.height }); for (const c of g.children || []) place(c, ax, ay) }
-      place(out, 0, 0)
-      const outById = new Map()
-      const walk2 = (g) => { outById.set(g.id, g); for (const e of g.edges || []) outById.set(e.id, e); for (const c of g.children || []) walk2(c) }
-      walk2(out)
-      const edgesOut = edges.map(({ i, e, text, container, ee }) => {
-        const o = outById.get(`e${i}`)
-        const base = abs.get(container) || { x: 0, y: 0 }
-        const pts = (o.sections || []).flatMap((s) => [s.startPoint, ...(s.bendPoints || []), s.endPoint]).map((p) => ({ x: p.x + base.x, y: p.y + base.y }))
-        const lab = ee.labels?.[0]
-        return { i, e, text, pts, cross: (byId.get(e.from)?.parent || '') !== (byId.get(e.to)?.parent || ''), ...(lab ? { lw: lab.width, lh: lab.height } : {}) }
-      })
-      curves(edgesOut, abs, kids)
-      placeLabels(edgesOut, abs, kids, titleH)
-      return { w: out.width, h: out.height, abs, titleH, kids, edges: edgesOut }
-    }
-
-    /**
-     * Arrows between boxes in different modules: one simple curve from end to end (ELK routes them around whole
-     * modules, in long detours that read like empty boxes). Ends spread along the side they leave/enter, in the order
-     * of the far end, so curves from one box don't cross each other.
-     */
-    function curves(edges, abs, kidsOf) {
-      const ends = new Map() // `${id}|${side}` -> [{ ed, which, key }]
-      for (const ed of edges) {
-        if (!ed.cross) continue
-        const s = abs.get(ed.e.from), t = abs.get(ed.e.to)
-        if (!s || !t) continue
-        let ss, ts
-        if (t.y >= s.y + s.h + 6) { ss = 'b'; ts = 't' }
-        else if (t.y + t.h + 6 <= s.y) { ss = 't'; ts = 'b' }
-        else if (t.x >= s.x + s.w / 2) { ss = 'r'; ts = 'l' } else { ss = 'l'; ts = 'r' }
-        ed.sides = [ss, ts]
-        const add = (id, side, which, other) => { const k = `${id}|${side}`; if (!ends.has(k)) ends.set(k, []); ends.get(k).push({ ed, which, key: side === 'b' || side === 't' ? other.x + other.w / 2 : other.y + other.h / 2 }) }
-        add(ed.e.from, ss, 0, t)
-        add(ed.e.to, ts, 1, s)
-      }
-      for (const [k, list] of ends) {
-        const [id, side] = [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]
-        const r = abs.get(id)
-        list.sort((a, b) => a.key - b.key)
-        list.forEach((x, i) => {
-          const f = (i + 1) / (list.length + 1)
-          const p = side === 'b' ? { x: r.x + r.w * f, y: r.y + r.h } : side === 't' ? { x: r.x + r.w * f, y: r.y } : side === 'l' ? { x: r.x, y: r.y + r.h * f } : { x: r.x + r.w, y: r.y + r.h * f }
-          ;(x.ed.anchor || (x.ed.anchor = []))[x.which] = { ...p, side }
-        })
-      }
-      for (const ed of edges) {
-        if (!ed.anchor || !ed.anchor[0] || !ed.anchor[1]) continue
-        const [a, b] = ed.anchor
-        const d = Math.hypot(b.x - a.x, b.y - a.y)
-        const out = (p, m) => (p.side === 'b' ? { x: p.x, y: p.y + m } : p.side === 't' ? { x: p.x, y: p.y - m } : p.side === 'l' ? { x: p.x - m, y: p.y } : { x: p.x + m, y: p.y })
-        const m = Math.max(20, Math.min(90, d / 2.5))
-        // Only a curve that crosses no other box (a line under a box reads as an arrow into it): bent sideways as far as
-        // needed; when none is clear, ELK's route.
-        const vert = a.side === 'b' || a.side === 't'
-        const leaves = [...abs].filter(([id]) => id !== ed.e.from && id !== ed.e.to && id !== '#root' && !(kidsOf.get(id) || []).length).map(([, r]) => r)
-        const clear = (bz) => { const pts = samples({ bez: bz }); return !leaves.some((r) => pts.some((q) => q.x > r.x - 6 && q.x < r.x + r.w + 6 && q.y > r.y - 6 && q.y < r.y + r.h + 6)) }
-        let bez
-        for (const off of [0, -50, 50, -100, 100, -160, 160, -240, 240]) {
-          const sh = (p) => (vert ? { x: p.x + off, y: p.y } : { x: p.x, y: p.y + off })
-          const bz = [a, sh(out(a, m)), sh(out(b, m)), b]
-          if (clear(bz)) { bez = bz; break }
-        }
-        if (!bez) continue
-        ed.bez = bez
-        delete ed.pts
-      }
-    }
-
-    /** Points along an arrow, every ~4 px (for placing its label on it). */
-    function samples(ed) {
-      const out = []
-      if (ed.bez) {
-        const [p0, p1, p2, p3] = ed.bez
-        for (let i = 0; i <= 60; i++) { const t = i / 60, u = 1 - t; out.push({ x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x, y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y }) }
-        return out
-      }
-      const P = ed.pts
-      for (let i = 1; i < P.length; i++) { const a = P[i - 1], b = P[i], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 4)); for (let k = i === 1 ? 0 : 1; k <= n; k++) out.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n }) }
-      return out
-    }
-
-    /** Each label centred on its own line, where it covers no box, title or other label (else where it covers least). */
-    function placeLabels(edges, abs, kids, titleH) {
-      const obstacles = []
-      for (const [id, r] of abs) {
-        if (id === '#root') continue
-        if ((kids.get(id) || []).length) obstacles.push({ x: r.x, y: r.y, w: Math.min(r.w, 260), h: (titleH[id] || 18) + 6 })
-        else obstacles.push({ ...r })
-      }
-      const area = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
-      // Shorter arrows first: they have the fewest places to go.
-      const order = edges.filter((ed) => ed.text && ed.lw).map((ed) => ({ ed, pts: samples(ed) })).sort((a, b) => a.pts.length - b.pts.length)
-      for (const { ed, pts } of order) {
-        let best, bestCost = Infinity
-        for (const f of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82]) {
-          const p = pts[Math.round((pts.length - 1) * f)]
-          const r = { x: p.x - ed.lw / 2, y: p.y - ed.lh / 2, w: ed.lw, h: ed.lh }
-          const cost = obstacles.reduce((c, o) => c + area(r, o), 0) + Math.abs(f - 0.5) * 20
-          if (cost < bestCost) { bestCost = cost; best = r }
-          if (cost <= Math.abs(f - 0.5) * 20) break
-        }
-        ed.label = best
-        obstacles.push(best)
-      }
-    }
-
     // ---------- drawing ----------
-
-    function titleEl(n) { const t = el('div', `gtitle ${n.kind}`, n.label); return t }
-    function leafEl(n, nums) {
-      const d = el('div', `gbox leaf ${n.kind}`)
-      d.append(el('span', 'glbl', n.label))
-      if (nums.length) {
-        const s = el('span', 'gnums')
-        for (const v of nums) { const b = el('button', 'gnum', String(v)); b.dataset.n = v; s.append(b) }
-        d.append(s)
-      }
-      return d
-    }
-    /** A rounded orthogonal polyline. */
-    function pathD(pts) {
-      if (pts.length < 2) return ''
-      let d = `M${pts[0].x},${pts[0].y}`
-      for (let i = 1; i < pts.length - 1; i++) {
-        const a = pts[i - 1], b = pts[i], c = pts[i + 1]
-        const r = Math.min(6, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
-        const u = (p, q) => { const l = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: (q.x - p.x) / l, y: (q.y - p.y) / l } }
-        const ua = u(b, a), uc = u(b, c)
-        d += ` L${b.x + ua.x * r},${b.y + ua.y * r} Q${b.x},${b.y} ${b.x + uc.x * r},${b.y + uc.y * r}`
-      }
-      const z = pts[pts.length - 1]
-      return `${d} L${z.x},${z.y}`
-    }
 
     function draw() {
       world.textContent = ''
@@ -463,6 +242,50 @@
     }
 
     /**
+     * Where far name `f` may go on its block `B` (screen px), in order: each { vv: the variant, wide: it reads past the
+     * block (on its chip), x, y }. A block of leaves (`inner`): whole inside it, on two lines, whole past its edges, the
+     * name and numbers on one line, the name alone, cut after a word, the name alone cut; each centred, then at the
+     * top, then at the bottom of the block (`own`: the current step's block, also just under or over it); last, just
+     * under or over it, so it still has a name. A system: its name at its top left. A lone box: on it, else just
+     * under or over it.
+     */
+    function candidatesFor(f, B, own) {
+      const tries = []
+      const inside = B.w - 4
+      if (f.kind === 'inner') {
+        // The current step's block may also name itself just under or over its block (the ring is inside it).
+        const ys = (h) => [B.y + B.h / 2 - h / 2, B.y + 2, B.y + B.h - h - 2, ...(own ? [B.y + B.h + 3, B.y - h - 3] : [])]
+        const at = (vv, wide) => { for (const yy of ys(vv.h)) tries.push({ vv, wide, x: B.x + B.w / 2 - vv.w / 2, y: yy }) }
+        const firstFitting = (list) => list.find((vv) => vv.w <= inside)
+        if (f.whole.w <= inside) at(f.whole, false)
+        const two = [...f.two].sort((a, b) => a.line - b.line).find((vv) => vv.w <= inside && vv.h <= B.h - 2)
+        if (two) at(two, false)
+        if (f.whole.w > inside) at(f.whole, true)
+        if (f.row) at(f.row, f.row.w > inside)
+        if (f.bare) at(f.bare, f.bare.w > inside)
+        const cut = firstFitting(f.cut)
+        if (cut) at(cut, false)
+        const bareCut = firstFitting(f.bareCut)
+        if (bareCut) at(bareCut, false)
+        // Last: just under (or over) its block.
+        for (const vv of [f.whole, f.bare].filter(Boolean)) {
+          for (const yy of [B.y + B.h + 3, B.y - vv.h - 3]) tries.push({ vv, wide: true, x: B.x + B.w / 2 - vv.w / 2, y: yy })
+        }
+        return tries
+      }
+      // A system's name may read past its box's right edge (on its chip) when nothing is there.
+      const spots = f.kind === 'outer' ? [[B.x + 1, B.y + 1]] : [[B.x + 1, B.y + 1], [B.x + 1, B.y + B.h + 5], [B.x + 1, B.y - f.whole.h - 5]]
+      const room = f.kind === 'outer' ? B.w - 2 : Infinity
+      const wide = f.kind === 'leaf'
+      for (const [sx, sy] of spots) {
+        tries.push({ vv: f.whole, wide, x: sx, y: sy })
+        const cut = f.cut.find((vv) => vv.w <= room)
+        if (cut) tries.push({ vv: cut, wide, x: sx, y: sy })
+      }
+      return tries
+    }
+
+    /**
      * Far names, never over each other: most important first (the current step's ring, its block, systems,
      * then blocks by size, then lone boxes); each takes the first place where it overlaps nothing placed: whole inside
      * its block, on two lines, whole past the block's edges, cut after a word with "…"; centred, at the top or at the
@@ -492,36 +315,16 @@
       const items = [...farM].map(([t, f]) => ({ t, f, p: L.abs.get(t.dataset.id) })).filter((i) => i.p)
       items.sort((a, b) => rank(a.t, a.f) - rank(b.t, b.f) || b.p.w * b.p.h - a.p.w * a.p.h)
       for (const { t, f, p } of items) {
-        const B = scr(p)
-        const inside = B.w - 4
-        // The variants in order, each with where it may go.
-        const tries = []
-        if (f.kind === 'inner') {
-          // The current step's block may also name itself just under or over its block (the ring is inside it).
-          const ys = (h) => [B.y + B.h / 2 - h / 2, B.y + 2, B.y + B.h - h - 2, ...(t.dataset.id === holder ? [B.y + B.h + 3, B.y - h - 3] : [])]
-          const at = (vv, wide) => { for (const yy of ys(vv.h)) tries.push({ vv, wide, x: B.x + B.w / 2 - vv.w / 2, y: yy }) }
-          if (f.whole.w <= inside) at(f.whole, false)
-          for (const vv of [...f.two].sort((a, b) => a.line - b.line)) if (vv.w <= inside && vv.h <= B.h - 2) { at(vv, false); break }
-          if (f.whole.w > inside) at(f.whole, true)
-          if (f.row) at(f.row, f.row.w > inside)
-          if (f.bare) at(f.bare, f.bare.w > inside)
-          for (const vv of f.cut) if (vv.w <= inside) { at(vv, false); break }
-          for (const vv of f.bareCut) if (vv.w <= inside) { at(vv, false); break }
-          // Last: just under (or over) its block, so it still has a name.
-          for (const vv of [f.whole, f.bare].filter(Boolean)) for (const yy of [B.y + B.h + 3, B.y - vv.h - 3]) tries.push({ vv, wide: true, x: B.x + B.w / 2 - vv.w / 2, y: yy })
-        } else {
-          // A system's name at its top left; a lone box's name on it, else just under it.
-          const spots = f.kind === 'outer' ? [[B.x + 1, B.y + 1]] : [[B.x + 1, B.y + 1], [B.x + 1, B.y + B.h + 5], [B.x + 1, B.y - f.whole.h - 5]]
-          const room = f.kind === 'outer' ? B.w - 2 : Infinity
-          for (const [sx, sy] of spots) {
-            // A system's name may read past its box's right edge (on its chip) when nothing is there.
-            tries.push({ vv: f.whole, wide: f.kind === 'leaf', x: sx, y: sy })
-            for (const vv of f.cut) if (vv.w <= room) { tries.push({ vv, wide: f.kind === 'leaf', x: sx, y: sy }); break }
-          }
-        }
-        let pick = tries.find((o) => free({ x: o.x, y: o.y, w: o.vv.w, h: o.vv.h }))
+        const tries = candidatesFor(f, scr(p), t.dataset.id === holder)
+        const firstFree = () => tries.find((o) => free({ x: o.x, y: o.y, w: o.vv.w, h: o.vv.h }))
+        let pick = firstFree()
         // Its step numbers matter most: rather over the ring than not at all.
-        if (!pick && rank(t, f) === 0 && ringR) { const i = taken.indexOf(ringR); taken.splice(i, 1); pick = tries.find((o) => free({ x: o.x, y: o.y, w: o.vv.w, h: o.vv.h })); taken.splice(i, 0, ringR) }
+        if (!pick && rank(t, f) === 0 && ringR) {
+          const i = taken.indexOf(ringR)
+          taken.splice(i, 1)
+          pick = firstFree()
+          taken.splice(i, 0, ringR)
+        }
         if (!pick) { t.style.display = 'none'; continue }
         t.style.display = ''
         const sp = t.firstChild
@@ -617,12 +420,22 @@
       q.setAttribute('aria-expanded', String(!legendHidden))
       if (legendHidden) return
       leg.textContent = ''
-      const line = (cls, text) => { const r = el('div', 'gkey'); const s = svgEl('svg', { width: 26, height: 8, 'aria-hidden': 'true' }); s.append(svgEl('path', { d: 'M1,4 H25', class: `gedge ${cls}` })); r.append(s, document.createTextNode(text)); leg.append(r) }
-      line('', 'call')
-      line('async', 'later (poll, watch)')
-      const r = el('div', 'gkey'); r.append(el('span', 'gsample store'), document.createTextNode('the app\'s own record')); leg.append(r)
-      const r2 = el('div', 'gkey'); r2.append(el('span', 'gnum', '4'), document.createTextNode('step (click to go)')); leg.append(r2)
-      const r3 = el('div', 'gkey'); r3.append(el('span', 'gsample cur'), document.createTextNode('this step · drag to move, Ctrl+wheel to zoom')); leg.append(r3)
+      // One row each: a sample, what it means.
+      const row = (sample, text) => {
+        const r = el('div', 'gkey')
+        r.append(sample, document.createTextNode(text))
+        leg.append(r)
+      }
+      const arrow = (cls) => {
+        const s = svgEl('svg', { width: 26, height: 8, 'aria-hidden': 'true' })
+        s.append(svgEl('path', { d: 'M1,4 H25', class: `gedge ${cls}` }))
+        return s
+      }
+      row(arrow(''), 'call')
+      row(arrow('async'), 'later (poll, watch)')
+      row(el('span', 'gsample store'), "the app's own record")
+      row(el('span', 'gnum', '4'), 'step (click to go)')
+      row(el('span', 'gsample cur'), 'this step · drag to move, Ctrl+wheel to zoom')
       placeLegend()
     }
     /** Above the controls, at their corner; another corner when it would cover the current step's box. */
@@ -682,16 +495,21 @@
       x = c.x; y = c.y
       apply()
     }, { passive: false })
+    /** How far an arrow key pans (px). */
+    const PAN_STEP = 60
     view.addEventListener('keydown', (e) => {
       if (host.quiet() || e.ctrlKey || e.altKey || e.metaKey) return
-      const P = 60
-      const keys = { '+': () => zoomBy(1.25), '=': () => zoomBy(1.25), '-': () => zoomBy(0.8), '_': () => zoomBy(0.8), '0': () => fit(true),
-        ArrowLeft: () => set(x + P, y, k, true), ArrowRight: () => set(x - P, y, k, true), ArrowUp: () => set(x, y + P, k, true), ArrowDown: () => set(x, y - P, k, true) }
-      const f = keys[e.key]
-      if (!f) return
-      e.preventDefault()
-      e.stopPropagation()
-      f()
+      runKey(e, {
+        '+': () => zoomBy(1.25),
+        '=': () => zoomBy(1.25),
+        '-': () => zoomBy(0.8),
+        '_': () => zoomBy(0.8),
+        '0': () => fit(true),
+        ArrowLeft: () => set(x + PAN_STEP, y, k, true),
+        ArrowRight: () => set(x - PAN_STEP, y, k, true),
+        ArrowUp: () => set(x, y + PAN_STEP, k, true),
+        ArrowDown: () => set(x, y - PAN_STEP, k, true),
+      }, true)
     })
 
     let lastSize = ''

@@ -1,0 +1,23 @@
+/* Shared by every webview, linked before its own stylesheet: the colours (VS Code's theme, with a fallback for a page
+   shown outside VS Code) and the button that reads as a link. */
+:root {
+  --fg: var(--vscode-foreground, #333);
+  --muted: var(--vscode-descriptionForeground, #717171);
+  --bg: var(--vscode-editor-background, #fff);
+  --border: var(--vscode-widget-border, var(--vscode-panel-border, #8884));
+  --accent: var(--vscode-codeNotes-noteBorder, var(--vscode-focusBorder, #8250df));
+  --accent-bg: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --focus: var(--vscode-focusBorder, var(--accent));
+  --link: var(--vscode-textLink-foreground, var(--accent));
+  /* passed, a warning; out of date (code changed since it was written) is a warning */
+  --ok: var(--vscode-testing-iconPassed, #73c991);
+  --warn: var(--vscode-editorWarning-foreground, #cca700);
+  --stale: var(--warn);
+  --edge: var(--muted); /* lines (dashed too) ≥ 3:1 in dark themes */
+  --hover: var(--vscode-list-hoverBackground, #8881);
+  --raised: var(--vscode-editorWidget-background, var(--bg));
+}
+
+/* A button that reads as a link: no button look. */
+.link { background: none; border: 0; padding: 0; font: inherit; color: var(--link); cursor: pointer; }
+.link:hover { text-decoration: underline; }
