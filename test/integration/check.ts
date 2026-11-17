@@ -150,11 +150,10 @@ export async function run(): Promise<void> {
   }
   assert.match(chk().itemLabel, /^Understanding check: 0 of 3 done\. Answer all 3/, 'read out as words, never an icon id')
   // Nothing written to the repository by itself (untracked setup files once blocked a checkout); nothing in the
-  // workspace's settings. The view offers the setup once, as a commit of its own.
+  // workspace's settings. The first Commit & push of a check takes the .gitattributes line along.
   assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')) && !fs.existsSync(path.join(ws, '.ignore')), 'no setup files by themselves')
   assert.equal(vscode.workspace.getConfiguration('search').get<Record<string, boolean>>('exclude')?.['understanding/**'], undefined, 'no search.exclude written')
-  // While answering, the questions get the room: the setup is offered once done, beside Commit & push.
-  assert.equal(view().setup, undefined, 'no setup line while answering')
+  assert.equal((view() as any).setup, undefined, 'no separate setup offer')
   await shoot('check-1-questions')
   ok('Start: no question asked about uncommitted work (the view names it); only question 1 opens (code + thread); the list is the Check view')
 
@@ -325,32 +324,11 @@ export async function run(): Promise<void> {
     return r.top >= 0 && r.bottom <= (globalThis as any).innerHeight && d.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === b
   }, label)
   if (cdp) await until('Commit & push on screen, clickable', () => buttonShown('Commit & push'))
-  await until('the setup offered', () => view().setup === 'Collapse check files in diffs:')
-  const headBefore = git('rev-parse', 'HEAD')
-  api.checkPanelSend({ type: 'test', click: '.setup button.link:not(.hide)' })
-  await until('the setup committed, and said', () => git('log', '-1', '--format=%s') === 'Add understanding check setup' && !view().setup && view().said === '.gitattributes and .ignore committed: they go with your push.')
-  assert.equal(git('rev-parse', 'HEAD~1'), headBefore)
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', '.ignore'])
-  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
-  assert.equal(fs.readFileSync(path.join(ws, '.ignore'), 'utf8'), 'understanding/\n')
-  ok('setup files are never written by themselves; "Set up this repo" adds .gitattributes and .ignore in a commit of their own')
-  if (cdp) {
-    // VS Code's own search skips the check file because of .ignore (search.useIgnoreFiles, on by default).
-    const probe = path.join(ws, 'api', 'search-probe.txt')
-    fs.writeFileSync(probe, 'already expired\n')
-    await vscode.commands.executeCommand('workbench.action.findInFiles', { query: 'already expired', triggerSearch: true, isRegex: false, filesToInclude: '', filesToExclude: '' })
-    const page = await ui()
-    const rows = await until('search results', async () => { const r: string[] = await page.$$eval('.search-view .monaco-list-row', (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent ?? '')); return r.some((x) => /search-probe/.test(x)) && r })
-    assert.ok(!rows.some((r) => /feat-limits/.test(r)), `the check file is not in the search results: ${rows.join(' | ')}`)
-    assert.ok(read().questions.some((q: any) => q.text.includes('already expired')), 'the check file does hold the words')
-    fs.rmSync(probe)
-    await vscode.commands.executeCommand('codeNotes.check.focus')
-    await until('the Check view back', () => chk().panel.visible)
-    ok('VS Code search leaves the check file out (.ignore), with no workspace setting')
-  }
   // It names what it commits; the TODO added from the check is offered, not taken; other work is left alone.
   fs.writeFileSync(path.join(ws, 'api', 'scratch.js'), 'export const mine = 1\n')
-  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
+  // The repository's first check: the line that folds check files in diffs goes with it, said on the same line.
+  await until('what it commits', () => chk().view.commits === 'Commits feat-limits.json, also folds check files in diffs (.gitattributes)' && chk().view.also?.[0]?.label === 'also limits.js (TODO added)' && chk().view.also[0].on === false)
+  assert.ok(!fs.existsSync(path.join(ws, '.gitattributes')), 'written only on Commit & push')
   await shoot('check-3-done')
   // The status item does what the button does (Commit & push), not a jump to question 1.
   // The remote says how to open a merge request (as GitLab does for a branch without one).
@@ -362,15 +340,17 @@ export async function run(): Promise<void> {
   await until('the merge request link', () => chk().view?.mr === 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Flimits')
   assert.match(chk().itemLabel, /Done\. Pushed\.$/)
   if (cdp) {
-    await until('the status bar says it', async () => (await (await ui()).locator('.statusbar-item', { hasText: 'Committed feat-limits.json and pushed' }).count()) > 0)
+    await until('the status bar says it', async () => (await (await ui()).locator('.statusbar-item', { hasText: 'Committed feat-limits.json, .gitattributes and pushed' }).count()) > 0)
     assert.ok(await (await checkFrame()).locator('.mr button.link', { hasText: 'Open merge request' }).isVisible(), 'the link is shown')
   }
   fs.rmSync(path.join(remoteDir, 'hooks', 'pre-receive'))
   assert.equal(git('ls-remote', 'origin', 'refs/heads/feat/limits').split('\t')[0], git('rev-parse', 'HEAD'))
-  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['understanding/feat-limits.json'])
+  assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.gitattributes', 'understanding/feat-limits.json'])
+  assert.equal(fs.readFileSync(path.join(ws, '.gitattributes'), 'utf8'), 'understanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
+  assert.ok(!fs.existsSync(path.join(ws, '.ignore')), '.ignore stays init\'s')
   assert.deepEqual(git('status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? api/scratch.js', 'M api/limits.js'], 'the TODO and other work are left alone')
   fs.rmSync(path.join(ws, 'api', 'scratch.js')); git('checkout', '--', 'api/limits.js')
-  ok('done: "✓ Done", Commit & push names and commits exactly the check file (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
+  ok('done: "✓ Done", Commit & push names and commits exactly the check file and, the first time, the .gitattributes line (the TODO is offered, not taken) and pushes with -u; the view says "Pushed."')
 
   // 7. The CLI agrees (no model): the committed file passes `ci`.
   const out = execFileSync('node', [path.join(__dirname, '../../../cli/understanding.mjs'), 'ci', '--base', 'main'], { cwd: ws, encoding: 'utf8', env: { PATH: process.env.PATH } })
@@ -713,7 +693,7 @@ export async function run(): Promise<void> {
     ok(`a 1280 px window: the tour walks with the step card only (${Math.min(...cols)} columns of code), "Question ›" opens no panel; typing after a step's code link changes nothing`)
   }
   await vscode.commands.executeCommand('codeNotes.endJourney')
-  // The first check on feat/tour wrote .gitattributes and .ignore (not committed there; feat/limits has them).
+  // Nothing of feat/limits' .gitattributes may be left untracked here before the checkout (force: usually none).
   for (const f of ['.gitattributes', '.ignore']) fs.rmSync(path.join(ws, f), { force: true })
   git('checkout', '-q', 'feat/limits')
   api.checkRefresh()

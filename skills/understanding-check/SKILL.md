@@ -1,11 +1,12 @@
 ---
 name: understanding-check
 description: >-
-  Writes the questions of an UNDERSTANDING CHECK for the current branch: 1-5 short questions (by the change's size)
-  about the author's own change (how a part behaves, why it is built this way, how it fails, an edge case), each anchored on the changed
+  An UNDERSTANDING CHECK for the current branch: 1-5 short questions (by the change's size) about the author's own
+  change (how a part behaves, why it is built this way, how it fails, an edge case), each anchored on the changed
   lines it is about, written to understanding/<branch>.json with the bundled script. The author answers them next to
-  the code (Code Notes in VS Code) and a grader checks the answers. Use when asked to "check my understanding",
-  write understanding-check questions, or top up a check after the change grew.
+  the code (Code Notes in VS Code), or right here in the chat, one at a time, graded with the same rules. Use when
+  asked to "check my understanding" (/understanding-check), write understanding-check questions, or top up a check
+  after the change grew.
 ---
 
 # Understanding check: writing the questions
@@ -23,8 +24,10 @@ Write only through `scripts/questions.mjs` (never write the JSON by hand); read 
 1. `questions.mjs start` (or `start --top-up` when asked to top up an existing check). It prints the change with the
    new file's line numbers and how many questions to write (1 for a small change, up to 5 for a big one; write that
    many). `NOTHING` or `UNCOMMITTED`: write nothing, reply with that one line. `REMOVED ONLY`: the change only removes
-   code; ask what the removal changes (what still used it, what now happens instead), on the lines where it was removed
-   or on the code that used it (any file). `RENAMED ONLY`: one question about what the move changes, `--whole-file`. `DOCS ONLY`: one question about what a reader now sees or
+   code; write ONE evidence question (`--evidence --kind change`) from the `EVIDENCE` the script prints (a search of
+   the repository for the removed names): "Nothing calls `refundReport` any more (search: 0 hits) — right?", for the
+   author to confirm or correct in one sentence. Check the hits with Grep first and keep the numbers true; put it on
+   the lines where code was removed or on code that used it (any file). `RENAMED ONLY`: one question about what the move changes, `--whole-file`. `DOCS ONLY`: one question about what a reader now sees or
    understands differently; never why a word was chosen.
 2. Read the diff. Open the changed files (Read) where the diff alone doesn't show what the code does, and the code
    that calls the changed functions. Find the places that matter most: where the behaviour is decided, where it can
@@ -85,13 +88,16 @@ instead of reading the code cold. Write it only when the request asks for the to
 1. `questions.mjs tour` (`tour --top-up` when topping up). It prints the questions, the changed lines and the exact
    `journey.py` path and `--dir` to use (always that `--dir`; the slug is `tour`).
 2. Write the journey with `journey.py` (the code-journey skill's script; `journey.py help <command>` gives its rules):
-   - **As many steps as the change needs** (`tour` prints the range: 2-4 for a small change, up to 6-10 for a big
-     one) through the changed code AND the unchanged code it depends on (the caller, the table, the retry loop), in
+   - **As many steps as the change needs** (`tour` prints the range: 2-3 for a few lines, documentation or a removal,
+     up to 6-10 for a big change) through the changed code AND the unchanged code it depends on (the caller, the table, the retry loop), in
      the order a request or the data actually flows. Every step is about the change or what it relies on: no step
      that only says something stayed the same. A top-up adds 1-4 steps after the last one, about the new part
      only; never change the earlier steps.
-   - **A change that mostly removes code** (`REMOVAL`): what was removed, what used it before (or that nothing does
-     now, and how you know), and the few lines that changed besides. Not a tour of the code around it.
+   - **A change that only removes code** (`REMOVAL`): steps on code that is still there: where the removed code used
+     to be called (or that nothing calls it: the search), and why removing it is safe. One that mostly removes code:
+     what was removed, what used it before, and the few lines that changed besides. Not a tour of the code around it.
+   - **Documentation** (`DOCS`): steps on the existing code the edited text describes, never on the text. When it
+     describes no code, write no tour: `questions.mjs tour-finish --none`, and you are done.
    - `new <repo> tour "<question>" "<title>" --dir … < summary`: the question one developer would ask about this
      change ("What happens when a shopper asks for a refund?"), a short title that names the change ("Refunds by
      staff", "Dropping refundReport"), a 2-sentence summary.
@@ -105,7 +111,8 @@ instead of reading the code cold. Write it only when the request asks for the to
      puts two facts together to answer. A title or lead that says what a question asks for ("so a failed refund is
      not listed", "so a restart loses the job") gives it away: cut that clause.
    - Then 1-3 `link`s per step (a phrase of the lead to the lines doing it). No `value`, no `scene`.
-   - `check <repo> tour quiet --dir …`: fix every PROBLEM and WARNING it prints.
+   - `check <repo> tour quiet --dir …`: fix every PROBLEM and WARNING it prints, except its step count (6-14 is for a
+     journey of the repository; `tour` prints the tour's own).
 3. `questions.mjs tour-finish --steps q1=3,q2=5,…`: for each question, the step after which its answer can be seen.
    Reply with the step titles, one per line.
 
@@ -114,3 +121,26 @@ instead of reading the code cold. Write it only when the request asks for the to
 `start --top-up` lists the NEW LINES of the branch's own change since the questions were written (code merged in
 from the target branch is never among them). Add 1-2 questions about those lines only (the earlier questions and
 answers stay), then `finish`.
+
+## Without VS Code: answering in the chat
+
+When the person asks you directly (`/understanding-check`, "check my understanding") and no prompt told you exactly
+which script commands to run, do the whole check here in the chat. It is help, not an exam: be the friendly senior
+colleague. `S` below is this skill's `scripts/questions.mjs`; `S cli …` runs the check's CLI (the repository's copy,
+e.g. `tools/understanding.mjs`, or the one beside this script), so the file ends up exactly as VS Code writes it.
+
+1. `S cli status`. No check yet: write the questions (Procedure above; no tour). A check that needs a top-up: top up.
+   `No check needed`: say so in one line and stop.
+2. `S cli next` prints the question to answer next (its id, where it is, the text). Ask it in the chat, ONE question
+   at a time, with where to look (file and lines). Then wait for the answer. Never hint at the answer before they try.
+3. Grade their answer with the same rules as everywhere: `S cli grade --question q1 --answer '<their words>' --prompt`
+   prints the grader's instructions for it. Follow them (read the code they name) and write the JSON reply they ask
+   for. Then record it: `S cli grade --question q1 --answer '<their words>' --reply '<the JSON>'`. Quote both with
+   single quotes (a `'` inside becomes `'\''`); never change their words.
+4. Tell them what the recorded line says, in your own short words: "Right" and why; "Not quite" with the hint (they
+   try once more); after a second miss, the explanation, and offer to let them say it back in one sentence (optional:
+   record it the same way, it counts as passed). A `Concern:` is about the code: tell them, and when they want a
+   reviewer to see it, `S cli flag --question q1`.
+5. Repeat from 2 until `S cli next` (or the recorded line) says done. Then offer to commit: `S cli commit` commits the
+   check file only (the repository's first check also adds the `.gitattributes` line that folds check files in diffs)
+   and pushes. Say what it printed in one line.

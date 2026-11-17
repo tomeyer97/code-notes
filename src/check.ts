@@ -64,7 +64,7 @@ export interface CheckHost {
 export const SESSION = (branch: string) => `Check · ${branch}`
 const AUTHOR = 'Understanding check'
 const SKILL = 'understanding-check'
-/** Files the first check writes (initRepo): committed with the check. */
+/** Files `init` writes: committed with the check when someone ran it by hand. */
 const REPO_FILES = ['.gitattributes', '.ignore']
 /** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
 const CACHE = '.code-notes/.cache/checks'
@@ -83,8 +83,6 @@ const FIX_KEY = 'codeNotes.understanding.fixFiles'
 const DRAFT_KEY = 'codeNotes.understanding.drafts'
 /** Questions being written (per workspace): a window reloaded meanwhile says so instead of offering Start again. */
 const WRITING_KEY = 'codeNotes.understanding.writing'
-/** Repositories where "Set up this repo" was hidden. */
-const SETUP_KEY = 'codeNotes.understanding.setupHidden'
 /** The parts of VS Code's git extension API used here. */
 interface GitRepo { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> } }
 interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
@@ -106,7 +104,7 @@ export class Understanding implements vscode.Disposable {
   private pushedHead: string | undefined
   /** The host's "create a merge request" link the last push printed (a branch without one). */
   private mr: string | undefined
-  /** "Set up" committed the setup files: said once, in its place, until the next push or branch. */
+  /** One line about what was just done (a merge kept both answers): until the next push or branch. */
   private said: string | undefined
   private pushing = false
   /** Questions written in the background and not opened yet: the status bar says how many are ready. */
@@ -273,7 +271,7 @@ export class Understanding implements vscode.Disposable {
       ...(this.commit ? { commit: { ...this.commit, include: this.include, exclude: this.exclude } } : {}),
       ...(this.selected ? { selected: this.selected, draft: this.drafts()[this.selected] ?? '' } : {}),
       ...(this.failed?.branch === this.st.branch ? { failed: { text: this.failed.text, ...(this.failed.setting ? { setting: true } : {}), ...(this.failed.path ? { path: true } : {}) } } : {}),
-      setup: !!this.repo && !this.setupHidden() && this.U.setupMissing(this.repo).length > 0, ...(this.said ? { said: this.said } : {}) })
+      ...(this.said ? { said: this.said } : {}) })
   }
   private post(): void { this.view.update(this.current()) }
   /** Questions for this branch still being written by a Claude Code started before the window was reloaded. */
@@ -465,6 +463,8 @@ export class Understanding implements vscode.Disposable {
     await this.refresh()
     if (res.cancelled || t.paused) return false
     const after = this.st?.check?.journey?.steps.length ?? 0
+    // Documentation that describes no code: no tour, on purpose.
+    if (!res.error && !before && this.st?.check?.noTour) { this.host.log.info(`understanding check: no tour for ${branch}: the text describes no code`); this.post(); return true }
     if (res.error || after <= before) {
       // A short reason; Claude's own reply (it may talk to someone who isn't there) only in the debug log.
       this.host.log.error(`understanding check: no tour for ${branch}: ${res.error ? res.error.split('\n')[0].slice(0, 160) : 'Claude wrote none'}`)
@@ -579,25 +579,6 @@ export class Understanding implements vscode.Disposable {
     return true
   }
 
-  /**
-   * "Set up this repo": the repository's lines for check files (.gitattributes collapses them in merge request diffs,
-   * .ignore keeps them out of search) in a commit of their own, only those two files. Never written by itself: files a
-   * branch has untracked block a checkout of a branch where they are tracked.
-   */
-  private async setupRepo(): Promise<void> {
-    const repo = this.repo
-    if (!repo) return
-    let added: string[] = []
-    try { added = this.U.initRepo(repo) } catch (e) { void vscode.window.showWarningMessage(`Code Notes: couldn't set up the repository: ${(e as Error).message}`); return }
-    const files = REPO_FILES.filter((f) => added.some((a) => a.startsWith(`${f}:`)))
-    if (files.length) {
-      const ok = await gitOut(repo, ['add', '--', ...files], true) !== undefined && await gitOut(repo, ['commit', '-q', '-m', 'Add understanding check setup', '--', ...files], true) !== undefined
-      this.host.log.info(`understanding check: setup ${ok ? 'committed' : 'written, not committed'}: ${added.join('; ')}`)
-      if (ok) this.said = `${files.join(' and ')} committed: ${this.st?.state.phase === 'done' ? 'they go with your push.' : 'push them with your change.'}`
-      else void vscode.window.showWarningMessage('Code Notes: added the setup lines; commit .gitattributes and .ignore yourself.')
-    }
-    await this.refresh()
-  }
   /** The check file, at its first conflict marker when it has one. */
   private async openFile(): Promise<void> {
     if (!this.abs) return
@@ -624,7 +605,6 @@ export class Understanding implements vscode.Disposable {
     this.host.log.info(`understanding check: merge conflict in ${this.st?.file} resolved: both answers kept${kept.length ? `; flags kept on ${kept.join(', ')}` : ''}`)
     await this.refresh()
   }
-  private setupHidden(): boolean { return !!this.repo && (this.host.memento.get<string[]>(SETUP_KEY) ?? []).includes(this.repo) }
 
   show(): void { this.view.reveal() }
 
@@ -714,7 +694,6 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'link' && m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i)
     else if (m.type === 'next') void this.step(1)
     else if (m.type === 'concern' && m.id && ['fix', 'todo', 'flag', 'dismiss'].includes(String(m.action))) { const n = this.noteOf(m.id); if (n) void this.concern(n, m.action as 'fix' | 'todo' | 'flag' | 'dismiss') }
-    else if (m.type === 'setup') void this.setupRepo()
     else if (m.type === 'openFile') void this.openFile()
     else if (m.type === 'merge') void this.mergeConflict()
     else if (m.type === 'retry') { const t = !!this.failed?.topUp; this.failed = undefined; void this.write(t) }
@@ -722,7 +701,6 @@ export class Understanding implements vscode.Disposable {
     else if (m.type === 'pathSetting') void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.claude.path')
     else if (m.type === 'install') void vscode.env.openExternal(vscode.Uri.parse('https://claude.com/claude-code'))
     else if (m.type === 'regrade' && m.id) void this.grade(m.id)
-    else if (m.type === 'setupHide') void this.host.memento.update(SETUP_KEY, [...(this.host.memento.get<string[]>(SETUP_KEY) ?? []), this.repo!]).then(() => this.post())
     else if (m.type === 'escape') { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') }
     else if (m.type === 'include' && m.file) {
       // A fix goes unless unticked; a TODO only when ticked.
@@ -741,7 +719,8 @@ export class Understanding implements vscode.Disposable {
 
   /**
    * What Commit & push commits: the check file and the setup files `init` changed; `todos`: files a TODO was added to
-   * from the check (uncommitted), committed only when ticked. Nothing else the person changed.
+   * from the check (uncommitted), committed only when ticked; `fold`: the repository's first check commit also adds the
+   * .gitattributes line that folds check files in diffs (written on commit). Nothing else the person changed.
    */
   private async toCommit(): Promise<Omit<CommitPlan, 'include' | 'exclude'>> {
     const repo = this.repo!, st = this.st!
@@ -756,7 +735,8 @@ export class Understanding implements vscode.Disposable {
     const fixes: string[] = [], applied: string[] = []
     const open = (q: string) => { const x = st.check?.questions.find((y) => y.id === q); return !!x && !!concernOf(x) }
     for (const [q, f] of Object.entries(this.fixes())) if (open(q) && (edited(f) || await dirty(f))) { if (!fixes.includes(f)) fixes.push(f); applied.push(q) }
-    return { files, todos, ...(fixes.length ? { fixes, applied } : {}), ...(st.dirty && !st.untracked && await this.tourOnly() ? { tourOnly: true } : {}) }
+    const fold = !files.includes('.gitattributes') && this.U.foldMissing(repo)
+    return { files, todos, ...(fixes.length ? { fixes, applied } : {}), ...(st.dirty && !st.untracked && await this.tourOnly() ? { tourOnly: true } : {}), ...(fold ? { fold, foldText: this.U.FOLD_TEXT } : {}) }
   }
   /** The check file's only change since it was committed is its tour (the answers are in the commit). */
   private async tourOnly(): Promise<boolean> {
@@ -819,11 +799,13 @@ export class Understanding implements vscode.Disposable {
     } catch { return false }
   }
 
-  /** Commit & push: exactly the files named in the view (the check file, the setup files, ticked TODO files), then the push. */
+  /** Commit & push: exactly the files named in the view (the check file, .gitattributes on the first check, ticked TODO files), then the push. */
   async commitPush(): Promise<void> {
     if (!this.repo || !this.st || this.pushing) return
-    const { files, todos, fixes = [] } = await this.toCommit()
+    const { files, todos, fixes = [], fold } = await this.toCommit()
     const fixing = fixes.filter((f) => !this.exclude.has(f))
+    // The repository's first check commit: the .gitattributes line that folds check files in diffs goes with it.
+    if (fold && this.st.dirty) { try { if (this.U.foldDiffs(this.repo).length) files.push('.gitattributes') } catch (e) { this.host.log.error(`understanding check: couldn't write .gitattributes: ${(e as Error).message}`) } }
     for (const f of fixing) await vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(this.repo!, f) && d.isDirty)?.save()
     files.push(...todos.filter((f) => this.include.has(f) && !fixes.includes(f)), ...fixing)
     this.pushing = true; this.post()

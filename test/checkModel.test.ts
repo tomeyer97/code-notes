@@ -84,6 +84,16 @@ test('the Check view: the CLI\'s words, rows with their state, one button', () =
   // Only the tour is new: said; the button stays, naming it.
   const tv = checkView(done, ok, { unpushed: false, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set(), tourOnly: true } })
   assert.deepEqual([tv.line, tv.action?.label, tv.commits], ['Only the tour is new: it can go with your next push.', 'Commit & push', 'Commits feat-x.json (the tour)'])
+  // The repository's first check commit also folds check files in diffs: said on the Commit & push line, no other offer.
+  const fold = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>(), fold: true, foldText: 'also folds check files in diffs (.gitattributes)' }
+  assert.equal(checkView(done, ok, { commit: fold }).commits, 'Commits feat-x.json, also folds check files in diffs (.gitattributes)')
+  assert.equal(checkView(clean, ok, { unpushed: true, commit: fold }).commits, undefined, 'only the push: nothing to fold')
+  assert.ok(!('setup' in checkView(done, ok, { commit: fold })), 'no separate setup offer')
+  // Documentation that describes no code: no tour, and nothing offers to write one.
+  const noTour = st({ summary: sum(['pass', 'pass', 'pass']), state: { phase: 'done' } })
+  assert.equal(checkView(noTour, ok).tour?.label, 'Write a tour')
+  noTour.check!.noTour = true
+  assert.equal(checkView(noTour, ok).tour, undefined)
   // Someone else's check: one line, nothing blocked.
   assert.equal(checkView(st(), W(), { me: { name: 'Bob', email: 'bob@example.com' } }).who, "Ada's check: your answers are recorded as yours.")
   assert.equal(checkView(st(), W(), { me: { name: 'Ada', email: 'ada@example.com' } }).who, undefined)

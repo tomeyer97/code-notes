@@ -12,7 +12,7 @@ will find a way around it, so every design choice below favours little friction.
 ## Principles
 
 1. **Few, good questions.** Every change with code gets a check; the count follows its size in code lines: 1 under
-   20, 2 under 60, 3–5 above. Each one is
+   20, 2 under 60, 3–5 above. A change to documentation only, or one that only removes code, gets 1. Each one is
    about *this* change: a specific function, a design choice, a failure mode, an edge case. Riskiest first: when the
    change opens who may call something, moves money or exposes data, one question is about that. No trivia, no
    "what does line 12 do".
@@ -50,10 +50,8 @@ will find a way around it, so every design choice below favours little friction.
    out, writes the questions to `.code-notes/.cache/checks/` (git-ignored) instead of the working tree; they are put in
    place when the branch is checked out again. Nothing is written to the branch checked out meanwhile. An unfinished
    check that is not committed (untracked) doesn't follow to other branches either: checking out another branch moves
-   it to the same cache, and it is put back, quietly, on return. Nothing is written to the repository by itself: while `.gitattributes`/`.ignore` lack
-   the check's lines, the Check view offers "Collapse check files in diffs: Set up · Hide" once the check is done (beside
-   Commit & push; while answering, the questions get the room); Set up runs `init`, commits only those two files ("Add
-   understanding check setup") and says so in one line. CI's log has a one-line tip while they are missing.
+   it to the same cache, and it is put back, quietly, on return. Nothing is written to the repository by itself: the
+   first check committed in a repository takes the `.gitattributes` line along (step 5).
 3. Only question 1 opens: its code, and the question as a note thread on its lines (session `Check · <branch>`),
    with the keyboard in its **answer box** in the Check view (a webview, so the caret really is there; VS Code can't put
    it in a thread's reply box). Opening a question from anywhere (a click, Ctrl+' D / A, Back from a code link) selects
@@ -84,7 +82,10 @@ will find a way around it, so every design choice below favours little friction.
    to write the check's answer.
 5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push** right under
    "✓ Done", whenever something is left to commit or push (**Push** when only the push is), naming what it
-   commits: the check file, with `.gitattributes`/`.ignore` when someone ran `init` by hand (`-u` without an upstream). A file
+   commits: the check file, with `.gitattributes`/`.ignore` when someone ran `init` by hand (`-u` without an upstream).
+   While the repository's `.gitattributes` lacks the line that folds check files in diffs, the commit writes and takes
+   it along, said on the same line: "Commits feat-x.json, also folds check files in diffs (.gitattributes)". Only that
+   first time, and only that line (`.ignore` stays `init`'s); there is no separate offer. A file
    a TODO was added to from the check is offered with a tick box; the person's other changes are left alone. A fix
    applied from a concern (Suggest a fix → Apply) is said on its question ("fix applied · not committed") and goes with
    Commit & push, ticked ("pricing.js (your fix)", saved first); that commit marks the concern fixed, so the merge
@@ -98,9 +99,14 @@ will find a way around it, so every design choice below favours little friction.
 Answering a question about code you have not read is hard to start: you open the file and read it cold. So the check
 also comes with a **tour**: a short journey of the change (the journey format, docs/journey-format.md), through the
 changed code AND the unchanged code it depends on, in the order a request or the data flows. Its length follows the
-change: 2-4 steps under 20 code lines, 4-7 under 60, else 6-10; no step only says something stayed the same. Its title
-names the change ("Dropping refundReport"), not the area. A change that mostly removes code gets a tour of what was
-removed, what used it (or that nothing does now) and the few lines that changed besides. Each question
+change: 2-3 steps under 10 code lines (around the changed lines), 2-4 under 20, 4-7 under 60, else 6-10; no step only
+says something stayed the same. Its title names the change ("Dropping refundReport"), not the area. Small changes get
+a tour of the EXISTING code they talk about, 2-3 steps: a change that only removes code, where the removed code used to
+be called (or that nothing calls it) and why removing it is safe; documentation, the code the edited text describes
+(none at all when it describes no code: `tour-finish --none` records `"noTour": true`, and the Check view offers no
+tour). A change that mostly removes code gets a tour of what was removed, what used it (or that nothing does now) and
+the few lines that changed besides. `tour-finish` checks the count itself: `journey.py check`'s own (6-14, for a
+journey of the repository) doesn't apply to a tour, so any `journey.py` version works. Each question
 is placed after the step that shows its answer (`step` on the question), so the answer can be reached by clicking.
 
 - **Written right after the questions**, by the same agent in the same session (`claude --resume`: the change is read
@@ -109,7 +115,7 @@ is placed after the step that shows its answer (`step` on the question), so the 
   steps on exact lines, a small map, 1-3 code links per step; no values, no animations) into a staging folder in the
   git dir; `questions.mjs tour-finish --steps q1=3,q2=5,…` runs `journey.py check`, checks the count (by the change's size; a top-up
   appends 1-4 and never changes the steps before), that a step up to each question's number shows its file (or the
-  code it also depends on), and puts the journey in the check file. Answers given meanwhile are kept (it reads the
+  code it also depends on; any step for a documentation or evidence question), and puts the journey in the check file. Answers given meanwhile are kept (it reads the
   file at the end). Measured on Sonnet (a 90-line change of the example shop): questions 21 s / $0.16, the tour 172 s /
   $0.75 (58 turns). So the questions open as before and can be answered while the tour is written; the Check view says
   "Writing the tour · 1:20", then one notification offers **Walk it**. A failed tour leaves the check as it was
@@ -160,6 +166,8 @@ never match. The file records the code commit the questions were written for.
       "anchor": { … same compact anchor as journeys/notes, so it survives edits … },
       "round": 2,                                                // set on questions added by a top-up
       "step": 3,                             // optional: the tour step after which its answer is visible
+      "docs": true,                          // optional: about a documentation-only change
+      "evidence": true,                      // optional: a removal's question: confirm or correct a search's result
       "suspect": true,                       // optional: the question writer thinks the honest answer is "a bug"
       "concern": { "text": "…", "flagged": true, "at": "…" },   // optional, see below
       "attempts": [
@@ -173,7 +181,8 @@ never match. The file records the code commit the questions were written for.
   ],
   "result": { "passed": 3, "total": 4, "needed": 3, "verdict": "pass", "at": "…" },  // informational only
   "journey": { "version": 2, "id": "tour", "question": "…", "title": "…", "summary": "…", "nodes": […], "edges": […],
-               "steps": […], "commit": "<head>", "createdAt": "…", "model": "…" }   // optional: the tour (journey format)
+               "steps": […], "commit": "<head>", "createdAt": "…", "model": "…" },  // optional: the tour (journey format)
+  "noTour": true                             // optional: documentation that describes no code, so no tour
 }
 ```
 
@@ -217,7 +226,9 @@ also when a top-up is pending. Errors here never fail the job.
 
 ## Out of diffs and search
 
-`understanding.mjs init` (the extension runs it on the first check) adds, once and without duplicating lines:
+The first check committed in a repository (Commit & push in VS Code, `understanding.mjs commit` elsewhere) adds the
+`.gitattributes` lines below when they are missing. `understanding.mjs init` (run by hand, once) adds, without
+duplicating lines:
 
 - `.gitattributes`: `understanding/*.json gitlab-generated linguist-generated`. GitLab (`gitlab-generated`) and GitHub
   (`linguist-generated`) collapse the files in diffs. The line an earlier version wrote (`linguist-generated=true`
@@ -225,13 +236,17 @@ also when a top-up is pending. Errors here never fail the job.
   settings are never collapsed, so a change to them stays in sight.
 - `.ignore`: `understanding/`. ripgrep and VS Code's search (`search.useIgnoreFiles`, on by default) skip the folder.
   `git grep` users can exclude it with `git grep … -- ':!understanding'`.
+- The skill, in `.claude/skills/understanding-check/` (`SKILL.md`, `scripts/questions.mjs`, and the CLI beside it as
+  `scripts/understanding.mjs` unless the repository commits its own copy, e.g. `tools/understanding.mjs`): anyone
+  running Claude Code in the repository can type `/understanding-check`. Written when missing or different. `init`
+  prints the `git add … && git commit` line; it commits nothing itself.
 
 The files stay in the tree: CI reads them from the merge request's commit.
 
 ## Belongs to this change? (staleness)
 
 Only **code lines** count: blank lines and whole-line comments (by file type: `//`, `#`, `/* */`, `--`, `<!-- -->`) don't,
-nor `understanding/`, `.code-notes/`, the root `.gitattributes` and `.ignore` (what `init` writes) and the config's `exempt` files. Drift is measured on the branch's **own** change:
+nor `understanding/`, `.code-notes/`, the root `.gitattributes` and `.ignore` and `.claude/skills/understanding-check/` (what `init` writes) and the config's `exempt` files. Drift is measured on the branch's **own** change:
 CI diffs the branch against today's merge base and compares it, line by line (file, + or −, code text), with the change
 the questions were written for (`base` → `head`). Merging or rebasing onto the target branch adds nothing; lines resolved
 differently in a conflict count. If ≤ `maxDrift` new code lines (default 40) → still valid. Otherwise: "Your change grew by N lines since the check. Run
@@ -259,7 +274,12 @@ Shipped in the repo (and inside the vsix) so CI can run it with `node`:
 | `status [--json]` | which file, valid for this change?, answered/passed counts, what to do next |
 | `validate <file>` | schema + anchors check (used by the skill's script and by CI) |
 | `grade [<file>] [--question q2] [--answer "…"] [--write]` | grade answers with the configured backend (`--answer` adds an attempt first; the file defaults to this branch's) |
-| `init` | keeps `understanding/` out of diffs and search: writes or extends `.gitattributes` and `.ignore` (idempotent) |
+| `grade --question q2 --answer "…" --prompt` | prints the grader's instructions for that answer; nothing is saved |
+| `grade --question q2 --answer "…" --reply '<json>'` | records the answer with a grade written elsewhere (Claude Code in a chat), parsed and saved exactly as the extension saves a grade; no model call |
+| `next` | the question to answer next (where, the text, the hint after a miss), or "✓ Done" |
+| `flag --question q2` | flags its concern for the reviewer |
+| `commit [--no-push]` | commits this branch's check file (and, the first time, the `.gitattributes` line) and pushes |
+| `init` | keeps `understanding/` out of diffs and search (`.gitattributes`, `.ignore`) and puts the skill in `.claude/skills` (idempotent) |
 | `ci` | the CI job: find file → check drift → check completeness + recorded verdicts vs threshold + attempt hashes → exit 0/1 with a short reason → optional MR comment. Never calls a model. Exit 2: it can't check (commits missing, API error). |
 
 `ci` rules, in order:
@@ -301,19 +321,28 @@ The skill's script (`skills/understanding-check/scripts/questions.mjs`: `start`,
 `finish`) imports the CLI as a module, as the extension does, so the rules live in one place. `add` refuses
 questions that are not near a changed code line, on lines that hold only comments or blank lines, longer than 240
 characters, more than one question ("…, and could…", "what happens to X, Y and Z", "…, or does…"), or that name a line
-number; `--suspect` marks a question whose honest answer is "this is a bug". A change made only of documentation (`*.md`, `*.txt`, `docs/`, …) gets one question about what a reader now sees
-or understands differently ("4 lines changed (docs)"); the question carries `docs: true` and the grader passes an honest
+number; `--suspect` marks a question whose honest answer is "this is a bug". A change made only of documentation (`*.md`, `*.txt`, `docs/`, …) gets one question about what a reader now sees,
+can do or understands differently ("4 lines changed (docs)"); the question carries `docs: true` and the grader passes an honest
 "it's just wording". A moved or renamed file is detected as a move (git `-M`, both paths passed to git): it counts no line, but a change
 that is only a move still gets one question about the move itself ("Renamed, 0 lines changed"), never about the
-content it kept. A change that only removes code gets questions too: on the lines where code was removed, or on the code that used
-it (any file). `finish` wants the count for the change's
+content it kept. A change that only removes code ("12 code lines removed · 1 question, ~1 min") gets one **evidence**
+question: `start` searches the repository (at the change's commit, the check's own files left out) for the names the
+removed lines defined and prints `EVIDENCE: refundReport: 0 hits · SAVE15: 1 hit (src/use.js:2)`; the question says
+what the search found for the author to confirm or correct in one sentence ("Nothing calls refundReport any more
+(search: 0 hits) — right?"), on the lines where code was removed or on code that used it (any file); `add --evidence`
+marks it, `finish` wants it, and the grader passes a true one-sentence confirmation or correction. `finish` wants the count for the change's
 size (exactly 1 or 2 for a small change, 3–5 above; 1–2 for a top-up), from 3 questions on of at least two kinds, one
 of them why/failure/edge.
 
-**Without VS Code.** `status` (no check yet) and CI's log say the same: copy the skill into `.claude/skills`, ask
-Claude Code to "check my understanding", then answer each question with `grade --question q1 --answer "…" --write`.
-The skill's script finds the CLI beside it, through `UNDERSTANDING_CLI`, or as the repository's own copy (e.g.
-`tools/understanding.mjs`).
+**Without VS Code.** Teammates without VS Code use Claude Code: `/understanding-check` (the skill `init` puts in the
+repository). `status` (no check yet) and CI's log say the same: "Without VS Code: type /understanding-check in Claude
+Code." (or, without the skill in the repository, where to get it). The skill does the whole check in the chat: it
+writes the questions (no tour), asks ONE at a time (`next`), and grades each answer with the same rules as the
+extension: `grade … --prompt` gives it the grader's instructions, and `grade … --reply '<json>'` records the attempt
+(the verdict fixed by the attempt: a hint once, then the explanation, then an optional restatement; only the final
+answer kept; hashes), so the file is the same as one answered in VS Code. A concern can be flagged (`flag`); `commit`
+commits the check and pushes. The skill's script finds the CLI through `UNDERSTANDING_CLI`, beside it, or as the
+repository's own copy (e.g. `tools/understanding.mjs`), and runs it as `questions.mjs cli <command>`.
 
 Grading runs only locally (extension, or `grade` from a terminal). Grader backends: `claude` (the `claude -p` CLI, read-only tools, uses `CLAUDE_CODE_OAUTH_TOKEN` or the
 logged-in user) or `anthropic` (Messages API with `ANTHROPIC_API_KEY`). The grader gets the question, the
@@ -347,7 +376,7 @@ GitHub) is offered, "Open merge request ↗".
 `UNDERSTANDING_BACKEND`). In VS Code, the Claude Code runner grades (setting `codeNotes.understanding.model`).
 The Check view and the status bar tooltip say the size: "3 questions, ~2 min", "~1 min left" (about 35 s a question); the
 merge request comment and the CI log say "about 2 min" (GitLab would read "~2" as a label). Questions per change, by code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5 (within
-`questions.min`/`max`; `"questions": 3` always asks 3). `exempt`: globs of files that never count (`**` any folders, `*`
+`questions.min`/`max`; `"questions": 3` always asks 3); documentation only, or a change that only removes code: 1. `exempt`: globs of files that never count (`**` any folders, `*`
 within a name; a glob without `/` matches in any folder), empty by default, e.g. `["docs/**", "*.md", "package-lock.json"]`.
 
 **Settings are the target's.** CI reads `understanding/config.json` as the target branch has it (its tip when the clone

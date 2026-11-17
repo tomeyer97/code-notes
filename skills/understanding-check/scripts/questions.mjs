@@ -8,6 +8,9 @@
 //   questions.mjs list | remove <qN> | finish
 //   questions.mjs tour [--top-up]                    then journey.py (its path and --dir are printed) writes the tour
 //   questions.mjs tour-finish --steps q1=3,q2=5,…    checks the tour and puts it, and each question's step, in the file
+//   questions.mjs tour-finish --none                 documentation that describes no code: no tour
+//   questions.mjs cli <command> …                    the CLI found below (next, grade, flag, commit, status, …):
+//                                                     answering in a chat without VS Code
 // The draft lives in the git folder (never committed); `finish` writes understanding/<branch>.json; the tour is
 // written with the code-journey skill's journey.py into a staging folder there, then embedded as `journey`.
 // It uses understanding.mjs (the CLI): UNDERSTANDING_CLI, else the copy that ships beside this skill, else the one the
@@ -22,6 +25,14 @@ const inRepo = () => { try { const top = execFileSync('git', ['rev-parse', '--sh
 const cliPath = [process.env.UNDERSTANDING_CLI, path.join(here, 'understanding.mjs'), path.join(here, '../../../cli/understanding.mjs')].find((p) => p && fs.existsSync(p)) ?? inRepo()
 if (!cliPath) { console.log('PROBLEM: understanding.mjs not found (set UNDERSTANDING_CLI to its path)'); process.exit(2) }
 const U = await import(pathToFileURL(cliPath).href)
+
+// The CLI itself, for answering in a chat (SKILL.md, "Without VS Code"): one path to know.
+if (process.argv[2] === 'cli') {
+  const code = await U.main(process.argv.slice(3))
+  // A long output (the grader's instructions) is written out before the exit.
+  await new Promise((resolve) => process.stdout.write('', resolve))
+  process.exit(code)
+}
 
 const cwd = process.cwd()
 const repo = U.repoRoot(cwd) ?? cwd
@@ -40,8 +51,7 @@ const stageDir = () => process.env.UNDERSTANDING_TOUR_DIR || path.join(gitDir(),
 const TOUR = 'tour'
 /** The code-journey skill's journey.py: JOURNEY_PY, the repository's copy, else the one shipped beside this skill. */
 const journeyPy = () => [process.env.JOURNEY_PY, path.join(repo, '.claude/skills/code-journey/scripts/journey.py'), path.join(here, '../../code-journey/scripts/journey.py')].find((p) => p && fs.existsSync(p))
-/** Steps a new tour has (by the change's size in code lines: a small change gets a short tour), and a top-up adds. */
-const tourSteps = (lines) => (lines < 20 ? [2, 4] : lines < 60 ? [4, 7] : [6, 10])
+/** Steps a top-up adds to a tour (a new tour: U.tourSize, by the change's kind and size). */
 const TOPUP_STEPS = [1, 4]
 const sizeOf = (check) => (check.diffStat ? U.linesOf(check.diffStat) : Infinity)
 const fmtRange = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
@@ -64,9 +74,9 @@ function linesAt(head, file) {
   try { return U.git(repo, ['show', `${head}:${file}`]).split('\n') } catch { return undefined }
 }
 
-/** How many questions a change gets: by its size in code lines (U.questionsFor); a top-up gets 1, or 2 when it grew a lot. */
-function wanted(lines, topUp) {
-  return topUp ? (lines < 80 ? 1 : 2) : U.questionsFor(lines, cfg)
+/** How many questions a change gets (U.questionsForChange: one for docs or a removal); a top-up 1, or 2 when it grew a lot. */
+function wanted(st, lines, topUp) {
+  return topUp ? (lines < 80 ? 1 : 2) : U.questionsForChange(st, cfg)
 }
 
 if (cmd === 'start') {
@@ -114,10 +124,10 @@ if (cmd === 'start') {
   for (const [f, rs] of U.removalPoints(diff)) ranges.set(f, [...(ranges.get(f) ?? []), ...rs])
   // A moved file: a question about the move itself (--whole-file), never about the content it kept.
   if (renamedOnly) for (const r of st.renamed) if (!ranges.has(r.to)) ranges.set(r.to, [])
-  const removedOnly = !topUp && st.added === 0 && st.removed > 0
+  const removedOnly = !topUp && U.changeKind(st) === 'removal'
   // Only documentation changed: one question about what a reader now sees or understands differently.
-  const docsOnly = !topUp && !!st.docsOnly
-  const want = docsOnly ? 1 : wanted(lines, topUp)
+  const docsOnly = !topUp && U.changeKind(st) === 'docs'
+  const want = wanted(st, lines, topUp)
   const stat = (x) => ({ files: x.files, added: x.added, removed: x.removed })
   const fmt = (rs) => rs.map(([a, b]) => (a === b ? a : `${a}-${b}`)).join(', ')
   saveDraft({ branch, base, head, mode: topUp ? 'top-up' : 'new', want, diffStat: stat(st), ranges: Object.fromEntries(ranges), ...(removedOnly ? { removedOnly } : {}), ...(docsOnly ? { docsOnly } : {}), questions: [] })
@@ -125,7 +135,14 @@ if (cmd === 'start') {
   if (loose) say(`NOTE: ${loose} uncommitted code lines are not included.`)
   if (docsOnly) say('DOCS ONLY: only documentation changed. Write ONE question about what a reader now sees, can do or understands differently (never why a word was chosen, never about unchanged text). "It is just wording" is a full answer.')
   if (renamedOnly) say(`RENAMED ONLY: ${st.renamed.map((r) => `${r.from} → ${r.to}`).join(', ')}, 0 lines changed. Ask only what the move changes (how a tool, an import or a convention treats the new name or place), with --whole-file; never about the content it kept.`)
-  if (removedOnly) say(`REMOVED ONLY: this change only removes code. Ask what the removal changes: put a question on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on the code that used what was removed (any file; find it with Grep).`)
+  if (removedOnly) {
+    // The evidence: where the removed names still appear (a search of the repository at the change's commit).
+    const found = U.searchNames(repo, head, U.removedNames(U.codeLines(repo, base, head, cfg.exempt)))
+    say(`REMOVED ONLY: this change only removes code. Write ONE evidence question (--evidence --kind change): what a search found about the removed code, for the author to confirm or correct in one sentence. Put it on the lines where code was removed (${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ') || 'none left: the files are gone'}), or on code that used what was removed (any file).`)
+    if (found.length) say(`EVIDENCE (search at ${head.slice(0, 7)}): ${found.map(U.evidenceText).join(' · ')}`)
+    const none = found.find((e) => !e.hits.length), some = found.find((e) => e.hits.length)
+    say(`  e.g. ${none ? `"Nothing calls ${none.name} any more (search: 0 hits) — right?"` : some ? `"${some.name} is still named in ${some.hits[0].file} (search: ${some.hits.length} hit${some.hits.length === 1 ? '' : 's'}) — what happens there now?"` : '"Nothing used what this removes (search: 0 hits) — right?"'} Check the hits yourself (Grep) before you write it; keep the numbers true.`)
+  }
   if (topUp) say(`NEW LINES (ask only about these): ${[...ranges].map(([f, rs]) => `${f}:${fmt(rs)}`).join(' · ')}`)
   say(`WRITE: ${want} question${want === 1 ? '' : 's'}${topUp ? ' about these new lines only' : ''}, about code lines (never comments or blank lines), then \`finish\`. Files: ${files.filter((f) => U.counted(f.file, cfg.exempt)).map((f) => `${f.file} (+${f.added} −${f.removed})`).join(', ')}`)
   const numbered = U.numberDiff(diff).split('\n')
@@ -177,6 +194,8 @@ if (cmd === 'add') {
   }
   // The honest answer is "this is a bug": once answered, the author is offered a fix, a TODO or a flag.
   if (o.suspect) q.suspect = true
+  // A removal: the author confirms or corrects what a search found (the grader passes a true one-sentence answer).
+  if (o.evidence) { if (!d.removedOnly) fail('--evidence is for a change that only removes code'); q.evidence = true }
   // Unchanged code the answer depends on (a caller, a retry loop, a constraint): shown beside the question.
   if (typeof o.also === 'string' && o.also.trim()) {
     q.also = []
@@ -243,6 +262,7 @@ if (cmd === 'finish') {
   const kinds = new Set(d.questions.map((q) => q.kind))
   if (d.mode !== 'top-up' && n >= 3 && kinds.size < 2) fail('all questions are of one kind: mix them (how, why, failure, edge, change)')
   if (d.mode !== 'top-up' && n >= 3 && ![...kinds].some((k) => ['why', 'failure', 'edge'].includes(k))) fail('ask at least one why, failure or edge question')
+  if (d.removedOnly && !d.questions.some((q) => q.evidence)) fail('this change only removes code: its question is an evidence question (add it with --evidence; see EVIDENCE)')
   const rel = U.fileFor(d.branch)
   // Its branch was switched away from meanwhile: into the cache, never into the branch checked out now.
   const abs = checkPath(d.branch)
@@ -296,19 +316,26 @@ if (cmd === 'tour') {
     if (!ranges.size) for (const q of check.questions.filter((x) => !x.step)) if (!known.has(q.file)) ranges.set(q.file, [[q.start ?? 1, q.end ?? 1]])
   } else ranges = base ? U.changedRanges(U.diffText(repo, base, check.head, U.numstat(repo, base, check.head), cfg.exempt), { codeOnly: true }) : new Map()
   const want = topUp ? check.questions.filter((q) => !q.step) : check.questions
-  const [lo, hi] = topUp ? TOPUP_STEPS : tourSteps(sizeOf(check))
+  const kind = U.checkKind(check)
+  const [lo, hi] = topUp ? TOPUP_STEPS : U.tourSize(kind, sizeOf(check))
   const n0 = topUp ? check.journey.steps.length : 0
-  // A change that mostly removes code: the tour shows what went and why that is safe, not the code around it.
   const st = check.diffStat
-  const removing = !topUp && st && st.removed > 2 * st.added
-  say(topUp ? `TOUR TOP-UP: the tour of ${branch} has ${n0} steps; add ${lo}-${hi} after step ${n0}, through the new part only` : `TOUR: a journey of this change (${branch}, ${st ? `+${st.added} −${st.removed} code lines` : 'its size unknown'}): ${lo}-${hi} steps through the changed code and the unchanged code it depends on, in the order a request or the data flows. Its title names the change ("Dropping refundReport", "Bumping the version"), not the area`)
-  if (removing) say('REMOVAL: this change mostly removes code. Steps: what was removed (on the lines where it was), what used it before (or that nothing does now: say how you checked), and the one or two lines that changed besides; nothing else')
+  // A removal: where the removed code was used; never steps on code that is gone.
+  if (!topUp && kind === 'removal' && base) for (const [f, rs] of U.removalPoints(U.diffText(repo, base, check.head, U.numstat(repo, base, check.head), cfg.exempt))) ranges.set(f, [...(ranges.get(f) ?? []), ...rs])
+  say(topUp ? `TOUR TOP-UP: the tour of ${branch} has ${n0} steps; add ${lo}-${hi} after step ${n0}, through the new part only` : `TOUR: a journey of this change (${branch}, ${st ? `+${st.added} −${st.removed} ${kind === 'docs' ? 'lines' : 'code lines'}` : 'its size unknown'}): ${lo}-${hi} steps${kind === 'code' ? ' through the changed code and the unchanged code it depends on, in the order a request or the data flows' : ''}. Its title names the change ("Dropping refundReport", "Bumping the version"), not the area`)
+  if (!topUp && kind === 'docs') say(`DOCS: the change edits documentation. Steps on the EXISTING code the edited text describes (what a reader can now find or do there), never on the text itself. When the text describes no code, write no tour: run questions.mjs tour-finish --none`)
+  else if (!topUp && kind === 'removal') say('REMOVAL: this change only removes code. Steps on code that is still there: where the removed code used to be called (or show that nothing calls it: the search), and why removing it is safe (what takes its place, what never reached it); nothing else')
+  // A change that mostly removes code: the tour shows what went and why that is safe, not the code around it.
+  else if (!topUp && st && st.removed > 2 * st.added) say('REMOVAL: this change mostly removes code. Steps: what was removed (on the lines where it was), what used it before (or that nothing does now: say how you checked), and the one or two lines that changed besides; nothing else')
+  else if (!topUp && sizeOf(check) < 10) say('SMALL: a few lines changed. Steps around the changed lines: what calls them and what they change; nothing else')
+  // journey.py check wants 6-14 steps for a journey of the repository; a tour has its own count.
+  const steps = `(its "N steps (want 6-14 …)" line doesn't apply: this tour has ${n0 + lo}-${n0 + hi})`
   say(`JOURNEY: ${J} <command> <repo> ${TOUR} … --dir ${stage}   (repo: ${repo}; always --dir; slug ${TOUR})`)
   if (topUp) { say('STEPS SO FAR (keep them as they are):'); check.journey.steps.forEach((s, i) => say(`  ${i + 1}. ${s.title} (${s.file}:${s.range.start}-${s.range.end})`)) }
   say(`QUESTIONS ${topUp ? 'that need a step' : '(each needs the step after which its answer is visible)'}:`)
   for (const q of want) say(`  ${qLine(q)}`)
   if (ranges.size) say(`CHANGED: ${[...ranges].map(([f, rs]) => `${f}:${fmtRange(rs)}`).join(' · ')}`)
-  say(`THEN: ${J} check <repo> ${TOUR} quiet --dir ${stage}; fix every PROBLEM; then questions.mjs tour-finish --steps ${want.map((q) => `${q.id}=<n>`).join(',')}`)
+  say(`THEN: ${J} check <repo> ${TOUR} quiet --dir ${stage}; fix every PROBLEM ${steps}; then questions.mjs tour-finish --steps ${want.map((q) => `${q.id}=<n>`).join(',')}`)
   process.exit(0)
 }
 
@@ -320,6 +347,16 @@ if (cmd === 'tour-finish') {
   // Its branch was switched away from meanwhile: the extension keeps its check in .code-notes/.cache/checks.
   const abs = [path.join(repo, rel), path.join(repo, '.code-notes/.cache/checks', `${U.slugOf(branch)}.json`)].find((f) => fs.existsSync(f))
   if (!abs) fail(`${rel} doesn't exist`)
+  // Documentation that describes no code: no tour, on purpose (the check says so; nothing offers to write one).
+  if (o.none) {
+    const check = U.readCheck(abs)
+    if (U.checkKind(check) !== 'docs' || check.journey) fail('--none is only for a change to documentation that describes no code')
+    check.noTour = true
+    U.writeCheck(abs, check)
+    fs.rmSync(stageDir(), { recursive: true, force: true })
+    say(`WROTE ${rel}: no tour (the edited text describes no code). Done: reply "No tour: the text describes no code."`)
+    process.exit(0)
+  }
   const staged = path.join(stageDir(), `${TOUR}.json`)
   let j
   try { j = JSON.parse(fs.readFileSync(staged, 'utf8')) } catch { fail(`no tour in ${stageDir()}: run \`questions.mjs tour\`, then journey.py new … ${TOUR} --dir …`) }
@@ -327,7 +364,10 @@ if (cmd === 'tour-finish') {
   if (J) {
     let out = '', code = 0
     try { out = execFileSync('python3', [J, 'check', repo, TOUR, 'quiet', '--dir', stageDir()], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) } catch (e) { code = e.status ?? 1; out = `${e.stdout ?? ''}${e.stderr ?? ''}` }
-    if (code) { say(out.trim()); fail('journey.py check found problems: fix them, then tour-finish again') }
+    // The count is checked below, by the change's size: journey.py's own count (6-14, for a journey of the repository)
+    // doesn't apply to a tour. Any other problem does.
+    const problems = out.split('\n').filter((l) => /^PROBLEM:/.test(l) && !/^PROBLEM: \d+ steps \(want \d+-\d+/.test(l))
+    if (code && (problems.length || !/^PROBLEM:/m.test(out))) { say(out.trim()); fail('journey.py check found problems: fix them, then tour-finish again') }
   }
   // The file as it is now: answers given while the tour was written are kept.
   const check = U.readCheck(abs)
@@ -340,7 +380,7 @@ if (cmd === 'tour-finish') {
     const same = before.steps.every((s, i) => steps[i] && steps[i].id === s.id && steps[i].title === s.title && steps[i].file === s.file)
     if (!same) fail(`the first ${n0} steps changed: a top-up only adds steps after step ${n0} (journey.py restore, or rmstep the new ones and add them again)`)
     if (added < TOPUP_STEPS[0] || added > TOPUP_STEPS[1]) fail(`${added} new steps: add ${TOPUP_STEPS[0]}-${TOPUP_STEPS[1]} after step ${n0}`)
-  } else { const [lo, hi] = tourSteps(sizeOf(check)); if (steps.length < lo || steps.length > hi) fail(`${steps.length} steps: a tour of this change has ${lo}-${hi} (its size)`) }
+  } else { const [lo, hi] = U.tourSize(U.checkKind(check), sizeOf(check)); if (steps.length < lo || steps.length > hi) fail(`${steps.length} steps: a tour of this change has ${lo}-${hi} (its size)`) }
   // No animations in a check's tour (time and cost): dropped if any.
   for (const s of steps) delete s.scene
   const given = new Map()
@@ -357,12 +397,14 @@ if (cmd === 'tour-finish') {
     if (n < 1 || n > steps.length) { problems.push(`${q.id}=${n}: the tour has ${steps.length} steps`); continue }
     if (before && given.has(q.id) && q.step && q.step !== n) { problems.push(`${q.id} is at step ${q.step} already: keep it`); continue }
     // Its answer must be visible by then: a step up to n shows the question's file (or the code it also depends on).
+    // Documentation and a removal: the tour shows the code the text describes, or where the removed code was used.
     const files = new Set([q.file, ...(q.also ?? []).map((x) => x.file)])
-    if (!steps.slice(0, n).some((s) => files.has(s.file))) problems.push(`${q.id}=${n}: no step up to ${n} is in ${[...files].join(' or ')}; give a later step, or add a step there`)
+    if (!q.docs && !q.evidence && !steps.slice(0, n).some((s) => files.has(s.file))) problems.push(`${q.id}=${n}: no step up to ${n} is in ${[...files].join(' or ')}; give a later step, or add a step there`)
     q.step = n
   }
   if (problems.length) fail(problems.join('; '))
   const model = process.env.UNDERSTANDING_MODEL_LABEL || process.env.UNDERSTANDING_MODEL || undefined
+  delete check.noTour
   check.journey = { ...j, id: TOUR, commit: check.head, ...(before?.createdAt ? { createdAt: before.createdAt, updatedAt: new Date().toISOString() } : { createdAt: new Date().toISOString() }), ...(model ? { model } : {}) }
   // Its files are checked in the working tree only while its branch is checked out (they were read at its commit).
   const errs = U.validateCheck(check, U.currentBranch(repo) === branch ? { repo } : {})
@@ -373,5 +415,5 @@ if (cmd === 'tour-finish') {
   process.exit(0)
 }
 
-say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect] | list | remove <n> | finish | tour [--top-up] | tour-finish --steps q1=<n>,…`)
+say(`questions.mjs start [--base <ref>] [--top-up] [--replace] | add --kind <${U.KINDS.join('|')}> --file <path> (--lines A-B | --whole-file) --text "<question>" [--also <path>:A-B,…] [--suspect] [--evidence] | list | remove <n> | finish | tour [--top-up] | tour-finish (--steps q1=<n>,… | --none) | cli <command> …`)
 process.exit(cmd ? 2 : 0)
