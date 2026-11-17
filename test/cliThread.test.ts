@@ -5,7 +5,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { CliThread } from '../src/cliThread'
-import { Coalesced, statusBranch, statusPaths } from '../src/gitKey'
+import { statusBranch, statusPaths } from '../src/git'
+import { Coalesced } from '../src/coalesced'
 
 const CLI = path.join(__dirname, '../../cli/understanding.mjs')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

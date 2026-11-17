@@ -16,7 +16,7 @@ import { Note, NoteData, Store } from './store'
 import { Check, CheckView, Cli, CommitPlan, Link, QState, Question, Status, Who, Words, checkPhase, checkPrompt, checkView, writeFailure, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, tourPrompt } from './checkModel'
 import { clock } from './writing'
 import { CliThread } from './cliThread'
-import { Coalesced } from './gitKey'
+import { Coalesced } from './coalesced'
 
 /** What the check needs from the rest of the extension (extension.ts). */
 export interface CheckHost {

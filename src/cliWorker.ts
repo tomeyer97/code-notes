@@ -7,14 +7,19 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { pathToFileURL } from 'url'
-import { statusBranch, statusPaths } from './gitKey'
+import { statusBranch, statusPaths } from './git'
+import { importCli } from './importCli'
+import type { RefreshResult } from './checkModel'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Cli = Record<string, any>
-const importFn = new Function('u', 'return import(u)') as (u: string) => Promise<Cli>
-const loaded: Promise<Cli> = importFn(pathToFileURL((workerData as { cli: string }).cli).href)
-let U!: Cli
+/** The CLI's functions, called by name from the other side (checkModel.ts `Cli` lists the ones the extension uses). */
+type CliModule = Record<string, any>
+const loaded = importCli<CliModule>((workerData as { cli: string }).cli)
+/** The understanding CLI (cli/understanding.mjs), once loaded. */
+let cli!: CliModule
+
+/** How long a value read from git (the base branch, who answers) is kept while its key stays the same. */
+const MEMO_MS = 300_000
 
 /** A file as a cache key: changes when it is written or replaced, or appears or goes. */
 function stamp(file: string): string {
@@ -26,7 +31,7 @@ const dirsOf = new Map<string, { git: string; common: string }>()
 function dirs(repo: string): { git: string; common: string } {
   let d = dirsOf.get(repo)
   if (!d) {
-    const [git, common] = U.git(repo, ['rev-parse', '--absolute-git-dir', '--git-common-dir']).trim().split('\n')
+    const [git, common] = cli.git(repo, ['rev-parse', '--absolute-git-dir', '--git-common-dir']).trim().split('\n')
     d = { git, common: path.resolve(repo, common ?? git) }
     dirsOf.set(repo, d)
   }
@@ -37,7 +42,7 @@ function dirs(repo: string): { git: string; common: string } {
 const memo = new Map<string, { key: string; at: number; v: unknown }>()
 function cached<T>(name: string, key: string, f: () => T): T {
   const m = memo.get(name)
-  if (m && m.key === key && Date.now() - m.at < 300_000) return m.v as T
+  if (m && m.key === key && Date.now() - m.at < MEMO_MS) return m.v as T
   const v = f()
   memo.set(name, { key, at: Date.now(), v })
   return v
@@ -47,14 +52,20 @@ function cached<T>(name: string, key: string, f: () => T): T {
 function configKey(repo: string): string {
   const d = dirs(repo)
   const xdg = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
-  return [path.join(d.git, 'config'), path.join(d.common, 'config'), process.env.GIT_CONFIG_GLOBAL || path.join(os.homedir(), '.gitconfig'), path.join(xdg, 'git', 'config')].map(stamp).join('|')
+  const files = [
+    path.join(d.git, 'config'),
+    path.join(d.common, 'config'),
+    process.env.GIT_CONFIG_GLOBAL || path.join(os.homedir(), '.gitconfig'),
+    path.join(xdg, 'git', 'config'),
+  ]
+  return files.map(stamp).join('|')
 }
 
-/** The branch compared with (U.defaultBase), kept while the branch and the refs it is chosen from stay the same. */
+/** The branch compared with (the CLI's defaultBase), kept while the branch and the refs it is chosen from stay the same. */
 function defaultBase(repo: string, branch: string | undefined): string | undefined {
   const c = dirs(repo).common
   const refs = ['packed-refs', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']
-  return cached(`base\0${repo}`, `${branch}|${refs.map((r) => stamp(path.join(c, r))).join('|')}`, () => U.defaultBase(repo) as string | undefined)
+  return cached(`base\0${repo}`, `${branch}|${refs.map((r) => stamp(path.join(c, r))).join('|')}`, () => cli.defaultBase(repo) as string | undefined)
 }
 
 /**
@@ -65,41 +76,45 @@ function defaultBase(repo: string, branch: string | undefined): string | undefin
  */
 function gateKey(repo: string, o: { files: string[]; untracked: boolean; extra: string }): string {
   const h = createHash('sha1')
-  const st = U.git(repo, ['status', '--porcelain=v2', '--branch', '-z', `--untracked-files=${o.untracked ? 'all' : 'no'}`]) as string
+  const untracked = `--untracked-files=${o.untracked ? 'all' : 'no'}`
+  const st = cli.git(repo, ['status', '--porcelain=v2', '--branch', '-z', untracked]) as string
   h.update(st)
   for (const p of statusPaths(st)) h.update(`\0${p}\0${stamp(path.join(repo, p))}`)
-  h.update(U.git(repo, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads', 'refs/remotes', 'refs/stash']))
+  h.update(cli.git(repo, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads', 'refs/remotes', 'refs/stash']))
+  // The CLI's currentBranch, without another git call: the status names the branch.
   const head = statusBranch(st)
-  const branch = process.env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || process.env.GITHUB_HEAD_REF || (head === '(detached)' || !head ? 'HEAD' : head)
-  for (const f of [U.fileFor(branch), `${U.DIR}/config.json`, U.cachedFor(branch), ...o.files]) h.update(`\0${f}\0${stamp(path.join(repo, f))}`)
+  const branch = cli.ciBranch() || (head === '(detached)' || !head ? 'HEAD' : head)
+  const files = [cli.fileFor(branch), `${cli.DIR}/config.json`, cli.cachedFor(branch), ...o.files]
+  for (const f of files) h.update(`\0${f}\0${stamp(path.join(repo, f))}`)
   h.update(`\0${configKey(repo)}\0${o.extra}`)
   return h.digest('hex')
 }
 
 /**
- * Where the branch stands (U.localStatus), unless nothing it reads changed since `prev` (then `{ same: true }`). With
- * the identity of who answers (git's user.name and user.email).
+ * Where the branch stands (the CLI's localStatus), unless nothing it reads changed since `prev` (then `{ same: true }`).
+ * With the identity of who answers (git's user.name and user.email).
  */
-function refreshState(repo: string, o: { prev?: string; files?: string[]; untracked?: boolean; extra?: string }) {
+function refreshState(repo: string, o: { prev?: string; files?: string[]; untracked?: boolean; extra?: string }): RefreshResult {
   let key: string | undefined
   try { key = gateKey(repo, { files: o.files ?? [], untracked: !!o.untracked, extra: o.extra ?? '' }) } catch { key = undefined }
   if (key && key === o.prev) return { key, same: true }
-  let st: unknown, error: string | undefined
+  let st: RefreshResult['st'], error: string | undefined
   try {
-    const branch = U.currentBranch(repo)
-    st = U.localStatus(repo, { base: defaultBase(repo, branch) })
+    const branch = cli.currentBranch(repo)
+    st = cli.localStatus(repo, { base: defaultBase(repo, branch) })
   } catch (e) { error = String((e as Error)?.message ?? e).split('\n')[0] }
-  let ident: unknown
-  try { ident = cached(`who\0${repo}`, configKey(repo), () => U.gitIdentity(repo)) } catch { ident = undefined }
+  let ident: RefreshResult['ident']
+  try { ident = cached(`who\0${repo}`, configKey(repo), () => cli.gitIdentity(repo)) } catch { ident = undefined }
   return { key, st, error, ident }
 }
 
-const own: Record<string, (...a: any[]) => unknown> = { refreshState }
+/** Functions of the worker itself, called by name like the CLI's (they come first). */
+const workerFns: Record<string, (...a: any[]) => unknown> = { refreshState }
 
 parentPort!.on('message', async (m: { id: number; fn: string; args: unknown[] }) => {
   try {
-    U ??= await loaded
-    const f = own[m.fn] ?? U[m.fn]
+    cli ??= await loaded
+    const f = workerFns[m.fn] ?? cli[m.fn]
     if (typeof f !== 'function') throw new Error(`no function ${m.fn}`)
     const v = await f(...m.args)
     parentPort!.postMessage({ id: m.id, ok: true, v })
