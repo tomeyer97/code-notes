@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { setDecorations } from './decorations'
 import { StepLink } from './codeLinkText'
 import { findLine, followLine, shiftLine } from './beatLine'
 
@@ -94,10 +95,13 @@ export class CodeLinks implements vscode.Disposable {
       const u = e.document.uri.toString()
       // Only the clicked phrase's lines (nothing is marked passively; too much was lit).
       const a = this.at.get(this.active)
-      e.setDecorations(this.strong, a && a.uri === u ? [new vscode.Range(a.start, 0, a.end, 0)] : [])
+      setDecorations(e, this.strong, a && a.uri === u ? [new vscode.Range(a.start, 0, a.end, 0)] : [])
     }
-    this.lens.fire()
+    // The lenses only when what they show changed (each change makes the window ask every visible editor again).
+    const sig = JSON.stringify([this.backAt, this.backTitle, this.active, this.at.get(this.active)])
+    if (sig !== this.lensSig) { this.lensSig = sig; this.lens.fire() }
   }
+  private lensSig = ''
 
   private async locate(i: number): Promise<{ uri: vscode.Uri; start: number; end: number } | undefined> {
     const st = this.step, l = st?.links[i]
@@ -152,17 +156,28 @@ export class CodeLinks implements vscode.Disposable {
     this.backTitle = backTitle
     this.back = false
     this.own = Date.now() + 400
-    const col = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === a.uri.toString())?.viewColumn ?? column()
-    const ed = await vscode.window.showTextDocument(a.uri, { preview: true, preserveFocus: !!o.keepFocus, ...(col ? { viewColumn: col } : {}) })
-    if (!o.keepFocus) ed.selection = new vscode.Selection(a.start, 0, a.start, 0)
+    const shown = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === a.uri.toString())
+    const col = shown?.viewColumn ?? column()
+    // On screen already and the keyboard stays where it is: nothing to show (no wait for the window), only lit and
+    // scrolled. Otherwise the caret goes with the show (one call, not a show and then a caret).
+    const ed = shown && o.keepFocus ? shown
+      : await vscode.window.showTextDocument(a.uri, { preview: true, preserveFocus: !!o.keepFocus, ...(col ? { viewColumn: col } : {}), ...(o.keepFocus ? {} : { selection: new vscode.Selection(a.start, 0, a.start, 0) }) })
     // Long enough for the events of this open and this caret to arrive; a move by the reader after counts.
     this.own = Date.now() + 150
     const same = !!card && card.uri === a.uri.toString()
-    ed.revealRange(new vscode.Range(Math.max(0, a.start - 3), 0, Math.min(ed.document.lineCount - 1, a.end + 3), 0), same ? vscode.TextEditorRevealType.Default : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    const want = new vscode.Range(Math.max(0, a.start - 3), 0, Math.min(ed.document.lineCount - 1, a.end + 3), 0)
+    // Will the editor scroll? Only then is there anything to wait for before the way back is decided.
+    const scrolls = !ed.visibleRanges.some((r) => r.contains(want))
+    const scrolled = same && scrolls ? new Promise<void>((resolve) => {
+      const done = () => { clearTimeout(t); sub.dispose(); resolve() }
+      const sub = vscode.window.onDidChangeTextEditorVisibleRanges((e) => { if (e.textEditor === ed) done() })
+      const t = setTimeout(done, 1000)
+    }) : undefined
+    ed.revealRange(want, same ? vscode.TextEditorRevealType.Default : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
     this.paint()
     // The way back only when the card is not on screen with the lit lines (decided once the scroll has landed; a row
-    // that came and went while reading would push the code about).
-    await new Promise((r) => setTimeout(r, 120))
+    // that came and went while reading would push the code about). Another file: the card is out of sight.
+    if (scrolled) await scrolled
     if (this.active !== i || this.step?.key !== key) return
     this.back = !(same && ed.visibleRanges.some((r) => r.start.line <= card!.line && r.end.line >= card!.line))
     this.paint()

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { setDecorations } from './decorations'
 
 // Links from a chat with Claude Code to code ("[names what it commits](src/check.ts#L812-L830)"): the lines they open
 // are lit the way a journey's code links are, with "← Back" above them to where the reader was.
@@ -25,6 +26,7 @@ export class ClaudeLinks implements vscode.Disposable {
     overviewRulerColor: new vscode.ThemeColor('symbolIcon.functionForeground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
   })
   private readonly lens = new vscode.EventEmitter<void>()
+  private lensSig = ''
   private readonly subs: vscode.Disposable[]
 
   constructor(private log: vscode.LogOutputChannel, private enabled: () => boolean) {
@@ -68,13 +70,15 @@ export class ClaudeLinks implements vscode.Disposable {
     const prev = this.last
     this.back = prev && !(prev.uri.toString() === uri.toString() && prev.line >= start && prev.line <= end) ? prev : undefined
     this.own = Date.now() + 300
+    // The caret at the first line, nothing selected: the fill shows the lines, and typing never replaces them. (With
+    // the show when it is needed: one call into the window, not a show and then a caret.)
+    const caret = new vscode.Selection(start, 0, start, 0)
     const ed = opened ? vscode.window.visibleTextEditors.find((x) => x.document.uri.toString() === uri.toString())
-      : await vscode.window.showTextDocument(uri, { preview: true })
+      : await vscode.window.showTextDocument(uri, { preview: true, selection: caret })
     if (!ed) return
     end = Math.max(start, Math.min(end, ed.document.lineCount - 1))
     this.lit = { uri: uri.toString(), start, end }
-    // The caret at the first line, nothing selected: the fill shows the lines, and typing never replaces them.
-    ed.selection = new vscode.Selection(start, 0, start, 0)
+    if (opened) ed.selection = caret
     ed.revealRange(new vscode.Range(start, 0, end, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
     this.own = Date.now() + 150
     this.log.info(`claude link: ${vscode.workspace.asRelativePath(uri)}:${start + 1}-${end + 1}`)
@@ -86,8 +90,7 @@ export class ClaudeLinks implements vscode.Disposable {
     this.unlight()
     if (!b) return
     this.own = Date.now() + 300
-    const ed = await vscode.window.showTextDocument(b.uri, { preview: false })
-    ed.selection = new vscode.Selection(b.line, b.character, b.line, b.character)
+    const ed = await vscode.window.showTextDocument(b.uri, { preview: false, selection: new vscode.Selection(b.line, b.character, b.line, b.character) })
     ed.revealRange(new vscode.Range(b.line, 0, b.line, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
   }
 
@@ -96,9 +99,11 @@ export class ClaudeLinks implements vscode.Disposable {
   private paint(): void {
     for (const e of vscode.window.visibleTextEditors) {
       const l = this.lit
-      e.setDecorations(this.fill, l && l.uri === e.document.uri.toString() ? [new vscode.Range(l.start, 0, l.end, 0)] : [])
+      setDecorations(e, this.fill, l && l.uri === e.document.uri.toString() ? [new vscode.Range(l.start, 0, l.end, 0)] : [])
     }
-    this.lens.fire()
+    // The lens only when it changed (each change makes the window ask every visible editor again).
+    const sig = JSON.stringify([this.lit, !!this.back])
+    if (sig !== this.lensSig) { this.lensSig = sig; this.lens.fire() }
   }
 
   /** For tests. */

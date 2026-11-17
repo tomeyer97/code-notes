@@ -190,9 +190,10 @@ async function markRead(list: Note[], visit?: Note): Promise<void> {
     if (visit && n === visit && unread(n)) visitFrom.set(n.data.id, was)
     changes.push([n.data.id, n.data.messages.length])
   }
-  await setSeen(changes)
-  await setSeenEvents(evChanges)
+  // Both stored at once; what is read back is in memory already, so the threads and the list follow at once.
+  const saved = Promise.all([setSeen(changes), setSeenEvents(evChanges)])
   refreshAll()
+  await saved
 }
 
 /** Records a status change in the note's history. */
@@ -1758,8 +1759,9 @@ async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean })
   tourId = lj.j.steps[n - 1].id
   // The map shows the journey being walked: another journey's map (a look) gives way when a step moves.
   if (mapPanel.journey && mapPanel.journey.key !== lj.key) showMap(lj, true)
-  await state.update(TOUR_KEY, posKey(lj))
-  await savePos(lj, n)
+  // Stored, not waited for (each a round trip to the window; what is read back is in memory already).
+  void state.update(TOUR_KEY, posKey(lj)).then(undefined, (e) => log.error(`tour: ${e}`))
+  void savePos(lj, n).then(undefined, (e) => log.error(`tour: ${e}`))
   await journeys.locate(lj, (k) => k === n)
   updateTour()
   tree.refresh()
@@ -3426,9 +3428,15 @@ let rangesOff: NodeJS.Timeout | undefined
 async function allowComments(ms = 1500): Promise<void> {
   addingUntil = Date.now() + ms
   controller.commentingRangeProvider = rangeProvider
+  const t0 = Date.now()
   clearTimeout(rangesOff)
   rangesOff = setTimeout(() => { controller.commentingRangeProvider = rangeProvider }, ms + 50)
-  await new Promise((r) => setTimeout(r, 120))
+  // At least 120 ms (the comment widgets settle), and until the window has asked for the file's ranges again: over a
+  // slow link that round trip takes longer, and the box would not open.
+  const u = vscode.window.activeTextEditor?.document.uri.toString()
+  for (let k = 0; k < 100 && u && (rangesAskedAt.get(u) ?? 0) < t0; k++) await new Promise((r) => setTimeout(r, 10))
+  const left = 120 - (Date.now() - t0)
+  if (left > 0) await new Promise((r) => setTimeout(r, left))
 }
 
 /** Ctrl+< C: VS Code's inline comment box at the selection (multi-line, markdown, Ctrl+Enter saves). */
@@ -3636,9 +3644,9 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
   // Never in the map's group: the code group, reusing its preview tab.
   const col = column ?? (vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === docUri(n).toString()) ? columnFor(docUri(n))
     : mapPanel.viewColumn !== undefined && vscode.window.tabGroups.activeTabGroup.viewColumn === mapPanel.viewColumn ? codeColumn() : undefined)
-  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, ...(col ? { viewColumn: col } : {}) })
   const r = threadRange(n)
-  editor.selection = new vscode.Selection(r.start, r.start)
+  // The caret goes with the show: one call into the window.
+  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, selection: new vscode.Selection(r.start, r.start), ...(col ? { viewColumn: col } : {}) })
   // A long range: its thread hangs below its last line, so that end (and the thread) is what comes into view, not a
   // screen of highlighted code with the question below the fold.
   const tall = r.end.line - r.start.line > 12
@@ -3653,7 +3661,8 @@ async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false
     if (other === n) setCollapse(t, vscode.CommentThreadCollapsibleState.Expanded, other.data.id)
     else if (overlaps) setCollapse(t, vscode.CommentThreadCollapsibleState.Collapsed, other.data.id)
   }
-  await markRead([n], n)
+  // Read: the threads and the list follow now; storing it is not waited for (a round trip to the window).
+  void markRead([n], n).then(undefined, (e) => log.error(`mark read: ${e}`))
 }
 
 /**
@@ -4668,6 +4677,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // For the integration test (test/integration): a read-only view of what the extension shows.
   return {
     snapshot: () => ({
+      claudeLinks: claudeLinks.state,
       notes: notes().sort(order).map((n) => ({ ...n.data, path: n.uri.path, unread: unread(n), missing: missing.has(n.data.id), threadLabel: threads.get(n.data.id)?.label, hasThread: threads.has(n.data.id), threadExpanded: threads.get(n.data.id)?.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded, asking: asking.has(n.data.id), askError: askErrors.get(n.data.id) })),
       broken: store.broken.size,
       badge: treeView.badge?.value ?? 0,
@@ -4713,7 +4723,14 @@ export async function activate(context: vscode.ExtensionContext) {
     /** The understanding check: status, status bar, panel view and what the panel reported. */
     check: () => understanding?.snapshot(),
     checkPanelSend: (m: unknown) => understanding?.panelSend(m),
-    checkRefresh: () => understanding?.refresh(),
+    /** `force` false: as a trigger does (skipped when nothing it reads changed). */
+    checkRefresh: (force = true) => understanding?.refresh(force),
+    /** A new worker for the check's git work (it takes the extension host's environment as it is now). */
+    checkRestartWorker: () => understanding?.restartWorker(),
+    /** Opens a check question as the Check view's row does. */
+    checkOpenQuestion: (id: string) => understanding?.open(id),
+    /** The stored state (workspace, global): the round-trip test counts its writes. */
+    mementos: () => [state, gstate],
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),

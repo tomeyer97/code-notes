@@ -3,6 +3,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
+import { roundTrips } from './roundTrips'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** Waits are tuned for a fast machine; CI (or CODE_NOTES_TIMEOUT_SCALE=n) gives every wait n times longer. */
@@ -1473,5 +1474,7 @@ async function more(api: any, ws: string, notesDir: string, j: { at: () => strin
     assert.equal(vscode.window.tabGroups.all.length, groupsBefore, 'the code group takes files as before')
     await shot('anim-4-file-kept-off-panel')
     ok('a step\'s animation: toggle, beats forward and back, each lights its line (found again when moved, following edits); the step comes back when the scene stops; code links stay near the card, toggle, end on Go Back; files opened over the panel move to the code group')
+    await roundTrips(api, ws, until)
+    ok('calls into the window per action: within their counts (CODE_NOTES_RTT_MS: their time over a slow link)')
   }
 }
