@@ -14,6 +14,7 @@ import { Ask, AskResult, findCli, findCliAsync } from './claude'
 import { folderName, folderProblem, journeysFolderName, Message, Note, NoteData, NoteEvent, serialize, Severity, Store } from './store'
 import { fileOf, Journeys, LoadedJourney, MAP_VIEW, MapMessage, MapPanel, posKey, StepAt } from './journeys'
 import { escapeTags } from './journeyModel'
+import { TourState } from './tour/state'
 import { StepRef, StepTextInput, refFiles, staleText as stepStaleText, stepText as stepTextOf } from './tour/stepText'
 import { linkify } from './answerLinks'
 import { scoreJourney } from './match'
@@ -81,30 +82,16 @@ let tutorialSpot: TutorialSpot
 let codeLinks: CodeLinks
 let claudeLinks: ClaudeLinks
 let valueHints: ValueHints
-/** The journey whose map is open (its file URI), and the step shown (1-based; 0: browsing the map, no tour running). */
-let tourKey: string | undefined
-let tourStep = 0
-/** The current step's id: the tour follows the step, not its number, when the journey is edited. */
-let tourId: string | undefined
-/** On a check's tour: the question the walk is at (a stop after step `tourStep`), else undefined. */
-let tourCp: string | undefined
+/** The running tour: journey, step, the step card's state (tour/state.ts). */
+const tour = new TourState()
 let tourItems: { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
 /** The step card: read-only comment threads of their own controller (no menus, no reply box). */
 let stepController: vscode.CommentController
 let stepThread: vscode.CommentThread | undefined
-let stepDetailsOpen = false
 /** Empty note boxes opened by "Ask about this step": what the note will say it is about. */
 const stepAsks = new Map<vscode.CommentThread, { about: string; link: { id: string; step: string; n: number } }>()
-/** The file the tour last opened, in the code group (its preview tab is closed when the tour ends). */
-let tourDoc: { uri: vscode.Uri; column: vscode.ViewColumn } | undefined
 let stepDeco: { at: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
-/** A reference opened from the step card: its lines are highlighted, with "← Back to step n" above them (R8). */
-let refHere: { uri: string; start: number; end: number } | undefined
-/** The last ref opened as a peek under the step (for the tests). */
-let lastPeek: { uri: string; start: number; end: number; under?: number } | undefined
 let refDeco: vscode.TextEditorDecorationType | undefined
-/** Until then, cursor moves are the journey's, not the reader's. */
-let tourCursorUntil = 0
 /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
 const lensChanged = new vscode.EventEmitter<void>()
 const TOUR_KEY = 'codeNotes.tour' // posKey of the running tour (restored after a reload)
@@ -460,9 +447,9 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const sl = index === 0 ? stepLinkOf(n) : undefined
   // The step's number now (found by id), else the one it had.
   const nowN = () => { const lj = journeyOfNote(n); const i = lj && sl?.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1; return i >= 0 ? i + 1 : sl!.n }
-  const walking = () => { const lj = journeyOfNote(n); return !!lj && touring() && tourKey === lj.key }
+  const walking = () => { const lj = journeyOfNote(n); return !!lj && touring() && tour.key === lj.key }
   // On that very step, no back-link at all: the card is right there.
-  const onIt = () => walking() && (sl!.step ? tourId === sl!.step : tourStep === sl!.n)
+  const onIt = () => walking() && (sl!.step ? tour.stepId === sl!.step : tour.step === sl!.n)
   const back = (t: string) => `[↩ Step ${nowN()}${walking() ? '' : ` · ${t}`}](command:codeNotes.openStepLink?${encodeURIComponent(JSON.stringify([sl!.id, sl!.step ?? '', sl!.n]))} "Open this step on the journey's map")`
   const linked = sl && onIt() ? out.replace(/\n*_About (step \d+ of the journey “[^”]*”: [^\n]*|the step “[^”]*” \(id [^)]*\) of the journey “[^”]*”)_\s*$/, '')
     : sl ? out.replace(/_About step (\d+) of the journey “([^”]*)”: ([^\n]*)_\s*$/, (_m, _k: string, t: string) => back(t))
@@ -893,7 +880,7 @@ function syncThread(n: Note): void {
   const r = threadRange(n)
   if (!t.range || !t.range.isEqual(r)) t.range = r
   // Rebuilding comments re-renders the widget: only when something shown changed (an agent reply elsewhere must be cheap).
-  const sig = JSON.stringify([stepLinkOf(n) ? `${tourKey}|${touring()}|${tourId}` : '', n.data.messages.length, n.data.messages[n.data.messages.length - 1]?.body.length, n.data.status, n.data.stale, n.data.events?.length, n.data.target,
+  const sig = JSON.stringify([stepLinkOf(n) ? `${tour.key}|${touring()}|${tour.stepId}` : '', n.data.messages.length, n.data.messages[n.data.messages.length - 1]?.body.length, n.data.status, n.data.stale, n.data.events?.length, n.data.target,
     missing.has(n.data.id), pastEnd.get(n.data.id), n.data.stale && openDoc(docUri(n))?.version, seenCount(n), visitFrom.get(n.data.id), expanded.has(n.data.id), otherBranch(n) ?? '', n.data.anchor.text.length,
     asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
@@ -1087,7 +1074,7 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
   private itemOf(node: Node): vscode.TreeItem {
     if (node.kind === 'journeys') {
       // Open the first time (with one quiet line saying what it is: R1), then folded: reading material, not an inbox.
-      const item = new vscode.TreeItem('Journeys', (tourJourney() && tourStep) || showIntro() ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed)
+      const item = new vscode.TreeItem('Journeys', (tourJourney() && tour.step) || showIntro() ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed)
       // Its name only: the rows below are the count and the explanation.
       item.id = 'journeys'
       item.contextValue = 'journeys'
@@ -1294,9 +1281,9 @@ function refreshAll(): void {
 
 /** The map column's width in wide panels, as last dragged (0.21.1): every panel, every journey. */
 const MAP_WIDTH_KEY = 'codeNotes.mapWidth'
-const tourJourney = () => (tourKey ? journeys.list.get(tourKey) : undefined)
+const tourJourney = () => (tour.key ? journeys.list.get(tour.key) : undefined)
 /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
-const touring = () => !!tourJourney() && tourStep > 0
+const touring = () => !!tourJourney() && tour.step > 0
 
 type Pos = { step: number; id?: string; at: string }
 const positions = () => state.get<Record<string, Pos>>(POS_KEY) ?? {}
@@ -1314,39 +1301,39 @@ async function savePos(lj: LoadedJourney, step: number): Promise<void> {
 /** The journey file changed during a tour: stay on the same step (by id); if it was removed, its neighbour. */
 function followStep(): void {
   const lj = tourJourney()
-  if (!lj || !tourStep) return
-  const i = lj.j.steps.findIndex((s) => s.id === tourId)
-  if (i >= 0) { if (tourStep !== i + 1) vscode.window.setStatusBarMessage(`$(info) Journey updated: this step is now ${i + 1}/${lj.j.steps.length}`, 5000); tourStep = i + 1 }
+  if (!lj || !tour.step) return
+  const i = lj.j.steps.findIndex((s) => s.id === tour.stepId)
+  if (i >= 0) { if (tour.step !== i + 1) vscode.window.setStatusBarMessage(`$(info) Journey updated: this step is now ${i + 1}/${lj.j.steps.length}`, 5000); tour.step = i + 1 }
   else {
     if (!lj.j.steps.length) { void endTour(); return }
-    tourStep = Math.min(tourStep, lj.j.steps.length)
-    tourId = lj.j.steps[tourStep - 1].id
+    tour.step = Math.min(tour.step, lj.j.steps.length)
+    tour.stepId = lj.j.steps[tour.step - 1].id
     // Said on the card, where the eyes are, and the editor goes with it.
-    cardNotice = { id: tourId, text: `The step you were on was removed from the journey. This is the next one (${tourStep}/${lj.j.steps.length}).` }
-    vscode.window.setStatusBarMessage(`$(info) The step you were on was removed from the journey: now at ${tourStep}/${lj.j.steps.length}`, 5000)
+    tour.cardNotice = { id: tour.stepId, text: `The step you were on was removed from the journey. This is the next one (${tour.step}/${lj.j.steps.length}).` }
+    vscode.window.setStatusBarMessage(`$(info) The step you were on was removed from the journey: now at ${tour.step}/${lj.j.steps.length}`, 5000)
   }
-  void savePos(lj, tourStep)
-  if (i < 0) { void goToStep(lj, tourStep, { focus: false }); return } // map, card AND editor on the new step
+  void savePos(lj, tour.step)
+  if (i < 0) { void goToStep(lj, tour.step, { focus: false }); return } // map, card AND editor on the new step
   // The agent re-anchored this step (other file or lines): the editor follows the card, with one line saying so.
-  const s = lj.j.steps[i], was = shownAt
+  const s = lj.j.steps[i], was = tour.shownAt
   if (was && was.key === lj.key && was.id === s.id) {
     void journeys.locate(lj, (k) => k === i + 1).then(() => {
       const at = lj.at[i], f = fileOf(lj, i + 1)
-      if (tourStep !== i + 1 || tourJourney() !== lj) return
+      if (tour.step !== i + 1 || tourJourney() !== lj) return
       // Only a change in the journey file is "updated": code that moved or came back is just shown, no notice.
       const rewritten = wroteAt(lj, i + 1) !== was.wrote
       const elsewhere = f !== was.file || at.start !== was.start || at.end !== was.end || !!at.removed !== was.removed
-      if (!rewritten && cardNotice?.id === s.id) cardNotice = undefined
+      if (!rewritten && tour.cardNotice?.id === s.id) tour.cardNotice = undefined
       if (rewritten && elsewhere) {
-        cardNotice = { id: s.id, text: `This step was updated: its code is now at ${f.split('/').pop()}:${at.start}.` }
+        tour.cardNotice = { id: s.id, text: `This step was updated: its code is now at ${f.split('/').pop()}:${at.start}.` }
         void goToStep(lj, i + 1, { focus: false })
       } else if (elsewhere) void goToStep(lj, i + 1, { focus: false })
-      else { showCard(lj, tourStep); updateTour() }
+      else { showCard(lj, tour.step); updateTour() }
     })
     tree.refresh()
     return
   }
-  showCard(lj, tourStep)
+  showCard(lj, tour.step)
   updateTour()
   tree.refresh()
 }
@@ -1361,7 +1348,7 @@ function stepMarks(lj: LoadedJourney): Record<number, string> {
 /** "3/13", "at 3/13" (left there), "13 steps". */
 function progress(lj: LoadedJourney): string {
   const total = lj.j.steps.length
-  if (lj.key === tourKey && tourStep) return `${tourStep}/${total}`
+  if (lj.key === tour.key && tour.step) return `${tour.step}/${total}`
   const r = resumeAt(lj)
   return r ? `at ${r}/${total}` : `${total} step${total === 1 ? '' : 's'}`
 }
@@ -1435,14 +1422,14 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
   // The title isolated: right-to-left text in it never pulls the description into the label.
   const item = new vscode.TreeItem(isolate(lj.j.title), q ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None)
   item.id = `journey:${lj.key}`
-  const active = lj.key === tourKey && tourStep > 0
+  const active = lj.key === tour.key && tour.step > 0
   // A reply to a step question shows on the folded row, like an unread note.
   const qs = q && q.kind === 'questions' ? q.notes : []
   const newReplies = qs.filter((n) => unread(n) > 0).length
   // State only: no step count, no position, no question count (the questions are the rows below);
   // stale steps are the icon.
   // Where it is (walking) or was left past step 1, quietly (as in the panel's list); opening one is not reading it.
-  const left = active ? tourStep : resumeAt(lj) > 1 ? resumeAt(lj) : 0
+  const left = active ? tour.step : resumeAt(lj) > 1 ? resumeAt(lj) : 0
   // Where it was left, else its area and age (journeyList.ts): muted, short.
   const row = lastList?.rows[lj.key]
   item.description = [left ? `step ${left}/${lj.j.steps.length}` : row ? [row.area, row.age].filter(Boolean).join(' · ') : '', refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '', newReplies ? `${newReplies} repl${newReplies === 1 ? 'y' : 'ies'}` : '', lj.readError ? '⚠ unreadable' : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(' · ') || undefined
@@ -1455,7 +1442,7 @@ function journeyItem(lj: LoadedJourney): vscode.TreeItem {
   const prov = provenance(lj)
   item.tooltip = [lj.j.question, lj.j.summary, prov.text, staleLine(lj), newReplies ? `${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'} from Claude` : ''].filter(Boolean).join('\n')
   // the name read is the title and its state; the question is only the tooltip.
-  item.accessibilityInformation = { label: [lj.j.title, active ? `walking, step ${tourStep} of ${lj.j.steps.length}` : left ? `left at step ${left} of ${lj.j.steps.length}` : '', newReplies ? `${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'}` : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ') }
+  item.accessibilityInformation = { label: [lj.j.title, active ? `walking, step ${tour.step} of ${lj.j.steps.length}` : left ? `left at step ${left} of ${lj.j.steps.length}` : '', newReplies ? `${newReplies} unread repl${newReplies === 1 ? 'y' : 'ies'}` : '', isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ') }
   item.contextValue = staleCount(lj) ? 'journey;stale' : 'journey'
   item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
   return item
@@ -1503,13 +1490,13 @@ function activeRel(): string | undefined {
 function listItems(): ListItem[] {
   const pos = positions()
   return journeyOrder().map((lj) => {
-    const walking = lj.key === tourKey && tourStep > 0
+    const walking = lj.key === tour.key && tour.step > 0
     return {
       key: lj.key, kind: 'journey' as const, title: lj.j.title, question: lj.j.question, summary: lj.j.summary, ...(lj.j.createdAt ? { createdAt: lj.j.createdAt } : {}),
       files: lj.j.steps.map((s, i) => lj.at[i]?.file ?? s.file), stepTitles: lj.j.steps.map((s) => s.title), steps: lj.j.steps.length,
       ranges: lj.at.map((a) => ({ start: a.start, end: a.end })),
       stale: staleCount(lj), staleSteps: lj.at.flatMap((a, i) => (a.stale ? [i + 1] : [])),
-      isNew: isNewJourney(lj), ...(refreshing.has(lj.key) ? { refreshing: true } : {}), resume: walking ? tourStep : resumeAt(lj), ...(walking ? { walking: true } : {}),
+      isNew: isNewJourney(lj), ...(refreshing.has(lj.key) ? { refreshing: true } : {}), resume: walking ? tour.step : resumeAt(lj), ...(walking ? { walking: true } : {}),
       walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined, ...(lj.j.start ? { start: true } : {}),
     }
   })
@@ -1699,26 +1686,26 @@ async function sortJourneys(): Promise<void> {
 function updateTour(): void {
   const lj = tourJourney()
   // A code link's way back is to the step it was clicked on: the walk moved on or ended, the link (and its Back) goes.
-  if (linkBack && (linkBack.journey !== tourKey || linkBack.step !== tourStep)) { linkBack = undefined; if (!checkLinkNote(codeLinks.state.key ?? '')) codeLinks.unlight() }
-  if (tourKey && !lj) {
+  if (tour.linkBack && (tour.linkBack.journey !== tour.key || tour.linkBack.step !== tour.step)) { tour.linkBack = undefined; if (!checkLinkNote(codeLinks.state.key ?? '')) codeLinks.unlight() }
+  if (tour.key && !lj) {
     // The journey file was deleted: the tour ends with one notice; the map says so.
-    if (tourStep) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
-    mapPanel.markDeleted(tourKey)
-    tourKey = undefined; tourStep = 0; tourDoc = undefined; clearCard(); void state.update(TOUR_KEY, undefined)
+    if (tour.step) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
+    mapPanel.markDeleted(tour.key)
+    tour.key = undefined; tour.step = 0; tour.doc = undefined; clearCard(); void state.update(TOUR_KEY, undefined)
   }
-  if (lj && tourStep > lj.j.steps.length) tourStep = lj.j.steps.length
+  if (lj && tour.step > lj.j.steps.length) tour.step = lj.j.steps.length
   // A step question's back-link says less while you walk its journey.
   if (store) for (const n of notes()) if (stepLinkOf(n)) syncThread(n)
   setCtx('codeNotes.journeyActive', touring())
   lensChanged.fire() // the step lenses show only outside a walk
   setCtx('codeNotes.hasJourneys', journeys.all().length > 0)
   mapPanel.update()
-  if (!lj || !tourStep) { for (const i of Object.values(tourItems)) i.hide(); return }
+  if (!lj || !tour.step) { for (const i of Object.values(tourItems)) i.hide(); return }
   // Only while a tour runs, and one item: "3/13", click = the map; ‹ › × live on the map and the card.
   const total = lj.j.steps.length
   // "3/14": the journey's name is the map tab's title; a one-line tooltip.
-  tourItems.pos.text = `$(map) ${tourStep}/${total}`
-  tourItems.pos.accessibilityInformation = { label: `${lj.j.title}, step ${tourStep} of ${total}. Opens the map.` }
+  tourItems.pos.text = `$(map) ${tour.step}/${total}`
+  tourItems.pos.accessibilityInformation = { label: `${lj.j.title}, step ${tour.step} of ${total}. Opens the map.` }
   tourItems.pos.tooltip = `${lj.j.title}: open the map`
   tourItems.pos.show()
   tourItems.prev.hide(); tourItems.next.hide(); tourItems.end.hide()
@@ -1727,8 +1714,8 @@ function updateTour(): void {
 /** The code group: never the map's. The one the tour used, else another visible editor's, else the other side. */
 function codeColumn(): vscode.ViewColumn | undefined {
   const mapCol = mapPanel.viewColumn
-  if (mapCol === undefined) return tourDoc?.column ?? vscode.window.activeTextEditor?.viewColumn
-  if (tourDoc && tourDoc.column !== mapCol && vscode.window.tabGroups.all.some((g) => g.viewColumn === tourDoc!.column)) return tourDoc.column
+  if (mapCol === undefined) return tour.doc?.column ?? vscode.window.activeTextEditor?.viewColumn
+  if (tour.doc && tour.doc.column !== mapCol && vscode.window.tabGroups.all.some((g) => g.viewColumn === tour.doc!.column)) return tour.doc.column
   return vscode.window.visibleTextEditors.find((e) => e.viewColumn !== undefined && e.viewColumn !== mapCol)?.viewColumn
     ?? (mapCol === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One)
 }
@@ -1745,39 +1732,33 @@ function columnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
 }
 
 function showMap(lj: LoadedJourney, preserveFocus = false): void {
-  mapPanel.show(lj, preserveFocus, tourDoc?.column)
+  mapPanel.show(lj, preserveFocus, tour.doc?.column)
   void state.update(MAP_KEY, posKey(lj))
 }
 
-/** Where a journey code link's Back goes: the step walked when it was clicked (gone once the walk moves on). */
-let linkBack: { journey: string; step: number } | undefined
 
-/** goToStep calls still running (a scene going away meanwhile leaves the editor to them:). */
-let stepping = 0
 /** Opens step n: the code in the code group as a preview tab (one tab, reused:), the step card above its lines. */
 async function goToStep(lj: LoadedJourney, n: number, opts: { focus?: boolean } = {}): Promise<void> {
-  stepping++
-  try { await openStep(lj, n, opts) } finally { stepping-- }
+  tour.stepping++
+  try { await openStep(lj, n, opts) } finally { tour.stepping-- }
 }
-/** The newest step opened: an older one still waiting (a quick Next, Next, Next) never shows its file or card. */
-let stepGen = 0
 async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean }): Promise<void> {
   if (!lj.j.steps.length) return
-  const gen = ++stepGen
+  const gen = ++tour.stepGen
   // Superseded by a step opened since, elsewhere (the same step opened again, e.g. once its file moved: both go on).
-  const stale = () => gen !== stepGen && (tourKey !== lj.key || tourStep !== n)
+  const stale = () => gen !== tour.stepGen && (tour.key !== lj.key || tour.step !== n)
   n = Math.max(1, Math.min(n, lj.j.steps.length))
   // Another step: the last one's beat is no longer lit (its scene sends the new step's beats).
-  if (tourStep !== n || tourKey !== lj.key) beats.clear()
+  if (tour.step !== n || tour.key !== lj.key) beats.clear()
   // A step opened: the walk is on the step, not at a question after it (openCheckpoint sets that after).
-  tourCp = undefined
-  if (tourKey && tourKey !== lj.key && tourStep) { await leaveJourney(); if (stale()) return } // one journey at a time, ended cleanly
-  if (tourStep === 0 || tourKey !== lj.key) stepDetailsOpen = false
-  if (tourStep !== n) stepDetailsOpen = false
-  tourKey = lj.key
-  tourStep = n
-  finishedKey = undefined
-  tourId = lj.j.steps[n - 1].id
+  tour.cp = undefined
+  if (tour.key && tour.key !== lj.key && tour.step) { await leaveJourney(); if (stale()) return } // one journey at a time, ended cleanly
+  if (tour.step === 0 || tour.key !== lj.key) tour.detailsOpen = false
+  if (tour.step !== n) tour.detailsOpen = false
+  tour.key = lj.key
+  tour.step = n
+  tour.finishedKey = undefined
+  tour.stepId = lj.j.steps[n - 1].id
   // The map shows the journey being walked: another journey's map (a look) gives way when a step moves.
   if (mapPanel.journey && mapPanel.journey.key !== lj.key) showMap(lj, true)
   // Stored, not waited for (each a round trip to the window; what is read back is in memory already).
@@ -1792,12 +1773,12 @@ async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean })
   // A file that is gone: no stand-in tab; the card, in the map, says so.
   const [, gone] = await Promise.all([checkRefs(lj, n), wfs.stat(uri).then(() => false, () => true)])
   if (stale()) return
-  stepFileGone = gone
+  tour.fileGone = gone
   // Its code was deleted: no code under the card pretending to be it; the card shows what it was.
-  if (cardNotice && cardNotice.id !== tourId) cardNotice = undefined
-  shownAt = { key: lj.key, id: tourId, file, start: lj.at[n - 1].start, end: lj.at[n - 1].end, removed: !!lj.at[n - 1].removed, wrote: wroteAt(lj, n) }
-  if (stepFileGone || lj.at[n - 1].removed) {
-    refHere = undefined
+  if (tour.cardNotice && tour.cardNotice.id !== tour.stepId) tour.cardNotice = undefined
+  tour.shownAt = { key: lj.key, id: tour.stepId, file, start: lj.at[n - 1].start, end: lj.at[n - 1].end, removed: !!lj.at[n - 1].removed, wrote: wroteAt(lj, n) }
+  if (tour.fileGone || lj.at[n - 1].removed) {
+    tour.refHere = undefined
     showCard(lj, n)
     showMap(lj, true)
     revealJourneyRow(lj)
@@ -1807,21 +1788,21 @@ async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean })
   ownSelection(1500) // the file's caret and the step's: not a chat link
   const editor = await vscode.window.showTextDocument(uri, { preview: true, preserveFocus: opts.focus === false, ...(column ? { viewColumn: column } : {}) })
   if (stale()) return
-  if (editor.viewColumn) tourDoc = { uri, column: editor.viewColumn }
+  if (editor.viewColumn) tour.doc = { uri, column: editor.viewColumn }
   // Steps right after opening the file: anchoring against the open document (unsaved edits count).
   await journeys.locate(lj, (k) => k === n)
   if (stale()) return
   const at = lj.at[n - 1]
-  shownAt = { key: lj.key, id: tourId!, file, start: at.start, end: at.end, removed: !!at.removed, wrote: wroteAt(lj, n) }
-  refHere = undefined
+  tour.shownAt = { key: lj.key, id: tour.stepId!, file, start: at.start, end: at.end, removed: !!at.removed, wrote: wroteAt(lj, n) }
+  tour.refHere = undefined
   // The editor just opened on this file: the card is made once it has settled (see editorSettling).
   const settle = editorSettling(uri)
-  if (settle) { await new Promise((r) => setTimeout(r, settle)); if (stale() || tourKey !== lj.key || tourStep !== n) return }
+  if (settle) { await new Promise((r) => setTimeout(r, settle)); if (stale() || tour.key !== lj.key || tour.step !== n) return }
   showCard(lj, n)
   // The card lives in the map ("panel"): the map is open beside the code.
   if (cardInMap(lj, n) && mapPanel.journey?.key !== lj.key) showMap(lj, true)
   const first = Math.max(0, at.removed ? 0 : at.start - 1)
-  tourCursorUntil = Date.now() + 600
+  tour.cursorUntil = Date.now() + 600
   editor.selection = new vscode.Selection(first, 0, first, 0)
   // A note on the step's lines folds, so the step comes first; it stays unread.
   for (const nt of notesFor(uri)) if (nt.data.range.start <= at.end && nt.data.range.end >= at.start) { const th = threads.get(nt.data.id); if (th) setCollapse(th, vscode.CommentThreadCollapsibleState.Collapsed, nt.data.id) }
@@ -1831,8 +1812,8 @@ async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean })
   // in case this step's file was shown over it.
   let beatBack = false
   const top = () => {
-    if (beats.lit) { if (!beatBack && tourStep === n && tourKey === lj.key) { beatBack = true; void beats.again(codeColumn) } return }
-    if (tourStep === n && tourKey === lj.key) { const l = Math.max(0, Math.min(cardLine(lj, n), lj.at[n - 1].start - 1) - 1); editor.revealRange(new vscode.Range(l, 0, l, 0), vscode.TextEditorRevealType.AtTop) } }
+    if (beats.lit) { if (!beatBack && tour.step === n && tour.key === lj.key) { beatBack = true; void beats.again(codeColumn) } return }
+    if (tour.step === n && tour.key === lj.key) { const l = Math.max(0, Math.min(cardLine(lj, n), lj.at[n - 1].start - 1) - 1); editor.revealRange(new vscode.Range(l, 0, l, 0), vscode.TextEditorRevealType.AtTop) } }
   top()
   setTimeout(top, 120)
   setTimeout(top, 400)
@@ -1844,17 +1825,13 @@ async function openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean })
  * A journey left for another one mid-way: it ends cleanly (card, status item, marker go:), its place kept
  * for Resume; no toast.
  */
-let lastLeft: { title: string; at: string } | undefined
 async function leaveJourney(): Promise<void> {
   const lj = tourJourney()
-  const n = tourStep
+  const n = tour.step
   await endTour()
-  if (lj && n) lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
+  if (lj && n) tour.lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
 }
 
-/** Files referenced by the current step that don't exist (folder|path), and how many lines the others have, checked when the step opens. */
-const refGone = new Set<string>()
-const refLines = new Map<string, number>()
 async function checkRefs(lj: LoadedJourney, n: number): Promise<void> {
   const s = lj.j.steps[n - 1]
   const moved = journeys.renames(lj)
@@ -1862,7 +1839,7 @@ async function checkRefs(lj: LoadedJourney, n: number): Promise<void> {
     const f = moved.get(f0) ?? f0
     const k = `${lj.folder.uri}|${f}`
     const ls = await linesOfUri(vscode.Uri.joinPath(lj.folder.uri, f))
-    if (ls) { refGone.delete(k); refLines.set(k, ls.length) } else { refGone.add(k); refLines.delete(k) }
+    if (ls) { tour.refGone.delete(k); tour.refLines.set(k, ls.length) } else { tour.refGone.add(k); tour.refLines.delete(k) }
   }
 }
 
@@ -1895,38 +1872,30 @@ function cardLine(lj: LoadedJourney, n: number): number {
   if (at.removed) return 0
   return Math.max(0, at.start - 2)
 }
-/** The step's file doesn't exist: its card is in the map, whatever the setting. */
-let stepFileGone = false
 /**
  * One step card, inline above the code (no panel mode). Only a step with no code to sit on (its
  * file is gone,, or its code was deleted:, never pinned on unrelated code such as line 1) shows its card in
  * the map instead.
  */
-const cardInMap = (lj: LoadedJourney, n: number) => lj.key === tourKey && tourStep === n && (stepFileGone || !!lj.at[n - 1]?.removed)
-/** One line on the card about what just changed under the reader: for that step only. */
-let cardNotice: { id: string; text: string } | undefined
-/** Where the current step was shown (to see that the agent moved it:). */
-/** `wrote`: where the journey file put the step then (a change there is the agent re-anchoring it:). */
-let shownAt: { key: string; id: string; file: string; start: number; end: number; removed: boolean; wrote: string } | undefined
+const cardInMap = (lj: LoadedJourney, n: number) => lj.key === tour.key && tour.step === n && (tour.fileGone || !!lj.at[n - 1]?.removed)
 const wroteAt = (lj: LoadedJourney, n: number) => { const s = lj.j.steps[n - 1]; return `${s.file}:${s.range.start}-${s.range.end}` }
 
 /** What a step's text depends on besides the journey (tour/stepText.ts). */
 const stepText = (lj: LoadedJourney, n: number, link: (r: StepRef) => string) => stepTextOf(lj, n, link, textInput(lj))
-const staleText = (lj: LoadedJourney, n: number, ask: string) => stepStaleText(lj, n, ask, stepFileGone && tourStep === n)
-const textInput = (lj: LoadedJourney): StepTextInput => ({ renames: journeys.renames(lj), refGone, refLines, detailsOpen: stepDetailsOpen })
+const staleText = (lj: LoadedJourney, n: number, ask: string) => stepStaleText(lj, n, ask, tour.fileGone && tour.step === n)
+const textInput = (lj: LoadedJourney): StepTextInput => ({ renames: journeys.renames(lj), refGone: tour.refGone, refLines: tour.refLines, detailsOpen: tour.detailsOpen })
 
 const UPDATE_ASK = 'This step is out of date: its code changed or was deleted. Please update the step.'
 /** The panel's step card, and the links it shows (posted back by index). */
-let panelRefs: StepRef[] = []
 function panelCard(lj: LoadedJourney, n: number): object {
   const refs: StepRef[] = []
   const t = stepText(lj, n, (r) => { refs.push(r); return `[${r.label.replace(/[[\]]/g, '').replace(/^.*\//, '')}](ref:${refs.length - 1})` })
-  panelRefs = refs
+  tour.panelRefs = refs
   const paths = refs.map((r) => `${r.file}:${r.line}${r.end > r.line ? `-${r.end}` : ''}`)
   const a = askedOf(lj)[n]
-  return { n, lead: t.lead, ...(t.details ? { details: t.details } : {}), refs: t.refs, stale: t.stale || (stepFileGone && tourStep === n),
-    staleText: staleText(lj, n, a?.update ? `[Asked ›](note:${a.id})` : '[Ask](ask:update)'), open: stepDetailsOpen,
-    ...(cardNotice && cardNotice.id === lj.j.steps[n - 1].id ? { notice: cardNotice.text } : {}), title: lj.j.steps[n - 1].title, paths }
+  return { n, lead: t.lead, ...(t.details ? { details: t.details } : {}), refs: t.refs, stale: t.stale || (tour.fileGone && tour.step === n),
+    staleText: staleText(lj, n, a?.update ? `[Asked ›](note:${a.id})` : '[Ask](ask:update)'), open: tour.detailsOpen,
+    ...(tour.cardNotice && tour.cardNotice.id === lj.j.steps[n - 1].id ? { notice: tour.cardNotice.text } : {}), title: lj.j.steps[n - 1].title, paths }
 }
 
 function stepMarkdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
@@ -1949,7 +1918,7 @@ function stepMarkdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
     asked ? cmdLink(`${askedText(asked)} ›`, 'codeNotes.openNoteId', asked.id) : '',
     // One Ask: a stale step's is the banner's, which opens the request prefilled.
     st ? '' : cmdLink('Ask', 'codeNotes.askStep'),
-    t.details || t.refs ? (stepDetailsOpen ? cmdLink('Less', 'codeNotes.stepDetails', false) : cmdLink('More', 'codeNotes.stepDetails', true)) : '',
+    t.details || t.refs ? (tour.detailsOpen ? cmdLink('Less', 'codeNotes.stepDetails', false) : cmdLink('More', 'codeNotes.stepDetails', true)) : '',
   ].filter(Boolean)
   // Real no-break spaces, not &nbsp;: VS Code reads the card's Markdown source aloud.
   // the warning (a stale step), the lead, then the buttons; More grows below them; a notice last, quiet.
@@ -1962,16 +1931,16 @@ function stepMarkdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
   const mark = (x: string) => linkPhrases(x, links, usedLinks, PH)
   if (t.lead) parts.push(mark(t.lead))
   parts.push(nav.join(' \u00a0 '))
-  if (stepDetailsOpen && t.details) parts.push(mark(t.details))
+  if (tour.detailsOpen && t.details) parts.push(mark(t.details))
   // Only the phrases on the card now have their lines marked: those behind "More" while it is open.
   // Value hints: what the step's variables hold in the example run, faint, above their lines.
   valueHints.present(linkKey, lj.folder.uri, readValues(lj.j.steps[n - 1].values), journeys.renames(lj))
   if (links.length) codeLinks.present(linkKey, lj.folder.uri, links, journeys.renames(lj), [...usedLinks]); else codeLinks.clear()
-  if (stepDetailsOpen && t.refs) parts.push(t.refs)
+  if (tour.detailsOpen && t.refs) parts.push(t.refs)
   // The end of a check's tour: a journey of the repository that walks the same code, if there is one.
   if (lj.check && n === total) { const also = seeAlsoLink([...new Set(lj.j.steps.map((x) => fileOf(lj, x.n)))]); if (also) parts.push(`See also: ${also}`) }
   // What just changed under the reader, once, on this step.
-  if (cardNotice && cardNotice.id === lj.j.steps[n - 1].id) parts.push(`_ℹ ${cardNotice.text}_`)
+  if (tour.cardNotice && tour.cardNotice.id === lj.j.steps[n - 1].id) parts.push(`_ℹ ${tour.cardNotice.text}_`)
   // `<name>` in the text is text: VS Code's renderer would drop it as an HTML tag.
   const body = escapeTags(parts.join('\n\n')).replace(PH_RE, (_m, i: string, phrase: string) =>
     codeLinkMarkup(linkKey, Number(i), links[Number(i)], phrase, tutorialMark === 'links' ? TUTORIAL_HI : undefined))
@@ -2006,14 +1975,14 @@ function showCard(lj: LoadedJourney, n: number): void {
     const wait = editorSettling(uri)
     if (wait) {
       clearTimeout(settleLater.get('card'))
-      settleLater.set('card', setTimeout(() => { settleLater.delete('card'); if (touring() && tourJourney() === lj && tourStep === n) showCard(lj, n) }, wait))
+      settleLater.set('card', setTimeout(() => { settleLater.delete('card'); if (touring() && tourJourney() === lj && tour.step === n) showCard(lj, n) }, wait))
       return
     }
     stepThread?.dispose()
     stepThread = newThread(stepController, uri, range, [{ body: stepMarkdown(lj, n), mode: vscode.CommentMode.Preview, author: { name: '' }, contextValue: 'step' }])
   } else if (settling(stepThread!)) {
     // Made just now (see SETTLE_MS): this update follows once its first state is in the workbench.
-    whenSettled(stepThread!, 'card', () => { if (touring() && tourJourney() === lj && tourStep === n) showCard(lj, n) })
+    whenSettled(stepThread!, 'card', () => { if (touring() && tourJourney() === lj && tour.step === n) showCard(lj, n) })
     return
   }
   const t = stepThread!
@@ -2033,27 +2002,24 @@ function showCard(lj: LoadedJourney, n: number): void {
  * "Back to step", a tab switch, the file reopened) they are there. A preview tab that was replaced
  * closed the document, and VS Code drops a thread's widget with it: the thread is made again.
  */
-let restoring = false
-/** The step file that was on screen at the last change (only a return re-makes the card). */
-let stepShownFor: string | undefined
 function restoreStepCard(): void {
   const lj = touring() ? tourJourney() : undefined
-  if (!lj || cardInMap(lj, tourStep) || restoring) return
-  const uri = stepUri(lj, tourStep).toString()
+  if (!lj || cardInMap(lj, tour.step) || tour.restoring) return
+  const uri = stepUri(lj, tour.step).toString()
   const shown = vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === uri)
-  const back = shown && stepShownFor !== uri
-  stepShownFor = shown ? uri : undefined
+  const back = shown && tour.shownFor !== uri
+  tour.shownFor = shown ? uri : undefined
   if (!back) return
   // Back on the step's file: the ref is left behind.
-  if (refHere && refHere.uri !== uri && !vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === refHere!.uri)) { refHere = undefined; lensChanged.fire() }
-  restoring = true
-  try { stepThread?.dispose(); stepThread = undefined; showCard(lj, tourStep) } finally { restoring = false }
+  if (tour.refHere && tour.refHere.uri !== uri && !vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === tour.refHere!.uri)) { tour.refHere = undefined; lensChanged.fire() }
+  tour.restoring = true
+  try { stepThread?.dispose(); stepThread = undefined; showCard(lj, tour.step) } finally { tour.restoring = false }
 }
 
 function clearCard(): void {
   stepThread?.dispose()
   stepThread = undefined
-  refHere = undefined
+  tour.refHere = undefined
   lensChanged.fire()
   for (const e of vscode.window.visibleTextEditors) if (refDeco) setDecorations(e, refDeco, [])
   for (const t of stepAsks.keys()) t.dispose()
@@ -2062,20 +2028,18 @@ function clearCard(): void {
 }
 
 /** The running step's lines: a quiet bar (amber when stale). */
-/** Editors (their file) that show the step's bar now (for the tests). */
-let stepMarked: string[] = []
 function refreshStepDecorations(): void {
   const lj = touring() ? tourJourney() : undefined
-  const s = lj?.j.steps[tourStep - 1]
-  stepMarked = []
+  const s = lj?.j.steps[tour.step - 1]
+  tour.marked = []
   for (const e of vscode.window.visibleTextEditors) {
-    const here = lj && s && e.document.uri.toString() === vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tourStep)).toString()
-    const at = here ? lj!.at[tourStep - 1] : undefined
+    const here = lj && s && e.document.uri.toString() === vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tour.step)).toString()
+    const at = here ? lj!.at[tour.step - 1] : undefined
     // A stale step highlights nothing: what is there now is other code; the card says so.
     setDecorations(e, stepDeco.at, at && !at.stale ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : [])
-    if (at && !at.stale) stepMarked.push(e.document.uri.path)
+    if (at && !at.stale) tour.marked.push(e.document.uri.path)
     setDecorations(e, stepDeco.stale, [])
-    if (refDeco) setDecorations(e, refDeco, refHere && lj && refHere.uri === e.document.uri.toString() ? [new vscode.Range(refHere.start, 0, refHere.end, 0)] : [])
+    if (refDeco) setDecorations(e, refDeco, tour.refHere && lj && tour.refHere.uri === e.document.uri.toString() ? [new vscode.Range(tour.refHere.start, 0, tour.refHere.end, 0)] : [])
   }
 }
 
@@ -2084,8 +2048,8 @@ async function stepBy(dir: 1 | -1): Promise<void> {
     // A check's tour: its open questions are stops between the steps.
     const lj = tourJourney()!
     const stops = stopsOf(lj)
-    let i = stops.findIndex((x) => x.step === tourStep && x.q === tourCp)
-    if (i < 0) i = stops.findIndex((x) => x.step === tourStep && !x.q)
+    let i = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
+    if (i < 0) i = stops.findIndex((x) => x.step === tour.step && !x.q)
     const to = stops[i + dir]
     if (!to) { if (dir > 0) return finishTour(); vscode.window.setStatusBarMessage('$(info) First step', 2000); return }
     if (to.q) { await openCheckpoint(lj, to.q); return }
@@ -2093,7 +2057,7 @@ async function stepBy(dir: 1 | -1): Promise<void> {
   }
   if (touring()) {
     const lj = tourJourney()!
-    const n = tourStep + dir
+    const n = tour.step + dir
     if (n > lj.j.steps.length) return finishTour()
     if (n < 1) { vscode.window.setStatusBarMessage('$(info) First step', 2000); return }
     return goToStep(lj, n)
@@ -2101,7 +2065,7 @@ async function stepBy(dir: 1 | -1): Promise<void> {
   // No tour: start (or resume) the journey whose map is open, else pick one.
   const lj = tourJourney() ?? (await pickJourney())
   // Just finished: next is not step 1 again; the panel says Done.
-  if (lj && finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); if (mapPanel.journey || (await panelFits())) showMap(lj); return }
+  if (lj && tour.finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); if (mapPanel.journey || (await panelFits())) showMap(lj); return }
   if (lj) await goToStep(lj, resumeAt(lj) || 1)
 }
 
@@ -2115,15 +2079,15 @@ function stopsOf(lj: LoadedJourney): { step: number; q?: string }[] {
   const out: { step: number; q?: string }[] = []
   for (const s of lj.j.steps) {
     out.push({ step: s.n })
-    for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tourCp && tourStep === s.n && tourKey === lj.key))) out.push({ step: s.n, q: q.id })
+    for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tour.cp && tour.step === s.n && tour.key === lj.key))) out.push({ step: s.n, q: q.id })
   }
   return out
 }
 /** The stop after where the walk is (for the card's Next). */
 function nextStop(lj: LoadedJourney): { step: number; q?: string } | undefined {
   const stops = stopsOf(lj)
-  let i = stops.findIndex((x) => x.step === tourStep && x.q === tourCp)
-  if (i < 0) i = stops.findIndex((x) => x.step === tourStep && !x.q)
+  let i = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
+  if (i < 0) i = stops.findIndex((x) => x.step === tour.step && !x.q)
   return i < 0 ? undefined : stops[i + 1]
 }
 /** A question of the tour: its step (code and card), the map on it, then the question's thread with the keyboard in it. */
@@ -2132,9 +2096,9 @@ async function openCheckpoint(lj: LoadedJourney, id: string): Promise<boolean> {
   if (!q || q.step > lj.j.steps.length) return false
   // The panel follows only when it is open: a question never opens it (the code keeps its room).
   if (mapPanel.journey && mapPanel.journey.key !== lj.key) showMap(lj, true)
-  if (!(tourKey === lj.key && tourStep === q.step)) await goToStep(lj, q.step, { focus: false })
-  tourCp = id
-  showCard(lj, tourStep)
+  if (!(tour.key === lj.key && tour.step === q.step)) await goToStep(lj, q.step, { focus: false })
+  tour.cp = id
+  showCard(lj, tour.step)
   mapPanel.update()
   await understanding!.open(id)
   return true
@@ -2192,7 +2156,7 @@ async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
     const q = x.j.question.toLowerCase().includes(x.j.title.toLowerCase()) ? '' : x.j.question
     return {
       ask: undefined as string | undefined,
-      label: `${x.key === tourKey && tourStep ? '$(play-circle) ' : ''}${x.j.title}`,
+      label: `${x.key === tour.key && tour.step ? '$(play-circle) ' : ''}${x.j.title}`,
       description: [step && !words.every((w) => hay(x).includes(w)) ? `step ${step.n}: ${step.title}` : q, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
       alwaysShow: true, // filtered here, not by VS Code
       lj: x as LoadedJourney | undefined,
@@ -2207,7 +2171,7 @@ async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
     const words = qp.value.toLowerCase().split(/\s+/).filter(Boolean)
     const typed = qp.value.trim().toLowerCase()
     const score = (x: LoadedJourney) => journeyScore(x, words, typed)
-    const going = (x: LoadedJourney) => (x.key === tourKey && tourStep ? 2 : resumeAt(x) ? 1 : 0)
+    const going = (x: LoadedJourney) => (x.key === tour.key && tour.step ? 2 : resumeAt(x) ? 1 : 0)
     const items = all.map((x) => ({ x, k: score(x) })).filter((v) => v.k >= 0).sort((a, b) => b.k - a.k || going(b.x) - going(a.x)).map((v) => item(v.x, words))
     // Nothing matches: one item that asks the agent to write that journey.
     const q = qp.value.trim()
@@ -2704,7 +2668,7 @@ async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean; keepF
   await openMap(lj, room)
   if (!room) cardOnly()
   if (!lj.j.steps.length) return
-  await goToStep(lj, opts.fromStart ? 1 : tourKey === lj.key && tourStep ? tourStep : resumeAt(lj) || 1)
+  await goToStep(lj, opts.fromStart ? 1 : tour.key === lj.key && tour.step ? tour.step : resumeAt(lj) || 1)
   // Back where the click was: the code is shown, but arrows and Enter never type into it.
   if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
   else if (opts.keepFocus === 'panel' && room) mapPanel.takeFocus()
@@ -2803,8 +2767,8 @@ async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   if (showIntro()) await gstate.update(INTRO_KEY, true)
   // One journey on screen at a time: another journey's map ends the running walk quietly (its place is kept
   // for Resume); its status item and code marker go with it.
-  if (lj.key !== tourKey && touring()) await endTour()
-  if (lj.key !== tourKey) { tourKey = lj.key; tourStep = 0 }
+  if (lj.key !== tour.key && touring()) await endTour()
+  if (lj.key !== tour.key) { tour.key = lj.key; tour.step = 0 }
   if (show) showMap(lj)
   updateTour()
   tree.refresh()
@@ -2817,7 +2781,7 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'question') { const nt = byId(m.id); if (nt) void reveal(nt) }
   else if (m.type === 'checkpoint') void openCheckpoint(lj, m.id)
   else if (m.type === 'nextStop') void stepBy(1)
-  else if (m.type === 'ref') { const r = panelRefs[m.i]; if (r) void openRef(lj, r.file, r.line, r.end, tourStep) }
+  else if (m.type === 'ref') { const r = tour.panelRefs[m.i]; if (r) void openRef(lj, r.file, r.line, r.end, tour.step) }
   else if (m.type === 'ask') void (m.update ? askUpdate() : askStep())
   else if (m.type === 'openPath') void openBoxPath(lj, m.path)
   else if (m.type === 'home') { /* the list over the walk: the walk keeps its place, card and status item */ }
@@ -2830,7 +2794,7 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
   else if (m.type === 'refresh') { const x = journeys.list.get(m.key); if (x) void refreshJourney(x) }
   else if (m.type === 'hereAll') { hereAll = true; mapPanel.update() }
   else if (m.type === 'walk') { const x = journeys.list.get(m.key); if (x) void walkJourney(x, { keepFocus: 'panel' }) }
-  else if (m.type === 'details') { stepDetailsOpen = m.open; mapPanel.update() }
+  else if (m.type === 'details') { tour.detailsOpen = m.open; mapPanel.update() }
   else if (m.type === 'openFile') void vscode.window.showTextDocument(lj.uri, { viewColumn: codeColumn() })
   else if (m.type === 'close') mapPanel.close()
   else if (m.type === 'pick') void vscode.commands.executeCommand('codeNotes.openJourney')
@@ -2849,7 +2813,7 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
       void gstate.update(TUTORIAL_KEY, true).then(() => mapPanel.update())
     }
     // Finish walks the steps: from where the tour is, else where the map's button would start.
-    if (m.action === 'done') void goToStep(lj, touring() && tourKey === lj.key ? tourStep : resumeAt(lj) || 1, { focus: false })
+    if (m.action === 'done') void goToStep(lj, touring() && tour.key === lj.key ? tour.step : resumeAt(lj) || 1, { focus: false })
   }
 }
 
@@ -2859,21 +2823,21 @@ function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
  */
 async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
   // A beat of a step left just now (the map learns of the move after its scene drew): nothing.
-  if (i >= 0 && (lj.key !== tourKey || n !== tourStep)) return
+  if (i >= 0 && (lj.key !== tour.key || n !== tour.step)) return
   const was = beats.lit
   // The caret goes to the lit line: arriving is not reading a note there.
-  tourCursorUntil = Date.now() + 1500
+  tour.cursorUntil = Date.now() + 1500
   const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), codeColumn)
   // The panel shows those lines itself, under the caption, when it has the room.
   if (shown !== 'superseded' && i >= 0) mapPanel.send({ type: 'code', n, i, code: shown === 'lit' ? beats.preview : undefined })
-  if (shown === 'none' && was && !stepping && touring() && tourKey === lj.key && tourStep) await goToStep(lj, tourStep, { focus: false })
+  if (shown === 'none' && was && !tour.stepping && touring() && tour.key === lj.key && tour.step) await goToStep(lj, tour.step, { focus: false })
 }
 
 /** Ctrl+' P: the current step's animation on or off, in the journey panel. */
 function toggleAnimation(): void {
   const lj = tourJourney()
   if (!lj || !touring()) { void vscode.window.setStatusBarMessage('Open a journey step first: its animation plays in the journey panel.', 4000); return }
-  if (!lj.j.steps[tourStep - 1]?.scene?.beats?.length) { void vscode.window.setStatusBarMessage(`Step ${tourStep} has no animation.`, 4000); return }
+  if (!lj.j.steps[tour.step - 1]?.scene?.beats?.length) { void vscode.window.setStatusBarMessage(`Step ${tour.step} has no animation.`, 4000); return }
   if (mapPanel.journey?.key !== lj.key || !mapPanel.visible) showMap(lj, true)
   mapPanel.send({ type: 'anim', action: 'toggle' })
 }
@@ -2883,7 +2847,7 @@ function toggleAnimation(): void {
 async function tutorialInEditor(lj: LoadedJourney, what: 'card' | 'links'): Promise<void> {
   // The card itself shows it: its buttons, or its linked phrases, on the search-match colour while the tutorial says so.
   tutorialMark = what
-  const n = touring() && tourKey === lj.key && tourStep ? tourStep : resumeAt(lj) || 1
+  const n = touring() && tour.key === lj.key && tour.step ? tour.step : resumeAt(lj) || 1
   await goToStep(lj, n, { focus: false })
   const at = lj.at[n - 1]
   // The card moved on while the file opened: nothing.
@@ -2897,7 +2861,7 @@ function tutorialOutOfEditor(): void {
   if (!tutorialMark) return
   tutorialMark = ''
   const lj = tourJourney()
-  if (lj && tourStep) showCard(lj, tourStep)
+  if (lj && tour.step) showCard(lj, tour.step)
 }
 /** What the tutorial is pointing at in the step card now. */
 let tutorialMark: '' | 'card' | 'links' = ''
@@ -2928,7 +2892,7 @@ async function followJourneyFiles(): Promise<void> {
       }
       if (fileOf(lj, s.n) === f && (await journeys.locate(lj, (k) => k === s.n))) changed = true
     }
-    if (changed) { mapPanel.update(); if (lj.key === tourKey && tourStep) { await checkRefs(lj, tourStep); showCard(lj, tourStep) } }
+    if (changed) { mapPanel.update(); if (lj.key === tour.key && tour.step) { await checkRefs(lj, tour.step); showCard(lj, tour.step) } }
   }
   refreshStepDecorations()
 }
@@ -2939,7 +2903,7 @@ async function followJourneyFiles(): Promise<void> {
  */
 async function finishTour(): Promise<void> {
   const lj = tourJourney()
-  const doc = tourDoc
+  const doc = tour.doc
   await endTour()
   if (!lj) return
   await state.update(POS_KEY, Object.fromEntries(Object.entries(positions()).filter(([k]) => k !== posKey(lj))))
@@ -2947,27 +2911,25 @@ async function finishTour(): Promise<void> {
   const tabs = doc ? vscode.window.tabGroups.all.filter((g) => g.viewColumn === doc.column).flatMap((g) => g.tabs)
     .filter((t) => t.isPreview && !t.isDirty && t.input instanceof vscode.TabInputText && lj.j.steps.some((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).toString() === (t.input as vscode.TabInputText).uri.toString())) : []
   if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
-  finishedKey = lj.key
+  tour.finishedKey = lj.key
   // The panel says Done when it is open or has the room; else the status bar says it.
   if (mapPanel.journey || (await panelFits())) showMap(lj); else vscode.window.setStatusBarMessage('$(check) Journey finished', 3000)
   updateTour()
   tree.refresh()
 }
 
-/** The journey whose walk was just finished: its panel says Done until a step opens again. */
-let finishedKey: string | undefined
 
 /** Ends the tour: its place is kept (resume later), the card goes; the code stays open. */
 async function endTour(): Promise<void> {
   const lj = tourJourney()
-  if (lj && tourStep) await savePos(lj, tourStep)
+  if (lj && tour.step) await savePos(lj, tour.step)
   await state.update(TOUR_KEY, undefined)
-  const doc = tourDoc
-  tourDoc = undefined
+  const doc = tour.doc
+  tour.doc = undefined
   codeLinks.clear()
   valueHints.clear()
   beats.clear()
-  tourStep = 0
+  tour.step = 0
   clearCard()
   updateTour()
   tree.refresh()
@@ -2982,25 +2944,25 @@ const NOTE_OPTIONS: vscode.CommentOptions = { prompt: 'Reply', placeHolder: 'Not
 /** "Ask about this step": a normal note on the step's lines. With text (tests, scripts): saved at once; else a box asks for it. */
 async function askStep(text?: string): Promise<Note | undefined> {
   const lj = tourJourney()
-  if (!lj || !tourStep) { vscode.window.setStatusBarMessage('$(info) No journey step open', 2500); return undefined }
-  const s = lj.j.steps[tourStep - 1]
-  const at = lj.at[tourStep - 1]
-  const uri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tourStep))
+  if (!lj || !tour.step) { vscode.window.setStatusBarMessage('$(info) No journey step open', 2500); return undefined }
+  const s = lj.j.steps[tour.step - 1]
+  const at = lj.at[tour.step - 1]
+  const uri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tour.step))
   // The step by its id and title: numbers change when the journey is edited.
   const about = `_About the step “${s.title}” (id \`${s.id}\`) of the journey “${lj.j.title}”_`
   if (typeof text === 'string' && text.trim()) {
     const doc = await vscode.workspace.openTextDocument(uri)
-    const n = await createNote(doc, { start: at.start - 1, end: at.end - 1 }, `${text.trim()}\n\n${about}`, undefined, { journey: { id: lj.j.id, step: s.id, n: tourStep } })
+    const n = await createNote(doc, { start: at.start - 1, end: at.end - 1 }, `${text.trim()}\n\n${about}`, undefined, { journey: { id: lj.j.id, step: s.id, n: tour.step } })
     // An update request is about the step's code as written, not whatever sits at those lines now: it carries the
     // journey's copy of that code and is stale from the start.
-    const was = journeys.anchorOf(lj, tourStep)
+    const was = journeys.anchorOf(lj, tour.step)
     if (n && at.stale && was && 'text' in was) { n.data.anchor = { ...n.data.anchor, ...was }; n.data.stale = true; await store.save(n); refreshAll() }
     if (n && claudeMode() === 'always') await askClaude(n)
     return n
   }
   // a box of its own, not the editor's comment box (that one needed the cursor on the step's line and could
   // lose what was typed). Esc keeps the draft for the next Ask on this step.
-  const n0 = tourStep
+  const n0 = tour.step
   const dk = `${lj.j.id}|${s.id}`
   const box = vscode.window.createInputBox()
   box.title = `Ask about step ${n0}/${lj.j.steps.length}: ${s.title}`
@@ -3021,7 +2983,7 @@ async function askStep(text?: string): Promise<Note | undefined> {
   if (!typed?.trim()) return undefined
   // The walk moved on while typing: the question is still about the step it was asked on.
   const lj2 = tourJourney()
-  if (lj2 !== lj || tourStep !== n0) { askDrafts.set(dk, typed); vscode.window.setStatusBarMessage('$(info) The step changed: your question is kept for it', 4000); return undefined }
+  if (lj2 !== lj || tour.step !== n0) { askDrafts.set(dk, typed); vscode.window.setStatusBarMessage('$(info) The step changed: your question is kept for it', 4000); return undefined }
   const note = await askStep(typed)
   if (!note) return undefined
   askDrafts.delete(dk)
@@ -3041,13 +3003,13 @@ let stepAskBox: { box: vscode.InputBox; accept: () => void } | undefined
  */
 async function askUpdate(): Promise<Note | undefined> {
   const lj = tourJourney()
-  if (!lj || !tourStep) return undefined
-  const n = tourStep
+  if (!lj || !tour.step) return undefined
+  const n = tour.step
   const text = await vscode.window.showInputBox({
     title: `Ask the agent to update step ${n}/${lj.j.steps.length}: ${lj.j.steps[n - 1].title}`, value: UPDATE_ASK,
     valueSelection: [UPDATE_ASK.length, UPDATE_ASK.length], prompt: 'Add what you know (where it moved, what changed). Enter saves the note; Esc cancels.',
   })
-  if (!text?.trim() || tourStep !== n || tourJourney() !== lj) return undefined
+  if (!text?.trim() || tour.step !== n || tourJourney() !== lj) return undefined
   const note = await askStep(text)
   if (note) { vscode.window.setStatusBarMessage('$(check) Asked the agent to update this step', 3000); showCard(lj, n); mapPanel.update() }
   return note
@@ -3206,7 +3168,7 @@ async function openBoxPath(lj: LoadedJourney, p: string): Promise<void> {
 
 /** A reference from the step card: open it with its lines lit and "← Back to step n" above them (R8). */
 async function openRef(lj: LoadedJourney, file: string, line: number, end: number, n: number): Promise<void> {
-  lastPeek = undefined
+  tour.lastPeek = undefined
   const uri = vscode.Uri.joinPath(lj.folder.uri, file)
   try { await wfs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
   // The inline card lives in the step's tab: a ref opens as a peek right under the card, so the tab, the code and the
@@ -3215,7 +3177,7 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
   // the card in the step's editor too.
   const stepUri0 = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))
   const stepEd = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === stepUri0.toString())
-  if (stepEd && !stepFileGone) {
+  if (stepEd && !tour.fileGone) {
     const same = uri.toString() === stepUri0.toString()
     const target = same ? refCopyUri(uri) : uri
     const doc = await vscode.workspace.openTextDocument(target)
@@ -3224,7 +3186,7 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
     // Right under the step card: the card's own line, not the end of the step's code.
     const under = new vscode.Position(Math.max(0, Math.min(at.removed ? 0 : cardLine(lj, n), stepEd.document.lineCount - 1)), 0)
     await vscode.window.showTextDocument(stepEd.document, { viewColumn: stepEd.viewColumn, preview: true, preserveFocus: false })
-    lastPeek = { uri: target.toString(), start: a, end: b, under: under.line }
+    tour.lastPeek = { uri: target.toString(), start: a, end: b, under: under.line }
     await vscode.commands.executeCommand('editor.action.peekLocations', stepUri0, under, [new vscode.Location(target, new vscode.Range(a, 0, b, doc.lineAt(b).text.length))], 'peek')
     return
   }
@@ -3232,10 +3194,10 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
   if (stepEd) { const at = lj.at[n - 1]; const l = Math.max(0, (at.removed ? 1 : at.start) - 1); stepEd.selection = new vscode.Selection(l, 0, l, 0) }
   const ed = await vscode.window.showTextDocument(uri, { preview: true, viewColumn: codeColumn() })
   const a = Math.max(0, Math.min(line - 1, ed.document.lineCount - 1)), b = Math.max(a, Math.min(end - 1, ed.document.lineCount - 1))
-  refHere = { uri: uri.toString(), start: a, end: b }
+  tour.refHere = { uri: uri.toString(), start: a, end: b }
   ed.selection = new vscode.Selection(a, 0, a, 0)
   ed.revealRange(new vscode.Range(Math.max(0, a - 1), 0, b, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
-  for (const e of vscode.window.visibleTextEditors) setDecorations(e, refDeco!, e.document.uri.toString() === refHere.uri ? [new vscode.Range(a, 0, b, 0)] : [])
+  for (const e of vscode.window.visibleTextEditors) setDecorations(e, refDeco!, e.document.uri.toString() === tour.refHere.uri ? [new vscode.Range(a, 0, b, 0)] : [])
   lensChanged.fire()
   void n
 }
@@ -3247,9 +3209,9 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
 async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> {
   if (touring()) {
     const lj = tourJourney()!
-    if (!refHere || refHere.uri !== doc.uri.toString()) return []
-    const n = tourStep
-    return [new vscode.CodeLens(new vscode.Range(refHere.start, 0, refHere.start, 0), { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
+    if (!tour.refHere || tour.refHere.uri !== doc.uri.toString()) return []
+    const n = tour.step
+    return [new vscode.CodeLens(new vscode.Range(tour.refHere.start, 0, tour.refHere.start, 0), { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
   }
   if (!cfg().get<boolean>('journeys.codeLens', true) || doc.uri.scheme !== 'file') return []
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
@@ -3294,7 +3256,7 @@ async function restoreTour(): Promise<void> {
   const lj = journeys.byPos(state.get<string>(TOUR_KEY))
   if (!lj) return
   const n = resumeAt(lj) || 1
-  if (!mapPanel.journey) { tourKey = lj.key }
+  if (!mapPanel.journey) { tour.key = lj.key }
   await goToStep(lj, n, { focus: false })
 }
 
@@ -3887,44 +3849,44 @@ export async function activate(context: vscode.ExtensionContext) {
       // Only lit: no selection, the keyboard stays in the thread (an answer typed next must never edit the code).
       if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away) await backToQuestion(cn.n); return }
       codeLinks.present(key, cn.n.folder.uri, cn.links, new Map(), cn.links.map((_l, k) => k))
-      linkBack = undefined
+      tour.linkBack = undefined
       await codeLinks.open(key, i, codeColumn, '$(arrow-left) Back to question', { uri: docUri(cn.n).toString(), line: cn.n.data.range.start - 1 }, { keepFocus: true, backTip: `Back to the question: ${cn.n.data.messages[0]?.body.split('\n')[0].slice(0, 80) ?? ''}` })
       return
     }
     const lj = tourJourney()
     // A second click on the lit phrase turns it off; the step comes back if its card was out of sight.
-    if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away && lj && tourStep) await goToStep(lj, tourStep); return }
-    tourCursorUntil = Date.now() + 1500
-    const card = lj && tourStep && !cardInMap(lj, tourStep) ? { uri: stepUri(lj, tourStep).toString(), line: cardLine(lj, tourStep) } : undefined
+    if (codeLinks.isLit(key, i)) { const away = codeLinks.state.back; codeLinks.unlight(); if (away && lj && tour.step) await goToStep(lj, tour.step); return }
+    tour.cursorUntil = Date.now() + 1500
+    const card = lj && tour.step && !cardInMap(lj, tour.step) ? { uri: stepUri(lj, tour.step).toString(), line: cardLine(lj, tour.step) } : undefined
     // An icon and words, so it reads as a control and not as one more value. Only lit, as in a question's thread: the
     // caret and the keyboard stay where the click was, so typing next never lands in the code.
     // The way back names where it goes, and goes only there: the step being walked when the link was clicked. Not
     // walking: no way back (a bare "Back" stayed and later led to whatever was walked by then).
-    linkBack = lj && tourStep ? { journey: lj.key, step: tourStep } : undefined
-    await codeLinks.open(key, i, codeColumn, linkBack ? `$(arrow-left) Back to step ${tourStep}` : '', card, { keepFocus: true, ...(lj && linkBack ? { backTip: `Back to step ${linkBack.step} of "${lj.j.title}"` } : {}) })
+    tour.linkBack = lj && tour.step ? { journey: lj.key, step: tour.step } : undefined
+    await codeLinks.open(key, i, codeColumn, tour.linkBack ? `$(arrow-left) Back to step ${tour.step}` : '', card, { keepFocus: true, ...(lj && tour.linkBack ? { backTip: `Back to step ${tour.linkBack.step} of "${lj.j.title}"` } : {}) })
   }),
     vscode.commands.registerCommand('codeNotes.codeLinkBack', async () => {
       const cn = checkLinkNote(codeLinks.state.key ?? '')
-      const b = linkBack
-      linkBack = undefined
+      const b = tour.linkBack
+      tour.linkBack = undefined
       codeLinks.unlight()
       if (cn) { await backToQuestion(cn.n); return }
       const lj = tourJourney()
-      if (lj && b && b.journey === lj.key && b.step === tourStep) await goToStep(lj, b.step)
+      if (lj && b && b.journey === lj.key && b.step === tour.step) await goToStep(lj, b.step)
     }))
   gstate = context.globalState
   KEY = gstate.get<string>(PREFIX_KEY) ?? KEY
   mapPanel = new MapPanel(context.extensionUri, log, onMapMessage, (lj) => ({
     key: KEY, tutorial: !gstate.get<boolean>(TUTORIAL_KEY),
-    current: lj.key === tourKey ? tourStep : 0, marks: stepMarks(lj), resume: resumeAt(lj), legendHidden: state.get<boolean>('codeNotes.legendHidden') ?? true, // on demand (M99)
+    current: lj.key === tour.key ? tour.step : 0, marks: stepMarks(lj), resume: resumeAt(lj), legendHidden: state.get<boolean>('codeNotes.legendHidden') ?? true, // on demand (M99)
     ...(gstate.get<number>(MAP_WIDTH_KEY) ? { mapWidth: gstate.get<number>(MAP_WIDTH_KEY) } : {}),
     problems: lj.readError ? [lj.readError] : [], authors: cfg().get<boolean>('journeys.authorMode') ? lj.j.problems.length : 0, moved: Object.fromEntries(journeys.renames(lj)),
-    ...(lj.key === tourKey && tourStep && cardInMap(lj, tourStep) ? { card: panelCard(lj, tourStep) } : {}),
+    ...(lj.key === tour.key && tour.step && cardInMap(lj, tour.step) ? { card: panelCard(lj, tour.step) } : {}),
     asked: askedOf(lj), prov: provenance(lj),
-    ...(lj.check ? { stops: (understanding?.tourStops() ?? []).map((q) => ({ ...q, ...(lj.key === tourKey && tourCp === q.id && tourStep === q.step ? { cur: true } : {}) })) } : {}),
+    ...(lj.check ? { stops: (understanding?.tourStops() ?? []).map((q) => ({ ...q, ...(lj.key === tour.key && tour.cp === q.id && tour.step === q.step ? { cur: true } : {}) })) } : {}),
     list: journeyOrder().map((x) => ({ key: x.key, title: x.j.title, question: x.j.question, steps: x.j.steps.length, resume: resumeAt(x), ...(x.key === lj.key ? { here: true } : {}), ...(x.j.start ? { start: true } : {}) })),
     home: listModel(homeQuery),
-    ...(finishedKey === lj.key && !(lj.key === tourKey && tourStep) ? { done: true } : {}),
+    ...(tour.finishedKey === lj.key && !(lj.key === tour.key && tour.step) ? { done: true } : {}),
   }), state)
   refDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'), overviewRulerColor: new vscode.ThemeColor('textLink.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center })
   context.subscriptions.push(refDeco, lensChanged, vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], { onDidChangeCodeLenses: lensChanged.event, provideCodeLenses: stepLenses }))
@@ -3958,7 +3920,7 @@ export async function activate(context: vscode.ExtensionContext) {
       for (let i = 0; !lj && i < 20; i++) { await new Promise((r) => setTimeout(r, 250)); lj = journeys.byPos(state.get<string>(MAP_KEY)) }
       const later = (f: () => void) => setTimeout(f, 1500)
       if (!lj) { log.info('journey panel: its journey is gone; closed after the reload'); later(() => panel.dispose()); return }
-      if (!tourKey) tourKey = lj.key
+      if (!tour.key) tour.key = lj.key
       mapPanel.adopt(panel, lj)
       updateTour()
       later(() => void codeGetsMoreRoom())
@@ -4006,7 +3968,7 @@ export async function activate(context: vscode.ExtensionContext) {
     lensChanged.fire()
     mapPanel.update()
     journeysTree.refresh()
-    if (lj.key === tourKey && tourStep) showCard(lj, tourStep)
+    if (lj.key === tour.key && tour.step) showCard(lj, tour.step)
     refreshStepDecorations()
   }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) { journeys.onEdit(e); journeys.onDocument(e.document) } }))
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(ORPHAN_SCHEME, {
@@ -4058,7 +4020,7 @@ export async function activate(context: vscode.ExtensionContext) {
     refreshAll()
     // A question on the current step was asked or answered: the card says so.
     const tj = touring() ? tourJourney() : undefined
-    if (tj && !cardInMap(tj, tourStep)) showCard(tj, tourStep)
+    if (tj && !cardInMap(tj, tour.step)) showCard(tj, tour.step)
     clearTimeout(reanchorTimer)
     reanchorTimer = setTimeout(() => reanchorAll().then(refreshAll), 200)
   }))
@@ -4165,7 +4127,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const line = (e.selections[0]?.active.line ?? -2) + 1
       const here = notesFor(e.textEditor.document.uri).filter((n) => line >= n.data.range.start && line <= n.data.range.end)
       // Not when a journey step put the cursor there: arriving is not reading.
-      if (Date.now() < tourCursorUntil) return
+      if (Date.now() < tour.cursorUntil) return
       if (here.length === 1 && unread(here[0]) && threads.has(here[0].data.id)) markRead(here, here[0])
     }),
     vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -4442,7 +4404,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // "The map" means the map: an animation showing in its place goes.
     mapPanel.send({ type: 'anim', action: 'off' })
   })
-  cmd('codeNotes.startJourney', async (arg?: unknown) => { const lj = await pickJourney(arg ?? tourKey); if (lj) await goToStep(lj, 1) })
+  cmd('codeNotes.startJourney', async (arg?: unknown) => { const lj = await pickJourney(arg ?? tour.key); if (lj) await goToStep(lj, 1) })
   cmd('codeNotes.nextStep', () => stepBy(1))
   cmd('codeNotes.previousStep', () => stepBy(-1))
   cmd('codeNotes.endJourney', endTour)
@@ -4472,15 +4434,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // The same path as a request with a question (matching, a pick of close matches, trust, model check, the confirm).
     return handleExplain({ action: 'ask', question: q }, 'command')
   })
-  cmd('codeNotes.backToStep', async () => { const lj = tourJourney(); if (lj && tourStep) await goToStep(lj, tourStep) })
+  cmd('codeNotes.backToStep', async () => { const lj = tourJourney(); if (lj && tour.step) await goToStep(lj, tour.step) })
   cmd('codeNotes.askStep', (text?: string) => askStep(text))
   cmd('codeNotes.askStepUpdate', () => askUpdate())
   cmd('codeNotes.openNoteId', (id: string) => { const nt = byId(id); if (nt) return reveal(nt) })
   cmd('codeNotes.tutorial', tutorial)
   cmd('codeNotes.stepDetails', (open?: boolean) => {
-    stepDetailsOpen = open ?? !stepDetailsOpen
+    tour.detailsOpen = open ?? !tour.detailsOpen
     const lj = tourJourney()
-    if (lj && tourStep) showCard(lj, tourStep)
+    if (lj && tour.step) showCard(lj, tour.step)
   })
   cmd('codeNotes.nextUnread', () => stepUnread(1))
   cmd('codeNotes.previousUnread', () => stepUnread(-1))
@@ -4595,7 +4557,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // Another branch (or no check): the last one's tour goes.
       if (checkTour && (!uri || checkTour.uri.toString() !== uri.toString())) {
         const old = currentTour()
-        if (old && mapPanel.journey?.key === old.key) { if (old.key === tourKey && tourStep) await endTour(); mapPanel.close() }
+        if (old && mapPanel.journey?.key === old.key) { if (old.key === tour.key && tour.step) await endTour(); mapPanel.close() }
         await journeys.setTour(f, checkTour.uri, undefined, checkTour.branch)
         checkTour = undefined
       }
@@ -4603,11 +4565,11 @@ export async function activate(context: vscode.ExtensionContext) {
       const lj = await journeys.setTour(f, uri, check?.journey, branch)
       checkTour = lj ? { uri, branch } : undefined
       // Its questions' states (the storyline's rows, the card's Next) follow the check.
-      if (lj) { mapPanel.update(); if (lj.key === tourKey && tourStep) showCard(lj, tourStep) }
+      if (lj) { mapPanel.update(); if (lj.key === tour.key && tour.step) showCard(lj, tour.step) }
     },
     walkTour: async () => { const lj = currentTour(); if (!lj || !lj.j.steps.length) return false; await walkJourney(lj); return true },
     openInTour: async (id) => { const lj = currentTour(); return lj ? openCheckpoint(lj, id) : false },
-    tourNext: async (id) => { const lj = tourJourney(); if (!lj?.check || !touring() || tourCp !== id) return false; await stepBy(1); return true },
+    tourNext: async (id) => { const lj = tourJourney(); if (!lj?.check || !touring() || tour.cp !== id) return false; await stepBy(1); return true },
   })
   context.subscriptions.push(understanding)
   cmd('codeNotes.checkUnderstanding', () => understanding!.run())
@@ -4677,10 +4639,10 @@ export async function activate(context: vscode.ExtensionContext) {
       me: me(),
       journeys: journeys.all().map((x) => ({ id: x.j.id, steps: x.j.steps.length, at: x.at, resume: resumeAt(x) })),
       tour: {
-        journey: tourJourney()?.j.id, step: tourStep, touring: touring(), cp: tourCp, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
-        beat: beats.lit, beatCode: beats.preview, codeLinks: codeLinks.state, values: valueHints.state, mapColumn: mapPanel.viewColumn, codeColumn: tourDoc?.column, status: tourItems.pos.text, statusShown: !!tourItems.pos.text && touring(),
-        tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark }, key: KEY, lastLeft, fileGone: stepFileGone,
-        panelCard: touring() && cardInMap(tourJourney()!, tourStep) ? panelCard(tourJourney()!, tourStep) : undefined, ref: refHere, peek: lastPeek, marked: stepMarked,
+        journey: tourJourney()?.j.id, step: tour.step, touring: touring(), cp: tour.cp, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
+        beat: beats.lit, beatCode: beats.preview, codeLinks: codeLinks.state, values: valueHints.state, mapColumn: mapPanel.viewColumn, codeColumn: tour.doc?.column, status: tourItems.pos.text, statusShown: !!tourItems.pos.text && touring(),
+        tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark }, key: KEY, lastLeft: tour.lastLeft, fileGone: tour.fileGone,
+        panelCard: touring() && cardInMap(tourJourney()!, tour.step) ? panelCard(tourJourney()!, tour.step) : undefined, ref: tour.refHere, peek: tour.lastPeek, marked: tour.marked,
         card: stepThread ? { file: stepThread.uri.path, line: stepThread.range?.start.line, label: stepThread.label, title: stepThread.label?.replace(/^\d+\/\d+ · /, ''),
           body: (stepThread.comments[0]?.body as vscode.MarkdownString | undefined)?.value, canReply: stepThread.canReply, expanded: stepThread.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded } : undefined,
       },
@@ -4729,7 +4691,7 @@ export async function activate(context: vscode.ExtensionContext) {
     mapSend: (m: unknown) => mapPanel.send(m),
     resetTutorial: async () => { await gstate.update(TUTORIAL_KEY, undefined); Object.assign(tutorialSeen, { bar: 0, card: 0, done: 0, skip: 0, inside: 0 }) },
     reloadTour: async () => {
-      clearCard(); tourKey = undefined; tourStep = 0; tourDoc = undefined; updateTour()
+      clearCard(); tour.key = undefined; tour.step = 0; tour.doc = undefined; updateTour()
       await restoreTour()
     },
     applySuggestion,
@@ -4745,7 +4707,7 @@ export async function activate(context: vscode.ExtensionContext) {
     answerClarify: (text: string) => answerClarify(text).then((x) => x?.j.id),
     /** The open Ask box on a step: type into it and press Enter. */
     askBox: () => stepAskBox && { title: stepAskBox.box.title, value: stepAskBox.box.value },
-    askBoxSend: (text: string) => { const b = stepAskBox; if (!b) return false; b.box.value = text; askDrafts.set(`${tourJourney()?.j.id}|${tourJourney()?.j.steps[tourStep - 1]?.id}`, text); b.accept(); return true },
+    askBoxSend: (text: string) => { const b = stepAskBox; if (!b) return false; b.box.value = text; askDrafts.set(`${tourJourney()?.j.id}|${tourJourney()?.j.steps[tour.step - 1]?.id}`, text); b.accept(); return true },
     /** The pick: its journeys' titles, and choosing one. */
     choosing: () => choosing?.titles,
     choose: (title: string) => choosing?.accept(title),
