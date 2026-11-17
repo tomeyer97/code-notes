@@ -10,12 +10,12 @@ import { applyIgnoreInGit, changeFolder } from './notes/folder'
 import { refreshAll, updateCursorContext } from './refresh'
 import { markRead, unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
-import { followMovedFiles, inNotesFolder, lineNotesFor, linesOf, linesOfUri, missing, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './threads/anchoring'
+import { followMovedFiles, inNotesFolder, lineNotesFor, linesOfUri, missing, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './threads/anchoring'
 import { noteVisibleEditors } from './threads/settle'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { keepOffMap } from './tour/layout'
 import { card, tour, walk } from './tour/tour'
-import { wfs } from './wfs'
+import { docLines, wfs } from './wfs'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
 async function followJourneyFiles(): Promise<void> {
@@ -84,7 +84,7 @@ export function watchEdits(context: vscode.ExtensionContext): void {
     clearTimeout(pending.get(key))
     pending.set(key, setTimeout(async () => {
       pending.delete(key)
-      const ls = linesOf(e.document)
+      const ls = docLines(e.document)
       for (const n of lineNotesFor(e.document.uri)) reanchor(n, ls, toLoc(n.data), before.get(n.data.id)?.start)
       refreshAll()
       if (!e.document.isDirty) for (const n of lineNotesFor(e.document.uri)) await store.save(n)
@@ -93,7 +93,7 @@ export function watchEdits(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (doc) => {
     const list = lineNotesFor(doc.uri)
     if (!list.length) return
-    const ls = linesOf(doc)
+    const ls = docLines(doc)
     for (const n of list) { reanchor(n, ls); await store.save(n) }
     refreshAll()
   }))

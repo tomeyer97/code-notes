@@ -15,8 +15,9 @@ import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { Note } from '../store'
 import { qDone, seeAlsoLink } from '../tour/checkTour'
 import { tour, walk } from '../tour/tour'
-import { docUri, linesOf, missing, openDoc, pastEnd } from './anchoring'
+import { docUri, missing, openDoc, pastEnd } from './anchoring'
 import { syncThread } from './threads'
+import { docLines } from '../wfs'
 
 export function threadRange(n: Note): vscode.Range {
   return new vscode.Range(n.data.range.start - 1, 0, n.data.range.end - 1, 0)
@@ -122,7 +123,7 @@ function wasText(n: Note): string {
   const short = (l: string[]) => (l.length > SHOWN_LINES ? [...l.slice(0, SHOWN_LINES), `… ${l.length - SHOWN_LINES} more`] : l)
   const doc = openDoc(docUri(n))
   if (!doc || pastEnd.has(n.data.id)) return `\`\`\`\n${short(a.split('\n')).join('\n')}\n\`\`\``
-  const cur = linesOf(doc).slice(n.data.range.start - 1, n.data.range.end)
+  const cur = docLines(doc).slice(n.data.range.start - 1, n.data.range.end)
   const ch = lineDiff(a.split('\n'), cur)
   if (!ch.del.length && !ch.ins.length) return ''
   return `\`\`\`diff\n${[...short(ch.del).map((l) => `- ${l.trim()}`), ...short(ch.ins).map((l) => `+ ${l.trim()}`)].join('\n')}\n\`\`\``

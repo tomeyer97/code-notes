@@ -9,6 +9,7 @@ import { LoadedJourney, posKey } from '../journeys'
 import { isNewJourney } from '../seen'
 import { relPath } from '../threads/anchoring'
 import { tour, walk } from '../tour/tour'
+import { docLines } from '../wfs'
 import { refreshing } from '../write/refreshJourney'
 import { journeyOrder } from './journeyRows'
 
@@ -80,7 +81,7 @@ export async function blocksOf(doc: vscode.TextDocument): Promise<{ blocks: Bloc
   })
   const syms = Array.isArray(got) ? conv(got) : []
   if (!syms.length) {
-    const blocks = blocksFromText(Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text))
+    const blocks = blocksFromText(docLines(doc))
     blockCache.set(k, { version: doc.version, blocks, fromText: true, at: Date.now() })
     return { blocks, fromText: true }
   }

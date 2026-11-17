@@ -9,10 +9,10 @@ import { commitInfo, me } from '../identity'
 import { refreshAll } from '../refresh'
 import { setSeen } from '../seen'
 import { folderName, Note, NoteData } from '../store'
-import { captureAnchor, inNotesFolder, linesOf, linesOfDisk, otherAnchor, rangeLines, relPath, selectedLines } from '../threads/anchoring'
+import { captureAnchor, inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from '../threads/anchoring'
 import { shape, shapeOf } from '../threads/threads'
 import { card } from '../tour/tour'
-import { wfs } from '../wfs'
+import { diskLines, docLines, wfs } from '../wfs'
 import { reveal } from './reveal'
 
 /** The note box's words. */
@@ -42,7 +42,7 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
     folder, uri: store.uriFor(folder, id),
     data: {
       id, file: relPath(folder, doc.uri), range: { start: loc.start + 1, end: loc.end + 1 },
-      anchor: { ...captureAnchor(linesOf(doc), loc.start, loc.end), ...(await commitInfo(folder)) },
+      anchor: { ...captureAnchor(docLines(doc), loc.start, loc.end), ...(await commitInfo(folder)) },
       ...(selection ? { selection } : {}), status: 'open', stale: false, createdAt: at,
       messages: [{ author: me(), role: 'human', body, at }],
       ...(extra ? { extra } : {}),
@@ -50,7 +50,7 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
   }
   // Written on unsaved text (a typo being fixed): the saved lines count too, so undoing the typo isn't "stale".
   if (doc.isDirty && doc.uri.scheme === 'file') {
-    const disk = await linesOfDisk(doc.uri)
+    const disk = await diskLines(doc.uri)
     if (disk && disk.length === doc.lineCount && loc.end < disk.length) {
       const a = captureAnchor(disk, loc.start, loc.end)
       if (a.text !== n.data.anchor.text) otherAnchor.set(id, { ...n.data.anchor, ...a })

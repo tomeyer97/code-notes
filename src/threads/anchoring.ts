@@ -6,7 +6,7 @@ import { log, notes, store } from '../app'
 import { commitInfo, otherBranch } from '../identity'
 import { refreshAll } from '../refresh'
 import { folderName, Note, NoteData } from '../store'
-import { wfs } from '../wfs'
+import { diskLines, docLines, wfs } from '../wfs'
 
 const CONTEXT_LINES = 2
 
@@ -45,23 +45,12 @@ export function openDoc(uri: vscode.Uri): vscode.TextDocument | undefined {
   return vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString())
 }
 
-export function linesOf(doc: vscode.TextDocument): string[] {
-  const out: string[] = []
-  for (let i = 0; i < doc.lineCount; i++) out.push(doc.lineAt(i).text)
-  return out
-}
-
-/** A file's lines on disk; undefined when it can't be read. */
-export async function linesOfDisk(uri: vscode.Uri): Promise<string[] | undefined> {
-  try { return new TextDecoder().decode(await wfs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
-}
-
 /** A file's lines: an editor's with unsaved changes (they are the truth), else the disk's (VS Code keeps closed or
  *  deleted files' documents around). */
 export async function linesOfUri(uri: vscode.Uri): Promise<string[] | undefined> {
   const open = openDoc(uri)
-  if (open && !open.isClosed && open.isDirty) return linesOf(open)
-  return linesOfDisk(uri)
+  if (open && !open.isClosed && open.isDirty) return docLines(open)
+  return diskLines(uri)
 }
 
 /** 1-based lines `line`..`end` as 0-based lines that exist in the document (`end` never before `start`). */

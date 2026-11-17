@@ -97,5 +97,10 @@ export function docLines(doc: vscode.TextDocument): string[] {
 export async function fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
   const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && !d.isClosed)
   if (open) return docLines(open)
+  return diskLines(uri)
+}
+
+/** A file's lines on disk; undefined when it can't be read. */
+export async function diskLines(uri: vscode.Uri): Promise<string[] | undefined> {
   try { return new TextDecoder().decode(await readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }

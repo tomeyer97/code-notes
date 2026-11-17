@@ -6,11 +6,12 @@ import { commitInfo } from '../identity'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
 import { plain } from '../text'
-import { captureAnchor, docUri, linesOf, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
+import { captureAnchor, docUri, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
 import { lines } from '../threads/comments'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './status'
 import { notesFrom } from './target'
+import { docLines } from '../wfs'
 
 export let moveItem: vscode.StatusBarItem
 
@@ -48,7 +49,7 @@ export async function completeMove(): Promise<void> {
   n.data.file = relPath(folder, editor.document.uri)
   n.data.range = { start: loc.start + 1, end: loc.end + 1 }
   // The new code, its branch, and the exact text if only part of a line is selected.
-  n.data.anchor = { ...captureAnchor(linesOf(editor.document), loc.start, loc.end), ...(await commitInfo(folder)) }
+  n.data.anchor = { ...captureAnchor(docLines(editor.document), loc.start, loc.end), ...(await commitInfo(folder)) }
   const sel = partialSelection(editor.document, editor.selection)
   if (sel) n.data.selection = sel; else delete n.data.selection
   n.data.stale = false
@@ -74,7 +75,7 @@ export const keepHere = async (arg?: any) => {
   const loc = toLoc(n.data)
   const end = Math.min(loc.end, doc.lineCount - 1)
   // Kept here on this branch; an exact text that is gone is dropped.
-  n.data.anchor = { ...captureAnchor(linesOf(doc), Math.min(loc.start, end), end), ...(await commitInfo(n.folder)) }
+  n.data.anchor = { ...captureAnchor(docLines(doc), Math.min(loc.start, end), end), ...(await commitInfo(n.folder)) }
   if (n.data.selection && !n.data.anchor.text.includes(n.data.selection.text)) delete n.data.selection
   n.data.stale = false
   pastEnd.delete(n.data.id)
