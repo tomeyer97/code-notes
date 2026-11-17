@@ -1,9 +1,9 @@
 // Who the person is (their name in notes, names they used before) and what git says about the checkout.
 
 import * as vscode from 'vscode'
-import { execFile } from 'child_process'
 import * as os from 'os'
 import { cfg, state } from './app'
+import { gitOut } from './git'
 import { Message, Note, NoteEvent } from './store'
 
 let gitName: string | undefined
@@ -34,10 +34,13 @@ export const evMine = (e: NoteEvent) => isMyName(e.by)
 /** An agent's message: marked as such, or (unmarked) not yours. */
 export const isAgent = (m: Message) => m.role === 'agent' || (!m.role && !mine(m))
 
+/** Identity and branch reads are quick: a git that hangs longer than this is given up. */
+const IDENTITY_GIT_TIMEOUT_MS = 3000
+
+/** git's output in this folder's checkout (git.ts runs it: never takes the index lock); undefined off disk or on failure. */
 export function git(folder: vscode.WorkspaceFolder | undefined, args: string[]): Promise<string | undefined> {
   if (!folder || folder.uri.scheme !== 'file') return Promise.resolve(undefined)
-  return new Promise((resolve) => execFile('git', args, { cwd: folder.uri.fsPath, timeout: 3000 }, (err, out) =>
-    resolve(err ? undefined : out.trim() || undefined)))
+  return gitOut(folder.uri.fsPath, args, false, { timeoutMs: IDENTITY_GIT_TIMEOUT_MS })
 }
 
 /** The name to write notes under: git's user.name in the first folder, unless the author setting names one. */

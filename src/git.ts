@@ -10,13 +10,24 @@ export const READ_ONLY_GIT: NodeJS.ProcessEnv = { GIT_OPTIONAL_LOCKS: '0' }
 /** A git command that takes longer than this is given up (the caller sees undefined). */
 const GIT_TIMEOUT_MS = 5000
 
-/** git's output (trimmed), or undefined when it fails; `allowEmpty`: an empty output is '' (else undefined). With READ_ONLY_GIT. */
-export function gitOut(repo: string, args: string[], allowEmpty = false): Promise<string | undefined> {
+/** How long a git command may take, and how much output it may print (execFile's default is 1 MiB). */
+export interface GitLimits { timeoutMs?: number; maxBuffer?: number }
+
+/** git's output as printed, or undefined when it fails. With READ_ONLY_GIT. */
+export function gitRaw(repo: string, args: string[], limits: GitLimits = {}): Promise<string | undefined> {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd: repo, timeout: GIT_TIMEOUT_MS, env: { ...process.env, ...READ_ONLY_GIT } }, (err, out) => {
-      resolve(err ? undefined : out.trim() || (allowEmpty ? '' : undefined))
+    const env = { ...process.env, ...READ_ONLY_GIT }
+    const max = limits.maxBuffer ? { maxBuffer: limits.maxBuffer } : {} // an undefined maxBuffer would lift the limit
+    execFile('git', args, { cwd: repo, env, timeout: limits.timeoutMs ?? GIT_TIMEOUT_MS, ...max }, (err, out) => {
+      resolve(err ? undefined : out)
     })
   })
+}
+
+/** git's output (trimmed), or undefined when it fails; `allowEmpty`: an empty output is '' (else undefined). With READ_ONLY_GIT. */
+export async function gitOut(repo: string, args: string[], allowEmpty = false, limits?: GitLimits): Promise<string | undefined> {
+  const out = await gitRaw(repo, args, limits)
+  return out === undefined ? undefined : out.trim() || (allowEmpty ? '' : undefined)
 }
 
 /** The paths of the entries of `git status --porcelain=v2 -z` output (renames: the new path; headers skipped). */
