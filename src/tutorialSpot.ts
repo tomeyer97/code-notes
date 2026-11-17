@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { setDecorations } from './decorations'
 
 // The tutorial's card about the step card (the tutorial shows things in the editor too): while it is up, the
 // step's lines in the editor are boxed, so the eyes land on the card that sits right above them. An extension can't
@@ -23,10 +24,10 @@ export class TutorialSpot implements vscode.Disposable {
       const a = this.at && e.document.uri.toString() === this.at.uri ? this.at : undefined
       const line = (n: number) => [new vscode.Range(n, 0, n, 0)]
       const [top, mid, bottom, one] = this.kinds
-      e.setDecorations(one, a && a.start === a.end ? line(a.start) : [])
-      e.setDecorations(top, a && a.end > a.start ? line(a.start) : [])
-      e.setDecorations(bottom, a && a.end > a.start ? line(a.end) : [])
-      e.setDecorations(mid, a && a.end > a.start + 1 ? [new vscode.Range(a.start + 1, 0, a.end - 1, 0)] : [])
+      setDecorations(e, one, a && a.start === a.end ? line(a.start) : [])
+      setDecorations(e, top, a && a.end > a.start ? line(a.start) : [])
+      setDecorations(e, bottom, a && a.end > a.start ? line(a.end) : [])
+      setDecorations(e, mid, a && a.end > a.start + 1 ? [new vscode.Range(a.start + 1, 0, a.end - 1, 0)] : [])
     }
   }
 

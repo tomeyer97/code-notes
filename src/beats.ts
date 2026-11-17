@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { setDecorations } from './decorations'
 import { JBeat } from './journeyModel'
 import { findLine, followLine, shiftLine } from './beatLine'
 
@@ -58,7 +59,7 @@ export class Beats implements vscode.Disposable {
 
   private paint(): void {
     for (const e of vscode.window.visibleTextEditors) {
-      e.setDecorations(this.deco, this.here && e.document.uri.toString() === this.here.uri ? [new vscode.Range(this.here.line, 0, this.here.line, 0)] : [])
+      setDecorations(e, this.deco, this.here && e.document.uri.toString() === this.here.uri ? [new vscode.Range(this.here.line, 0, this.here.line, 0)] : [])
     }
   }
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { Beats } from './beats'
+import { setDecorations } from './decorations'
 import { TutorialSpot } from './tutorialSpot'
 import { devReload } from './devReload'
 import { CodeLinks } from './codeLinks'
@@ -125,7 +126,13 @@ const evMine = (e: NoteEvent) => e.by === me() || e.by === 'me' || e.by === 'You
 /** An agent's message: marked as such, or (unmarked) not yours. */
 const isAgent = (m: Message) => m.role === 'agent' || (!m.role && !mine(m))
 const now = () => new Date().toISOString()
-const setCtx = (k: string, v: unknown) => vscode.commands.executeCommand('setContext', k, v)
+/** Context keys as last sent: the same value again is not sent (each is a message to the window; some follow the caret). */
+const ctxSent = new Map<string, unknown>()
+const setCtx = (k: string, v: unknown): Thenable<unknown> => {
+  if (ctxSent.has(k) && ctxSent.get(k) === v) return Promise.resolve(undefined)
+  ctxSent.set(k, v)
+  return vscode.commands.executeCommand('setContext', k, v)
+}
 /** The notes shown: all, except check threads of another branch's check (their lines belong to that branch). */
 const notes = () => store.all().filter((n) => !understanding?.offBranch(n))
 const byId = (id: string) => store.get(id)
@@ -1210,11 +1217,11 @@ function refreshDecorations(): void {
     // Big notes (a function, a whole file) get the left bar only, so they don't flood the code or hide notes inside them.
     // One marker per note (–): the left bar and the scrollbar mark, never a tint over its lines.
     const big = (_n: Note) => true
-    editor.setDecorations(deco.open, list.filter((n) => !n.data.stale && !big(n)).map(range))
-    editor.setDecorations(deco.openBar, list.filter((n) => !n.data.stale && big(n)).map(range))
-    editor.setDecorations(deco.stale, list.filter((n) => n.data.stale && !big(n)).map(range))
-    editor.setDecorations(deco.staleBar, list.filter((n) => n.data.stale && big(n)).map(range))
-    editor.setDecorations(deco.unread, list.filter((n) => unread(n) > 0).map(range))
+    setDecorations(editor, deco.open, list.filter((n) => !n.data.stale && !big(n)).map(range))
+    setDecorations(editor, deco.openBar, list.filter((n) => !n.data.stale && big(n)).map(range))
+    setDecorations(editor, deco.stale, list.filter((n) => n.data.stale && !big(n)).map(range))
+    setDecorations(editor, deco.staleBar, list.filter((n) => n.data.stale && big(n)).map(range))
+    setDecorations(editor, deco.unread, list.filter((n) => unread(n) > 0).map(range))
     // The exact text a note is about, where it still is on the note's lines.
     const exact: vscode.Range[] = []
     for (const n of list) {
@@ -1224,7 +1231,7 @@ function refreshDecorations(): void {
       const at = text.indexOf(sel.text)
       if (at >= 0) exact.push(new vscode.Range(editor.document.positionAt(editor.document.offsetAt(range(n).start) + at), editor.document.positionAt(editor.document.offsetAt(range(n).start) + at + sel.text.length)))
     }
-    editor.setDecorations(deco.exact, exact)
+    setDecorations(editor, deco.exact, exact)
   }
   refreshStepDecorations()
 }
@@ -1508,7 +1515,7 @@ let cursorSpan: { start: number; end: number } | undefined
 let hereAll = false
 /** The functions of a document (codeBlocks.ts): its symbols, else its text. Symbols not ready yet (a language server
  *  still starting) are not cached: the text's blocks stand in and the symbols are asked for again next time. */
-const blockCache = new Map<string, { version: number; blocks: Block[] }>()
+const blockCache = new Map<string, { version: number; blocks: Block[]; fromText?: boolean; at: number }>()
 const SYM_KIND: Partial<Record<vscode.SymbolKind, Sym['kind']>> = {
   [vscode.SymbolKind.Function]: 'fn', [vscode.SymbolKind.Method]: 'fn', [vscode.SymbolKind.Constructor]: 'fn',
   [vscode.SymbolKind.Class]: 'class', [vscode.SymbolKind.Interface]: 'class', [vscode.SymbolKind.Struct]: 'class',
@@ -1517,16 +1524,22 @@ const SYM_KIND: Partial<Record<vscode.SymbolKind, Sym['kind']>> = {
 async function blocksOf(doc: vscode.TextDocument): Promise<{ blocks: Block[]; fromText: boolean }> {
   const k = doc.uri.toString()
   const c = blockCache.get(k)
-  if (c && c.version === doc.version) return { blocks: c.blocks, fromText: false }
+  // No symbols last time (no language support, or not ready yet): asked again after a while, not on every caret move
+  // (each ask goes to the window and back).
+  if (c && c.version === doc.version && (!c.fromText || Date.now() - c.at < 10_000)) return { blocks: c.blocks, fromText: !!c.fromText }
   const got = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then((x) => x ?? [], () => [])
   const conv = (l: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): Sym[] => l.map((x) => {
     const r = 'range' in x ? x.range : x.location.range
     return { kind: SYM_KIND[x.kind] ?? 'other', start: r.start.line, end: r.end.line, children: 'children' in x ? conv(x.children) : [] }
   })
   const syms = Array.isArray(got) ? conv(got) : []
-  if (!syms.length) return { blocks: blocksFromText(Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)), fromText: true }
+  if (!syms.length) {
+    const blocks = blocksFromText(Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text))
+    blockCache.set(k, { version: doc.version, blocks, fromText: true, at: Date.now() })
+    return { blocks, fromText: true }
+  }
   const blocks = blocksFromSymbols(syms)
-  blockCache.set(k, { version: doc.version, blocks })
+  blockCache.set(k, { version: doc.version, blocks, at: Date.now() })
   if (blockCache.size > 30) blockCache.delete(blockCache.keys().next().value!)
   return { blocks, fromText: false }
 }
@@ -2075,10 +2088,10 @@ function clearCard(): void {
   stepThread = undefined
   refHere = undefined
   lensChanged.fire()
-  for (const e of vscode.window.visibleTextEditors) if (refDeco) e.setDecorations(refDeco, [])
+  for (const e of vscode.window.visibleTextEditors) if (refDeco) setDecorations(e, refDeco, [])
   for (const t of stepAsks.keys()) t.dispose()
   stepAsks.clear()
-  if (stepDeco) for (const e of vscode.window.visibleTextEditors) { e.setDecorations(stepDeco.at, []); e.setDecorations(stepDeco.stale, []) }
+  if (stepDeco) for (const e of vscode.window.visibleTextEditors) { setDecorations(e, stepDeco.at, []); setDecorations(e, stepDeco.stale, []) }
 }
 
 /** The running step's lines: a quiet bar (amber when stale). */
@@ -2092,10 +2105,10 @@ function refreshStepDecorations(): void {
     const here = lj && s && e.document.uri.toString() === vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tourStep)).toString()
     const at = here ? lj!.at[tourStep - 1] : undefined
     // A stale step highlights nothing: what is there now is other code; the card says so.
-    e.setDecorations(stepDeco.at, at && !at.stale ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : [])
+    setDecorations(e, stepDeco.at, at && !at.stale ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : [])
     if (at && !at.stale) stepMarked.push(e.document.uri.path)
-    e.setDecorations(stepDeco.stale, [])
-    if (refDeco) e.setDecorations(refDeco, refHere && lj && refHere.uri === e.document.uri.toString() ? [new vscode.Range(refHere.start, 0, refHere.end, 0)] : [])
+    setDecorations(e, stepDeco.stale, [])
+    if (refDeco) setDecorations(e, refDeco, refHere && lj && refHere.uri === e.document.uri.toString() ? [new vscode.Range(refHere.start, 0, refHere.end, 0)] : [])
   }
 }
 
@@ -3255,7 +3268,7 @@ async function openRef(lj: LoadedJourney, file: string, line: number, end: numbe
   refHere = { uri: uri.toString(), start: a, end: b }
   ed.selection = new vscode.Selection(a, 0, a, 0)
   ed.revealRange(new vscode.Range(Math.max(0, a - 1), 0, b, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
-  for (const e of vscode.window.visibleTextEditors) e.setDecorations(refDeco!, e.document.uri.toString() === refHere.uri ? [new vscode.Range(a, 0, b, 0)] : [])
+  for (const e of vscode.window.visibleTextEditors) setDecorations(e, refDeco!, e.document.uri.toString() === refHere.uri ? [new vscode.Range(a, 0, b, 0)] : [])
   lensChanged.fire()
   void n
 }
@@ -4104,7 +4117,15 @@ export async function activate(context: vscode.ExtensionContext) {
   // Files changed, created, deleted or renamed outside the editor (an agent, git): re-anchor and follow moves.
   const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*')
   /** A journey step's code is in this file. */
-  const stepIn = (u: vscode.Uri) => [...journeys.list.values()].some((lj) => lj.j.steps.some((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).path === u.path))
+  // Every file event of the workspace comes here (a build writes thousands): the step files' paths are worked out once
+  // per change of the journeys (or of where their steps are), not per event.
+  // (A step found in a renamed file by git alone says nothing: a few seconds at most.)
+  let stepPaths: { at: number; paths: Set<string> } | undefined
+  context.subscriptions.push(journeys.onDidChange(() => { stepPaths = undefined }), journeys.onDidMoveSteps(() => { stepPaths = undefined }))
+  const stepIn = (u: vscode.Uri) => {
+    if (!stepPaths || Date.now() - stepPaths.at > 5000) stepPaths = { at: Date.now(), paths: new Set([...journeys.list.values()].flatMap((lj) => lj.j.steps.map((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).path))) }
+    return stepPaths.paths.has(u.path)
+  }
   let diskTimer: NodeJS.Timeout | undefined
   /** Files with journey steps changed on disk since the last pass: their steps are found again. */
   const stepFilesChanged = new Set<string>()
