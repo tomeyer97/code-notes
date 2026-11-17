@@ -1,4 +1,4 @@
-/* A step's animation (journey-scene.js). The frame follows the editor theme (variables from journey-map.css); the
+/* A step's animation (journey-scene.js). The frame follows the editor theme (the tokens in common.css); the
    app window keeps its own dark colours, so it reads as an app (not as the editor) in any theme. */
 .scn { display: flex; flex-direction: column; min-width: 0; outline: none; }
 .scn-bar { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
@@ -11,7 +11,7 @@
 .scn-view { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; height: 320px; }
 /* The scene takes the focus when it starts (its keys work at once): the frame says so, not a ring over the bar. */
 .scn:focus-visible { outline: none; }
-.scn:focus-visible .scn-view { border-color: var(--vscode-focusBorder, var(--accent)); }
+.scn:focus-visible .scn-view { border-color: var(--focus); }
 .scn-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; transition: transform 700ms cubic-bezier(0.45, 0, 0.2, 1); font-size: 14px; }
 .scn-cap { margin: 10px 2px 0; font-size: 1.15em; line-height: 1.4; min-height: 2.8em; color: var(--fg); }
 .scn-muted { color: var(--muted); }
@@ -37,7 +37,7 @@
 .scn-check i { width: 13px; font-style: normal; color: var(--muted); }
 .scn-check i::before { content: '·'; }
 .scn-check.ticked { opacity: 1; }
-.scn-check.ticked i { color: var(--vscode-testing-iconPassed, #73c991); }
+.scn-check.ticked i { color: var(--ok); }
 .scn-check.ticked i::before { content: '✓'; }
 
 .scn-rows { position: absolute; left: 12px; right: 12px; top: 44px; }
@@ -163,7 +163,7 @@
 
 /* ---------- the toggle on the current storyline row: words, not a ▶ (that read as "run"); one row only ---------- */
 .animbtn { display: block; margin: 0 0 3px calc(6px + 1.6em + 8px); padding: 0 3px 1px; border-radius: 3px; font-size: 0.88em; color: var(--muted); }
-.animbtn:hover { color: var(--vscode-textLink-foreground, var(--accent)); text-decoration: underline; }
+.animbtn:hover { color: var(--link); text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
   .scn-world, .scn-actor, .scn-row, .scn-check, .ap-win, .ap-card, .ap-ev, .br-mark, .scn-packet.go, .scn-app.clicked .scn-cursor, .scn-browser.clicking .br-cursor { transition: none; }

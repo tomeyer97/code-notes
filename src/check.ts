@@ -1346,7 +1346,7 @@ class CheckViewProvider implements vscode.WebviewViewProvider {
     return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="${uri('check.css')}"><link rel="stylesheet" href="${uri('checkAnswer.css')}"></head>
+<link rel="stylesheet" href="${uri('common.css')}"><link rel="stylesheet" href="${uri('check.css')}"><link rel="stylesheet" href="${uri('checkAnswer.css')}"></head>
 <body><div id="app"></div><script nonce="${nonce}" src="${uri('common.js')}"></script><script nonce="${nonce}" src="${uri('checkAnswer.js')}"></script><script nonce="${nonce}" src="${uri('check.js')}"></script></body></html>`
   }
 }
