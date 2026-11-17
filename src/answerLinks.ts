@@ -1,5 +1,6 @@
 // Links in an agent's answer: `path:line` references and relative Markdown links open the file, also inside
-// "(…)" and lists; absolute paths are shown repo-relative (never the home folder). No vscode API here (unit-tested).
+// "(…)" and lists; absolute paths are shown repo-relative (never the home folder); and the lines a vscode://…/link
+// names. No vscode API here (unit-tested).
 
 import { PATH } from './journeyModel'
 
@@ -41,4 +42,12 @@ export function linkify(seg: string, root: string, home: string, link: (text: st
     })
     .replace(BARE_REF, (m, file, l1, l2) => keep(link(m, file, l1 ?? l2)))
   return seg.replace(/\u0000(\d+)\u0000/g, (_m, i) => kept[Number(i)])
+}
+
+/** vscode://…/link?file=<path, absolute or workspace-relative>&start=<1-based>&end=<1-based>: the lines, lit. */
+export function linkTarget(query: string): { file: string; start: number; end: number } | undefined {
+  const p = new URLSearchParams(query)
+  const file = p.get('file'), start = Number(p.get('start')), end = Number(p.get('end') ?? p.get('start'))
+  if (!file || !(start >= 1)) return undefined
+  return { file, start, end: end >= start ? end : start }
 }

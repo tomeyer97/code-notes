@@ -1,7 +1,7 @@
 // A note file's content (src/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NoteData, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
+import { NoteData, agentReadme, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
 
 const note = (o: Record<string, unknown> = {}) => JSON.stringify({
   file: 'src/a.ts', range: { start: 3, end: 5 }, status: 'open', messages: [{ author: 'ann', role: 'human', body: 'Why?' }], ...o,
@@ -99,4 +99,12 @@ test('captureAnchor: the lines (0-based, inclusive) and two lines of context eac
   assert.deepEqual(captureAnchor(lines, 2, 3), { text: 'c\nd', before: 'a\nb', after: 'e\nf' })
   assert.deepEqual(captureAnchor(lines, 0, 0), { text: 'a', before: '', after: 'b\nc' })
   assert.deepEqual(captureAnchor(lines, 5, 5), { text: 'f', before: 'd\ne', after: '' })
+})
+
+test('agentReadme: names the person and the notes folder it is written into', () => {
+  const r = agentReadme('Ann', 'review-notes')
+  assert.match(r, /^# Code notes\n/)
+  assert.match(r, /Notes \*\*Ann\*\* left on the code/)
+  assert.match(r, /relative to the folder that contains `review-notes\/`/)
+  assert.ok(!r.includes('${'), 'every placeholder filled')
 })

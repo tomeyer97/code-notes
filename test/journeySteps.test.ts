@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseJourney, Journey } from '../src/journeyModel'
 import { compactOf } from '../src/compact'
-import { LoadedJourney, StepAt, captureAnchor, carryPositions, dirPath, fileOf, isEmptyAnchor, pathIn, placeStep, sameStepAt, writtenAt } from '../src/journeys/steps'
+import { LoadedJourney, StepAt, captureAnchor, carryPositions, dirPath, fileOf, isEmptyAnchor, pathIn, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
 
 const code = ['import x', '', 'function f() {', '  a()', '  x()', '  y()', '  b()', '}', '', 'function g() {}']
 const journey = (steps: object[]) => parseJourney(JSON.stringify({ version: 2, nodes: [{ id: 'n', label: 'N' }], steps }), 'j') as Journey
@@ -23,6 +23,13 @@ test('fileOf: the step\'s file, or where it was renamed to', () => {
   assert.equal(fileOf(lj, 1), 'src/a.ts')
   lj.at[0] = { ...lj.at[0], file: 'src/b.ts' }
   assert.equal(fileOf(lj, 1), 'src/b.ts')
+})
+
+test('posKey: the journey\'s folder and id (the same id in two folders is two journeys)', () => {
+  const lj = loaded(journey([step()]))
+  assert.equal(posKey(lj), `file:///w|${lj.j.id}`)
+  const other = { ...lj, folder: { uri: { toString: () => 'file:///v' } } } as unknown as LoadedJourney
+  assert.notEqual(posKey(other), posKey(lj))
 })
 
 test('carryPositions: the same steps keep where they were found; a changed step starts over', () => {

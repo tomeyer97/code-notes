@@ -2,25 +2,12 @@ import * as vscode from 'vscode'
 import { fileLines } from './wfs'
 import { LineEdit, capValue, findLine, followLine, shiftLine } from './beatLine'
 import { EditFollower } from './followEdits'
+import type { ValueHint } from './journeyModel'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
 // says what it holds in the example run: `objs = [Secret run-…, Pod run-…]`. Like a debugger's inline values, but
 // written by the journey's author (not captured). One row each (a CodeLens is the only text an extension can put
 // above a line, and it is a single row): the value, then a few words on what it is. Nothing is highlighted.
-
-/** `name`: the variable; `value`: what it holds, on one line; `text`: the line it is on (to find it again). */
-/** `note`: a few words on what the value is, after it on the same row. */
-export interface ValueHint { name: string; value: string; note?: string; file: string; line: number; text: string }
-
-export function readValues(v: unknown): ValueHint[] {
-  if (!Array.isArray(v)) return []
-  const usable = (x: any) => x && typeof x.name === 'string' && x.name.trim() && typeof x.value === 'string' && typeof x.file === 'string' && Number.isInteger(x.line) && x.line >= 1
-  const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
-  return v.filter(usable).map((x) => ({
-    name: x.name.trim(), value: oneLine(x.value), file: x.file.trim(), line: x.line, text: typeof x.text === 'string' ? x.text : '',
-    ...(typeof x.note === 'string' && x.note.trim() ? { note: oneLine(x.note) } : {}),
-  }))
-}
 
 export class ValueHints implements vscode.Disposable {
   private key = ''

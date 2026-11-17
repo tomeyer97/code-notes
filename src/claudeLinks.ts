@@ -10,7 +10,8 @@ import { setDecorations } from './decorations'
 // link. A single line is taken only right after its editor came to the front (a caret put at a line start by another
 // extension, in an editor already in front, is too common to light).
 //
-// The other way in: vscode://<publisher>.code-notes/link?file=<path>&start=<n>&end=<n> (for a terminal).
+// The other way in: vscode://<publisher>.code-notes/link?file=<path>&start=<n>&end=<n> (for a terminal; its query is read by
+// answerLinks.ts linkTarget).
 
 interface Spot { uri: vscode.Uri; line: number; character: number }
 
@@ -141,12 +142,4 @@ export class ClaudeLinks implements vscode.Disposable {
   get state(): { lit?: { uri: string; start: number; end: number }; back: boolean } { return { lit: this.lit && { ...this.lit }, back: !!this.back } }
 
   dispose(): void { for (const s of this.subs) s.dispose() }
-}
-
-/** vscode://…/link?file=<path, absolute or workspace-relative>&start=<1-based>&end=<1-based>: the lines, lit. */
-export function linkTarget(query: string): { file: string; start: number; end: number } | undefined {
-  const p = new URLSearchParams(query)
-  const file = p.get('file'), start = Number(p.get('start')), end = Number(p.get('end') ?? p.get('start'))
-  if (!file || !(start >= 1)) return undefined
-  return { file, start, end: end >= start ? end : start }
 }

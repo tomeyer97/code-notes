@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
 import { staleKind } from '../src/anchor'
-import { isGeneric, Journey, linkPaths, escapeTags, parseJourney, stepRanges } from '../src/journeyModel'
+import { isGeneric, Journey, linkPaths, escapeTags, parseJourney, readValues, stepRanges } from '../src/journeyModel'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
 const j = parseJourney(fixture, 'place-order') as Journey
@@ -126,3 +126,12 @@ test('kinds: a store is read as a store, an unknown kind as a module', () => {
   assert.equal(k.edges[0].async, true)
 })
 
+test('readValues: a step\'s usable value hints, each value and note on one line', () => {
+  assert.deepEqual(readValues(undefined), [])
+  assert.deepEqual(readValues({ name: 'x' }), [])
+  const ok = { name: ' objs ', value: '[Secret run-1,\n  Pod run-1]', file: ' src/a.ts ', line: 3, text: 'objs := list()', note: '  what  it  lists ' }
+  assert.deepEqual(readValues([ok]), [{ name: 'objs', value: '[Secret run-1, Pod run-1]', file: 'src/a.ts', line: 3, text: 'objs := list()', note: 'what it lists' }])
+  const bad = [{ ...ok, name: ' ' }, { ...ok, value: 3 }, { ...ok, line: 0 }, { ...ok, line: 1.5 }, { ...ok, file: undefined }, null]
+  assert.deepEqual(readValues(bad), [])
+  assert.deepEqual(readValues([{ ...ok, text: 5, note: ' ' }]), [{ name: 'objs', value: '[Secret run-1, Pod run-1]', file: 'src/a.ts', line: 3, text: '' }])
+})

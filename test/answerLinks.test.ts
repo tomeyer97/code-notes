@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { linkify } from '../src/answerLinks'
+import { linkify, linkTarget } from '../src/answerLinks'
 
 const link = (t: string, f: string, l?: string) => `[${t}](cmd:${f}:${l ?? 1})`
 
@@ -39,4 +39,13 @@ test('a file:// URL into the repository is a link to its relative path', () => {
 test('no repository or home folder given: nothing is stripped, references still link', () => {
   assert.equal(linkify('in src/a.ts:3', '', '', link), 'in [src/a.ts:3](cmd:src/a.ts:3)')
   assert.equal(linkify('no reference here.', '', '', link), 'no reference here.')
+})
+
+test('linkTarget: a vscode://…/link query as the file and its lines (end never before start)', () => {
+  assert.deepEqual(linkTarget('file=src/a.ts&start=3&end=7'), { file: 'src/a.ts', start: 3, end: 7 })
+  assert.deepEqual(linkTarget('file=%2Fhome%2Fme%2Fa.ts&start=4'), { file: '/home/me/a.ts', start: 4, end: 4 })
+  assert.deepEqual(linkTarget('file=a.ts&start=9&end=2'), { file: 'a.ts', start: 9, end: 9 })
+  assert.equal(linkTarget('file=a.ts&start=0'), undefined)
+  assert.equal(linkTarget('file=a.ts'), undefined)
+  assert.equal(linkTarget('start=3'), undefined)
 })
