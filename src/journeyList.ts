@@ -1,12 +1,18 @@
 // Finding journeys (docs/journey-list.md): one model of the list — rows with derived metadata, search, sort, groups —
 // computed once in the extension and rendered by both the sidebar's Journeys view and the panel's home.
-// Pure (no imports): unit-tested in test/journeyList.test.ts.
+// No vscode API (the panel's tests load the compiled file as is): unit-tested in test/journeyList.test.ts. The search's
+// word matching is match.ts.
+import { matchScore, queryWords } from './match'
+export { matchScore, queryWords, stem } from './match'
 
 /** Only journeys are listed ('review': nothing makes one yet). 'check' is not listed: a check lives in the Check view. */
 export type ListKind = 'journey' | 'check' | 'review'
 export type Sort = 'area' | 'newest' | 'walked' | 'name'
 export const SORTS: { id: Sort; label: string }[] = [
-  { id: 'area', label: 'By area' }, { id: 'newest', label: 'Newest' }, { id: 'walked', label: 'Recently walked' }, { id: 'name', label: 'A–Z' },
+  { id: 'area', label: 'By area' },
+  { id: 'newest', label: 'Newest' },
+  { id: 'walked', label: 'Recently walked' },
+  { id: 'name', label: 'A–Z' },
 ]
 /** "In this file" lists this many, then "Show all". */
 export const HERE_CAP = 5
@@ -89,8 +95,7 @@ export function areaOf(files: string[]): string {
   for (const f of files) n.set(top(f), (n.get(top(f)) ?? 0) + 1)
   if (!n.size) return '(root)'
   const best = Math.max(...n.values())
-  const first = files.map(top).find((a) => n.get(a) === best)!
-  return first
+  return files.map(top).find((a) => n.get(a) === best)!
 }
 
 export function ageOf(at: string | undefined, now: number): string {
@@ -102,47 +107,6 @@ export function ageOf(at: string | undefined, now: number): string {
   if (d < 60) return `${Math.floor(d / 7)} wk`
   if (d < 365) return `${Math.floor(d / 30)} mo`
   return `${Math.floor(d / 365)} y`
-}
-
-const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter(Boolean)
-/** Words a question is made of that say nothing about the code ("how are charges retried": charges, retried). */
-const STOP = new Set(('a an the and or but of to in on at by for from with into about as is are was were be been being do does did done ' +
-  'how what when where why which who whom whose this that these those it its we our you your i my me they them their there here ' +
-  'can could should would will shall may might must has have had get gets got if then than so not no yes any some all each every').split(' '))
-/** The words of a query that count: without the stop-words (unless that leaves none). */
-export function queryWords(q: string): string[] {
-  const ws = words(q)
-  const kept = ws.filter((w) => !STOP.has(w))
-  return kept.length ? kept : ws
-}
-/** A light stem: "retried", "retries", "retrying" and "retry" meet; so do "charges", "charged" and "charge". */
-export const stem = (w: string) => (w.length > 3 ? w.replace(/(ies|ied)$/, 'y').replace(/(ying)$/, 'y').replace(/(ing|ed|es|s|e)$/, '') : w)
-/** A word matches a query token when it starts with it ("retr" → "retries"); tokens of 4+ letters also inside a word,
- *  or with the same stem. */
-const wordHit = (w: string, t: string) => {
-  if (w.startsWith(t) || (t.length >= 4 && w.includes(t))) return true
-  if (t.length < 4) return false
-  const a = stem(w), b = stem(t)
-  return a.length >= 3 && (a.startsWith(b) || (a.length >= 4 && b.startsWith(a)))
-}
-
-/**
- * How well an item matches the query (0: not at all): every token must be found in the title, question, summary,
- * step titles or file paths (`any`: at least one); title hits weigh most. Also returns the words that matched.
- */
-export function matchScore(it: ListItem, query: string, any = false): { score: number; hits: string[] } {
-  const tokens = queryWords(query)
-  if (!tokens.length) return { score: 1, hits: [] }
-  const fields: [string[], number][] = [[words(it.title), 6], [words(it.question), 4], [words(it.stepTitles.join(' ')), 2], [words(it.summary), 1.5], [words(it.files.join(' ')), 1]]
-  let score = 0
-  const hits = new Set<string>()
-  for (const t of tokens) {
-    let best = 0
-    for (const [ws, w] of fields) for (const x of ws) if (wordHit(x, t)) { best = Math.max(best, w * (x === t ? 1.5 : 1)); hits.add(x) }
-    if (!best && !any) return { score: 0, hits: [] }
-    score += best
-  }
-  return { score, hits: [...hits] }
 }
 
 export interface ListOptions {
@@ -164,24 +128,37 @@ export function stamp(t: number): string {
 }
 
 const quote = (ws: string[]) => ws.map((w) => `“${w}”`).join(', ')
+const stepCount = (n: number) => `${n} step${n === 1 ? '' : 's'}`
+const keys = (l: ListRow[]) => l.map((r) => r.key)
+const byName = (x: ListRow, y: ListRow) => x.title.localeCompare(y.title)
+const when = (r: ListRow) => Date.parse(r.createdAt ?? '') || 0
+const ORDER: Record<Sort, (x: ListRow, y: ListRow) => number> = {
+  area: (x, y) => x.area.localeCompare(y.area) || byName(x, y),
+  newest: (x, y) => when(y) - when(x) || byName(x, y),
+  walked: (x, y) => (y.walkedAt ?? 0) - (x.walkedAt ?? 0) || byName(x, y),
+  name: byName,
+}
 
-/** The list: rows (derived metadata), filtered by search/kind/area, sorted, in the panel's sections and the sidebar's groups. */
-export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
-  const now = o.now ?? Date.now()
-  const query = (o.query ?? '').trim(), sort = o.sort ?? 'area', kind = o.kind ?? 'all', area = o.area ?? ''
-  const rows: Record<string, ListRow> = {}
+/** An item with what the list shows about it: area, age, its steps in the active file and at the cursor. */
+function rowOf(it: ListItem, o: ListOptions, now: number): ListRow {
+  const area = areaOf(it.files), age = ageOf(it.createdAt, now)
+  const hereIdx = o.activeFile ? it.files.flatMap((f, i) => (f === o.activeFile ? [i] : [])) : []
   const span = o.activeSpan
-  for (const it of items) {
-    const a = areaOf(it.files), age = ageOf(it.createdAt, now)
-    const hereIdx = o.activeFile ? it.files.flatMap((f, i) => (f === o.activeFile ? [i] : [])) : []
-    const cursorSteps = span ? hereIdx.filter((i) => { const r = it.ranges?.[i]; return !!r && r.start <= span.end && r.end >= span.start }).length : 0
-    const atCursor = cursorSteps > 0
-    const meta = [a, `${it.steps} step${it.steps === 1 ? '' : 's'}`, age].filter(Boolean).join(' · ')
-    const hereText = hereIdx.length ? `${hereIdx.length} of ${it.steps} step${it.steps === 1 ? '' : 's'} here` : ''
-    rows[it.key] = { ...it, area: a, age, here: hereIdx.length > 0, hereSteps: hereIdx.length, atCursor, cursorSteps, meta, hereText, hits: [] }
+  const atSpan = (i: number) => { const r = it.ranges?.[i]; return !!r && !!span && r.start <= span.end && r.end >= span.start }
+  const cursorSteps = span ? hereIdx.filter(atSpan).length : 0
+  return {
+    ...it, area, age, here: hereIdx.length > 0, hereSteps: hereIdx.length, atCursor: cursorSteps > 0, cursorSteps,
+    meta: [area, stepCount(it.steps), age].filter(Boolean).join(' · '),
+    hereText: hereIdx.length ? `${hereIdx.length} of ${stepCount(it.steps)} here` : '',
+    hits: [],
   }
-  const all = Object.values(rows)
-  const inFilter = (r: ListRow) => (kind === 'all' || r.kind === kind) && (area === 'here' ? r.here : area === 'stale' ? r.stale > 0 : !area || r.area === area)
+}
+
+/**
+ * The rows the search finds (all, without a query), with their scores; their `hits` set. Several words and no journey
+ * has them all: rows with any of them, and one line saying so (an empty list is a dead end).
+ */
+function search(all: ListRow[], query: string, inFilter: (r: ListRow) => boolean): { shown: ListRow[]; scores: Map<string, number>; fallback?: ListModel['fallback'] } {
   const scores = new Map<string, number>()
   const pick = (any: boolean) => all.filter((r) => {
     if (!inFilter(r)) return false
@@ -191,76 +168,105 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
     scores.set(r.key, m.score)
     return true
   })
-  let shown = pick(false)
-  // Several words and no journey has them all: any of them, said in one line (an empty list is a dead end).
-  let fallback: ListModel['fallback']
+  const shown = pick(false)
   const tokens = queryWords(query)
-  if (!shown.length && tokens.length > 1) {
-    shown = pick(true)
-    if (shown.length) {
-      const missing = tokens.filter((t) => !all.some((r) => inFilter(r) && matchScore(r, t).score))
-      const found = tokens.filter((t) => !missing.includes(t))
-      fallback = { missing, note: missing.length ? `No journey about ${quote(missing)}; closest for ${quote(found)}` : 'No journey has every word; showing any' }
+  if (shown.length || tokens.length < 2) return { shown, scores }
+  const anyOf = pick(true)
+  if (!anyOf.length) return { shown: anyOf, scores }
+  const missing = tokens.filter((t) => !all.some((r) => inFilter(r) && matchScore(r, t).score))
+  const found = tokens.filter((t) => !missing.includes(t))
+  const note = missing.length ? `No journey about ${quote(missing)}; closest for ${quote(found)}` : 'No journey has every word; showing any'
+  return { shown: anyOf, scores, fallback: { missing, note } }
+}
+
+/** Sorted Newest: rows of the same age ("13 d") say when, so the newest can be told. */
+function stampSameAge(sorted: ListRow[]): void {
+  const byAge = new Map<string, ListRow[]>()
+  for (const r of sorted) if (r.age) byAge.set(r.age, [...(byAge.get(r.age) ?? []), r])
+  for (const l of byAge.values()) {
+    if (l.length < 2 || new Set(l.map(when)).size < 2) continue
+    for (const r of l) {
+      r.age = stamp(when(r))
+      r.meta = [r.area, stepCount(r.steps), r.age].join(' · ')
     }
   }
-  const byName = (x: ListRow, y: ListRow) => x.title.localeCompare(y.title)
-  const when = (r: ListRow) => Date.parse(r.createdAt ?? '') || 0
-  const order: Record<Sort, (x: ListRow, y: ListRow) => number> = {
-    area: (x, y) => x.area.localeCompare(y.area) || byName(x, y),
-    newest: (x, y) => when(y) - when(x) || byName(x, y),
-    walked: (x, y) => (y.walkedAt ?? 0) - (x.walkedAt ?? 0) || byName(x, y),
-    name: byName,
-  }
-  const sorted = [...shown].sort(order[sort])
-  // Newest: rows of the same age ("13 d") say when, so the newest can be told.
-  if (sort === 'newest') {
-    const byAge = new Map<string, ListRow[]>()
-    for (const r of sorted) if (r.age) byAge.set(r.age, [...(byAge.get(r.age) ?? []), r])
-    for (const l of byAge.values()) {
-      if (l.length < 2 || new Set(l.map(when)).size < 2) continue
-      for (const r of l) { r.age = stamp(when(r)); r.meta = [r.area, `${r.steps} step${r.steps === 1 ? '' : 's'}`, r.age].join(' · ') }
-    }
-  }
-  const keys = (l: ListRow[]) => l.map((r) => r.key)
-  const fileName = o.activeFile?.split('/').pop()
-  // In this file, ranked: a step in the function under the cursor, then the most steps here, then the largest share.
-  const hereRows = sorted.filter((r) => r.here).sort((x, y) => y.cursorSteps - x.cursorSteps || y.hereSteps - x.hereSteps || y.hereSteps / y.steps - x.hereSteps / x.steps || byName(x, y))
-  const capped = o.hereAll ? hereRows : hereRows.slice(0, HERE_CAP)
-  const hereMore = hereRows.length - capped.length
-  // Continue: past step 1 (opening a journey is not reading it), the one being walked first.
-  const cont = sorted.filter((r) => r.resume > 1 || r.walking).sort((x, y) => Number(!!y.walking) - Number(!!x.walking) || (y.walkedAt ?? 0) - (x.walkedAt ?? 0))
+}
+
+/** In this file, ranked: a step in the function under the cursor, then the most steps here, then the largest share. */
+function hereRows(sorted: ListRow[]): ListRow[] {
+  const share = (r: ListRow) => r.hereSteps / r.steps
+  return sorted.filter((r) => r.here).sort((x, y) =>
+    y.cursorSteps - x.cursorSteps || y.hereSteps - x.hereSteps || share(y) - share(x) || byName(x, y))
+}
+
+/** Continue: past step 1 (opening a journey is not reading it), the one being walked first, then the last walked. */
+function continueRows(sorted: ListRow[]): ListRow[] {
+  return sorted.filter((r) => r.resume > 1 || r.walking).sort((x, y) =>
+    Number(!!y.walking) - Number(!!x.walking) || (y.walkedAt ?? 0) - (x.walkedAt ?? 0))
+}
+
+/** Rows by area, the areas A–Z. */
+function byArea(l: ListRow[]): [string, ListRow[]][] {
+  const m = new Map<string, ListRow[]>()
+  for (const r of l) m.set(r.area, [...(m.get(r.area) ?? []), r])
+  return [...m].sort((x, y) => x[0].localeCompare(y[0]))
+}
+
+/** How many rows have each value of `key`. */
+function countBy(rows: ListRow[], key: (r: ListRow) => string): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + 1)
+  return m
+}
+
+/** The list: rows (derived metadata), filtered by search/kind/area, sorted, in the panel's sections and the sidebar's groups. */
+export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
+  const now = o.now ?? Date.now()
+  const query = (o.query ?? '').trim(), sort = o.sort ?? 'area', kind = o.kind ?? 'all', area = o.area ?? ''
+  const rows: Record<string, ListRow> = Object.fromEntries(items.map((it) => [it.key, rowOf(it, o, now)]))
+  const all = Object.values(rows)
+  const inFilter = (r: ListRow) => (kind === 'all' || r.kind === kind) && (area === 'here' ? r.here : area === 'stale' ? r.stale > 0 : !area || r.area === area)
+  const { shown, scores, fallback } = search(all, query, inFilter)
+  const sorted = [...shown].sort(ORDER[sort])
+  if (sort === 'newest') stampSameAge(sorted)
+  const here = hereRows(sorted)
+  const capped = o.hereAll ? here : here.slice(0, HERE_CAP)
+  const hereMore = here.length - capped.length
+  const cont = continueRows(sorted)
   const fresh = sorted.filter((r) => r.isNew)
-  const byArea = (l: ListRow[]) => {
-    const m = new Map<string, ListRow[]>()
-    for (const r of l) m.set(r.area, [...(m.get(r.area) ?? []), r])
-    return [...m].sort((x, y) => x[0].localeCompare(y[0]))
-  }
+  const fileName = o.activeFile?.split('/').pop()
   const hereSection = fileName && area !== 'here'
   let sections: Section[]
   // A search keeps the list's order when one was picked (Newest, Recently walked, A–Z); "By area" means best match.
   const searchSort = o.searchSort ?? (sort === 'area' ? 'best' : sort)
-  if (query) sections = [{ id: 'results', label: `${shown.length} found`, keys: keys([...shown].sort(searchSort === 'best' ? (x, y) => (scores.get(y.key)! - scores.get(x.key)!) || order[sort](x, y) : order[searchSort])) }]
-  else if (area === 'here') sections = [{ id: 'here', label: `In ${fileName ?? 'this file'}`, keys: keys(hereRows) }]
+  const best = (x: ListRow, y: ListRow) => (scores.get(y.key)! - scores.get(x.key)!) || ORDER[sort](x, y)
+  if (query) sections = [{ id: 'results', label: `${shown.length} found`, keys: keys([...shown].sort(searchSort === 'best' ? best : ORDER[searchSort])) }]
+  else if (area === 'here') sections = [{ id: 'here', label: `In ${fileName ?? 'this file'}`, keys: keys(here) }]
   else {
+    // The rest: each row once on the panel (what is listed above is not repeated below).
     const above = new Set([...cont, ...(hereSection ? capped : []), ...fresh].map((r) => r.key))
+    const rest = sorted.filter((r) => !above.has(r.key))
     sections = [
       { id: 'continue', label: 'Continue', keys: keys(cont) },
       ...(hereSection ? [{ id: 'here', label: `In ${fileName}`, keys: keys(capped), ...(hereMore ? { more: hereMore } : {}) }] : []),
       { id: 'new', label: 'New', keys: keys(fresh) },
-      // The rest: each row once on the panel (what is listed above is not repeated below).
-      ...(sort === 'area' ? byArea(sorted.filter((r) => !above.has(r.key))).map(([a, l]) => ({ id: `area:${a}`, label: a, keys: keys(l) })) : [{ id: 'all', label: SORTS.find((s) => s.id === sort)!.label, keys: keys(sorted.filter((r) => !above.has(r.key))) }]),
+      ...(sort === 'area'
+        ? byArea(rest).map(([a, l]) => ({ id: `area:${a}`, label: a, keys: keys(l) }))
+        : [{ id: 'all', label: SORTS.find((s) => s.id === sort)!.label, keys: keys(rest) }]),
     ].filter((s) => s.keys.length)
   }
+  const allGroup: Group = sort === 'area'
+    ? { id: 'all', label: 'All', keys: [], children: byArea(sorted).map(([a, l]) => ({ id: `area:${a}`, label: a, keys: keys(l) })) }
+    : { id: 'all', label: 'All', keys: keys(sorted) }
   const groups: Group[] = [
-    ...(hereRows.length ? [{ id: 'here', label: 'In this file', keys: keys(capped), ...(hereMore ? { more: hereMore } : {}) }] : []),
+    ...(here.length ? [{ id: 'here', label: 'In this file', keys: keys(capped), ...(hereMore ? { more: hereMore } : {}) }] : []),
     ...(cont.length ? [{ id: 'continue', label: 'Continue', keys: keys(cont) }] : []),
-    { id: 'all', label: 'All', keys: sort === 'area' ? [] : keys(sorted), ...(sort === 'area' ? { children: byArea(sorted).map(([a, l]) => ({ id: `area:${a}`, label: a, keys: keys(l) })) } : {}) },
+    allGroup,
   ]
-  const count = (pick: (r: ListRow) => string) => { const m = new Map<string, number>(); for (const r of all) m.set(pick(r), (m.get(pick(r)) ?? 0) + 1); return m }
   return {
     rows, query, sort, searchSort, kind, area, ...(all.some((r) => r.here) ? { file: o.activeFile } : {}),
-    kinds: [...count((r) => r.kind)].map(([id, c]) => ({ id: id as ListKind, count: c })),
-    areas: [...count((r) => r.area)].map(([name, c]) => ({ name, count: c })).sort((x, y) => y.count - x.count || x.name.localeCompare(y.name)),
+    kinds: [...countBy(all, (r) => r.kind)].map(([id, c]) => ({ id: id as ListKind, count: c })),
+    areas: [...countBy(all, (r) => r.area)].map(([name, c]) => ({ name, count: c })).sort((x, y) => y.count - x.count || x.name.localeCompare(y.name)),
     staleCount: all.filter((r) => r.stale > 0).length,
     ...(fallback ? { fallback } : {}),
     sections, groups, count: shown.length, total: all.length,
