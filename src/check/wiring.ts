@@ -18,9 +18,9 @@ import { journeysTree } from '../sidebar/journeysTree'
 import { Note } from '../store'
 import { noteOfThread, revealed } from '../threads/sync'
 import { currentTour, openCheckpoint, tourChanged } from '../tour/checkTour'
-import { walkJourney } from '../tour/open'
-import { card, tour, walk } from '../tour/tour'
-import { journeySkill } from '../write/writer'
+import { walkJourney } from '../tour/commands'
+import { card, tourState, walk } from '../tour/instances'
+import { journeySkill } from '../write/claudeRun'
 import type { ConcernAction } from './concern'
 import { Understanding } from './index'
 
@@ -91,7 +91,7 @@ async function openInTour(id: string): Promise<boolean> {
 /** The walk is at question `id` of the check's tour: on to the next stop. False when it isn't. */
 async function tourNext(id: string): Promise<boolean> {
   const lj = walk.tourJourney()
-  if (!lj?.check || !walk.touring() || tour.cp !== id) return false
+  if (!lj?.check || !walk.touring() || tourState.checkpointId !== id) return false
   await walk.stepBy(1)
   return true
 }

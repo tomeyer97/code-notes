@@ -17,8 +17,8 @@ import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { NoteEvent } from '../noteModel'
 import { Note } from '../store'
 import { plural, rangeLabel } from '../text'
-import { qDone, seeAlsoLink } from '../tour/checkTour'
-import { tour, walk } from '../tour/tour'
+import { questionDone, seeAlsoLink } from '../tour/checkTour'
+import { tourState, walk } from '../tour/instances'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
 import { syncThread } from './sync'
 import { docLines } from '../wfs'
@@ -53,8 +53,8 @@ function withStepLink(n: Note, md: string): string {
   const sl = stepLinkOf(n)
   if (!sl) return md
   const lj = journeyOfNote(n)
-  const walking = !!lj && walk.touring() && tour.key === lj.key
-  if (walking && (sl.step ? tour.stepId === sl.step : tour.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
+  const walking = !!lj && walk.touring() && tourState.key === lj.key
+  if (walking && (sl.step ? tourState.stepId === sl.step : tourState.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
   // The step's number now (found by id), else the one it had.
   const i = lj && sl.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1
   const back = (title: string) => titledCmdLink(
@@ -288,7 +288,7 @@ function statusRows(n: Note): vscode.Comment[] {
   if (chk?.concern) out.push(concernRow(id, chk.concern))
   // An open check question whose code a journey of the repository walks: one link to that step.
   const cq = understanding?.isCheck(n) ? understanding.questionOf(n) : undefined
-  if (cq && !qDone(understanding!.rowOf(n)?.state ?? '')) {
+  if (cq && !questionDone(understanding!.rowOf(n)?.state ?? '')) {
     const files = [cq.file, ...(cq.also ?? []).map((x) => x.file)]
     const also = seeAlsoLink(files, cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
     if (also) out.push(systemRow(systemMarkdown(also), 'See also'))

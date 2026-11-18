@@ -5,18 +5,19 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cfg, journeys, log, showError } from '../app'
+import { journeys, log, showError } from '../app'
 import { claudeAllowed } from '../ask/trust'
-import { AskResult, findCli } from '../claude'
+import { AskResult } from '../claude'
 import { LoadedJourney } from '../journeys/steps'
 import { journeysFolderName } from '../store'
 import { shortQ } from '../text'
 import { relPath } from '../notes/location'
-import { walkJourney } from '../tour/open'
-import { walk } from '../tour/tour'
-import { clock, journeyPrompt, journeyRules, minutes, modelProblem } from '../writing'
+import { walkJourney } from '../tour/commands'
+import { walk } from '../tour/instances'
+import { clock, journeyPrompt, journeyRules, minutes } from '../writing'
 import { showClarify } from './clarify'
-import { bundledSkill, journeyModel, journeyPy, journeySkill, modelLabel, runWriter, Staging, stagingFolder, Writing, writingChanged, writingNow } from './writer'
+import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
+import { startWriting, Writing } from './inProgress'
 
 interface WriteOptions { model?: string; resume?: { session: string; reply: string } }
 
@@ -35,38 +36,31 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
   const folder = vscode.workspace.workspaceFolders?.[0]
   if (!folder) return undefined
   if (!claudeAllowed('write journeys')) return undefined
-  const cli = findCli(cfg().get<string>('claude.path') || undefined)
-  if (!cli) {
-    const prompt = `Use the code-journey skill to answer: ${question}`
-    await vscode.env.clipboard.writeText(prompt)
-    void vscode.window.showInformationMessage(`Copied a prompt for your agent: "${prompt}"`)
-    return undefined
-  }
+  const ownAgent = `Use the code-journey skill to answer: ${question}`
+  const cli = await cliOrClipboard(ownAgent, `Copied a prompt for your agent: "${ownAgent}"`)
+  if (!cli) return undefined
   const repo = folder.uri.fsPath
-  const cache = `${process.env.XDG_CACHE_HOME ?? `${os.homedir()}/.cache`}/code-journey`
-  const skill = journeySkill(folder)
-  if (!skill) {
-    void showError('Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills, so Claude can\'t write a journey here.')
-    return undefined
-  }
-  const model = journeyModel(o.model)
-  const bad = modelProblem(model)
-  if (bad) { void showError(`Code Notes: ${bad}`); return undefined }
+  const ready = skillAndModel(folder, NO_SKILL, o.model)
+  if (!ready) return undefined
+  const { skill, model } = ready
   const jf = journeysFolderName()
   const staging = stagingFolder(repo)
-  const bundled = skill === bundledSkill()
-  const prompt = o.resume ? `${o.resume.reply}\n\n${journeyRules(skill, staging.stage, jf)}` : journeyPrompt(question, skill, staging.stage, jf, bundled)
+  const prompt = o.resume
+    ? `${o.resume.reply}\n\n${journeyRules(skill, staging.stage, jf)}`
+    : journeyPrompt(question, skill, staging.stage, jf, skill === bundledSkill())
   const w: Writing = { id: staging.id, question, started: Date.now(), phase: 'starting', model: modelLabel(model) }
-  writingNow.set(w.id, w)
-  writingChanged.fire()
+  startWriting(w)
   log.info(`journey: Claude (${w.model}) is writing one for "${question}"${o.resume ? ' (with your answer to its question)' : ''}`)
-  const res = await runWriter(w, `Writing: ${shortQ(question)}`, {
-    cli, cwd: repo, prompt, model, resume: o.resume?.session,
-    extraTools: ['Skill', `Bash(${skill}/scripts/*)`], addDirs: [...(fs.existsSync(cache) ? [cache] : []), ...(bundled ? [skill] : [])],
-    env: { JOURNEY_MODEL: w.model },
-  })
+  // journey.py's cache of the repository, when there is one: readable too.
+  const cache = `${process.env.XDG_CACHE_HOME ?? `${os.homedir()}/.cache`}/code-journey`
+  const extraDirs = fs.existsSync(cache) ? [cache] : []
+  const res = await runJourneySkill(w, `Writing: ${shortQ(question)}`, { cli, repo, prompt, skill, model, resume: o.resume?.session, extraDirs })
   const took = Date.now() - w.started
-  if (res.cancelled) { log.info('journey: writing cancelled'); staging.cleanup(); return undefined }
+  if (res.cancelled) {
+    log.info('journey: writing cancelled')
+    staging.cleanup()
+    return undefined
+  }
   const files = stagedJourneys(staging.dir)
   if (res.error) {
     staging.cleanup()
@@ -88,6 +82,8 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
   if (made && !walk.touring()) await walkJourney(made)
   return made
 }
+
+const NO_SKILL = 'Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills, so Claude can\'t write a journey here.'
 
 /** The journey files Claude wrote into the staging folder, newest first. */
 function stagedJourneys(dir: string): string[] {

@@ -1,27 +1,16 @@
-// What writing a journey (or refreshing one) needs: the code-journey skill and its journey.py, a staging folder, the
-// model, and Claude run with a notification; the journeys being written now are listed while they are.
+// Claude Code at work on a journey (writing one, or refreshing one): the code-journey skill and its journey.py, a
+// staging folder, the model, what must be in place before Claude may run, and the run itself, with a notification.
 
 import * as vscode from 'vscode'
 import { execFile } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cfg, extUri } from '../app'
-import { Ask, AskOptions, AskResult } from '../claude'
+import { cfg, extUri, showError } from '../app'
+import { Ask, AskOptions, AskResult, findCli } from '../claude'
 import { folderName } from '../store'
-import { clock, phaseOf } from '../writing'
-
-/** Journeys Claude is writing now: never listed half-made; one row each, "Writing: <question> · 1:20". */
-export interface Writing { id: string; question: string; started: number; phase: string; model: string; ask?: Ask }
-export const writingNow = new Map<string, Writing>()
-/** Fires when a journey starts or stops being written, and every second while one is (for a list's row). */
-export const writingChanged = new vscode.EventEmitter<void>()
-
-/** The rows a list can show for the journeys being written (`id` for cancelWriting). */
-export function writingRows(): { id: string; label: string; question: string; phase: string; model: string }[] {
-  return [...writingNow.values()].map((w) => ({ id: w.id, question: w.question, phase: w.phase, model: w.model, label: `Writing: ${w.question} · ${clock(Date.now() - w.started)}` }))
-}
-function cancelWriting(id: string): void { writingNow.get(id)?.ask?.cancel() }
+import { clock, modelProblem, phaseOf } from '../writing'
+import { Writing, writingChanged, writingNow } from './inProgress'
 
 /** The model a journey is written with (a request's `model`, the settings), and how it is named. */
 export const journeyModel = (override?: string) => override || cfg().get<string>('journeys.model') || cfg().get<string>('claude.model') || undefined
@@ -45,7 +34,8 @@ const JOURNEY_PY_MAX_OUTPUT = 8 << 20
 /** journey.py with a staging folder; never throws. */
 export function journeyPy(skill: string, repo: string, stage: string, args: string[]): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    execFile('python3', [`${skill}/scripts/journey.py`, '--dir', stage, ...args], { cwd: repo, timeout: JOURNEY_PY_TIMEOUT, maxBuffer: JOURNEY_PY_MAX_OUTPUT }, (err, out, errOut) => {
+    const opts = { cwd: repo, timeout: JOURNEY_PY_TIMEOUT, maxBuffer: JOURNEY_PY_MAX_OUTPUT }
+    execFile('python3', [`${skill}/scripts/journey.py`, '--dir', stage, ...args], opts, (err, out, errOut) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0
       resolve({ code, out: `${out ?? ''}${errOut ?? ''}`.trim() })
     })
@@ -87,4 +77,49 @@ export async function runWriter(w: Writing, title: string, o: Omit<AskOptions, '
     writingNow.delete(w.id)
     writingChanged.fire()
   }
+}
+
+/**
+ * The claude CLI; without it, `prompt` for your own agent goes on the clipboard (said with `notice`) and undefined
+ * is returned.
+ */
+export async function cliOrClipboard(prompt: string, notice: string): Promise<string | undefined> {
+  const cli = findCli(cfg().get<string>('claude.path') || undefined)
+  if (cli) return cli
+  await vscode.env.clipboard.writeText(prompt)
+  void vscode.window.showInformationMessage(notice)
+  return undefined
+}
+
+/**
+ * The code-journey skill and the model a journey is written with (`model`: a request's, else the settings'); undefined
+ * when either can't be used, said (`noSkill`: what is said when the skill is missing).
+ */
+export function skillAndModel(folder: vscode.WorkspaceFolder, noSkill: string, model?: string): { skill: string; model?: string } | undefined {
+  const skill = journeySkill(folder)
+  if (!skill) {
+    void showError(noSkill)
+    return undefined
+  }
+  const m = journeyModel(model)
+  const bad = modelProblem(m)
+  if (bad) {
+    void showError(`Code Notes: ${bad}`)
+    return undefined
+  }
+  return { skill, model: m }
+}
+
+/** Claude with the code-journey skill in `repo`: read-only tools, Bash only for the skill's own scripts; the skill's
+ *  folder readable when it is the bundled copy, and `extraDirs`. */
+export function runJourneySkill(
+  w: Writing, title: string,
+  o: { cli: string; repo: string; prompt: string; skill: string; model?: string; resume?: string; extraDirs?: string[] },
+): Promise<AskResult> {
+  const bundled = o.skill === bundledSkill()
+  return runWriter(w, title, {
+    cli: o.cli, cwd: o.repo, prompt: o.prompt, model: o.model, resume: o.resume,
+    extraTools: ['Skill', `Bash(${o.skill}/scripts/*)`], addDirs: [...(o.extraDirs ?? []), ...(bundled ? [o.skill] : [])],
+    env: { JOURNEY_MODEL: w.model },
+  })
 }

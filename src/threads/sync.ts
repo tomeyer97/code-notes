@@ -7,10 +7,10 @@ import { otherBranch } from '../checkout'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
 import { seenCount, unread, visitFrom } from '../seen'
 import { stepLinkOf } from '../sidebar/journeyRows'
-import { hiddenInEditor } from '../sidebar/nodes'
+import { hiddenInEditor } from '../sidebar/notesFilter'
 import { Note } from '../store'
 import { shortQ } from '../text'
-import { tour, walk } from '../tour/tour'
+import { tourState, walk } from '../tour/instances'
 import { commentsOf, expanded, threadRange } from './comments'
 import { afterEditorSettles, newThread, setThread, settling, whenSettled } from './settle'
 
@@ -83,7 +83,7 @@ function renderKey(n: Note): string {
   const d = n.data
   const run = asking.get(d.id)
   return JSON.stringify([
-    stepLinkOf(n) ? `${tour.key}|${walk.touring()}|${tour.stepId}` : '',
+    stepLinkOf(n) ? `${tourState.key}|${walk.touring()}|${tourState.stepId}` : '',
     d.messages.length, d.messages[d.messages.length - 1]?.body.length, d.status, d.stale, d.events?.length, d.target,
     missing.has(d.id), pastEnd.get(d.id), d.stale && openDoc(docUri(n))?.version,
     seenCount(n), visitFrom.get(d.id), expanded.has(d.id), otherBranch(n) ?? '', d.anchor.text.length,

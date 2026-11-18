@@ -5,9 +5,9 @@ import * as vscode from 'vscode'
 import { cfg } from '../app'
 import { setDecorations } from '../decorations'
 import { unread } from '../seen'
-import { hiddenInEditor } from '../sidebar/nodes'
+import { hiddenInEditor } from '../sidebar/notesFilter'
 import { Note } from '../store'
-import { card } from '../tour/tour'
+import { card } from '../tour/instances'
 import { lineNotesFor } from './location'
 
 export let deco: Record<'openBar' | 'staleBar' | 'unread' | 'exact', vscode.TextEditorDecorationType>

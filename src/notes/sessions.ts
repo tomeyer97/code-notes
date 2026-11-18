@@ -3,7 +3,8 @@
 import * as vscode from 'vscode'
 import { notes, state } from '../app'
 import { refreshAll } from '../refresh'
-import { HIDDEN_KEY, hiddenSessions, Node, sessionOf, setSessionHidden } from '../sidebar/nodes'
+import { Node, sessionOf } from '../sidebar/nodes'
+import { HIDDEN_KEY, hiddenSessions, setSessionHidden } from '../sidebar/notesFilter'
 import { folderName } from '../store'
 import { resolve, trash } from './status'
 

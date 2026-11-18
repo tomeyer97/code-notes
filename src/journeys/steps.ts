@@ -24,7 +24,7 @@ export interface StepAt {
 export interface LoadedJourney { key: string; folder: vscode.WorkspaceFolder; uri: vscode.Uri; j: Journey; at: StepAt[]; readError?: string; check?: { branch: string } }
 
 /** The file a step's code is in now. */
-export const fileOf = (lj: LoadedJourney, n: number) => lj.at[n - 1]?.file ?? lj.j.steps[n - 1].file
+export const fileOf = (lj: Pick<LoadedJourney, 'j' | 'at'>, n: number) => lj.at[n - 1]?.file ?? lj.j.steps[n - 1].file
 
 /** A journey's identity across reloads and file renames within a folder: folder + id. */
 export const posKey = (lj: LoadedJourney) => `${lj.folder.uri.toString()}|${lj.j.id}`

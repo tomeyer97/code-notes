@@ -7,7 +7,7 @@ import { Message, NoteEvent } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { lastMessage } from '../sidebar/nodes'
 import { Note } from '../store'
-import { card, tour, walk } from '../tour/tour'
+import { card, tourState, walk } from '../tour/instances'
 import { reanchorAll } from './location'
 import { addEvent, statusEvent } from './status'
 
@@ -39,7 +39,7 @@ export async function notesChangedOnDisk(): Promise<void> {
   refreshAll()
   // A question on the current step was asked or answered: the card says so.
   const tj = walk.touring() ? walk.tourJourney() : undefined
-  if (tj && !card.inMap(tj, tour.step)) card.show(tj, tour.step)
+  if (tj && !card.inMap(tj, tourState.step)) card.show(tj, tourState.step)
   clearTimeout(reanchorTimer)
   reanchorTimer = setTimeout(() => reanchorAll().then(refreshAll), REANCHOR_AFTER_MS)
 }

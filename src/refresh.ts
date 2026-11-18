@@ -6,11 +6,12 @@ import { refreshAskStatus } from './ask/run'
 import { refreshDecorations } from './notes/decorations'
 import { notesAtLine } from './notes/location'
 import { unread } from './seen'
-import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter, sessionOf } from './sidebar/nodes'
+import { sessionOf } from './sidebar/nodes'
+import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter } from './sidebar/notesFilter'
 import { tree, treeView } from './sidebar/notesTree'
 import { plural } from './text'
 import { syncThreads } from './threads/sync'
-import { walk } from './tour/tour'
+import { walk } from './tour/instances'
 
 /** codeNotes.cursorOnNote: the caret is on a note's lines. */
 export function updateCursorContext(): void {

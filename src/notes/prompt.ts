@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { byId, log, notes } from '../app'
 import { me, waitingForAgent } from '../identity'
-import { checked } from '../sidebar/nodes'
+import { checked } from '../sidebar/notesFilter'
 import { folderName, Note } from '../store'
 import { plural, rangeLabel } from '../text'
 import { notesFrom } from './which'

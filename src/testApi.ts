@@ -10,19 +10,20 @@ import { applySuggestion } from './notes/suggestion'
 import { unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
 import { listModel } from './sidebar/listModel'
-import { cached, groupMode, matchesFilter, Node, order, sessionOf } from './sidebar/nodes'
+import { cached, Node, order, sessionOf } from './sidebar/nodes'
+import { groupMode, matchesFilter } from './sidebar/notesFilter'
 import { tree, treeView } from './sidebar/notesTree'
 import { missing } from './notes/location'
 import { threads } from './threads/sync'
 import { askDrafts, stepAskBox } from './tour/askStep'
-import { restoreTour } from './tour/open'
-import { card, tour, walk } from './tour/tour'
+import { restoreTour } from './tour/commands'
+import { card, tourState, walk } from './tour/instances'
 import { resetTutorial, TUTORIAL_KEY, tutorialMark, tutorialSeen } from './tour/tutorial'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
-import { explainLog } from './write/requests'
+import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
-import { writingRows } from './write/writer'
+import { writingRows } from './write/inProgress'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
@@ -83,9 +84,9 @@ function tourSnapshot() {
   const lj = walk.tourJourney()
   return {
     journey: lj?.j.id,
-    step: tour.step,
+    step: tourState.step,
     touring: walk.touring(),
-    cp: tour.cp,
+    cp: tourState.checkpointId,
     story: mapPanel.story,
     map: mapPanel.journey?.j.id,
     mapTitle: mapPanel.tabTitle,
@@ -96,17 +97,17 @@ function tourSnapshot() {
     codeLinks: codeLinks.state,
     values: valueHints.state,
     mapColumn: mapPanel.viewColumn,
-    codeColumn: tour.doc?.column,
+    codeColumn: tourState.doc?.column,
     status: tourItems.pos.text,
     statusShown: !!tourItems.pos.text && walk.touring(),
     tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark },
     key: KEY,
-    lastLeft: tour.lastLeft,
-    fileGone: tour.fileGone,
-    panelCard: walk.touring() && card.inMap(lj!, tour.step) ? card.panelCard(lj!, tour.step) : undefined,
-    ref: tour.refHere,
-    peek: tour.lastPeek,
-    marked: tour.marked,
+    lastLeft: tourState.lastLeft,
+    fileGone: tourState.fileGone,
+    panelCard: walk.touring() && card.inMap(lj!, tourState.step) ? card.panelCard(lj!, tourState.step) : undefined,
+    ref: tourState.refHere,
+    peek: tourState.lastPeek,
+    marked: tourState.marked,
     card: cardSnapshot(),
   }
 }
@@ -151,9 +152,9 @@ export function testApi() {
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {
       card.clear()
-      tour.key = undefined
-      tour.step = 0
-      tour.doc = undefined
+      tourState.key = undefined
+      tourState.step = 0
+      tourState.doc = undefined
       walk.updateTour()
       await restoreTour()
     },
@@ -180,7 +181,7 @@ export function testApi() {
       if (!b) return false
       b.box.value = text
       const lj = walk.tourJourney()
-      askDrafts.set(`${lj?.j.id}|${lj?.j.steps[tour.step - 1]?.id}`, text)
+      askDrafts.set(`${lj?.j.id}|${lj?.j.steps[tourState.step - 1]?.id}`, text)
       b.accept()
       return true
     },
@@ -188,7 +189,7 @@ export function testApi() {
     choosing: () => choosing?.titles,
     choose: (title: string) => choosing?.accept(title),
     /** What each request did. */
-    explainLog: () => explainLog.map((x) => ({ ...x })),
+    explainLog: () => requestLog.map((x) => ({ ...x })),
     /** Reads every journey file again, as after a window reload. */
     reloadJourneys: () => journeys.load(),
   }

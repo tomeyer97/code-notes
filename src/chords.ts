@@ -6,8 +6,8 @@ import { resolve } from './notes/status'
 import { stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
 import { unread } from './seen'
-import { walk } from './tour/tour'
 import { checkStepping } from './check/wiring'
+import { walk } from './tour/instances'
 
 /** A chord key passes which prefix was pressed: hints then show that one. */
 export const prefixUsed = (a: unknown) => {
