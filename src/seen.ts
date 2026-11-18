@@ -66,9 +66,11 @@ export async function markRead(list: Note[], visit?: Note): Promise<void> {
   await saved
 }
 
-/** The message counts now, to put back with `restoreSeen` (an undo). Only those: the status changes seen stay seen. */
-export const seenSnapshot = () => ({ ...seenMessages.all() })
-export const restoreSeen = (before: Record<string, number>) => state.update(SEEN_KEY, before)
+/** What has been seen now (messages and status changes), to put back with `restoreSeen` (an undo). */
+export const seenSnapshot = () => ({ messages: { ...seenMessages.all() }, events: { ...seenEvents.all() } })
+export const restoreSeen = async (before: ReturnType<typeof seenSnapshot>): Promise<void> => {
+  await Promise.all([state.update(SEEN_KEY, before.messages), state.update(SEEN_EV_KEY, before.events)])
+}
 
 /** v0.1 stored a time per note: now a count of messages seen. */
 export async function migrateSeen(): Promise<void> {

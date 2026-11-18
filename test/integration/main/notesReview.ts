@@ -92,6 +92,11 @@ export const notesReviewTests = [
     await until('written to the file', () => readJson(notePath(HIGH)).events?.at(-1)?.type === 'resolved')
     await until('thread still shown', () => ctx.api.thread(HIGH))
     await until('grey line in the thread', () => ctx.api.thread(HIGH)!.comments.some((c: vscode.Comment) => c.contextValue === 'event' && c.author.name === 'claude' && /Resolved/.test(bodyOf(c))))
+    // Mark All Read takes the unread resolve with it; its Undo brings it back.
+    await vscode.commands.executeCommand('codeNotes.markAllRead')
+    await until('resolve read', () => noteById(HIGH).unread === 0)
+    await vscode.commands.executeCommand('codeNotes.undo')
+    await until('resolve unread again after Undo', () => noteById(HIGH).unread === 1)
     // My reply reopens it: a second line.
     await vscode.commands.executeCommand('codeNotes.reply', { thread: ctx.api.thread(HIGH), text: 'Not fixed yet' })
     await until('reopened by me', () => readJson(notePath(HIGH)).status === 'open' && readJson(notePath(HIGH)).events.at(-1).type === 'reopened')
