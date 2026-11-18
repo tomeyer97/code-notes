@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { Beats } from './beats'
 import { CheckController } from './check/controller'
-import { ClaudeLinks } from './claudeLinks'
+import { ClaudeLinks } from './claudeChatLinks'
 import { CodeLinks } from './codeLinks'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
-import { ownSelection } from './claudeLinks'
+import { ownSelection } from './claudeChatLinks'
 import { JBeat } from './journeyModel'
 import { findLine, followLine, shiftLine } from './beatLine'
 import { EditFollower } from './followEdits'
-import { docLines } from './wfs'
+import { docLines } from './documents'
 
 // A step's animation: the beat on screen lights the one line that does what it shows, nothing else
 // (values are the step's value hints: valueHints.ts).

@@ -7,7 +7,7 @@ import { Check, Question } from './types'
 import { concernOf, samePerson, settledConcern, whoOf } from './concernState'
 import { commentMark, todoLines, todoPlace } from './todoComment'
 import { gitOut } from '../git'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 import type { CheckController } from './controller'
 
 export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'

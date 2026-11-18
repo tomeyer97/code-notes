@@ -8,7 +8,7 @@ import { treeView } from '../sidebar/notesTree'
 import { folderProblem } from '../noteModel'
 import { folderName, Note } from '../store'
 import { lines } from '../threads/comments'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 
 /** The notes folder as last set (a change offers to move the notes). */
 let currentFolder = '.code-notes'

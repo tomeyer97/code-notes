@@ -9,7 +9,7 @@ import { LoadedJourney, posKey } from '../journeys/steps'
 import { isNewJourney } from '../seen'
 import { relPath } from '../threads/anchoring'
 import { tour, walk } from '../tour/tour'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 import { refreshing } from '../write/refreshJourney'
 import { journeyOrder } from './journeyRows'
 

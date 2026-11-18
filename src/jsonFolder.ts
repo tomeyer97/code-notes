@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { wfs } from './wfs'
+import { wfs } from './workspaceFs'
 
 // Folders of JSON files the extension reads one file per item from (notes, journeys): watched for changes, and read
 // once at load.

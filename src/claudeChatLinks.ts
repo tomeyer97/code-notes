@@ -11,7 +11,7 @@ import { setDecorations } from './decorations'
 // extension, in an editor already in front, is too common to light).
 //
 // The other way in: vscode://<publisher>.code-notes/link?file=<path>&start=<n>&end=<n> (for a terminal; its query is read by
-// answerLinks.ts linkTarget).
+// linkUri.ts linkTarget).
 
 interface Spot { uri: vscode.Uri; line: number; character: number }
 

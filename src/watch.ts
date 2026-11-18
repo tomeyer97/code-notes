@@ -15,7 +15,8 @@ import { noteVisibleEditors } from './threads/settle'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { keepOffMap } from './tour/layout'
 import { card, tour, walk } from './tour/tour'
-import { docLines, wfs } from './wfs'
+import { docLines } from './documents'
+import { wfs } from './workspaceFs'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
 async function followJourneyFiles(): Promise<void> {

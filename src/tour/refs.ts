@@ -8,7 +8,7 @@ import { setDecorations } from '../decorations'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { blocksOf } from '../sidebar/listModel'
 import { clampLines, inNotesFolder, notesFor, relPath } from '../threads/anchoring'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 import { cardLine } from './card'
 import { card, tour, walk } from './tour'
 

@@ -1,11 +1,10 @@
-import * as vscode from 'vscode'
-import * as fs from 'fs'
-import * as path from 'path'
-
 // vscode.workspace.fs, but `file:` URIs go to Node's fs directly. The extension host runs where the files are (over
 // Remote-SSH: on the remote machine), while workspace.fs goes through the window and back: one network round trip per
 // call, and a folder of notes read one file after the other took a round trip per note. Other schemes (a virtual
-// workspace) still go through workspace.fs.
+// workspace) still go through workspace.fs. A document's or a file's lines: documents.ts.
+import * as vscode from 'vscode'
+import * as fs from 'fs'
+import * as path from 'path'
 
 const local = (u: vscode.Uri) => u.scheme === 'file'
 
@@ -87,20 +86,3 @@ async function createDirectory(u: vscode.Uri): Promise<void> {
 }
 
 export const wfs = { stat, readFile, writeFile, readDirectory, rename, delete: del, createDirectory }
-
-/** A document's lines, unsaved edits included. */
-export function docLines(doc: vscode.TextDocument): string[] {
-  return Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text)
-}
-
-/** A file's lines: its open document's (unsaved edits count), else the disk's. Opens no document (a round trip). */
-export async function fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
-  const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString() && !d.isClosed)
-  if (open) return docLines(open)
-  return diskLines(uri)
-}
-
-/** A file's lines on disk; undefined when it can't be read. */
-export async function diskLines(uri: vscode.Uri): Promise<string[] | undefined> {
-  try { return new TextDecoder().decode(await readFile(uri)).split(/\r?\n/) } catch { return undefined }
-}

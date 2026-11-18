@@ -7,7 +7,8 @@ import { commitInfo, otherBranch } from '../identity'
 import { refreshAll } from '../refresh'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
-import { diskLines, docLines, wfs } from '../wfs'
+import { diskLines, docLines } from '../documents'
+import { wfs } from '../workspaceFs'
 
 /** Notes whose code file does not exist (deleted or moved). */
 export const missing = new Set<string>()

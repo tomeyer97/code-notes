@@ -7,7 +7,7 @@ import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, gstate, jou
 import { askClaudeCommand, cancelClaudeCommand, loadAskErrors, watchClaudeCli } from './ask'
 import { Beats } from './beats'
 import { next, prefixUsed, previous, resolveNext } from './chords'
-import { ClaudeLinks } from './claudeLinks'
+import { ClaudeLinks } from './claudeChatLinks'
 import { CodeLinks } from './codeLinks'
 import { devReload } from './devReload'
 import { initIdentity, me, rememberMe } from './identity'

@@ -7,7 +7,7 @@ import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { docUri, missing, otherAnchor, pastEnd } from '../threads/anchoring'
 import { lines, suggestionOf } from '../threads/comments'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 
 /** Apply on an agent's ```suggestion block: replaces the note's lines; the editor's Undo takes it back. */
 export async function applySuggestion(id: string, mi: number, k: number): Promise<boolean> {

@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import * as os from 'os'
 import { lineDiff } from '../anchor'
-import { linkify } from '../answerLinks'
+import { linkify } from '../linkifyAnswer'
 import { byId, cmdLink, systemMarkdown, understanding } from '../app'
 import { askErrors, asking } from '../ask'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../codeLinkText'
@@ -17,7 +17,7 @@ import { qDone, seeAlsoLink } from '../tour/checkTour'
 import { tour, walk } from '../tour/tour'
 import { docUri, missing, openDoc, pastEnd } from './anchoring'
 import { syncThread } from './threads'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 
 export function threadRange(n: Note): vscode.Range {
   return new vscode.Range(n.data.range.start - 1, 0, n.data.range.end - 1, 0)

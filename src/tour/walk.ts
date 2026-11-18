@@ -1,10 +1,10 @@
 // The walk through a journey: which step is open, opening a step (its file, its card, the map beside), moving on,
 // the status bar item, and where each journey was left.
 import * as vscode from 'vscode'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 import { Beats } from '../beats'
 import { CodeLinks } from '../codeLinks'
-import { ownSelection } from '../claudeLinks'
+import { ownSelection } from '../claudeChatLinks'
 import { Journeys } from '../journeys/journeys'
 import { MapPanel } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
