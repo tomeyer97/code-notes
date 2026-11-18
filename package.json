@@ -1428,12 +1428,12 @@
     "test:grader": "node test/grader/eval.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.6",
     "@types/vscode": "1.100.0",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^3.9.2",
-    "playwright": "^1.65.0",
-    "typescript": "^5.6.0"
+    "@vscode/vsce": "^4.1.1",
+    "playwright": "^1.65.1",
+    "typescript": "^7.0.2"
   },
   "capabilities": {
     "untrustedWorkspaces": {
