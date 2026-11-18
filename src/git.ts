@@ -1,5 +1,10 @@
 // How the extension calls git, in one place: one runner (its timeout, its environment, its trimming) and the parsers
 // of `git status --porcelain=v2 -z` (the paths it lists, the branch it names). No vscode here: unit tests use it as is.
+//
+// The understanding CLI has two runners of its own (cli/understanding/git.mjs): `git` (synchronous, 64 MiB of output,
+// no timeout: a CLI in a terminal or CI may wait; the extension runs those calls on a worker thread, check/cliWorker.ts,
+// with READ_ONLY_GIT) and `gitRun` (commit and push: no credential prompt, 60 s). This one is for the extension host's
+// own calls: asynchronous, short (GIT_TIMEOUT_MS), never taking the optional index lock.
 import { execFile } from 'child_process'
 
 /**

@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { cfg, journeys, mapPanel, store } from '../app'
 import { askClaude, claudeMode } from '../ask'
-import { findCli } from '../claude'
+import { findCli } from '../claudeCli'
 import { fileOf } from '../journeys/steps'
 import { createNote } from '../notes/create'
 import { reveal } from '../notes/reveal'

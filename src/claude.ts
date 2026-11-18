@@ -1,9 +1,7 @@
-// Answers a note with Claude Code running headless (`claude -p`), streaming its text as it writes.
+// Runs Claude Code headless (`claude -p`, read-only unless a skill's scripts are allowed), streaming its text as it
+// writes: a note's answer, a journey, the check's questions and grades. Finding the binary: claudeCli.ts.
 // No vscode API here (unit-tested in test/claude.test.ts with a fake CLI).
-import { execFile, spawn, spawnSync, ChildProcess } from 'child_process'
-import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
+import { spawn, ChildProcess } from 'child_process'
 
 export interface AskOptions {
   cli: string
@@ -37,90 +35,8 @@ export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob']
 const TOOL_VERB: Record<string, string> = { Read: 'Reading', Grep: 'Searching for', Glob: 'Looking for' }
 /** How often the text streamed so far is reported (a tool starting is reported at once). */
 const PROGRESS_MS = 250
-
-/** "2.1.322 (Claude Code)" -> [2,1,322]. */
-export function parseVersion(out: string): number[] | undefined {
-  const m = /(\d+)\.(\d+)\.(\d+)/.exec(out)
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined
-}
-const newer = (a: number[], b: number[]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
-
-/** How long a candidate's `claude --version` may take. */
-const VERSION_TIMEOUT_MS = 5000
-
-let found: { key: string; cli?: string } | undefined
-/**
- * The `claude` CLI: the setting if given, else the NEWEST install among PATH and the usual places (VS Code's PATH
- * often finds an old global install before the one you update, e.g. nvm's).
- */
-export function findCli(setting: string | undefined): string | undefined {
-  const p = lookup(setting)
-  if (p.done) return p.cli
-  const versions = new Map(unique(p.all).map((c) => [c, `${spawnSync(c, ['--version'], { encoding: 'utf8', timeout: VERSION_TIMEOUT_MS }).stdout ?? ''}`]))
-  return choose(p, versions)
-}
-
-/**
- * findCli without blocking: each candidate's `--version` runs as its own process, all at once, and the extension
- * host keeps going meanwhile (a `claude --version` takes a few hundred ms). Fills findCli's cache.
- */
-export async function findCliAsync(setting: string | undefined): Promise<string | undefined> {
-  const p = lookup(setting)
-  if (p.done) return p.cli
-  const versions = new Map<string, string>()
-  await Promise.all(unique(p.all).map((c) => new Promise<void>((resolve) => {
-    execFile(c, ['--version'], { encoding: 'utf8', timeout: VERSION_TIMEOUT_MS }, (_e, stdout) => { versions.set(c, `${stdout ?? ''}`); resolve() })
-  })))
-  return choose(p, versions)
-}
-
-/** What findCli and findCliAsync share before any `--version` runs: the cache (per setting and PATH), the setting. */
-function lookup(setting: string | undefined): { done: true; cli: string | undefined } | { done: false; key: string; all: string[] } {
-  const key = `${setting ?? ''}|${process.env.PATH ?? ''}`
-  if (found?.key === key) return { done: true, cli: found.cli }
-  const all = candidates(setting)
-  if (setting && all[0] === setting) { found = { key, cli: setting }; return { done: true, cli: setting } }
-  return { done: false, key, all }
-}
-/** The newest candidate by its `--version` output (else the first), cached. */
-function choose(p: { key: string; all: string[] }, versions: Map<string, string>): string | undefined {
-  found = { key: p.key, cli: newest(p.all, (c) => versions.get(c) ?? '') ?? p.all[0] }
-  return found.cli
-}
-
-/** The candidates, one per real file (the first path that leads to it). */
-function unique(all: string[]): string[] {
-  const seen = new Set<string>()
-  return all.filter((c) => {
-    let real: string
-    try { real = fs.realpathSync(c) } catch { return false }
-    if (seen.has(real)) return false
-    seen.add(real)
-    return true
-  })
-}
-/** The candidate whose `--version` says the newest version. */
-function newest(all: string[], version: (c: string) => string): string | undefined {
-  let best: { cli: string; v: number[] } | undefined
-  for (const c of unique(all)) {
-    const v = parseVersion(version(c))
-    if (v && (!best || newer(v, best.v) > 0)) best = { cli: c, v }
-  }
-  return best?.cli
-}
-
-function candidates(setting: string | undefined): string[] {
-  const candidates: string[] = []
-  if (setting) candidates.push(setting)
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) if (dir) candidates.push(path.join(dir, 'claude'))
-  const home = os.homedir()
-  candidates.push(path.join(home, '.local/bin/claude'), path.join(home, '.claude/local/claude'), '/usr/local/bin/claude')
-  try {
-    const nvm = path.join(home, '.nvm/versions/node')
-    for (const v of fs.readdirSync(nvm).sort().reverse()) candidates.push(path.join(nvm, v, 'bin/claude'))
-  } catch { /* no nvm */ }
-  return candidates.filter((c) => { try { fs.accessSync(c, fs.constants.X_OK); return true } catch { return false } })
-}
+/** How much of Claude Code's stderr is kept (the last lines are said when it fails). */
+const STDERR_KEPT = 4000
 
 /** A line of `claude -p --output-format stream-json` (only the fields read here; events and content as Claude sends them). */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -135,8 +51,11 @@ interface StreamLine {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** What a run has read so far: the text, what Claude is doing, its last tool call, the result once it came. */
+type FoldState = { text: string; activity?: string; tool?: ToolCall; result?: AskResult }
+
 /** Folds one stream-json line into the running state. Exported for tests. */
-export function foldEvent(state: { text: string; activity?: string; tool?: ToolCall; result?: AskResult }, line: string): boolean {
+export function foldEvent(state: FoldState, line: string): boolean {
   let e: StreamLine
   try { e = JSON.parse(line) } catch { return false }
   if (e.type === 'stream_event') {
@@ -187,38 +106,28 @@ export class Ask {
 
   constructor(o: AskOptions) {
     this.done = new Promise((resolve) => {
-      const args = ['-p', o.prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-        '--allowedTools', ...READ_ONLY_TOOLS, ...(o.extraTools ?? []),
-        // Edits and any other command stay blocked; Bash only as allowed by extraTools (a skill's own scripts).
-        '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', ...(o.extraTools?.some((t) => t.startsWith('Bash(')) ? [] : ['Bash'])]
-      for (const d of o.addDirs ?? []) args.push('--add-dir', d)
-      if (o.model) args.push('--model', o.model)
-      if (o.resume) args.push('--resume', o.resume)
-      const state: { text: string; activity?: string; tool?: ToolCall; result?: AskResult } = { text: '' }
-      let buf = '', err = ''
-      const p = (this.proc = spawn(o.cli, args, { cwd: o.cwd, env: o.env ? { ...process.env, ...o.env } : process.env, stdio: ['ignore', 'pipe', 'pipe'] }))
+      const state: FoldState = { text: '' }
+      let err = ''
+      const env = o.env ? { ...process.env, ...o.env } : process.env
+      const p = (this.proc = spawn(o.cli, argsFor(o), { cwd: o.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }))
       let last = 0
+      // What arrived so far, at most every PROGRESS_MS (`force`: now, e.g. a tool starting).
       const progress = (force = false) => {
         if (!o.onProgress || (!force && Date.now() - last < PROGRESS_MS)) return
         last = Date.now()
         o.onProgress({ text: state.text, activity: state.activity, tool: state.tool })
       }
-      p.stdout!.on('data', (b: Buffer) => {
-        buf += b.toString()
-        let i
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).trim()
-          buf = buf.slice(i + 1)
-          if (line && foldEvent(state, line)) progress(!!state.activity)
-        }
-      })
-      p.stderr!.on('data', (b: Buffer) => { if (err.length < 4000) err += b.toString() })
+      const lines = lineSplitter((line) => { if (foldEvent(state, line)) progress(!!state.activity) })
+      p.stdout!.on('data', (b: Buffer) => lines.push(b.toString()))
+      p.stderr!.on('data', (b: Buffer) => { if (err.length < STDERR_KEPT) err += b.toString() })
       p.on('error', (e) => resolve({ text: state.text, error: `couldn't start Claude Code (${o.cli}): ${e.message}`, errorKind: 'no-cli' }))
       p.on('close', (code) => {
-        if (buf.trim()) foldEvent(state, buf.trim())
+        const rest = lines.rest()
+        if (rest) foldEvent(state, rest)
         if (this.cancelled) return resolve({ text: state.text, cancelled: true, sessionId: state.result?.sessionId })
         if (state.result) return resolve(state.result)
-        resolve({ text: state.text, error: `Claude Code exited (${code})${err ? `: ${err.trim().split('\n').slice(-3).join(' ')}` : ''}` })
+        const said = err ? `: ${err.trim().split('\n').slice(-3).join(' ')}` : ''
+        resolve({ text: state.text, error: `Claude Code exited (${code})${said}` })
       })
     })
   }
@@ -229,5 +138,40 @@ export class Ask {
   cancel(): void {
     this.cancelled = true
     this.proc?.kill('SIGTERM')
+  }
+}
+
+/**
+ * `claude -p`'s arguments: the prompt, streamed JSON events, the tools allowed (read-only, and `extraTools`) and
+ * blocked, the folders it may read, the model, a session to resume.
+ */
+function argsFor(o: AskOptions): string[] {
+  // Edits and any other command stay blocked; Bash only as allowed by extraTools (a skill's own scripts).
+  const bash = o.extraTools?.some((t) => t.startsWith('Bash(')) ? [] : ['Bash']
+  const args = [
+    '-p', o.prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '--allowedTools', ...READ_ONLY_TOOLS, ...(o.extraTools ?? []),
+    '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', ...bash,
+  ]
+  for (const d of o.addDirs ?? []) args.push('--add-dir', d)
+  if (o.model) args.push('--model', o.model)
+  if (o.resume) args.push('--resume', o.resume)
+  return args
+}
+
+/** A stream cut into lines: `push(chunk)` calls `onLine` with each whole line (trimmed, not empty); `rest()`: the rest. */
+function lineSplitter(onLine: (line: string) => void): { push(chunk: string): void; rest(): string } {
+  let buf = ''
+  return {
+    push(chunk) {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim()
+        buf = buf.slice(i + 1)
+        if (line) onLine(line)
+      }
+    },
+    rest: () => buf.trim(),
   }
 }

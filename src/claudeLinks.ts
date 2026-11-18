@@ -15,11 +15,25 @@ import { setDecorations } from './decorations'
 
 interface Spot { uri: vscode.Uri; line: number; character: number }
 
-// Two clocks say "this selection is ours, not a link", with different reach:
-// - `notLinkUntil` (module): any part of the extension (a step's caret, a note opened) is about to select; such a
-//   selection is never taken as a chat link, but it still moves "where the reader was".
-// - `ClaudeLinks.ignoreUntil` (instance): this class is moving the caret itself (lighting lines, going Back); every
-//   selection and editor change meanwhile is ignored altogether.
+/**
+ * A stretch of time in which selections are the extension's own doing. There are two, with different reach:
+ * - `extensionSelects` (this module): any part of the extension (a step's caret, a note opened) is about to select
+ *   (ownSelection); such a selection is never taken as a chat link, but it still moves "where the reader was".
+ * - `ClaudeLinks.moving`: this class moves the caret itself (lighting lines, going Back); every selection and editor
+ *   change meanwhile is ignored altogether.
+ */
+class OwnTime {
+  private until = 0
+  /** Ours for `ms` from now. */
+  set(ms: number): void { this.until = Date.now() + ms }
+  /** Ours for at least `ms` from now (a longer stretch already set stands). */
+  extend(ms: number): void { this.until = Math.max(this.until, Date.now() + ms) }
+  /** Still ours. */
+  ours(): boolean { return Date.now() < this.until }
+  /** Over (past its end). */
+  over(): boolean { return Date.now() > this.until }
+}
+
 /** How long a selection after ownSelection() is the extension's own. */
 const OWN_SELECTION_MS = 800
 /** Lighting lines or going Back: the editor coming to the front and the caret move are ours for this long… */
@@ -29,9 +43,9 @@ const REVEAL_IGNORE_MS = 150
 /** A single-line selection counts as a link only this soon after its editor came to the front. */
 const FRONT_FRESH_MS = 1000
 
-let notLinkUntil = 0
+const extensionSelects = new OwnTime()
 /** The extension is about to put the caret somewhere itself. */
-export function ownSelection(ms = OWN_SELECTION_MS): void { notLinkUntil = Math.max(notLinkUntil, Date.now() + ms) }
+export function ownSelection(ms = OWN_SELECTION_MS): void { extensionSelects.extend(ms) }
 
 export class ClaudeLinks implements vscode.Disposable {
   private lit: { uri: string; start: number; end: number } | undefined
@@ -39,8 +53,8 @@ export class ClaudeLinks implements vscode.Disposable {
   /** Where the reader was, per editor, before anything a link did. */
   private last: Spot | undefined
   private frontAt = 0
-  /** Until then, every selection and editor change is this class's own doing (see the clocks above). */
-  private ignoreUntil = 0
+  /** This class is moving the caret: every selection and editor change is its own doing (see OwnTime). */
+  private readonly moving = new OwnTime()
   private readonly fill = vscode.window.createTextEditorDecorationType({
     isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
     overviewRulerColor: new vscode.ThemeColor('symbolIcon.functionForeground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
@@ -54,7 +68,8 @@ export class ClaudeLinks implements vscode.Disposable {
       vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
       vscode.window.onDidChangeActiveTextEditor((ed) => {
         this.frontAt = Date.now()
-        if (this.lit && ed && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== this.lit.uri && Date.now() > this.ignoreUntil) this.unlight()
+        const elsewhere = !!this.lit && !!ed && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== this.lit.uri
+        if (elsewhere && this.moving.over()) this.unlight()
       }),
       vscode.window.onDidChangeTextEditorSelection((e) => this.selected(e)),
       vscode.languages.registerCodeLensProvider({ scheme: 'file' }, {
@@ -71,7 +86,7 @@ export class ClaudeLinks implements vscode.Disposable {
 
   private selected(e: vscode.TextEditorSelectionChangeEvent): void {
     const doc = e.textEditor.document, s = e.selections[0]
-    if (doc.uri.scheme !== 'file' || !s || Date.now() < this.ignoreUntil) return
+    if (doc.uri.scheme !== 'file' || !s || this.moving.ours()) return
     // Claude Code's shape: one selection from column 0 to column 0.
     const shape = e.selections.length === 1 && s.start.character === 0 && s.end.character === 0
     const fresh = Date.now() - this.frontAt < FRONT_FRESH_MS
@@ -81,7 +96,7 @@ export class ClaudeLinks implements vscode.Disposable {
     const oldVsCode = e.kind === undefined && (lines || (s.isEmpty && fresh))
     // Newer ones say Command (as for Go to Definition): only several whole lines of an editor just come to the front.
     const newVsCode = e.kind === vscode.TextEditorSelectionChangeKind.Command && lines && fresh
-    const notOurs = Date.now() >= notLinkUntil
+    const notOurs = !extensionSelects.ours()
     const linkLike = this.enabled() && shape && notOurs && (oldVsCode || newVsCode)
     if (linkLike) {
       // Claude Code selects up to column 0 of the end line: the end line is the link's last line.
@@ -124,7 +139,7 @@ export class ClaudeLinks implements vscode.Disposable {
   }
 
   /** This class moves the caret itself: what it causes for `ms` is not the reader's. */
-  private ignoreSelectionsFor(ms: number): void { this.ignoreUntil = Date.now() + ms }
+  private ignoreSelectionsFor(ms: number): void { this.moving.set(ms) }
 
   unlight(): void { if (this.lit) { this.lit = undefined; this.back = undefined; this.paint() } }
 

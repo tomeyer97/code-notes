@@ -14,12 +14,16 @@ const MD_LINK = /\[([^\]]+)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/g
 const NOT_A_FILE = /^[a-z][\w+.-]*:/i
 /** A file link target and its line: `src/a.ts#L12`, `src/a.ts#L12-L20`, `src/a.ts:12`, `src/a.ts:12-20` (path, line). */
 const TARGET = /^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+)(?:-\d+)?)?$/
+/** Not right after a word character, "/", "~", ".", "-" or a link already made (its \u0000 mark): a bare reference starts here. */
+const REF_START = String.raw`(?<![\w/~.\-\u0000])`
+/** A reference's line: `:12`, `:12-20` (the first group) or `#L12` (the second). */
+const REF_LINE = String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))`
 /**
  * A bare reference, also right after "(" or in a list, optionally in backticks: `src/a.ts:12`, `src/a.ts:12-20`,
  * `src/a.ts#L12` (path, line, line). Never inside a longer word or path, nor after `~/` (outside the repo: left as text).
  * The path is journeyModel's PATH, as in step text (REF_IN_TEXT); what may come before it and the line forms differ.
  */
-const BARE_REF = new RegExp(`(?<![\\w/~.\\-\\u0000])\`?(${PATH})(?::(\\d+)(?:-\\d+)?|#L(\\d+))\`?`, 'g')
+const BARE_REF = new RegExp(`${REF_START}\`?(${PATH})${REF_LINE}\`?`, 'g')
 
 /**
  * One piece of answer text (outside ``` fences) with its file references as links. `link(text, file, line)` makes
