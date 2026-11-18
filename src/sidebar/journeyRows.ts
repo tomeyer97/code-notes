@@ -114,7 +114,9 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   item.tooltip = journeyTooltip(lj, s)
   // The name read is the title and its state; the question is only the tooltip.
   item.accessibilityInformation = { label: journeyLabel(lj, s) }
-  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + (podcasts.has(lj) ? ';podcast' : '')
+  // A podcast that plays: ▶ on the row; one that can't: a greyed ▶ (the tooltip says why).
+  const pod = podcasts.status(lj)
+  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + (pod ? (pod.state === 'ok' ? ';podcast' : ';podcastBroken') : '')
   item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
   return item
 }
@@ -151,7 +153,15 @@ function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
  *  unread answer is said in full here). */
 function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
   const unreadReplies = s.newReplies ? `${plural(s.newReplies, 'unread reply', 'unread replies')} from Claude` : ''
-  return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies].filter(Boolean).join('\n')
+  return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies, podcastLine(lj)].filter(Boolean).join('\n')
+}
+
+/** The podcast's line in the tooltip: one that can't be played and why, or what is wrong with one that plays. */
+function podcastLine(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  if (!pod) return ''
+  if (pod.state === 'broken') return `Podcast unavailable: ${pod.text}`
+  return pod.text ? `Podcast: ${pod.text}` : ''
 }
 
 /** What a screen reader says: the title, then where the walk is, unread replies, new. */

@@ -8,13 +8,13 @@
 import * as vscode from 'vscode'
 import { gstate, journeys, log, mapPanel, state } from '../app'
 import { LoadedJourney, posKey } from '../journeys/steps'
-import { readText } from '../jsonFolder'
 import { endJourney, openMap } from '../tour/commands'
 import { tourState, walk } from '../tour/instances'
 import { pickJourney } from '../tour/pick'
-import { wfs } from '../workspaceFs'
 import { journeysTree } from '../sidebar/journeysTree'
-import { clock, Episode, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, timeOf, View, viewAt } from './model'
+import { clock, Episode, LatestWins, PodcastProblem, sameView, timeOf, View, viewAt } from './model'
+import { podcastReports, PodcastRead, readPodcast } from './load'
+import { brokenLinks, playNotice } from './validate'
 
 /** Workspace state: where each podcast was left (posKey -> seconds); global: the speed. */
 const POS_KEY = 'codeNotes.podcastPos'
@@ -25,8 +25,14 @@ const SKIP_S = 15
 /** After the podcast asks for a seek, the panel's reports of the old time are ignored for at most this long (ms). */
 const STALE_MS = 1500
 
-/** A journey's podcast, read and checked against the journey. */
-interface Loaded { file: vscode.Uri; audio: vscode.Uri; ep: Episode; sig: string }
+/** A journey's podcast, read and checked against the journey. `notice`: one line about what is wrong with it (the
+ *  panel and the row's tooltip say it); `lastGood`: the file has errors now, this is the version read before. */
+interface Loaded { file: vscode.Uri; audio: vscode.Uri; audioSize: number; ep: Episode; sig: string; problems: PodcastProblem[]; notice?: string; lastGood?: boolean }
+/** A podcast file next to a journey that can't be played, and why (its first error). */
+interface Broken { file: vscode.Uri; reason: string }
+
+/** What the panel says over a podcast that plays from its last good version. */
+const LAST_GOOD = 'The podcast file has errors: playing the last good version'
 
 /** What the panel sends about the audio (MapMessage podcastTime). */
 export interface TimeReport { t: number; playing: boolean; rate?: number; seek?: boolean }
@@ -34,6 +40,12 @@ export interface TimeReport { t: number; playing: boolean; rate?: number; seek?:
 class Podcasts {
   /** By journey key. */
   private eps = new Map<string, Loaded>()
+  /** By journey key: podcast files that can't be played. */
+  private broken = new Map<string, Broken>()
+  /** The audio's real length as the panel loaded it, by its path and size (a rewritten file is measured again). */
+  private audioLen = new Map<string, number>()
+  /** An audio file the panel failed to play, by path: what to say (it looks cut off or damaged). */
+  private audioFault = new Map<string, string>()
   private item: vscode.StatusBarItem | undefined
   /** The journey whose podcast was played in the panel (its audio is there): the walk follows it. */
   private session: string | undefined
@@ -50,6 +62,8 @@ class Podcasts {
   /** Errors the panel reported, and how many moves the podcast made (tests read them). */
   lastError = ''
   private moves = 0
+  /** "Show why" asked (tests). */
+  private whyShown = 0
   /** When the podcast last asked the panel to seek: until the panel says it did, its older reports are stale. */
   private seekSent = 0
 
@@ -57,54 +71,84 @@ class Podcasts {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.25)
     this.item.command = 'codeNotes.podcastToggle'
     context.subscriptions.push(this.item, journeys.onDidChange(() => void this.scan()))
+    podcastReports.init(context, () => void this.scan())
     mapPanel.podcastFor = (lj, toUri) => this.episodeFor(lj, toUri)
     walk.onMoved = () => this.walkMoved()
   }
 
   has(lj: LoadedJourney): boolean { return this.eps.has(lj.key) }
   episode(lj: LoadedJourney): Episode | undefined { return this.eps.get(lj.key)?.ep }
+  /** What the Journeys view says about a journey's podcast: none, playable (with a line about what is wrong with it,
+   *  if anything), or unavailable and why. */
+  status(lj: LoadedJourney): { state: 'ok' | 'broken'; text?: string } | undefined {
+    const l = this.eps.get(lj.key)
+    if (l) return { state: 'ok', text: l.notice }
+    const b = this.broken.get(lj.key)
+    return b && { state: 'broken', text: b.reason }
+  }
 
-  /** Every journey's podcast read again (a journey or podcast file changed); the panel and the list follow. */
+  /** Every journey's podcast read again (a journey, podcast or audio file changed); the panel, the list and the status
+   *  bar follow. A file that has errors now while it played fine before keeps its last good version. */
   async scan(): Promise<void> {
     const next = new Map<string, Loaded>()
+    const broken = new Map<string, Broken>()
+    const reads: PodcastRead[] = []
     for (const lj of journeys.all()) {
-      const l = await this.read(lj)
-      if (l) next.set(lj.key, l)
+      const r = await readPodcast(lj, (u, size) => this.audioLen.get(`${u.path}:${size}`))
+      if (!r) continue
+      reads.push(r)
+      if (r.v.playable && r.v.episode && r.audio) {
+        next.set(lj.key, this.loaded(lj, r))
+        continue
+      }
+      const reason = r.v.problems.find((p) => p.level === 'error')?.message ?? 'it has errors'
+      // The file itself broke (half-written, a typo) while it plays and its audio is still there: the last good
+      // version plays on (paused or not played, the file is what it is now: unavailable).
+      const last = this.eps.get(lj.key)
+      const audioGone = r.v.problems.some((p) => p.code === 'audio-missing' || p.code === 'audio-empty' || p.code === 'audio-outside')
+      const playingIt = this.session === lj.key && (this.playing || !!last?.lastGood)
+      if (last && playingIt && !audioGone && last.file.toString() === r.file.toString()) next.set(lj.key, { ...last, notice: LAST_GOOD, lastGood: true, sig: last.lastGood ? last.sig : `${last.sig}:last-good` })
+      else broken.set(lj.key, { file: r.file, reason })
     }
-    const sig = (m: Map<string, Loaded>) => [...m].map(([k, l]) => `${k}=${l.sig}`).join('\n')
-    const changed = sig(next) !== sig(this.eps)
+    podcastReports.report(reads)
+    const sig = (m: Map<string, Loaded>, b: Map<string, Broken>) => [...m].map(([k, l]) => `${k}=${l.sig}|${l.notice ?? ''}`).concat([...b].map(([k, x]) => `${k}!${x.reason}`)).join('\n')
+    const changed = sig(next, broken) !== sig(this.eps, this.broken)
     this.eps = next
+    this.broken = broken
+    // The podcast played went (deleted, or it can't be played now): the panel's audio stops with it, and the status
+    // item goes.
+    if (this.session && !next.has(this.session)) {
+      this.session = undefined
+      this.playing = false
+      this.want = undefined
+    }
+    this.renderItem()
     if (!changed) return
     mapPanel.sendPodcast()
     journeysTree?.refresh()
   }
 
-  /** The podcast next to `lj`'s file, when there is one and its audio is there. */
-  private async read(lj: LoadedJourney): Promise<Loaded | undefined> {
-    const file = lj.uri.with({ path: podcastFileOf(lj.uri.path) })
-    const raw = await readText(file)
-    if (raw === undefined) return undefined
-    const p = parsePodcast(raw)
-    if (typeof p === 'string') {
-      log.warn(`podcast ${file.fsPath}: not played: ${p}`)
-      return undefined
+  /** A podcast that can be played, as the player keeps it. */
+  private loaded(lj: LoadedJourney, r: PodcastRead): Loaded {
+    const ep = r.v.episode!
+    const audio = r.audio!
+    const writtenFor = r.v.podcast?.journey.id
+    const forTitle = writtenFor && writtenFor !== lj.j.id ? journeys.all().find((x) => x.j.id === writtenFor)?.j.title : undefined
+    const fault = this.audioFault.get(`${audio.path}:${r.audioSize}`)
+    const notice = fault ?? playNotice(r.v.problems, forTitle)
+    return {
+      file: r.file, audio, audioSize: r.audioSize, ep, problems: r.v.problems, notice,
+      sig: `${r.raw.length}:${r.audioSize}:${JSON.stringify(ep.segments.map((s) => [s.start, s.step, s.beat]))}`,
     }
-    const audio = vscode.Uri.joinPath(file, '..', p.audio)
-    let size = 0
-    try { size = (await wfs.stat(audio)).size } catch {
-      log.warn(`podcast ${file.fsPath}: its audio ${p.audio} isn't there`)
-      return undefined
-    }
-    if (p.journey.id && p.journey.id !== lj.j.id) log.info(`podcast ${file.fsPath}: written for journey "${p.journey.id}", played with "${lj.j.id}" (the file next to it)`)
-    const ep = resolveEpisode(p, { steps: lj.j.steps.map((s) => ({ id: s.id, beats: s.scene?.beats?.length ?? 0 })) })
-    for (const w of ep.warnings) log.info(`podcast ${file.fsPath}: ${w}`)
-    return { file, audio, ep, sig: `${raw.length}:${size}:${JSON.stringify(ep.segments.map((s) => [s.start, s.step, s.beat]))}` }
   }
 
-  /** What the panel's bar gets for `lj` (undefined: no podcast). */
+  /** What the panel's bar gets for `lj` (undefined: no podcast; `unavailable`: one that can't be played, and why). */
   private episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string): unknown {
     const l = this.eps.get(lj.key)
-    if (!l) return undefined
+    if (!l) {
+      const b = this.broken.get(lj.key)
+      return b && { unavailable: b.reason }
+    }
     const { ep } = l
     return {
       src: toUri(l.audio),
@@ -114,7 +158,27 @@ class Podcasts {
       rate: gstate.get<number>(RATE_KEY) ?? 1,
       chapters: ep.chapters,
       segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step })),
+      ...(l.notice ? { notice: l.notice } : {}),
     }
+  }
+
+  /** The panel loaded the audio: its real length. Checked against the file (a cut-off audio, a wrong "duration"). */
+  onAudioMeta(lj: LoadedJourney, duration: number): void {
+    const l = this.eps.get(lj.key)
+    if (!l || !(duration > 0) || !Number.isFinite(duration)) return
+    const key = `${l.audio.path}:${l.audioSize}`
+    if (this.audioLen.get(key) === duration) return
+    this.audioLen.set(key, duration)
+    void this.scan()
+  }
+
+  /** "Show why" in the panel (or on a podcast that can't be played): the Problems view, on the podcast file. */
+  async showWhy(lj?: LoadedJourney): Promise<void> {
+    this.whyShown++
+    const j = lj ?? mapPanel.journey
+    const file = j && (this.eps.get(j.key)?.file ?? this.broken.get(j.key)?.file)
+    await vscode.commands.executeCommand('workbench.actions.view.problems')
+    if (file && !podcastReports.of(file).length) log.show(true)
   }
 
   private positions(): Record<string, number> { return state.get<Record<string, number>>(POS_KEY) ?? {} }
@@ -240,6 +304,28 @@ class Podcasts {
       mapPanel.takeFocus()
       return
     }
+    // A play() cut short by a pause or another source: what the reader asked for, not a failure.
+    if (message === 'AbortError') {
+      log.debug('podcast: a play was interrupted (paused, or another audio loaded)')
+      return
+    }
+    const lj = mapPanel.journey
+    const l = lj && this.eps.get(lj.key)
+    if (l && /^audio error/.test(message)) {
+      // The media pipeline's own words ("PIPELINE_ERROR_READ: FFmpegDemuxer …") mean nothing to an author: the file
+      // and what it most likely is.
+      const name = vscode.workspace.asRelativePath(l.audio, false)
+      const text = `The audio ${name} (${kb(l.audioSize)}) can't be played at ${clock(this.t)}: the file looks cut off or damaged`
+      log.warn(`podcast ${l.file.fsPath}: ${text} (${message})`)
+      const key = `${l.audio.path}:${l.audioSize}`
+      if (this.audioFault.get(key) !== text) {
+        this.audioFault.set(key, text)
+        this.eps.set(lj.key, { ...l, notice: text })
+        mapPanel.sendPodcast()
+        journeysTree?.refresh()
+      }
+      return
+    }
     log.warn(`podcast: ${message}`)
   }
 
@@ -269,11 +355,14 @@ class Podcasts {
   private async journeyFor(arg?: unknown): Promise<LoadedJourney | undefined> {
     if (arg !== undefined) {
       const lj = await pickJourney(arg)
-      if (lj && !this.has(lj)) vscode.window.setStatusBarMessage(`$(info) ${lj.j.title} has no podcast`, 3000)
+      if (lj && !this.has(lj)) this.cantPlay(lj)
       return lj && this.has(lj) ? lj : undefined
     }
     const here = [walk.tourJourney(), mapPanel.journey].find((x) => x && this.has(x))
     if (here) return here
+    // The journey here has a podcast that can't be played: why, not another journey's.
+    const broken = [walk.tourJourney(), mapPanel.journey].find((x) => x && this.broken.has(x.key))
+    if (broken) { this.cantPlay(broken); return undefined }
     const all = journeys.all().filter((x) => this.has(x))
     if (all.length <= 1) {
       if (!all.length) vscode.window.setStatusBarMessage('$(info) No journey here has a podcast', 3000)
@@ -281,6 +370,13 @@ class Podcasts {
     }
     const pick = await vscode.window.showQuickPick(all.map((x) => ({ label: x.j.title, description: clock(this.eps.get(x.key)!.ep.duration), lj: x })), { placeHolder: 'Play a journey podcast' })
     return pick?.lj
+  }
+
+  /** Asked to play a journey whose podcast can't be (or that has none): says why, with the way to the details. */
+  private cantPlay(lj: LoadedJourney): void {
+    const b = this.broken.get(lj.key)
+    if (!b) { vscode.window.setStatusBarMessage(`$(info) ${lj.j.title} has no podcast`, 3000); return }
+    void vscode.window.showWarningMessage(`The podcast of “${lj.j.title}” can't be played: ${b.reason}`, 'Show Why').then((a) => { if (a) void this.showWhy(lj) })
   }
 
   /** Space for the podcast: pause, or play (the session's journey; else as Play). */
@@ -315,8 +411,9 @@ class Podcasts {
     const v = viewAt(ep, this.t)
     const where = v.step ? `${v.step}/${lj.j.steps.length}` : mapPartName(ep, this.t)
     const onWalkItem = !!v.step && walk.touring() && tourState.key === lj.key
-    item.text = `${this.playing ? '$(debug-pause)' : '$(play)'} ${onWalkItem ? '' : `${where} · `}${clock(this.t)}`
-    item.tooltip = `${lj.j.title}: ${this.playing ? 'pause' : 'play'} the podcast (${clock(this.t)} of ${clock(ep.duration)})`
+    const l = this.eps.get(lj.key)!
+    item.text = `${this.playing ? '$(debug-pause)' : '$(play)'} ${onWalkItem ? '' : `${where} · `}${clock(this.t)}${l.lastGood ? ' $(warning)' : ''}`
+    item.tooltip = `${lj.j.title}: ${this.playing ? 'pause' : 'play'} the podcast (${clock(this.t)} of ${clock(ep.duration)})${l.notice ? `\n${l.notice}` : ''}`
     item.accessibilityInformation = { label: `Podcast ${this.playing ? 'playing' : 'paused'}, ${v.step ? `step ${v.step}` : where}, ${clock(this.t)}. ${this.playing ? 'Pause' : 'Play'}.` }
     item.show()
   }
@@ -328,9 +425,15 @@ class Podcasts {
       journeys: journeys.all().filter((x) => this.has(x)).map((x) => x.j.id),
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
       item: this.item?.text, itemShown: !!lj, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
+      why: this.whyShown,
+      broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
+      notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
+      links: Object.fromEntries([...this.eps].map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, brokenLinks(l.problems)])),
     }
   }
 }
+
+const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`)
 
 /** A part on the map (no step) by where it is: the first is the intro, the last the recap. */
 function mapPartName(ep: Episode, t: number): string {

@@ -456,6 +456,13 @@
         "icon": "$(play)"
       },
       {
+        "command": "codeNotes.podcastUnavailable",
+        "title": "Podcast Unavailable (the Journey's Tooltip Says Why)",
+        "category": "Code Notes",
+        "icon": "$(play)",
+        "enablement": "false"
+      },
+      {
         "command": "codeNotes.podcastToggle",
         "title": "Play or Pause the Journey Podcast",
         "category": "Code Notes"
@@ -1064,10 +1071,19 @@
         {
           "command": "codeNotes.playPodcast",
           "group": "inline@0",
-          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast/"
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast($|;)/"
+        },
+        {
+          "command": "codeNotes.podcastUnavailable",
+          "group": "inline@0",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastBroken/"
         }
       ],
       "commandPalette": [
+        {
+          "command": "codeNotes.podcastUnavailable",
+          "when": "false"
+        },
         {
           "command": "codeNotes.reply",
           "when": "false"

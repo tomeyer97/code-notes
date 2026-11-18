@@ -6,12 +6,15 @@
 // Needs common.js. Made by journey-map.js: JourneyPodcast({ post, stepTitle(n), onShown(h) }).
 //
 // In (journey-map.js routes them here):
-//   { type: 'podcast', episode? }  the journey's episode ({ src, title, duration, at, rate, chapters, segments }), or
-//                                  none (the bar goes)
+//   { type: 'podcast', episode? }  the journey's episode ({ src, title, duration, at, rate, chapters, segments,
+//                                  notice? }), or { unavailable: why } (a podcast that can't be played: one line
+//                                  saying so), or none (the bar goes). notice: what is wrong with one that plays
 //   { type: 'podcastCmd', action: 'play' | 'pause' | 'toggle' | 'skip' | 'seek' | 'part', by?, to?, dir? }
 // Out:
 //   { type: 'podcastTime', t, playing, rate, seek? }   where the audio is (seek: moved by a seek, not by playing)
 //   { type: 'podcastError', message }
+//   { type: 'podcastMeta', duration }   the audio's real length, once loaded (the extension checks the file against it)
+//   { type: 'podcastWhy' }              "Show why": the problems of the podcast file
 ;(function () {
   const { el, svgEl, runKey } = window.common
 
@@ -91,11 +94,18 @@
     const cap = el('div', 'pod-cap')
     const err = el('span', 'pod-err')
     err.hidden = true
+    // What is wrong with the podcast (or that it can't be played), and the way to the details.
+    const note = el('div', 'pod-note')
+    note.hidden = true
+    const noteText = el('span', 'pod-note-t')
+    const whyB = el('button', 'link pod-why', 'Show why')
+    whyB.onclick = () => post({ type: 'podcastWhy' })
+    note.append(noteText, whyB)
     const row = el('div', 'pod-row')
     const ctl = el('div', 'pod-ctl')
     ctl.append(prevB, backB, playB, fwdB, nextB)
     row.append(ctl, time, err, rateB)
-    root.append(tl, row, cap, audio)
+    root.append(note, tl, row, cap, audio)
     document.body.append(root)
 
     /** The episode shown ({ src, duration, chapters: [{ start, end, step }], segments: [{ start, end, text, step }] }). */
@@ -324,6 +334,7 @@
     // ---------- the audio ----------
 
     audio.addEventListener('loadedmetadata', () => {
+      if (Number.isFinite(audio.duration)) post({ type: 'podcastMeta', duration: audio.duration })
       if (startAt) { audio.currentTime = Math.min(startAt, duration()); startAt = 0 }
       build()
       draw()
@@ -354,13 +365,21 @@
       el: root,
       /** The journey's episode (none: the bar goes; the same audio again keeps playing). */
       set(e) {
+        const unavailable = e && e.unavailable
+        note.hidden = !(e && (e.notice || unavailable))
+        noteText.textContent = unavailable ? 'Podcast unavailable' : (e && e.notice) || ''
+        note.title = unavailable || (e && e.notice) || ''
+        root.classList.toggle('unavail', !!unavailable)
+        if (unavailable) e = undefined
         if (!e) {
           if (ep) { audio.pause(); audio.removeAttribute('src'); audio.load() }
           ep = undefined
-          root.hidden = true
-          document.body.classList.remove('has-pod')
-          podH = '0px'
-          document.documentElement.style.setProperty('--podH', '0px')
+          root.hidden = !unavailable
+          document.body.classList.toggle('has-pod', !!unavailable)
+          if (!unavailable) {
+            podH = '0px'
+            document.documentElement.style.setProperty('--podH', '0px')
+          }
           if (opts.onShown) opts.onShown(false)
           return
         }
@@ -392,7 +411,7 @@
         if (Object.hasOwn(actions, m.action)) actions[m.action]()
       },
       /** For tests: the audio's state. */
-      get state() { return { t: audio.currentTime, playing: playing(), paused: audio.paused, ready: audio.readyState, duration: duration(), error: err.hidden ? '' : err.textContent } },
+      get state() { return { t: audio.currentTime, playing: playing(), paused: audio.paused, ready: audio.readyState, duration: duration(), error: err.hidden ? '' : err.textContent, note: note.hidden ? '' : noteText.textContent } },
       get shown() { return !!ep },
       /** The journey's titles changed (another journey of the same id, a rename): the tip and labels follow. */
       redraw() { if (ep) draw() },

@@ -52,3 +52,12 @@ body.has-pod .body.wide .mapwrap { height: calc(100vh - var(--headH, 0px) - var(
   .pod-b.prev, .pod-b.next { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .pod-track, .pod-thumb { transition: none; } }
+
+/* What is wrong with the podcast (journey-podcast.js `notice`), or that it can't be played: one muted line and
+   "Show why". Unavailable: that line alone. */
+.pod-note { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 0.9em; color: var(--muted); }
+.pod-note[hidden] { display: none; }
+.pod-note-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pod-note::before { content: '⚠'; color: var(--warn); flex: none; }
+.pod-why { flex: none; }
+.pod.unavail .pod-tl, .pod.unavail .pod-row, .pod.unavail .pod-cap { display: none; }

@@ -40,6 +40,9 @@ export type MapMessage =
   // The podcast's bar (media/journey-podcast.js): where the audio is, and what went wrong.
   | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean }
   | { type: 'podcastError'; message: string }
+  // The audio's real length once loaded; "Show why" on a podcast with problems (src/podcast/validate.ts).
+  | { type: 'podcastMeta'; duration: number }
+  | { type: 'podcastWhy' }
   | { type: 'ask'; update?: boolean }
   | { type: 'restore' }
   | { type: 'authors' }
