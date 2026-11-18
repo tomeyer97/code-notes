@@ -7,7 +7,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
-import { sleep, test } from '../helpers'
+import { sleep, test, windowShot } from '../helpers'
 import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { ctx, journeysDir, tour, wsPath } from './context'
 import { waiter } from '../helpers'
@@ -78,6 +78,7 @@ export const podcastTests = [
       const f = await panelFrame()
       await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
       assert.match(await f.evaluate(() => (globalThis as any).document.querySelector('.pod-err').textContent), /Space/)
+      await windowShot('podcast-first-play', { wait: 300 })
       await f.click('.pod-b.play')
     }
     await until('playing, the time moving', () => pod().playing && pod().t > 0.6, 10000)
@@ -85,13 +86,14 @@ export const podcastTests = [
     assert.match(pod().item, /^\$\(debug-pause\) Intro · 0:0\d$/, `the status bar: ${pod().item}`)
     // The voice reaches step 1: its code opens, the animation lights beat 1's line.
     await until('3 s: step 1 opened on its first beat', at(1, 'pod.ts', 1), 8000)
-    assert.match(pod().item, /^\$\(debug-pause\) 1\/3 · /, `the status bar follows: ${pod().item}`)
+    await windowShot('podcast-playing', { wait: 300 })
+    assert.match(pod().item, /^\$\(debug-pause\) 0:0\d$/, `the status bar: the time (the walk's item beside it says 1/3): ${pod().item}`)
     // Space for the podcast (Ctrl+' Space): paused, and the walk stays.
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
     await sleep(500)
     assert.equal(tour().step, 1, 'pausing the podcast does not end the walk')
-    assert.match(pod().item, /^\$\(play\) 1\/3 · /)
+    assert.match(pod().item, /^\$\(play\) 0:0\d$/)
   }),
 
   test('podcast: a seek anywhere, forwards or backwards, puts the walk exactly where it is at that time', async () => {

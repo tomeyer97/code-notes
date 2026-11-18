@@ -304,7 +304,8 @@ class Podcasts {
 
   // ---------- the status bar ----------
 
-  /** While a podcast is in the panel: ⏸ (playing) or ▶, where it is in the journey, the time. Click: pause / play. */
+  /** While a podcast is in the panel: ⏸ (playing) or ▶ and the time; on the map, Intro or Recap (on a step, the walk's
+   *  own item beside it says which). Click: pause / play. */
   private renderItem(): void {
     const item = this.item
     if (!item) return
@@ -313,7 +314,8 @@ class Podcasts {
     const ep = this.eps.get(lj.key)!.ep
     const v = viewAt(ep, this.t)
     const where = v.step ? `${v.step}/${lj.j.steps.length}` : mapPartName(ep, this.t)
-    item.text = `${this.playing ? '$(debug-pause)' : '$(play)'} ${where} · ${clock(this.t)}`
+    const onWalkItem = !!v.step && walk.touring() && tourState.key === lj.key
+    item.text = `${this.playing ? '$(debug-pause)' : '$(play)'} ${onWalkItem ? '' : `${where} · `}${clock(this.t)}`
     item.tooltip = `${lj.j.title}: ${this.playing ? 'pause' : 'play'} the podcast (${clock(this.t)} of ${clock(ep.duration)})`
     item.accessibilityInformation = { label: `Podcast ${this.playing ? 'playing' : 'paused'}, ${v.step ? `step ${v.step}` : where}, ${clock(this.t)}. ${this.playing ? 'Pause' : 'Play'}.` }
     item.show()
