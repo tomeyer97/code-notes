@@ -13,11 +13,13 @@
 //     code:    { file, line, text } — the line that does this (the extension lights it)
 //     example: { label, value, lang? } — an example of what is in play there (shown at that line in the editor, not here)
 // Used by journey-map.js (the panel) and test/journey-scene/player.html (a page that plays a scene, for videos).
+// Needs common.js and code-paint.js before it; the web-app actor (journey-scene-app.js) comes after it and adds itself
+// to ACTORS through JourneyScene.parts.
 ;(function () {
-  const { el, svgEl, runKey } = window.common
+  const { el, svgEl, runKey, between, baseName } = window.common
+  const { showCode } = window.CodePaint
   const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
   const count = (list) => (list || []).length
-  const between = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
   const COL_GAP = 100, ROW_GAP = 20
   /** How many rows a growing list keeps in view (its newest; the box is sized for them). */
   const TERMINAL_ROWS = 6, FILE_ROWS = 8, CHAT_ROWS = 4
@@ -51,255 +53,6 @@
     })
   }
 
-  // Older journeys name the app actor's type `console` and its screens `run-dialog`, `run-page`, `login`, with flat
-  // fields (test, env, status, findings, timeline, chat, provider): all still read, as aliases and fallbacks.
-  const SCREEN_ALIAS = { 'run-dialog': 'dialog', 'run-page': 'detail', login: 'signin' }
-  const TONE_OF = { running: 'active', passed: 'good', failed: 'bad' }
-  const TONES = ['neutral', 'active', 'good', 'bad']
-  /** The detail page's chat: the last two messages in view. */
-  const APP_CHAT_ROWS = 2
-
-  /** A web app's window, in its own dark colours so it reads as an app in any editor theme. Everything it says is
-   *  data: `brand`, `logo` (1-2 letters), `tabs` (≤ 3, each screen marks its own) and three built-in screens, few and
-   *  large items on each:
-   *    `dialog`: a list page with a dialog over it: its title, the one chosen item, ≤ 2 label/value lines, a button;
-   *    `detail`: a title and a status chip, ≤ 2 cards (a severity dot each), the last timeline rows, and two
-   *              panes a beat can switch to: a live picture (`picture`) and a chat;
-   *    `signin`: a title, a notice, one button (`provider`).
-   *  Any other page is one of `pages`. A beat's `click` presses the button of the screen that is shown.
-   *  Each screen is built by its own function below: { el, cursor?, apply(st, click) }. */
-  function appActor(a) {
-    const brand = String(a.brand || 'App')
-    const tabs = (Array.isArray(a.tabs) ? a.tabs : []).slice(0, 3).map(String)
-    const e = frame({ ...a, type: 'app', label: a.label || 'Web app' })
-    const app = {
-      a,
-      brand,
-      logo: (cls) => el('span', `ap-logo${cls ? ` ${cls}` : ''}`, String(a.logo || brand.charAt(0) || 'A').slice(0, 2)),
-      // The app's bar: logo, name, its tabs (the screen's own one marked).
-      chrome(tab) {
-        const top = el('div', 'ap-top')
-        top.append(app.logo(), el('b', '', brand))
-        if (tabs.length) {
-          const ts = el('span', 'ap-tabs')
-          for (const t of tabs) ts.append(el('span', t === tab ? 'on' : '', t))
-          top.append(ts)
-        }
-        return top
-      },
-      screen(name, cls) {
-        const s = el('div', `ap-win scn-screen${cls ? ` ${cls}` : ''}`)
-        s.dataset.screen = name
-        return s
-      },
-    }
-    const item = String(obj(a.dialog).item || a.test || 'Item')
-    const screens = [
-      dialogScreen(app, obj(a.dialog), item),
-      detailScreen(app, obj(a.detail), item),
-      signinScreen(app, obj(a.signin)),
-      ...Object.entries(obj(a.pages)).map(([name, p]) => pageScreen(app, name, p)),
-    ]
-    e.append(...screens.map((s) => s.el))
-    return {
-      el: e,
-      apply(st, fwd, beat) {
-        const want = st.screen || a.screen || 'dialog'
-        const shown = SCREEN_ALIAS[want] || want
-        const click = fwd && beat.click
-        for (const s of screens) {
-          s.apply(st, click)
-          s.el.classList.toggle('on', s.el.dataset.screen === shown)
-        }
-        e.classList.toggle('clicking', !!click)
-        e.classList.remove('clicked')
-        // The click plays again: the cursors laid out where they start, then moved.
-        if (click) {
-          for (const s of screens) if (s.cursor) void s.cursor.getBoundingClientRect()
-          e.classList.add('clicked')
-        }
-      },
-    }
-  }
-
-  /** The app's `dialog` screen: the list page under a dialog with the chosen item, its lines and the button. */
-  function dialogScreen(app, dg, item) {
-    const s = app.screen('dialog')
-    s.append(app.chrome(dg.tab))
-    const table = el('div', 'ap-table')
-    table.append(el('div', 'ap-tr', item))
-    const dialog = el('div', 'ap-dialog')
-    dialog.append(el('div', 'ap-dh', dg.title || 'Confirm'))
-    const pick = el('div', 'ap-radio')
-    pick.append(el('i'), el('span', '', item))
-    const line = ([k, v]) => {
-      const r = el('div', 'ap-line')
-      r.append(el('b', '', String(k)), el('span', '', String(v)))
-      return r
-    }
-    const lines = Array.isArray(dg.lines) ? dg.lines : app.a.env ? [['Environment', app.a.env]] : []
-    const foot = el('div', 'ap-foot')
-    const start = el('span', 'ap-start', dg.button || 'OK')
-    const cursor = cursorEl('scn-cursor')
-    const wrap = el('span', 'ap-startwrap')
-    wrap.append(start, cursor)
-    foot.append(wrap)
-    dialog.append(pick, ...lines.slice(0, 2).filter((l) => Array.isArray(l)).map(line), foot)
-    const pad = el('div', 'ap-pad')
-    pad.append(table)
-    s.append(pad)
-    s.append(el('div', 'ap-scrim'), dialog)
-    return {
-      el: s,
-      cursor,
-      apply(st, click) { start.classList.toggle('busy', !!st.busy && !click) },
-    }
-  }
-
-  /** The app's `detail` screen: title and status chip, cards (they appear), timeline (rows appear); its two other panes
-   *  (a beat's `pane`): the live picture (`picture`: what it says under it, e.g. "connecting…") and the chat (`chat`:
-   *  how many of the messages [{ from: 'me' | 'them', text }] are there, the last two in view; `typing`: what is in the
-   *  message box). */
-  function detailScreen(app, dt, item) {
-    const a = app.a
-    const s = app.screen('detail')
-    s.append(app.chrome(dt.tab))
-    const head = el('div', 'ap-title')
-    const chip = el('span', 'ap-chip')
-    const chipText = el('span')
-    chip.append(el('i'), chipText)
-    head.append(el('b', '', dt.title || item), chip)
-    const body = el('div', 'ap-body')
-    const none = el('div', 'ap-none', String(dt.empty || 'Nothing yet'))
-    body.append(none)
-    const cards = (dt.cards || a.findings || []).slice(0, 2).map((f) => {
-      const c = el('div', 'ap-card')
-      c.title = f.sev || ''
-      c.append(el('i', `ap-sev ${String(f.sev || '').toLowerCase()}`), el('span', 'ap-ctitle', f.title))
-      body.append(c)
-      return c
-    })
-    const timeline = el('div', 'ap-tl')
-    const events = (dt.timeline || a.timeline || []).map((t) => {
-      const r = el('div', 'ap-ev')
-      r.append(el('i'), el('span', '', t))
-      timeline.append(r)
-      return r
-    })
-    body.append(timeline)
-    const picture = el('div', 'ap-pic')
-    const pictureWin = el('div', 'ap-picwin')
-    pictureWin.append(el('i'), el('b'), el('b'))
-    const pictureText = String(dt.picture || 'live view')
-    const pictureNote = el('span', 'ap-picnote', pictureText)
-    picture.append(pictureWin, pictureNote)
-    const chat = el('div', 'ap-chat')
-    const msgs = (dt.chat || a.chat || []).map((m) => {
-      const d = el('div', `ap-msg ${m.from === 'me' || m.from === 'you' ? 'me' : 'them'}`, m.text)
-      chat.append(d)
-      return d
-    })
-    const placeholder = String(dt.placeholder || 'Write a message…')
-    const box = el('div', 'ap-box', placeholder)
-    chat.append(box)
-    s.append(head, body, picture, chat)
-    return {
-      el: s,
-      apply(st) {
-        // Its status, how many cards and timeline rows are there, which one just arrived.
-        const status = String(st.status || dt.status || a.status || 'New')
-        const tone = st.tone || dt.tone || TONE_OF[status.toLowerCase()] || 'neutral'
-        chipText.textContent = status
-        chip.className = `ap-chip ${TONES.includes(tone) ? tone : 'neutral'}`
-        const shownCards = st.cards !== undefined ? st.cards : st.findings || 0
-        const newCard = st.newCard !== undefined ? st.newCard : st.newFinding
-        none.classList.toggle('off', shownCards > 0)
-        cards.forEach((c, i) => {
-          c.classList.toggle('on', i < shownCards)
-          c.classList.toggle('new', newCard === i)
-        })
-        // The last rows that are there (a longer timeline scrolls in the app): three, two under two cards.
-        const keep = shownCards >= 2 && cards.length >= 2 ? 2 : 3
-        showLast(events, st.events || 0, keep, (i) => st.newEvent === i, 'new')
-        s.dataset.pane = st.pane === 'desktop' ? 'picture' : st.pane || ''
-        pictureNote.textContent = st.picture || st.desktop || pictureText
-        showLast(msgs, st.chat || 0, APP_CHAT_ROWS, (i) => st.newChat === i, 'new')
-        box.textContent = st.typing || placeholder
-        box.classList.toggle('typed', !!st.typing)
-      },
-    }
-  }
-
-  /** The app's `signin` screen: logo, title, one button; `notice` (or `ended`): its notice; `redirecting`: the button
-   *  after it was pressed. */
-  function signinScreen(app, sg) {
-    const s = app.screen('signin', 'ap-signinpage')
-    const provider = sg.provider || app.a.provider || ''
-    const note = el('div', 'ap-notice', sg.notice || 'Your session ended')
-    const signin = el('span', 'ap-signin')
-    const cursor = cursorEl('scn-cursor')
-    const wrap = el('span', 'ap-signwrap')
-    wrap.append(signin, cursor)
-    s.append(app.logo('big'), el('div', 'ap-stitle', sg.title || `Sign in to ${app.brand}`), note, wrap)
-    const label = sg.button || (provider ? `Sign in with ${provider}` : 'Sign in')
-    return {
-      el: s,
-      cursor,
-      apply(st) {
-        note.classList.toggle('on', !!(st.notice || st.ended))
-        signin.textContent = st.redirecting ? `Redirecting to ${provider || 'the sign-in provider'}…` : label
-        signin.classList.toggle('busy', !!st.redirecting)
-      },
-    }
-  }
-
-  /** Any other page of the app (`pages: { name: { tab, title, chip?, rows: [[label, value]], banner?, button? } }`),
-   *  shown by `screen: name`: `rows` of them are there (all when not set), `hiRow` is the one just changed, `banner`
-   *  shows its notice, a beat's `click` presses its button. */
-  function pageScreen(app, name, p) {
-    const s = app.screen(name, 'ap-page')
-    s.append(app.chrome(p.tab))
-    const head = el('div', 'ap-title')
-    head.append(el('b', '', p.title || name))
-    if (p.chip) {
-      const tone = TONE_OF[String(p.chip).toLowerCase()] || (TONES.includes(p.tone) ? p.tone : 'neutral')
-      const c = el('span', `ap-chip ${tone}`)
-      c.append(el('i'), el('span', '', p.chip))
-      head.append(c)
-    }
-    const body = el('div', 'ap-pagebody')
-    const banner = el('div', 'ap-banner', p.banner || '')
-    body.append(banner)
-    const rows = (p.rows || []).slice(0, 4).map(([k, v]) => {
-      const r = el('div', 'ap-row')
-      r.append(el('b', '', k), el('span', '', v))
-      body.append(r)
-      return r
-    })
-    let cursor
-    if (p.button) {
-      const button = el('span', 'ap-start', p.button)
-      cursor = cursorEl('scn-cursor')
-      const wrap = el('span', 'ap-startwrap')
-      wrap.append(button, cursor)
-      const foot = el('div', 'ap-foot')
-      foot.append(wrap)
-      body.append(foot)
-    }
-    s.append(head, body)
-    return {
-      el: s,
-      cursor,
-      apply(st) {
-        rows.forEach((r, i) => {
-          r.classList.toggle('on', st.rows === undefined || i < st.rows)
-          r.classList.toggle('hi', st.hiRow === i)
-        })
-        banner.classList.toggle('on', !!st.banner)
-      },
-    }
-  }
-
   /** A service: the function at work and what it does, ticked off one by one. */
   function serviceActor(a) {
     const e = frame(a)
@@ -320,8 +73,13 @@
     }
   }
 
-  /** A row's status pill: amber while waiting or failed, the accent while it runs. */
-  const pillTone = (c) => (c === 'queued' || c === 'failed' ? ' warn' : c === 'starting' || c === 'running' ? ' live' : '')
+  /** A row's status pill: amber while waiting or failed, the accent while it runs. Its own scale (`.scn-pill`): a table
+   *  row's states, in the editor's colours; the app's status chips (journey-scene-app.js) are the app's. */
+  function pillTone(c) {
+    if (c === 'queued' || c === 'failed') return ' warn'
+    if (c === 'starting' || c === 'running') return ' live'
+    return ''
+  }
 
   /** A table / collection: rows; `show` of them are there, row `hi` is the one just written. */
   function tableActor(a) {
@@ -590,94 +348,46 @@
     }
   }
 
+  // The boxes' heights (scene px): a top part (the label, a header) and rows, each row as high as its rule in
+  // journey-scene.css says (the line-height, or the height and the gap).
+  /** A service: its top, its function's line (`.scn-fn`), a check (`.scn-check`); between SERVICE_MIN and SERVICE_MAX. */
+  const SERVICE_TOP = 62, SERVICE_FN_PX = 32, SERVICE_CHECK_PX = 25, SERVICE_MIN = 150, SERVICE_MAX = 240
+  /** A table: its top and a row (`.scn-row`, 38 px and the gap); at least TABLE_MIN. */
+  const TABLE_TOP = 58, TABLE_ROW_PX = 40, TABLE_MIN = 150
+  /** A cluster: alone 140; with a cluster inside it (`.scn-inner`), that part, under its own pods or alone. */
+  const CLUSTER_H = 140, CLUSTER_PODS_TOP = 126, CLUSTER_INNER_ALONE_TOP = 50, CLUSTER_INNER_H = 122
+  /** A terminal (`.tm-win` line-height), a file (`.fl-win`), a chat (`.ch-msg` and the gap): top and row. */
+  const TERMINAL_TOP = 66, TERMINAL_ROW_PX = 22, FILE_TOP = 60, FILE_ROW_PX = 20, CHAT_TOP = 58, CHAT_ROW_PX = 36
+
   /**
    * Every actor type: its builder and its box ([w, h] in scene px, for its content). Sized so that at a 400 px wide
    * scene the camera's scale is about 1 (camera(): min(vw / (w + 56), vh / (h + 36)), view ≈ 398 × 294), and every
    * text rule is at least 11.5 px: nothing on screen below 11 px. A table grows with its rows (rows never past the box);
-   * a service is as tall as its checks (no empty box); a list keeps its newest rows in view.
+   * a service is as tall as its checks (no empty box); a list keeps its newest rows in view. The web app (`app`, old
+   * name `console`) is added by journey-scene-app.js.
    */
   const ACTORS = {
-    app: { make: appActor, size: () => [320, 250] },
-    console: { make: appActor, size: () => [320, 250] }, // the app's old name
     browser: { make: browserActor, size: () => [320, 250] },
-    service: { make: serviceActor, size: (a) => [290, between(62 + (a.fn ? 32 : 0) + 25 * count(a.checks), 150, 240)] },
-    table: { make: tableActor, size: (a) => [350, Math.max(150, 58 + 40 * count(a.rows))] },
-    cluster: { make: clusterActor, size: (a) => [350, a.inner ? (count(a.pods) ? 126 : 50) + 122 : 140] },
-    terminal: { make: terminalActor, size: (a) => [320, 66 + 22 * between(count(a.lines), 3, TERMINAL_ROWS)] },
-    file: { make: fileActor, size: (a) => [320, 60 + 20 * between(count(a.lines), 3, FILE_ROWS)] },
-    chat: { make: chatActor, size: (a) => [320, 58 + 36 * between(count(a.messages), 2, CHAT_ROWS)] },
+    service: { make: serviceActor, size: (a) => [290, serviceH(a)] },
+    table: { make: tableActor, size: (a) => [350, Math.max(TABLE_MIN, TABLE_TOP + TABLE_ROW_PX * count(a.rows))] },
+    cluster: { make: clusterActor, size: (a) => [350, clusterH(a)] },
+    terminal: { make: terminalActor, size: (a) => [320, TERMINAL_TOP + TERMINAL_ROW_PX * rowsShown(a.lines, 3, TERMINAL_ROWS)] },
+    file: { make: fileActor, size: (a) => [320, FILE_TOP + FILE_ROW_PX * rowsShown(a.lines, 3, FILE_ROWS)] },
+    chat: { make: chatActor, size: (a) => [320, CHAT_TOP + CHAT_ROW_PX * rowsShown(a.messages, 2, CHAT_ROWS)] },
     queue: { make: queueActor, size: () => [350, 132] },
     gauge: { make: gaugeActor, size: () => [350, 132] },
   }
-
-  // ---------- the beat's code under the caption ----------
-
-  // Colours that read as code in any theme (the panel can't have the editor's own): comments, strings, numbers,
-  // keywords and called names, by one pattern for every language (a line at a time, so a block comment's inner
-  // lines stay plain).
-  const KEYWORDS = new Set([
-    'func', 'function', 'return', 'if', 'else', 'for', 'while', 'switch', 'case', 'default', 'break', 'continue', 'go',
-    'defer', 'var', 'const', 'let', 'type', 'struct', 'interface', 'import', 'export', 'from', 'package', 'class',
-    'extends', 'new', 'async', 'await', 'try', 'catch', 'finally', 'throw', 'range', 'map', 'chan', 'select', 'def', 'in',
-    'of', 'not', 'and', 'or', 'is', 'None', 'True', 'False', 'true', 'false', 'nil', 'null', 'undefined', 'this', 'self',
-  ])
-  /** One token per match, by the group it fills. */
-  const TOKEN = new RegExp([
-    /(\/\/.*$|\/\*.*?(?:\*\/|$))/.source, // 1: a // or /* comment
-    /(#.*$)/.source, // 2: a # comment (where # starts one)
-    /("(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?|`[^`]*`?)/.source, // 3: a string
-    /(\b\d[\w.]*)/.source, // 4: a number
-    /([A-Za-z_$][\w$]*)/.source, // 5: a name
-  ].join('|'), 'g')
-  /** Files where # starts a comment. */
-  const HASH_COMMENTS = /\.(py|sh|ya?ml|toml|rb)$|Dockerfile|Makefile/
-
-  /** The token class (scn-tk-<class>) of match `m` in `text`: c (comment), s, n, k (keyword), f (a called name), or
-   *  '' (left plain). */
-  function tokenClass(m, text, hash) {
-    if (m[1]) return 'c'
-    if (m[2]) return hash ? 'c' : ''
-    if (m[3]) return 's'
-    if (m[4]) return 'n'
-    if (KEYWORDS.has(m[5])) return 'k'
-    return text[TOKEN.lastIndex] === '(' ? 'f' : ''
+  /** How many rows of `list` a box has room for: at least `min`, at most the `max` it keeps in view. */
+  function rowsShown(list, min, max) {
+    return between(count(list), min, max)
   }
-
-  /** `text` (one line) into `into`, coloured. `hash`: # starts a comment in this file. */
-  function paintCode(into, text, hash) {
-    TOKEN.lastIndex = 0
-    let at = 0, m
-    while ((m = TOKEN.exec(text))) {
-      const cls = tokenClass(m, text, hash)
-      // A # that is no comment here: only the sign is skipped, the rest is read on.
-      if (m[2] && !hash) { TOKEN.lastIndex = m.index + 1; continue }
-      if (!cls) continue
-      if (m.index > at) into.append(text.slice(at, m.index))
-      into.append(el('span', `scn-tk-${cls}`, m[0]))
-      at = TOKEN.lastIndex
-    }
-    if (at < text.length) into.append(text.slice(at))
+  function serviceH(a) {
+    const h = SERVICE_TOP + (a.fn ? SERVICE_FN_PX : 0) + SERVICE_CHECK_PX * count(a.checks)
+    return between(h, SERVICE_MIN, SERVICE_MAX)
   }
-
-  /** The beat's line and a few around it (`c`: { file, line, from, lines }) into `codeEl`; none: hidden. */
-  function showCode(codeEl, c) {
-    codeEl.textContent = ''
-    codeEl.hidden = !c || !c.lines || !c.lines.length
-    if (codeEl.hidden) return
-    const head = el('div', 'scn-code-file', `${String(c.file).split('/').pop()}:${c.line}`)
-    head.title = c.file
-    codeEl.append(head)
-    // Without the indentation they share: the part that matters stays in view.
-    const hash = HASH_COMMENTS.test(String(c.file))
-    const ls = c.lines.map((t) => String(t).replace(/\t/g, '  '))
-    const cut = Math.min(...ls.filter((t) => t.trim()).map((t) => t.length - t.trimStart().length), 99)
-    ls.forEach((t, k) => {
-      const row = el('div', `scn-code-line${c.from + k === c.line ? ' on' : ''}`)
-      const tx = el('span', 'scn-code-t')
-      paintCode(tx, t.trim() ? t.slice(cut) : '', hash)
-      row.append(el('span', 'scn-code-n', String(c.from + k)), tx)
-      codeEl.append(row)
-    })
+  function clusterH(a) {
+    if (!a.inner) return CLUSTER_H
+    return (count(a.pods) ? CLUSTER_PODS_TOP : CLUSTER_INNER_ALONE_TOP) + CLUSTER_INNER_H
   }
 
   // ---------- a scene's layout and beats (data in, data out) ----------
@@ -783,6 +493,14 @@
   }
 
 
+  /** The camera's margin around the actor it looks at (scene px, both sides together), and its closest zoom. */
+  const CAMERA_PAD_W = 56, CAMERA_PAD_H = 36, CAMERA_MAX_SCALE = 2.4
+  /** The view: tall enough for one actor close up (VIEW_MIN_H, or VIEW_W_SHARE of its width), never most of the
+   *  window (VIEW_WINDOW_SHARE of it, at most VIEW_MAX_H). */
+  const VIEW_MIN_H = 220, VIEW_MAX_H = 560, VIEW_W_SHARE = 0.74, VIEW_WINDOW_SHARE = 0.52
+  /** play(): a beat is held READ_MS, and READ_MS_PER_CHAR for each character of its caption (videos). */
+  const READ_MS = 1600, READ_MS_PER_CHAR = 55
+
   /** opts: { onBeat(i), onClose(), onNextStep?(), height? }. `onNextStep`: at the last beat › becomes "Next step ›". */
   function create(opts) {
     opts = opts || {}
@@ -805,8 +523,8 @@
     /** The step's own file (a beat's code in another one names its file), and whether a next step follows. */
     let stepFile = ''
     let hasNext = false
-    /** The view's size when last laid out ("w x h"). */
-    let size = ''
+    /** The view's size when last laid out ({ w, h }; undefined: not yet). */
+    let size
 
     function build() {
       world.textContent = ''
@@ -841,7 +559,7 @@
       if (!vw || !vh || !scene) return
       const r = rects[focusOf(scene, rects, beat)]
       if (!r) return
-      const s = Math.min(vw / (r.w + 56), vh / (r.h + 36), 2.4)
+      const s = Math.min(vw / (r.w + CAMERA_PAD_W), vh / (r.h + CAMERA_PAD_H), CAMERA_MAX_SCALE)
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2
       world.style.transform = `translate(${vw / 2 - cx * s}px, ${vh / 2 - cy * s}px) scale(${s})`
     }
@@ -849,16 +567,19 @@
     function layout() {
       const vw = view.clientWidth
       if (!vw) return
-      // Tall enough for one actor close up; never most of the window.
-      view.style.height = `${opts.height ? opts.height : Math.round(Math.max(220, Math.min(vw * 0.74, window.innerHeight * 0.52, 560)))}px`
+      view.style.height = `${opts.height ? opts.height : viewHeight(vw)}px`
       // A pill in flight when the size changes would end wherever the old camera put it.
-      const sz = `${vw}x${view.clientHeight}`
-      if (size && sz !== size && packet) packet.className = 'scn-packet'
+      const sz = { w: vw, h: view.clientHeight }
+      if (size && (sz.w !== size.w || sz.h !== size.h) && packet) packet.className = 'scn-packet'
       size = sz
       camera()
     }
+    /** The view's height at width `vw` (px). */
+    function viewHeight(vw) {
+      const h = Math.min(vw * VIEW_W_SHARE, window.innerHeight * VIEW_WINDOW_SHARE, VIEW_MAX_H)
+      return Math.round(Math.max(VIEW_MIN_H, h))
+    }
 
-    const base = (f) => String(f || '').split('/').pop()
     function apply(fwd) {
       const b = scene.beats[beat]
       const st = stateAt(scene, beat)
@@ -878,9 +599,15 @@
       if (!b.code) showCode(codeEl, undefined)
       const f = b.code && b.code.file
       const other = !!f && !!stepFile && f !== stepFile
-      file.textContent = other ? base(f) : ''
+      file.textContent = other ? baseName(f) : ''
       file.title = other ? f : ''
       file.hidden = !other
+      updateNav()
+      camera()
+    }
+
+    /** ‹ and › for the beat on screen. */
+    function updateNav() {
       const last = beat === scene.beats.length - 1
       // Never disable or hide the button that has the focus: the focus would drop to the page.
       const focused = document.activeElement
@@ -894,7 +621,6 @@
       next.title = toStep ? 'Next step' : 'Next (→)'
       next.hidden = last && !hasNext
       next.disabled = false
-      camera()
     }
 
     function go(i, quiet) {
@@ -955,10 +681,16 @@
       restart() { if (scene) { beat = 0; apply(true); if (opts.onBeat) opts.onBeat(0) } },
       /** Plays every beat once, each held long enough to read (videos). */
       play(done, hold) {
+        const readMs = (b) => READ_MS + READ_MS_PER_CHAR * ((b.caption || '').length + (b.muted || '').length)
         const step = () => {
           const b = scene.beats[beat]
-          const ms = b.hold || (hold ? hold(b) : 1600 + 55 * ((b.caption || '').length + (b.muted || '').length))
-          timer = setTimeout(() => { if (beat >= scene.beats.length - 1) { if (done) done() } else { go(beat + 1); step() } }, ms)
+          const ms = b.hold || (hold ? hold(b) : readMs(b))
+          timer = setTimeout(() => {
+            if (beat < scene.beats.length - 1) {
+              go(beat + 1)
+              step()
+            } else if (done) done()
+          }, ms)
         }
         step()
       },
@@ -966,5 +698,7 @@
     }
   }
 
-  window.JourneyScene = { create }
+  /** What journey-scene-app.js builds its actor from, and where it adds it. */
+  const parts = { frame, cursorEl, showLast, obj, ACTORS }
+  window.JourneyScene = { create, parts }
 })()

@@ -1,4 +1,5 @@
-// The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only. Needs common.js.
+// The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only. Needs common.js (its QSTATE: how
+// a question's state looks) and checkAnswer.js (the answer box under the selected question), loaded before it.
 // In:
 //   { type: 'check', view }     the view to draw (src/check/viewModel.ts CheckView, or null)
 //   { type: 'test', click }     click this selector (integration tests)
@@ -16,47 +17,64 @@
 //   With checkAnswer.js's, these are src/check/viewMessages.ts CHECK_VIEW_REQUESTS and CHECK_VIEW_REPORTS (a name added
 //   here goes there too; test/checkViewMessages.test.ts compares them).
 ;(function () {
-  const { el, button, connect, onMessages, runKey, overflowing, QSTATE } = window.common
+  const { el, button, joinDots, baseName, connect, onMessages, rovingKeys, watched, WATCHED, overflowing, QSTATE } =
+    window.common
+  /** The answer box (checkAnswer.js): drawn under the selected row; keeps the keyboard across a render. */
+  const answer = window.checkAnswer
   const { post } = connect()
   const app = document.getElementById('app')
   /** The view (src/check/viewModel.ts CheckView), or null: no repository. */
   let V
 
   function render() {
-    const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : undefined
-    const keep = window.checkAnswer && window.checkAnswer.before()
+    const active = document.activeElement
+    const focused = active && active.dataset ? active.dataset.id : undefined
+    const keep = answer.before()
     app.textContent = ''
-    if (!V) { app.append(el('p', 'muted', 'Open a git repository to check your understanding of a change.')); report(); return }
+    if (!V) {
+      app.append(el('p', 'muted', 'Open a git repository to check your understanding of a change.'))
+      report()
+      return
+    }
     app.append(header(V))
-    if (V.busy) app.append(el('p', 'busy', V.busy))
+    if (V.busy) app.append(watched(el('p', 'busy', V.busy)))
     // The one button right under where the check stands (never below the questions, out of sight).
     if (V.action) app.append(footer(V))
-    // The tour of the change: one quiet link (walking it is optional; the rows go straight to a question).
-    if (V.tour && V.tour.action) app.append(button('link tour', V.tour.label, () => post({ type: V.tour.action === 'walk' ? 'tour' : 'writeTour' })))
-    else if (V.tour) app.append(el('p', 'busy tour', V.tour.label))
+    if (V.tour) app.append(tourLink(V.tour))
     if (V.rows.length) {
       const ol = el('ol', 'rows')
       ol.setAttribute('aria-label', 'Questions')
       for (const r of V.rows) ol.append(row(r))
       app.append(ol)
     }
-    if (focused) { const again = app.querySelector(`button.open[data-id="${focused}"]`); if (again) again.focus() }
-    if (window.checkAnswer) window.checkAnswer.after(keep)
+    if (focused) {
+      const again = app.querySelector(`button.open[data-id="${focused}"]`)
+      if (again) again.focus()
+    }
+    answer.after(keep)
     report()
+  }
+
+  /** The tour of the change: one quiet link (walking it is optional; the rows go straight to a question), or one
+   *  muted line while it is written. */
+  function tourLink(tour) {
+    if (!tour.action) return watched(el('p', 'busy tour', tour.label))
+    const type = tour.action === 'walk' ? 'tour' : 'writeTour'
+    return watched(button('link tour', tour.label, () => post({ type })))
   }
 
   /** Where the check stands: its title, the rule, who, a notice; a failure; what setup said; a merge request's link. */
   function header(V) {
     const h = el('header', `tone-${V.tone}`)
-    h.append(el('p', 'title', V.title))
-    if (V.line) h.append(el('p', 'line', V.line))
-    if (V.who) h.append(el('p', 'who', V.who))
-    if (V.notice) h.append(el('p', 'notice', V.notice))
+    h.append(watched(el('p', 'title', V.title)))
+    if (V.line) h.append(watched(el('p', 'line', V.line)))
+    if (V.who) h.append(watched(el('p', 'who', V.who)))
+    if (V.notice) h.append(watched(el('p', 'notice', V.notice)))
     if (V.failed) h.append(failure(V.failed))
-    if (V.said) h.append(el('p', 'setup said', V.said))
+    if (V.said) h.append(watched(el('p', 'setup said', V.said)))
     // Pushed a branch without a merge request: the link the push printed.
     if (V.mr) {
-      const p = el('p', 'mr')
+      const p = watched(el('p', 'mr'))
       const b = button('link', 'Open merge request ↗', () => post({ type: 'openMr' }))
       b.title = V.mr
       p.append(b)
@@ -68,16 +86,17 @@
   /** Writing the questions failed: why, and Retry (the model setting when it was the model). Claude Code not found:
    *  install it, or say where it is; meanwhile a reviewer's approval waives the check. */
   function failure(f) {
-    const p = el('p', 'failed')
+    const p = watched(el('p', 'failed'))
     const retry = button('link', 'Retry', () => post({ type: 'retry' }))
     if (f.path) {
       const install = button('link', 'Install ↗', () => post({ type: 'install' }))
       const where = button('link', 'Set its path', () => post({ type: 'pathSetting' }))
-      p.append(`${f.text} `, install, ' · ', where, ' · ', retry, el('span', 'waive', " (or a reviewer's approval waives the check)"))
-    } else {
-      p.append(`${f.text} `, retry)
-      if (f.setting) p.append(' · ', button('link', 'Settings', () => post({ type: 'modelSetting' })))
-    }
+      const waive = el('span', 'waive', " (or a reviewer's approval waives the check)")
+      p.append(`${f.text} `, ...joinDots(install, where, retry), waive)
+    } else if (f.setting) {
+      const settings = button('link', 'Settings', () => post({ type: 'modelSetting' }))
+      p.append(`${f.text} `, ...joinDots(retry, settings))
+    } else p.append(`${f.text} `, retry)
     return p
   }
 
@@ -85,9 +104,9 @@
    *  Keep both answers, the file itself. */
   function footer(V) {
     const f = el('footer')
-    if (V.commits) f.append(el('p', 'commits', V.commits))
+    if (V.commits) f.append(watched(el('p', 'commits', V.commits)))
     for (const a of V.also || []) {
-      const l = el('label', 'also')
+      const l = watched(el('label', 'also'))
       const c = el('input')
       c.type = 'checkbox'
       c.checked = a.on
@@ -96,22 +115,25 @@
       l.append(c, el('span', '', a.label))
       f.append(l)
     }
-    f.append(button('primary', V.action.label, () => post({ type: V.action.id })))
+    f.append(watched(button('primary', V.action.label, () => post({ type: V.action.id }))))
     if (V.action.id === 'merge') f.append(' ', button('link open-file', 'Open the file', () => post({ type: 'openFile' })))
     return f
   }
 
   /** File names only: lines are what a click shows. */
-  const fileName = (w) => w.split('/').pop().replace(/:\d+(-\d+)?$/, '')
+  const fileName = (where) => baseName(where).replace(/:\d+(-\d+)?$/, '')
 
   /** A question row's words: its tooltip (the whole question and where), its meta line, what a screen reader says. */
   function describe(r) {
     const step = r.step ? ` · after step ${r.step} of the tour` : ''
     const also = r.also.length ? `\nAlso: ${r.also.join(', ')}` : ''
+    const files = [fileName(r.where), ...r.also.map((a) => `+ ${fileName(a)}`)]
+    const metaParts = [r.kind, r.step ? `step ${r.step}` : '', ...files, r.word]
+    const said = r.word || (r.state === 'pass' ? 'passed' : 'to answer')
     return {
       title: `${r.text}\n${r.kind}${step} · ${r.where}${also}`,
-      meta: [r.kind, r.step ? `step ${r.step}` : '', fileName(r.where), ...r.also.map((a) => `+ ${fileName(a)}`), r.word].filter(Boolean).join(' · '),
-      aria: `${r.n}. ${r.text.replace(/`/g, '')} (${r.word || (r.state === 'pass' ? 'passed' : 'to answer')})`,
+      meta: metaParts.filter(Boolean).join(' · '),
+      aria: `${r.n}. ${r.text.replace(/`/g, '')} (${said})`,
     }
   }
 
@@ -126,14 +148,14 @@
     const icon = el('span', 'icon', (Object.hasOwn(QSTATE, r.state) && QSTATE[r.state].icon) || '○')
     icon.setAttribute('aria-hidden', 'true')
     const body = el('span', 'body')
-    const text = el('span', 'text')
+    const text = watched(el('span', 'text'))
     r.text.split('`').forEach((part, k) => { if (part) text.append(k % 2 ? el('code', null, part) : part) })
-    body.append(text, el('span', 'meta', d.meta))
-    if (r.flag) body.append(el('span', 'flag', `⚠ ${r.flag}`))
+    body.append(text, watched(el('span', 'meta', d.meta)))
+    if (r.flag) body.append(watched(el('span', 'flag', `⚠ ${r.flag}`)))
     b.setAttribute('aria-label', d.aria)
     b.append(icon, body)
     li.append(b)
-    if (window.checkAnswer && V.answer && V.answer.id === r.id) li.append(window.checkAnswer.box(V.answer, r, post))
+    if (V.answer && V.answer.id === r.id) li.append(answer.box(V.answer, r, post))
     return li
   }
 
@@ -142,20 +164,15 @@
     const rows = [...app.querySelectorAll('button.open')]
     const i = rows.indexOf(document.activeElement)
     if (i < 0) return
-    const to = (j) => () => {
-      const r = rows[Math.max(0, Math.min(rows.length - 1, j))]
+    // The arrows select a question: its answer box shows under it (Enter, a click or Tab goes into it).
+    const selectRow = (r) => {
       r.focus()
-      // The arrows select a question: its answer box shows under it (Enter, a click or Tab goes into it).
       post({ type: 'select', id: r.dataset.id })
     }
-    runKey(e, { ArrowDown: to(i + 1), ArrowUp: to(i - 1), Home: to(0), End: to(rows.length - 1) })
+    rovingKeys(e, rows, i, { prev: 'ArrowUp', next: 'ArrowDown' }, selectRow)
   })
 
-  // What a person would notice: anything wider than the view, or a cut line.
-  const WATCHED = [
-    '.title', '.line', '.who', '.notice', '.setup', '.mr', '.failed', '.text', '.meta', '.flag', '.commits', '.also',
-    'button.primary', '.busy', '.answer .box', '.answer .grade p', '.answer .next', '.tour',
-  ].join(', ')
+  // What a person would notice: anything wider than the view, or a cut line (in the elements made watched()).
   function report() {
     requestAnimationFrame(() => {
       const overflow = overflowing(app, WATCHED, (e) => `${e.className || e.tagName}: ${e.textContent.slice(0, 30)}`)
@@ -171,6 +188,6 @@
       const t = document.querySelector(m.click)
       if (t) t.click()
     },
-  }, (m) => { if (window.checkAnswer) window.checkAnswer.message(m, post) })
+  }, (m) => answer.message(m, post))
   post({ type: 'ready' })
 })()

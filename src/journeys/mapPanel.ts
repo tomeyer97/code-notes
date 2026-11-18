@@ -311,13 +311,17 @@ export class MapPanel implements vscode.Disposable {
   private html(w: vscode.Webview, loading?: string): string {
     const file = (...p: string[]) => vscode.Uri.joinPath(this.extensionUri, ...p)
     return webviewPage(w, {
-      css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-scene.css')],
+      css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-home.css'), file('media', 'journey-scene.css')],
       body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
       // journeyModel.js is a CommonJS module loaded as a plain script.
       inline: 'var exports = {}',
+      // In this order: each of media/ needs the ones before it (its header says which).
       scripts: [
-        file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'), file('media', 'common.js'), file('media', 'journey-layout.js'),
-        file('media', 'journey-graph.js'), file('media', 'journey-scene.js'), file('media', 'journey-home.js'), file('media', 'journey-map.js'),
+        file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
+        ...[
+          'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'code-paint', 'journey-scene', 'journey-scene-app',
+          'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-map',
+        ].map((name) => file('media', `${name}.js`)),
       ],
     })
   }
