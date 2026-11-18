@@ -1,5 +1,9 @@
-// Note paths, without the vscode API (unit-tested in test/).
+// Paths of notes and of the files steps name, without the vscode API (unit-tested in test/paths.test.ts and
+// test/journeySteps.test.ts).
 import * as path from 'path'
+
+/** Backslashes as slashes, no trailing slash: `C:\\w\\` → `C:/w`. */
+export const slashPath = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
 
 /** A path from the root (`/x`) or a drive (`C:`, `C:\x`): not relative to a workspace folder. */
 export const isAbsolutePath = (p: string) => p.startsWith('/') || /^[a-zA-Z]:/.test(p)
@@ -10,7 +14,7 @@ export const isAbsolutePath = (p: string) => p.startsWith('/') || /^[a-zA-Z]:/.t
  * (and copy into the note) a file like../../.ssh/id_rsa.
  */
 export function placeFile(root: string, file: string): string | { error: string } {
-  const r = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const r = slashPath(root)
   let f = file.replace(/\\/g, '/')
   if (r && f.startsWith(r + '/')) f = f.slice(r.length + 1)
   else if (isAbsolutePath(f)) return { error: `"file" is outside this workspace: ${file}` }
@@ -18,4 +22,13 @@ export function placeFile(root: string, file: string): string | { error: string 
   if (n === '..' || n.startsWith('../')) return { error: `"file" is outside this workspace: ${file}` }
   if (n === '.' || !n) return { error: '"file" must be a file, not the workspace folder' }
   return n
+}
+
+/** A folder's path with one trailing slash: what the paths of the files in it start with. */
+export const dirPath = (folder: { path: string }) => folder.path.replace(/\/?$/, '/')
+
+/** `uri`'s path relative to `folder`, or undefined when it is not inside it. */
+export function pathIn(folder: { path: string }, uri: { path: string }): string | undefined {
+  const base = dirPath(folder)
+  return uri.path.startsWith(base) ? uri.path.slice(base.length) : undefined
 }
