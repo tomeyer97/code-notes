@@ -17,7 +17,7 @@ export const ctx = {
 }
 
 /** The main suite's wait (6 s by default): on a timeout it prints the tour's state (most waits are on it). */
-export const until = waiter({ dump: () => { try { const t = ctx.api?.snapshot().tour; return t && { ...t, story: undefined } } catch { return undefined } } })
+export const until = waiter({ dump: () => { try { const s = ctx.api?.snapshot(); return s && { journeys: s.journeys.map((j: { id: string }) => j.id), tour: s.tour && { ...s.tour, story: undefined } } } catch { return undefined } } })
 
 /** Everything the extension shows, as data (notes, journeys, the tour, counts). */
 export const snap = () => ctx.api.snapshot()

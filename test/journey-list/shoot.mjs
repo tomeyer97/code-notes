@@ -121,8 +121,9 @@ for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   h = await home()
   if (h.sel === top || h.focusKey !== h.sel) fail(`↓ did not move the focus and selection (${top} → ${h.sel}, focus ${h.focusKey})`)
   await page.keyboard.press('End'); await settle()
-  const inView = await page.evaluate(() => { const r = document.activeElement.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight })
-  if (!inView) fail('the focused row (End) is not scrolled into view')
+  // Within a pixel: the page scrolls by whole pixels, rows can end at fractions (font metrics differ per machine).
+  const inView = await page.evaluate(() => { const r = document.activeElement.getBoundingClientRect(); return { ok: r.top > -1 && r.bottom < innerHeight + 1, top: r.top, bottom: r.bottom, height: innerHeight } })
+  if (!inView.ok) fail(`the focused row (End) is not scrolled into view (${inView.top}–${inView.bottom} of ${inView.height})`)
   if (OUT) await page.screenshot({ path: path.join(OUT, `home-keys-${w}-${theme}.png`) })
   await page.keyboard.press('Home'); await settle(); await page.keyboard.press('ArrowUp'); await settle()
   if ((await home()).focus !== 'hsearch') fail('↑ from the first row did not go back to the search')

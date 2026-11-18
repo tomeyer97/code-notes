@@ -17,13 +17,25 @@ export async function readText(uri: vscode.Uri): Promise<string | undefined> {
   try { return decoder.decode(await wfs.readFile(uri)) } catch { return undefined }
 }
 
-/** Watches `<folder>/<rel>/*.json`: a file created or changed goes to `onFile`, a deleted one to `onDelete`. */
-export function watchJsonFiles(folder: vscode.WorkspaceFolder, rel: string, onFile: (u: vscode.Uri) => unknown, onDelete: (u: vscode.Uri) => unknown): vscode.FileSystemWatcher {
+/**
+ * Watches `<folder>/<rel>/*.json`: a file created or changed goes to `onFile`, a deleted one to `onDelete`. When `rel`
+ * (or a folder above it) is created, the files already in it go to `onFile` too: the file watcher starts watching a new
+ * folder only after it sees it, so files written right after the folder (`mkdir -p` then a write, a checkout) can come
+ * with no event of their own.
+ */
+export function watchJsonFiles(folder: vscode.WorkspaceFolder, rel: string, onFile: (u: vscode.Uri) => unknown, onDelete: (u: vscode.Uri) => unknown): vscode.Disposable {
   const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, `${rel}/*.json`))
   w.onDidCreate(onFile)
   w.onDidChange(onFile)
   w.onDidDelete(onDelete)
-  return w
+  const parts = rel.split('/').filter(Boolean)
+  const dirs = parts.map((_, i) => parts.slice(0, i + 1).join('/'))
+  if (!dirs.length) return w
+  const made = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, dirs.length > 1 ? `{${dirs.join(',')}}` : dirs[0]), false, true, true)
+  made.onDidCreate(async () => {
+    for (const u of (await jsonFilesIn(vscode.Uri.joinPath(folder.uri, rel)))?.files ?? []) await onFile(u)
+  })
+  return vscode.Disposable.from(w, made)
 }
 
 /** The `.json` files in `dir`, by name, and how many entries it has in all; undefined: it can't be read (not there yet). */
