@@ -8,6 +8,11 @@ import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
 import { tourState, walk } from './instances'
+import { podcasts } from '../podcast/player'
+import { clock } from '../podcast/model'
+
+/** The ▶ on a picker row whose journey has a podcast. */
+const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('play'), tooltip: 'Listen to Journey' }
 
 /** A row of the picker: a journey, or (`ask`) writing one for the question typed. */
 type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJourney | undefined }
@@ -26,6 +31,8 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
   qp.matchOnDetail = false
   const update = () => { qp.items = pickerItems(all, qp.value, multi) }
   qp.onDidChangeValue(update)
+  // ▶ on a row with a podcast: that journey, listened to.
+  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); void podcasts.play(key) } })
   update()
   const pick = await pickOne(qp)
   if (pick?.ask) {
@@ -62,10 +69,14 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
   const step = words.length ? x.j.steps.find((st) => words.some((w) => st.title.toLowerCase().includes(w))) : undefined
   const onlyStepMatched = step && !words.every((w) => journeyHay(x).includes(w))
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
+  // A podcast: its length first, and a ▶ button on the row that opens it and listens.
+  const pod = podcasts.status(x)
+  const listen = pod?.state === 'ok' ? `♪ ${clock(pod.duration ?? 0)}` : ''
   return {
     ask: undefined,
     label: `${x.key === tourState.key && tourState.step ? '$(play-circle) ' : ''}${x.j.title}`,
-    description: [about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
+    description: [listen, about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
+    ...(listen ? { buttons: [LISTEN_BUTTON] } : {}),
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,
   }

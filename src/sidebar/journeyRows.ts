@@ -19,6 +19,7 @@ import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node,
 import { matchesFilter } from './notesFilter'
 import { fileName } from '../jsonFolder'
 import { podcasts } from '../podcast/player'
+import { clock } from '../podcast/model'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
@@ -110,13 +111,13 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   const item = new vscode.TreeItem(isolate(lj.j.title), folds)
   item.id = group ? `${group}|journey:${lj.key}` : `journey:${lj.key}`
   item.description = journeyDescription(lj, s, group)
-  item.iconPath = journeyIcon(s)
+  item.iconPath = journeyIcon(s, lj)
   item.tooltip = journeyTooltip(lj, s)
   // The name read is the title and its state; the question is only the tooltip.
   item.accessibilityInformation = { label: journeyLabel(lj, s) }
-  // A podcast that plays: ▶ on the row; one that can't: a greyed ▶ (the tooltip says why).
-  const pod = podcasts.status(lj)
-  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + (pod ? (pod.state === 'ok' ? ';podcast' : ';podcastBroken') : '')
+  // A podcast: ▶ Listen on the row, ⏸ while it is listened to, ▶ Resume when paused there; one that can't be played:
+  // a greyed ▶ (the tooltip says why).
+  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + podcastContext(lj)
   item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
   return item
 }
@@ -129,10 +130,12 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
  */
 function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | undefined): string | undefined {
   const row = listState.last?.rows[lj.key]
-  if (group === 'here' && row && !(row.walking || row.resume > 1)) return [row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
+  const pod = podcastText(lj)
+  if (group === 'here' && row && !(row.walking || row.resume > 1)) return [pod, row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
   const groupArea = group?.startsWith('area:') ? group.slice(5) : ''
   const areaAndAge = row ? [groupArea && row.area === groupArea ? '' : row.area, row.age].filter(Boolean).join(' · ') : ''
   return [
+    pod,
     s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
     refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '',
     s.newReplies ? replies(s.newReplies) : '',
@@ -143,7 +146,8 @@ function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | 
 
 /** The icon says state only: walking, or new replies; a plain row otherwise (no stale ⚠: the step card says it, the
  *  storyline marks the step). */
-function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
+function journeyIcon(s: JourneyState, lj?: LoadedJourney): vscode.ThemeIcon | undefined {
+  if (lj && podcasts.status(lj)?.playing) return new vscode.ThemeIcon('unmute', new vscode.ThemeColor('codeNotes.noteRuler'))
   if (s.active) return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('codeNotes.noteRuler'))
   if (s.newReplies) return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('codeNotes.unreadForeground'))
   return undefined
@@ -156,20 +160,45 @@ function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
   return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies, podcastLine(lj)].filter(Boolean).join('\n')
 }
 
-/** The podcast's line in the tooltip: one that can't be played and why, or what is wrong with one that plays. */
+/** The podcast's line in the tooltip: how long it is and how to listen (or where it is), and what is wrong with it; or
+ *  that it can't be played, and why. */
 function podcastLine(lj: LoadedJourney): string {
   const pod = podcasts.status(lj)
   if (!pod) return ''
   if (pod.state === 'broken') return `Podcast unavailable: ${pod.text}`
-  return pod.text ? `Podcast: ${pod.text}` : ''
+  const len = clock(pod.duration ?? 0)
+  const at = pod.playing ? `listening (podcast ${len}) · ⏸ pauses` : pod.t ? `podcast ${len}, paused at ${clock(pod.t)} · ▶ resumes` : `Podcast ${len} · ▶ Listen`
+  return [cap(at), pod.text ? `Podcast: ${pod.text}` : ''].filter(Boolean).join('\n')
 }
+
+/** The row's quiet podcast mark: its length; while listened to, its state ("♪ Listening", "♪ Paused at 3:38"; the row is
+ *  not redrawn every second). */
+function podcastText(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  if (!pod || pod.state !== 'ok') return ''
+  if (pod.playing) return '♪ Listening'
+  if (pod.session && pod.t) return `♪ Paused at ${clock(pod.t)}`
+  return `♪ ${clock(pod.duration ?? 0)}`
+}
+
+/** Which ▶ the row offers: Listen, ⏸ (listening), Resume (paused there), or the greyed one. */
+function podcastContext(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  if (!pod) return ''
+  if (pod.state !== 'ok') return ';podcastBroken'
+  return pod.playing ? ';podcastPlaying' : pod.session ? ';podcastPaused' : ';podcast'
+}
+
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 /** What a screen reader says: the title, then where the walk is, unread replies, new. */
 function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
   const total = lj.j.steps.length
   const where = s.active ? `walking, step ${tourState.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
   const unreadReplies = s.newReplies ? plural(s.newReplies, 'unread reply', 'unread replies') : ''
-  return [lj.j.title, where, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
+  const pod = podcasts.status(lj)
+  const listen = pod?.state === 'ok' ? (pod.playing ? 'listening' : `podcast ${clock(pod.duration ?? 0)}`) : ''
+  return [lj.j.title, where, listen, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }
 
 /** The notes asked from a journey's steps: one row, open, with how many are new. */

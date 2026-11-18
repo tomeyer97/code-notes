@@ -41,6 +41,8 @@
 .jrow .jstart { flex: none; color: var(--link); font-size: 0.88em; font-weight: 600; }
 .jrow .jnew { flex: none; font-size: 0.8em; color: var(--link); }
 .jrow .jat { flex: none; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; }
+.jrow .jpod { flex: none; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jrow .jpod.on { color: var(--accent); }
 .jrow .jstale { flex: none; color: var(--stale); font-size: 0.88em; }
 .jrow .jq { color: var(--muted); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 .jrow .jmeta { color: var(--muted); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -263,6 +263,13 @@
         const where = r.walking ? `Walking: step ${r.resume} of ${r.steps}` : `Left at step ${r.resume} of ${r.steps}`
         t.append(badge('jat', `${r.resume}/${r.steps}`, where))
       }
+      // A podcast: its length, or that it is being listened to (paused at …).
+      if (r.podcast) {
+        const p = r.podcast
+        const text = p.playing ? '♪ Listening' : p.at !== undefined ? `♪ ${podClock(p.at)}` : `♪ ${podClock(p.duration)}`
+        const tip = p.playing ? 'Listening to its podcast' : p.at !== undefined ? `Podcast paused at ${podClock(p.at)} of ${podClock(p.duration)}` : `Podcast, ${podClock(p.duration)}: ▶ Listen on its row in the Journeys view`
+        t.append(badge(`jpod${p.playing ? ' on' : ''}`, text, tip))
+      }
       if (r.stale) {
         const x = badge('jstale', '⚠', staleTip(r))
         x.setAttribute('aria-label', `Stale: ${staleTip(r)}`)
@@ -274,6 +281,11 @@
       b.onclick = () => select(k, false, true)
       b.ondblclick = () => host.walk(k)
       return b
+    }
+
+    function podClock(t) {
+      const x = Math.max(0, Math.floor(t || 0))
+      return `${Math.floor(x / 60)}:${String(x % 60).padStart(2, '0')}`
     }
 
     /** Row `r`'s stale steps: step number → when its code changed ('' until the preview's journey says). */

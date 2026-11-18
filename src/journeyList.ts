@@ -282,10 +282,15 @@ function panelSections(p: Parts, area: string, results?: ListRow[]): Section[] {
   return out.filter((s) => s.keys.length)
 }
 
-/** The sidebar's groups: In this file and Continue when they have rows, then All (by area, or flat). */
+/** The sidebar's groups: In this file (but the walk's journey) and Continue when they have rows, then All (by area, or flat). */
 function sidebarGroups(p: Parts): Group[] {
   const out: Group[] = []
-  if (p.here.length) out.push(part('here', 'In this file', p.hereShown, p.here.length - p.hereShown.length))
+  // The journey being walked (or listened to) is in Continue: not again in "In this file", which would come and go as
+  // the walk changes files.
+  const walking = new Set(p.cont.filter((r) => r.walking).map((r) => r.key))
+  const hereShown = p.hereShown.filter((r) => !walking.has(r.key))
+  const hereAll = p.here.filter((r) => !walking.has(r.key))
+  if (hereAll.length) out.push(part('here', 'In this file', hereShown, hereAll.length - hereShown.length))
   if (p.cont.length) out.push(part('continue', 'Continue', p.cont))
   if (p.sort === 'area') out.push({ id: 'all', label: 'All', keys: [], children: areaParts(p.sorted) })
   else out.push(part('all', 'All', p.sorted))
