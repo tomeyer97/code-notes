@@ -2872,16 +2872,17 @@ def podcast_audio_problem(audio):
     return None
 
 
-def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
-    """Every problem of a podcast file: dicts with level (error | warning), code, message, segment (or None).
-    journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds."""
+def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed=None):
+    """Every problem of a podcast file: dicts with level (error | warning | info), code, message, segment (or None).
+    journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds;
+    changed: the journey's steps (numbers) whose code changed since the podcast's journey.commit."""
     out, errors = [], []
 
     def err(code, msg):
         errors.append({'level': 'error', 'code': code, 'message': msg, 'segment': None})
 
-    def warn(code, msg, seg=None):
-        out.append({'level': 'warning', 'code': code, 'message': (f'segment {seg}: ' if seg else '') + msg, 'segment': seg})
+    def warn(code, msg, seg=None, prefix=True):
+        out.append({'level': 'warning', 'code': code, 'message': (f'segment {seg}: ' if seg and prefix else '') + msg, 'segment': seg})
 
     try:
         d = json.loads(raw)
@@ -2938,9 +2939,9 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
         n = name(x, i)
         if isinstance(x.get('id'), str) and x['id']:
             if x['id'] in ids:
-                warn('id', f'the id "{x["id"]}" is used by segment #{ids[x["id"]] + 1} too', n)
+                warn('id', f'the id "{x["id"]}" is used twice ({_pod_place(*ids[x["id"]])} and {_pod_place(i, x.get("start"))})', n)
             else:
-                ids[x['id']] = i
+                ids[x['id']] = (i, x.get('start'))
         if 'cue' in x and x['cue'] not in POD_CUES:
             warn('cue', f'cue {json.dumps(x["cue"])} is not map, open or beat; ignored', n)
         start = _pnum(x.get('start'))
@@ -2966,9 +2967,31 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
         if ea is not None and sb < ea - POD_SLACK:
             warn('overlap', f'starts at {_clock_ms(sb)}, before segment {name(xa, ia)} ends ({_clock_ms(ea)}): the later '
                             f'one wins from its start', name(xb, ib))
-    # Links: where each segment is shown (with a start time only, as the player).
+    # The narration's order against the journey's (steps first talked about in another order: reordered since).
+    if journey:
+        index = {s['id']: k for k, s in enumerate(journey['steps'])}
+        firsts = []
+        for x, i, _, _ in srt:
+            at = x.get('at')
+            st = at.get('step') if isinstance(at, dict) and isinstance(at.get('step'), str) else None
+            if st is None or st not in index or any(f[0] == st for f in firsts):
+                continue
+            firsts.append((st, index[st], x, i))
+        late = [k for k in range(1, len(firsts)) if firsts[k][1] < firsts[k - 1][1]]
+        if late:
+            f, b = firsts[late[0]], firsts[late[0] - 1]
+            more = f' ({len(late)} steps out of order)' if len(late) > 1 else ''
+            warn('narration-order', f'narrates step {f[1] + 1} ("{f[0]}") after step {b[1] + 1} ("{b[0]}"): the journey\'s '
+                                    f'steps were reordered since it was recorded; re-record it, or put the steps back{more}', name(f[2], f[3]))
+    # Links: where each segment is shown (with a start time only, as the player). A step the journey doesn't have is
+    # said once, with the segments about it and when.
     if journey:
         steps = {s['id']: s['beats'] for s in journey['steps']}
+        missing = {}
+        for x, i, _, _ in srt:
+            at = x.get('at', ...)
+            if isinstance(at, dict) and isinstance(at.get('step'), str) and at['step'] not in steps:
+                missing.setdefault(at['step'], []).append((x, i))
         for x, i, _, _ in srt:
             n, at = name(x, i), x.get('at', ...)
             if at is None:
@@ -2977,14 +3000,32 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
                 warn('at', '"at" is ' + ('missing' if at is ... else 'not null or { step, beat }') + '; it keeps the view before it', n)
                 continue
             if at['step'] not in steps:
-                warn('step', f'no step "{at["step"]}" in the journey; it keeps the view before it', n)
+                segs = missing[at['step']]
+                if segs[0][1] == i:
+                    names = [name(y, k) for y, k in segs]
+                    first, last = segs[0][0], segs[-1][0]
+                    frm = _pnum(first.get('start')) or 0
+                    to = _pnum(last.get('end')) if _pnum(last.get('end')) is not None else (_pnum(last.get('start')) if _pnum(last.get('start')) is not None else frm)
+                    which = f'segment {names[0]}' if len(names) == 1 else f'segments {names[0]}–{names[-1]}'
+                    keep = 'it keeps the view before it' if len(names) == 1 else 'they keep the view before them'
+                    warn('step', f'step "{at["step"]}" isn\'t in the journey ({which}, {_clock_ms(frm)}–{_clock_ms(to)}): {keep}', n, prefix=False)
                 continue
             if 'beat' not in at or x.get('cue') == 'map':
                 continue
             b, beats = at['beat'], steps[at['step']]
+            if isinstance(b, str):
+                warn('beat', f'beat must be a number, got the string {json.dumps(b)}; the step only', n)
+                continue
             ok = _pnum(b) is not None and float(b).is_integer() and 1 <= b <= beats
             if not ok:
                 warn('beat', f'step "{at["step"]}" has no beat {json.dumps(b)} (it has {beats}); the step only', n)
+    # Recorded for an older commit, and steps' code changed since: worth knowing, nothing wrong with the file.
+    commit = j.get('commit') if isinstance(j.get('commit'), str) else ''
+    if commit and changed:
+        k = len(changed)
+        out.append({'level': 'info', 'code': 'recorded-for', 'segment': None,
+                    'message': f'recorded for {commit}; {k} {"step" if k == 1 else "steps"} changed since '
+                               f'({"step" if k == 1 else "steps"} {", ".join(str(c) for c in changed)})'})
     # The audio's real length.
     if audio_duration and audio_duration > 0:
         L = audio_duration
@@ -3005,6 +3046,26 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
     if written and not any(_pnum(x.get('start')) is not None and _pnum(x.get('start')) >= 0 for x, _ in written):
         err('segments', 'no segment has a start time: nothing to play')
     return errors + out
+
+
+def _pod_place(i, start):
+    """Where a segment is, in a message: its start time, else its place in the file."""
+    t = _pnum(start)
+    return _clock_ms(t) if t is not None and t >= 0 else f'#{i + 1}'
+
+
+def podcast_changed_steps(repo, commit, j):
+    """The journey's steps (numbers) whose file changed since `commit` (committed or not); None: git can't say."""
+    if not re.match(r'^[0-9a-f]{4,40}$', commit or '', re.I):
+        return None
+    try:
+        r = subprocess.run(['git', '-C', repo, 'diff', '--name-only', '--relative', commit, '--'], capture_output=True, text=True)
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    files = {l.strip() for l in r.stdout.splitlines() if l.strip()}
+    return [k + 1 for k, s in enumerate(j.get('steps', [])) if s.get('file') in files]
 
 
 def audio_seconds(path):
@@ -3043,10 +3104,17 @@ def podcast_report(repo, slug, j, seconds=None):
         ap = os.path.normpath(os.path.join(os.path.dirname(pf), name.strip()))
         audio = {'exists': os.path.isfile(ap), 'size': os.path.getsize(ap) if os.path.isfile(ap) else 0}
         length = float(seconds) if seconds else (audio_seconds(ap) if audio['exists'] else None)
-    found = podcast_problems(raw, journey, audio, length)
+    try:
+        commit = (json.loads(raw).get('journey') or {}).get('commit')
+    except (ValueError, AttributeError):
+        commit = None
+    changed = podcast_changed_steps(repo, commit, j) if isinstance(commit, str) else None
+    found = podcast_problems(raw, journey, audio, length, changed)
     problems = [f'podcast: {p["message"]}' for p in found if p['level'] == 'error']
     warnings = [f'podcast: {p["message"]}' for p in found if p['level'] == 'warning']
     summary = '' if length else ' (audio length unknown: pass it as <audio seconds>, or install ffprobe, to check the times against it)'
+    # Worth knowing, not a problem (recorded for an older commit): in the summary line.
+    summary += ''.join(f'; {p["message"]}' for p in found if p['level'] == 'info')
     return problems, warnings, summary
 
 

@@ -15,8 +15,9 @@ import { closeWalkTabs, endJourney, openMap } from '../tour/commands'
 import { tourState, walk } from '../tour/instances'
 import { pickJourney } from '../tour/pick'
 import { journeysTree } from '../sidebar/journeysTree'
-import { clock, Episode, LatestWins, PodcastProblem, sameView, timeOf, View, viewAt } from './model'
-import { podcastReports, PodcastRead, readPodcast } from './load'
+import { clock, Episode, LatestWins, podcastFileOf, PodcastProblem, sameView, timeOf, View, viewAt } from './model'
+import { baseName } from '../paths'
+import { podcastReports, PodcastRead, readPodcast, strayPodcasts } from './load'
 import { afterStep, remapTime, resumeTime } from './resume'
 import { brokenLinks, playNotice } from './validate'
 
@@ -119,6 +120,7 @@ class Podcasts {
       else broken.set(lj.key, { file: r.file, reason })
     }
     podcastReports.report(reads)
+    void this.strays()
     const sig = (m: Map<string, Loaded>, b: Map<string, Broken>) => [...m].map(([k, l]) => `${k}=${l.sig}|${l.notice ?? ''}`).concat([...b].map(([k, x]) => `${k}!${x.reason}`)).join('\n')
     const changed = sig(next, broken) !== sig(this.eps, this.broken)
     const before = this.eps
@@ -149,6 +151,15 @@ class Podcasts {
     mapPanel.sendPodcast()
     if (seekTo !== undefined) this.command('seek', { to: seekTo })
     journeysTree?.refresh()
+  }
+
+  /** Podcast files in the journeys folders that no journey reads: why each is ignored, in the output (once). */
+  private async strays(): Promise<void> {
+    const all = journeys.all()
+    const dirs = new Map(all.map((lj) => { const d = vscode.Uri.joinPath(lj.uri, '..'); return [d.toString(), d] }))
+    const known = new Set(all.map((lj) => lj.uri.with({ path: podcastFileOf(lj.uri.path) }).toString()))
+    const ids = new Map(all.filter((lj) => this.eps.has(lj.key) || this.broken.has(lj.key)).map((lj) => [lj.j.id, baseName(podcastFileOf(lj.uri.path))]))
+    await strayPodcasts([...dirs.values()], known, ids).catch((e) => log.debug(`podcast: ${e}`))
   }
 
   /** A podcast that can be played, as the player keeps it. */

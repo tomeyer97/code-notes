@@ -6,10 +6,11 @@
 
 import * as vscode from 'vscode'
 import { log } from '../app'
-import { LoadedJourney } from '../journeys/steps'
+import { git } from '../checkout'
+import { fileOf, LoadedJourney } from '../journeys/steps'
 import { readText } from '../jsonFolder'
 import { wfs } from '../workspaceFs'
-import { podcastFileOf, PodcastProblem } from './model'
+import { isPodcastFile, podcastFileOf, PodcastProblem } from './model'
 import { audioPathProblem, lineCol, locate, validatePodcast, Validation } from './validate'
 
 /** A podcast file next to a journey, read and checked. */
@@ -37,10 +38,63 @@ export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode
     audio = vscode.Uri.joinPath(file, '..', name)
     try { size = (await wfs.stat(audio)).size; exists = true } catch { /* not there */ }
   }
-  if (!audio) return { file, raw, audioSize: 0, v: first }
+  const commit = first.podcast?.journey.commit
+  const changed = commit ? await changedSince(lj, commit) : undefined
+  if (!audio) return { file, raw, audioSize: 0, v: changed ? validatePodcast(raw, { journey, changed }) : first }
   const audioDuration = exists ? audioLength(audio, size) : undefined
-  return { file, raw, audio, audioSize: size, v: validatePodcast(raw, { journey, audio: { exists, size }, audioDuration }) }
+  return { file, raw, audio, audioSize: size, v: validatePodcast(raw, { journey, audio: { exists, size }, audioDuration, changed }) }
 }
+
+/** git's answers per journey and commit, for a few seconds (a scan reads every podcast; scans come in bursts). */
+const changedCache = new Map<string, { at: number; steps: number[] | undefined }>()
+const CHANGED_CACHE_MS = 10_000
+
+/**
+ * The steps of `lj` whose file changed since `commit` (committed since, or edited and not committed): by number.
+ * Undefined when git can't say (no git, a commit this checkout doesn't have).
+ */
+async function changedSince(lj: LoadedJourney, commit: string): Promise<number[] | undefined> {
+  const key = `${lj.key}|${commit}`
+  const hit = changedCache.get(key)
+  if (hit && Date.now() - hit.at < CHANGED_CACHE_MS) return hit.steps
+  const out = /^[0-9a-f]{4,40}$/i.test(commit) ? await git(lj.folder, ['diff', '--name-only', '--relative', commit, '--']) : undefined
+  const files = out === undefined ? undefined : new Set(out.split('\n').map((l) => l.trim()).filter(Boolean))
+  const steps = files && lj.j.steps.map((s, k) => (files.has(fileOf(lj, k + 1)) || files.has(s.file) ? k + 1 : 0)).filter((n) => n > 0)
+  changedCache.set(key, { at: Date.now(), steps })
+  return steps
+}
+
+/**
+ * Podcast files in the journeys folders that no journey reads: not named `<journey>.podcast.json` (F115). Said once
+ * per file, with what it names and why it isn't played; `known`: the podcast files next to journeys.
+ */
+export async function strayPodcasts(folders: vscode.Uri[], known: Set<string>, journeyIds: Map<string, string>): Promise<void> {
+  const seen = new Set<string>()
+  for (const dir of folders) {
+    let names: [string, vscode.FileType][] = []
+    try { names = await wfs.readDirectory(dir) } catch { continue }
+    for (const [name, type] of names) {
+      if (type !== vscode.FileType.File || !isPodcastFile(name)) continue
+      const file = vscode.Uri.joinPath(dir, name)
+      if (known.has(file.toString())) continue
+      seen.add(file.toString())
+      if (strays.has(file.toString())) continue
+      strays.add(file.toString())
+      const raw = await readText(file)
+      let id: unknown
+      try { id = (JSON.parse(raw ?? '') as { journey?: { id?: unknown } })?.journey?.id } catch { /* said below without it */ }
+      const journeyFile = name.replace(/\.podcast\.json$/i, '.json')
+      const owner = typeof id === 'string' ? journeyIds.get(id) : undefined
+      const named = typeof id === 'string'
+        ? `; its journey.id is "${id}"${owner ? ` (whose podcast is ${owner})` : ', and no journey here has that id'}`
+        : ''
+      log.info(`podcast ${file.fsPath}: ignored: a podcast plays next to its journey, named <journey>.podcast.json, and there is no ${journeyFile}${named}`)
+    }
+  }
+  for (const f of [...strays]) if (!seen.has(f)) strays.delete(f)
+}
+/** Stray podcast files already said. */
+const strays = new Set<string>()
 
 /** The audio files podcasts name (there or not), by path: a change to one reads the podcasts again. */
 const WATCHED_AUDIO = new Set<string>()
@@ -79,7 +133,11 @@ class PodcastReports {
       const sig = r.v.problems.map((p) => `${p.level}:${p.message}`).join('\n')
       if (this.said.get(key) === sig) continue
       this.said.set(key, sig)
-      for (const p of r.v.problems) log.warn(`podcast ${r.file.fsPath}: ${p.level === 'error' ? 'not played: ' : ''}${p.message}`)
+      for (const p of r.v.problems) {
+        const line = `podcast ${r.file.fsPath}: ${p.level === 'error' ? 'not played: ' : ''}${p.message}`
+        if (p.level === 'info') log.info(line)
+        else log.warn(line)
+      }
     }
     for (const key of [...this.said.keys()]) {
       if (seen.has(key)) continue
@@ -99,7 +157,8 @@ function diagnostic(raw: string, p: PodcastProblem): vscode.Diagnostic {
   // A long value (a whole segment): its first line only.
   const end = Math.min(span.end, raw.indexOf('\n', span.start) >= 0 ? raw.indexOf('\n', span.start) : span.end)
   const b = lineCol(raw, Math.max(end, span.start + 1))
-  const d = new vscode.Diagnostic(new vscode.Range(a.line, a.col, b.line, b.col), p.message, p.level === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning)
+  const severity = { error: vscode.DiagnosticSeverity.Error, warning: vscode.DiagnosticSeverity.Warning, info: vscode.DiagnosticSeverity.Information }[p.level]
+  const d = new vscode.Diagnostic(new vscode.Range(a.line, a.col, b.line, b.col), p.message, severity)
   d.source = 'Code Notes podcast'
   d.code = p.code
   return d

@@ -11,11 +11,14 @@ export type WrittenAt = null | { step: string; beat?: number }
 /** Something wrong with a podcast file (validate.ts). `error`: it can't be played; `warning`: it plays, but a part of
  *  it is not what the file says. `path`: where in the file (JSON keys and indexes); `segment`: the segment's id. */
 export interface PodcastProblem {
-  level: 'error' | 'warning'
+  /** `info`: worth knowing, nothing wrong with the file (recorded for an older commit: validate.ts). */
+  level: 'error' | 'warning' | 'info'
   code: string
   message: string
   path: (string | number)[]
   segment?: string
+  /** A problem said once for several segments (a step the journey doesn't have): every one of them. */
+  segments?: string[]
 }
 
 /** A segment as written in the file. Other fields (e.g. `say`, the spoken form a generator used) are allowed and
@@ -159,6 +162,11 @@ function viewOf(s: WrittenSegment, i: number, byId: Map<string, { n: number; bea
   }
   if (at.beat === undefined || s.cue === 'map') return { step: st.n }
   const b = at.beat
+  // A beat written as a string ("2") is not beat 2: said as what it is, not as a beat the step lacks (F104).
+  if (typeof b === 'string') {
+    problems.push(segProblem(s, i, 'beat', `beat must be a number, got the string ${JSON.stringify(b)}; the step only`, ['at', 'beat']))
+    return { step: st.n }
+  }
   if (typeof b !== 'number' || !Number.isInteger(b) || b < 1 || b > st.beats) {
     problems.push(segProblem(s, i, 'beat', `step "${at.step}" has no beat ${JSON.stringify(b)} (it has ${st.beats}); the step only`, ['at', 'beat']))
     return { step: st.n }

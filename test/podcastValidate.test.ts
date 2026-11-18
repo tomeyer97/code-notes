@@ -7,21 +7,21 @@ import { audioPathProblem, brokenLinks, lineCol, locate, playNotice, validatePod
 // The podcast file's full check (src/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json are run here
 // and through the code-journey skill's `journey.py podcast` (test/cli/podcast.test.mjs): the same rules in both.
 
-interface Case { name: string; raw: string; journey: { id: string; steps: { id: string; beats: number }[] }; audio?: { exists: boolean; size?: number }; audioDuration?: number; expect: string[] }
+interface Case { name: string; raw: string; journey: { id: string; steps: { id: string; beats: number }[] }; audio?: { exists: boolean; size?: number }; audioDuration?: number; changed?: number[]; expect: string[] }
 const cases: Case[] = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/podcast/cases.json'), 'utf8'))
-const codes = (c: Case) => validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems.map((p) => `${p.level}:${p.code}${p.segment ? `@${p.segment}` : ''}`)
+const codes = (c: Case) => validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed }).problems.map((p) => `${p.level}:${p.code}${p.segment ? `@${p.segment}` : ''}`)
 
 for (const c of cases) {
   test(`podcast check: ${c.name}`, () => {
     assert.deepEqual([...codes(c)].sort(), [...c.expect].sort())
-    const v = validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration })
+    const v = validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed })
     assert.equal(v.playable, !c.expect.some((e) => e.startsWith('error:')), 'playable = no error')
     assert.equal(!!v.episode, v.playable)
   })
 }
 
 test('podcast check: errors come first, the messages say what is wrong in plain words', () => {
-  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems }
+  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed }).problems }
   assert.match(get('version 2')[0].message, /version 2: this player reads version 1/)
   assert.match(get('segments empty')[0].message, /"segments" is empty/)
   assert.match(get('segments missing')[0].message, /no "segments"/)
@@ -59,7 +59,7 @@ test('podcast check: each problem is located in the text (the field, else the se
 })
 
 test('podcast check: what the player says, in one short line', () => {
-  const v = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems }
+  const v = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed }).problems }
   const links = v('broken links: a beat out of range, an unknown step, a bad at')
   assert.equal(brokenLinks(links), 3)
   assert.equal(playNotice(links), "3 parts can't be shown")
@@ -68,4 +68,21 @@ test('podcast check: what the player says, in one short line', () => {
   assert.equal(playNotice(v('cut-off audio: one plain warning')), 'The audio is 0:13 long but the episode is 1:40: the file looks cut off')
   assert.equal(playNotice(v('a duplicate id and an unknown cue')), '2 problems in the podcast file')
   assert.equal(playNotice([]), undefined)
+})
+
+test('podcast check: a missing step once, a beat as a string, duplicate ids with times, narration order, recorded for', () => {
+  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed }).problems }
+  const missing = get("a step the journey doesn't have, in three segments: said once, with its segments and times")
+  assert.equal(missing.length, 1)
+  assert.equal(missing[0].message, 'step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them')
+  assert.deepEqual(missing[0].segments, ['x1', 'x2', 'x3'])
+  assert.equal(brokenLinks(missing), 3, 'each segment counts as a part that can\'t be shown')
+  assert.equal(get('a beat written as a string')[0].message, 'segment a2: beat must be a number, got the string "2"; the step only')
+  assert.equal(get('a duplicate id and an unknown cue').find((p) => p.code === 'id')!.message.replace(/^segment \S+: /, ''), 'the id "s1" is used twice (0:00 and 0:10)')
+  assert.match(get("narrated in another order than the journey's (steps reordered since)")[0].message, /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
+  const rec = get('recorded for an older commit, steps changed since: a quiet note')
+  assert.equal(rec[0].level, 'info')
+  assert.equal(rec[0].message, 'recorded for 609d0bb; 2 steps changed since (steps 1, 3)')
+  assert.equal(playNotice(rec), 'Recorded for 609d0bb; 2 steps changed since')
+  assert.equal(playNotice(get("narrated in another order than the journey's (steps reordered since)")), "Narrated in another order than the journey's")
 })

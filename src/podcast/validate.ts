@@ -14,6 +14,9 @@ export interface PodcastContext {
   audio?: { exists: boolean; size?: number }
   /** Seconds, as the panel's audio element reports it. */
   audioDuration?: number
+  /** The journey's steps whose code changed since the commit the podcast was recorded for (`journey.commit`), by
+   *  number (load.ts asks git; undefined: not known). */
+  changed?: number[]
 }
 
 export interface Validation {
@@ -106,6 +109,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
   if (d.duration !== undefined && !(num(d.duration)! > 0)) problems.push(warning('duration', `"duration" ${JSON.stringify(d.duration)} is not a length in seconds; ignored`, ['duration']))
 
   problems.push(...timingProblems(written, podcast.duration))
+  if (ctx.journey) problems.push(...narrationOrder(written, ctx.journey))
   // Where each segment is shown (an unknown step, a beat the step doesn't have: F30), when the journey is known.
   let episode: Episode | undefined
   if (ctx.journey) {
@@ -115,10 +119,15 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
       const k = p.path[1]
       if (typeof k === 'number') p.path = ['segments', written[k]?.i ?? k, ...p.path.slice(2)]
     }
-    // Its start-time warnings are timingProblems' already.
-    problems.push(...episode.problems.filter((p) => p.code !== 'start'))
-    episode.problems = episode.problems.filter((p) => p.code !== 'start')
+    // Its start-time warnings are timingProblems' already; a step the journey doesn't have is said once (F45).
+    episode.problems = missingStepsOnce(episode.problems.filter((p) => p.code !== 'start'), written)
+    problems.push(...episode.problems)
     episode.warnings = episode.problems.map((p) => p.message)
+  }
+  // Recorded for an older commit, and steps' code changed since (F63): a quiet line, nothing wrong with the file.
+  if (podcast.journey.commit && ctx.changed?.length) {
+    const n = ctx.changed.length
+    problems.push({ level: 'info', code: 'recorded-for', message: `recorded for ${podcast.journey.commit}; ${n} ${n === 1 ? 'step' : 'steps'} changed since (${n === 1 ? 'step' : 'steps'} ${ctx.changed.join(', ')})`, path: ['journey', 'commit'] })
   }
   // The audio's real length, once known (F43, F37).
   if (ctx.audioDuration !== undefined && ctx.audioDuration > 0) problems.push(...audioLengthProblems(written, podcast.duration, ctx.audioDuration))
@@ -138,14 +147,15 @@ const order = (path: (string | number)[]) => (path[0] === 'segments' && typeof p
 /** Start, end and order of the segments (F35): each problem on its segment. */
 function timingProblems(written: { s: WrittenSegment; i: number }[], duration: number | undefined): PodcastProblem[] {
   const out: PodcastProblem[] = []
-  const ids = new Map<string, number>()
+  const ids = new Map<string, { i: number; start: unknown }>()
   let prevInFile: { name: string; start: number } | undefined
   const timed: { s: WrittenSegment; i: number; start: number; end?: number }[] = []
   for (const { s, i } of written) {
     const name = segmentName(s, i)
     if (typeof s.id === 'string' && s.id) {
-      if (ids.has(s.id)) out.push(segProblem(s, i, 'id', `the id "${s.id}" is used by segment #${ids.get(s.id)! + 1} too`, ['id']))
-      else ids.set(s.id, i)
+      const first = ids.get(s.id)
+      if (first) out.push(segProblem(s, i, 'id', `the id "${s.id}" is used twice (${placeOf(first)} and ${placeOf({ i, start: s.start })})`, ['id']))
+      else ids.set(s.id, { i, start: s.start })
     }
     if (s.cue !== undefined && !(typeof s.cue === 'string' && CUES.has(s.cue))) out.push(segProblem(s, i, 'cue', `cue ${JSON.stringify(s.cue)} is not map, open or beat; ignored`, ['cue']))
     const start = num(s.start)
@@ -177,6 +187,73 @@ function timingProblems(written: { s: WrittenSegment; i: number }[], duration: n
     }
   }
   return out
+}
+
+/** Where a segment is, in a message: its start time, else its place in the file. */
+const placeOf = (x: { i: number; start: unknown }) => (num(x.start) !== undefined && num(x.start)! >= 0 ? clockMs(num(x.start)!) : `#${x.i + 1}`)
+
+/**
+ * A step the journey doesn't have (deleted, or its id changed) said once, not once per segment about it: which
+ * segments and when (F45). On the first of them; `segments` lists them all.
+ */
+function missingStepsOnce(problems: PodcastProblem[], written: { s: WrittenSegment; i: number }[]): PodcastProblem[] {
+  const byStep = new Map<string, { s: WrittenSegment; i: number }[]>()
+  const atStep = (p: PodcastProblem) => {
+    const w = written.find((x) => x.i === p.path[1])
+    const at = w?.s.at as { step?: unknown } | undefined
+    return w && typeof at?.step === 'string' ? { w, step: at.step } : undefined
+  }
+  for (const p of problems) {
+    const a = p.code === 'step' ? atStep(p) : undefined
+    if (a) byStep.set(a.step, [...(byStep.get(a.step) ?? []), a.w])
+  }
+  const out: PodcastProblem[] = []
+  for (const p of problems) {
+    const a = p.code === 'step' ? atStep(p) : undefined
+    if (!a) { out.push(p); continue }
+    const segs = byStep.get(a.step)!
+    if (segs[0] !== a.w) continue
+    out.push(missingStep(a.step, segs))
+  }
+  return out
+}
+
+/** One problem for step id `step`, which segments `segs` (in time order) name and the journey doesn't have. */
+function missingStep(step: string, segs: { s: WrittenSegment; i: number }[]): PodcastProblem {
+  const names = segs.map((x) => segmentName(x.s, x.i))
+  const first = segs[0], last = segs[segs.length - 1]
+  const from = num(first.s.start) ?? 0
+  const to = num(last.s.end) ?? num(last.s.start) ?? from
+  const which = names.length === 1 ? `segment ${names[0]}` : `segments ${names[0]}–${names[names.length - 1]}`
+  const keep = names.length === 1 ? 'it keeps the view before it' : 'they keep the view before them'
+  return {
+    level: 'warning', code: 'step', path: ['segments', first.i, 'at', 'step'], segment: names[0], segments: names,
+    message: `step "${step}" isn't in the journey (${which}, ${clockMs(from)}–${clockMs(to)}): ${keep}`,
+  }
+}
+
+/**
+ * The narration against the journey's order (F103): the steps in the order the podcast first talks about them should
+ * be the journey's. Reordered since (an agent rewrote the journey): one warning, at the first step out of order.
+ */
+function narrationOrder(written: { s: WrittenSegment; i: number }[], journey: JourneyShape): PodcastProblem[] {
+  const index = new Map(journey.steps.map((s, k) => [s.id, k]))
+  const firsts: { step: string; k: number; start: number; s: WrittenSegment; i: number }[] = []
+  const timed = written.map((x) => ({ ...x, start: num(x.s.start) })).filter((x) => x.start !== undefined && x.start >= 0)
+    .sort((a, b) => a.start! - b.start! || a.i - b.i)
+  for (const x of timed) {
+    const at = x.s.at as { step?: unknown } | null | undefined
+    const step = at && typeof at === 'object' && typeof at.step === 'string' ? at.step : undefined
+    const k = step === undefined ? undefined : index.get(step)
+    if (step === undefined || k === undefined || firsts.some((f) => f.step === step)) continue
+    firsts.push({ step, k, start: x.start!, s: x.s, i: x.i })
+  }
+  const late = firsts.filter((f, n) => n > 0 && f.k < firsts[n - 1].k)
+  if (!late.length) return []
+  const f = late[0]
+  const before = firsts[firsts.indexOf(f) - 1]
+  const more = late.length > 1 ? ` (${late.length} steps out of order)` : ''
+  return [segProblem(f.s, f.i, 'narration-order', `narrates step ${f.k + 1} ("${f.step}") after step ${before.k + 1} ("${before.step}"): the journey's steps were reordered since it was recorded; re-record it, or put the steps back${more}`, ['at', 'step'])]
 }
 
 /** The segments and the declared duration against the audio's real length. */
@@ -212,7 +289,7 @@ function clockMs(t: number): string {
 // ---------- what the panel and the Journeys view say ----------
 
 /** How many segments can't be shown as written (an unknown step, a beat the step doesn't have, no "at"). */
-export const brokenLinks = (problems: PodcastProblem[]) => new Set(problems.filter((p) => LINK_CODES.has(p.code)).map((p) => p.segment)).size
+export const brokenLinks = (problems: PodcastProblem[]) => new Set(problems.filter((p) => LINK_CODES.has(p.code)).flatMap((p) => p.segments ?? [p.segment])).size
 
 /**
  * One short line about what is wrong with a podcast that plays (undefined: nothing to say). `writtenFor`: the title of
@@ -225,8 +302,13 @@ export function playNotice(problems: PodcastProblem[], writtenFor?: string): str
   if (problems.some((p) => p.code === 'journey')) parts.push(`Written for “${writtenFor ?? problems.find((p) => p.code === 'journey')!.message.match(/"([^"]*)"/)![1]}”`)
   const links = brokenLinks(problems)
   if (links) parts.push(`${links} ${links === 1 ? "part can't" : "parts can't"} be shown`)
-  const rest = problems.filter((p) => p.level === 'warning' && p.code !== 'audio-short' && p.code !== 'journey' && !LINK_CODES.has(p.code)).length
+  if (problems.some((p) => p.code === 'narration-order')) parts.push("Narrated in another order than the journey's")
+  const said = new Set(['audio-short', 'journey', 'narration-order'])
+  const rest = problems.filter((p) => p.level === 'warning' && !said.has(p.code) && !LINK_CODES.has(p.code)).length
   if (rest && parts.length < 2) parts.push(`${rest} ${rest === 1 ? 'problem' : 'problems'} in the podcast file`)
+  // Quiet, and only when nothing else is said: recorded for an older commit.
+  const recorded = problems.find((p) => p.code === 'recorded-for')
+  if (recorded && !parts.length) parts.push(recorded.message.replace(/^recorded/, 'Recorded').replace(/ \(steps? [\d, ]+\)$/, ''))
   return parts.length ? parts.slice(0, 2).join(' · ') : undefined
 }
 
