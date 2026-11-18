@@ -6,7 +6,7 @@ import { pickOne } from '../quickPick'
 import { journeyOrder } from '../sidebar/journeyRows'
 import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
-import { journeyModel, modelLabel } from '../write/writer'
+import { journeyModel, modelLabel } from '../write/claudeRun'
 import { tour, walk } from './tour'
 
 /** A row of the picker: a journey, or (`ask`) writing one for the question typed. */

@@ -16,7 +16,7 @@ import { noteOfThread, revealed, shape, shapeOf } from './threads/threads'
 import { currentTour, openCheckpoint, tourChanged } from './tour/checkTour'
 import { walkJourney } from './tour/commands'
 import { card, tour, walk } from './tour/tour'
-import { journeySkill } from './write/writer'
+import { journeySkill } from './write/claudeRun'
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
 export const answerCheck = async (r: vscode.CommentReply) => {

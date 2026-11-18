@@ -47,7 +47,7 @@ import { ValueHints } from './valueHints'
 import { reloadAll, watchBranches, watchEditors, watchEdits, watchFiles, watchJourneys } from './watch'
 import { refreshJourney } from './write/refreshJourney'
 import { askQuestion, watchRequests } from './write/requests'
-import { writingChanged } from './write/writer'
+import { writingChanged } from './write/inProgress'
 
 const CONTROLLER_ID = 'codeNotes'
 

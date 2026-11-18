@@ -13,7 +13,7 @@ import { wfs } from '../wfs'
 import { modelProblem } from '../writing'
 import { chooseJourney, confirmWrite, matchJourneys } from './rank'
 import { writeJourney } from './writeJourney'
-import { journeyModel, modelLabel } from './writer'
+import { journeyModel, modelLabel } from './claudeRun'
 
 // Requests from scripts: a request file or a link (docs/journey-format.md).
 // The script writes .code-notes/.request.json in the repo ({action, question, model, at, id, needs}); the window that

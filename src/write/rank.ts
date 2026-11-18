@@ -7,7 +7,7 @@ import { journeyOrder } from '../sidebar/journeyRows'
 import { pickOne } from '../quickPick'
 import { shortQ } from '../text'
 import { questionBesidesTitle } from '../tour/pick'
-import { journeyModel, modelLabel } from './writer'
+import { journeyModel, modelLabel } from './claudeRun'
 
 /** A journey's texts as match.ts scores them. */
 const journeyText = (x: LoadedJourney) => ({ title: x.j.title, question: x.j.question, summary: x.j.summary, steps: x.j.steps.map((s) => s.title) })

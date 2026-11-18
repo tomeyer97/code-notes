@@ -21,7 +21,7 @@ import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
 import { explainLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
-import { writingRows } from './write/writer'
+import { writingRows } from './write/inProgress'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
