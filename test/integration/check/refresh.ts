@@ -4,7 +4,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
-import { callCounter, quiet, SCALE, settle, test } from '../helpers'
+import { callCounter, quiet, settle, sleep, test } from '../helpers'
 import { CHECK_DEBOUNCE_MS, api, chk, codeEditor, git, inLines, noteOf, until, ws } from './context'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,21 +41,24 @@ export const refreshTests = [
     git('add', 'api/gate.js'); git('commit', '-qm', 'gate')
     await until('the commit refreshed the check', () => chk().refreshes.full > beforeCommit.full && chk().status?.head === git('rev-parse', 'HEAD'))
     // With git taking 0.25 s a call, a refresh takes seconds; the extension host's event loop never waits on it.
+    // Measured as the share of the time the loop was held, against the same share with no refresh just before: a busy
+    // machine holds it now and then (one stall alone says nothing), a refresh run on this thread holds it throughout.
+    const idle = await loopHeld(() => sleep(2000))
     const pathWas = process.env.PATH
     process.env.PATH = `${process.env.CODE_NOTES_SLOW_GIT}${path.delimiter}${pathWas}`
     api.checkRestartWorker() // its git: the slow one first on PATH
     fs.writeFileSync(path.join(ws, '.git', 'slow-git'), '')
-    let worstStall = 0, lastTick = Date.now()
-    const ticker = setInterval(() => { const t = Date.now(); worstStall = Math.max(worstStall, t - lastTick - 10); lastTick = t }, 10)
-    const slowStart = Date.now()
-    try { await api.checkRefresh() } finally {
-      clearInterval(ticker); fs.rmSync(path.join(ws, '.git', 'slow-git'))
+    let slow: Held
+    try { slow = await loopHeld(async () => { await api.checkRefresh() }) } finally {
+      fs.rmSync(path.join(ws, '.git', 'slow-git'))
       process.env.PATH = pathWas; api.checkRestartWorker()
     }
-    const took = Date.now() - slowStart
-    assert.ok(took > 1500, `git was slow (${took} ms)`)
-    assert.ok(worstStall < 30 * SCALE, `the extension host waited ${worstStall} ms during a ${took} ms refresh`)
-    return `a ${took} ms refresh held the event loop ${worstStall} ms at most`
+    const said = `held the event loop ${pct(slow)} of a ${slow.ms} ms refresh (${slow.long} git calls' length in long stalls, worst ${slow.worst} ms) vs ${pct(idle)} idle (${idle.long}, worst ${idle.worst} ms)`
+    assert.ok(slow.ms > 1500, `git was slow (${slow.ms} ms)`)
+    // All of the refresh on this thread: held most of the time. A few git calls on it: as many stalls of their length.
+    assert.ok(slow.held / slow.ms < idle.held / idle.ms + 0.25, `the extension host waited on the refresh: ${said}`)
+    assert.ok(slow.long <= 2 + (idle.long * slow.ms) / idle.ms, `the extension host waited on git calls: ${said}`)
+    return said
   }),
 
   test('opening a question: one show, few calls into the window', async () => {
@@ -80,3 +83,30 @@ export const refreshTests = [
     assert.equal(noteOf('q1').messages.length, msgsBefore + 1, 'one message for two Ctrl+Enter')
   }),
 ]
+
+/**
+ * How long the event loop was held while `run` ran: in all (`held`), the worst stall, how many slow git calls' length
+ * (`long`: 0.25 s each, run.ts's slow git, less a little) it was held in stalls that long, and how long it ran (ms).
+ */
+type Held = { held: number; worst: number; long: number; ms: number }
+const GIT_CALL_MS = 240
+
+/** Ticks every 10 ms while `run` runs; a late tick is time the event loop was held. */
+async function loopHeld(run: () => Promise<unknown>): Promise<Held> {
+  let held = 0, worst = 0, long = 0, last = Date.now()
+  const ticker = setInterval(() => {
+    const t = Date.now(), late = Math.max(0, t - last - 10)
+    held += late; worst = Math.max(worst, late); last = t
+    long += Math.floor(late / GIT_CALL_MS)
+  }, 10)
+  const start = Date.now()
+  let ms = 0
+  try {
+    await run()
+    ms = Date.now() - start
+    // One more tick: a stall at the very end of `run` shows only when the next tick comes.
+    await sleep(30)
+  } finally { clearInterval(ticker) }
+  return { held, worst, long, ms }
+}
+const pct = (h: Held) => `${Math.round((100 * h.held) / Math.max(1, h.ms))}%`
