@@ -1,6 +1,7 @@
 // The check's names, limits and links: what every other module (and the extension) shares.
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const DIR = 'understanding'
 export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
@@ -33,3 +34,16 @@ export const hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, 'SKIL
 
 /** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
 export const SKILL_DIR = '.claude/skills/understanding-check'
+
+/**
+ * This file's path: the built cli/understanding.mjs, or a copy of it (tools/understanding.mjs, the skill's
+ * scripts/understanding.mjs). `init` copies it; run as a command, it runs main.
+ */
+const SELF = fileURLToPath(import.meta.url)
+/** This file's path for a command line: relative to the repository when it is inside it, else "understanding.mjs". */
+const cliName = (repo) => {
+  const me = path.relative(repo, SELF)
+  return me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
+}
+
+export { cliName, SELF }

@@ -1,8 +1,7 @@
 // `init`: the repository set up for checks (check files out of diffs and search), and the skill put in it.
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { DIR, SKILL_DIR } from './constants.mjs'
+import { DIR, SELF, SKILL_DIR } from './constants.mjs'
 import { gitOk } from './git.mjs'
 
 /**
@@ -17,11 +16,6 @@ export const INIT_LINES = {
 /** Lines an earlier `init` wrote, replaced by today's. */
 const OLD_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] }
 
-/**
- * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
- * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
- * version wrote is replaced in place. Returns what it added, as "file: line".
- */
 /** The `init` lines the repository doesn't have yet (in its working tree), as "file: line". */
 export function setupMissing(repo) {
   const out = []
@@ -34,6 +28,11 @@ export function setupMissing(repo) {
   return out
 }
 
+/**
+ * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
+ * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
+ * version wrote is replaced in place. `only`: that file alone. Returns what it added, as "file: line".
+ */
 export function initRepo(repo, { only } = {}) {
   const added = []
   for (const [name, want] of Object.entries(INIT_LINES)) {
@@ -66,7 +65,7 @@ export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
 
 /** Where the skill ships beside this file (in the extension and in its repository), if it does. */
 const skillSource = () => {
-  const here = path.dirname(fileURLToPath(import.meta.url))
+  const here = path.dirname(SELF)
   return [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
 }
 /** The CLI the repository has committed already (e.g. tools/understanding.mjs), outside the skill's folder. */
@@ -82,7 +81,7 @@ export function installSkill(repo) {
   const src = skillSource()
   if (!src) return undefined
   const want = [['SKILL.md', path.join(src, 'SKILL.md')], ['scripts/questions.mjs', path.join(src, 'scripts/questions.mjs')]]
-  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', fileURLToPath(import.meta.url)])
+  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', SELF])
   const out = []
   for (const [rel, from] of want) {
     const to = path.join(repo, SKILL_DIR, rel)

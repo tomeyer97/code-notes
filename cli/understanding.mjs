@@ -9,9 +9,9 @@
 // Built from cli/understanding/*.mjs by cli/bundle.mjs (npm run cli): edit those, not this file.
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 
 // ---------- constants.mjs ----------
 
@@ -48,6 +48,17 @@ export const hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, 'SKIL
 
 /** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
 export const SKILL_DIR = '.claude/skills/understanding-check'
+
+/**
+ * This file's path: the built cli/understanding.mjs, or a copy of it (tools/understanding.mjs, the skill's
+ * scripts/understanding.mjs). `init` copies it; run as a command, it runs main.
+ */
+const SELF = fileURLToPath(import.meta.url)
+/** This file's path for a command line: relative to the repository when it is inside it, else "understanding.mjs". */
+const cliName = (repo) => {
+  const me = path.relative(repo, SELF)
+  return me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
+}
 
 // ---------- git.mjs ----------
 
@@ -241,7 +252,7 @@ export function isCode(line, file, state = {}) {
 const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
 
 /** A hunk header: "@@ -a,b +c,d @@" (a: the old side's first line; c, d: the new side's first line and count). */
-export const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
 /**
  * Each line of a unified diff, as what it is (`kind`) and where it is. `line`: the line as it is.
@@ -253,7 +264,7 @@ export const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
  *   other      anything else ("index …", "\\ No newline at end of file", "new file mode …")
  * The counters go on from line to line and start again at each hunk; `shift`: old minus new after the line.
  */
-export function* walkDiff(diff) {
+function* walkDiff(diff) {
   let n = 0, o = 0
   for (const line of diff.split('\n')) {
     if (line.startsWith('diff --git')) { yield { kind: 'section', line }; continue }
@@ -2146,8 +2157,7 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag }
   done.lines.push(...synced)
   // The repository doesn't collapse check files in diffs yet: a tip in the log (never in the comment).
   if (res.check && setupMissing(repo).length) {
-    const me = path.relative(repo, fileURLToPath(import.meta.url))
-    done.lines.push(`  tip: run "node ${me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
+    done.lines.push(`  tip: run "node ${cliName(repo)} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
   }
   return finish(done)
 }
@@ -2186,28 +2196,49 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   }
   // The check and its links go along: runCi posts the review items on their lines.
   const out = (r) => Object.assign(r, { check, link, diff, changed })
-  if (state.phase === 'drift') {
-    return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
-      ...made(`**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, { qa: sum.met }) })
-  }
-  const bad = hashProblems(check)
-  if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
-
-  const plainQ = (q) => q.text.replace(/`/g, '').trim()
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
-  const rule = ruleText(sum)
-  if (state.phase === 'answering') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (about ${minutesFor(sum.total - sum.done)} min left).`) })
-  }
-  if (state.phase === 'short') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** all ${sum.total} answered, not finished yet.`) })
-  }
   // How much room is left before a top-up is needed.
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-  return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
+  const words = { sum, drift, rel, rule: ruleText(sum), room }
+  if (state.phase === 'drift') {
+    return out({ code: 1, lines: [RESULT.drift.log(words)], ...made(RESULT.drift.comment(words), { qa: sum.met }) })
+  }
+  const bad = hashProblems(check)
+  if (bad.length) {
+    const them = bad.length === 1 ? 'it' : 'them'
+    return out(short(
+      `✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${them} again in VS Code, then commit and push.`,
+      '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.',
+    ))
+  }
+  const plainQ = (q) => q.text.replace(/`/g, '').trim()
+  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
+  const phase = state.phase === 'answering' || state.phase === 'short' ? state.phase : 'done'
+  const r = RESULT[phase]
+  return out({ code: phase === 'done' ? 0 : 1, lines: [r.log(words), ...qLines], ...made(r.comment(words), phase === 'done' ? { qa: true } : {}) })
+}
+
+/**
+ * The job's result in words, by phase (checkState's; stateWords has the same phases' words for VS Code and `status`):
+ * `log`, the CI log's first line, and `comment`, the merge request comment's headline. `w`: `{ sum, drift, rel, rule,
+ * room }`.
+ */
+const RESULT = {
+  drift: {
+    log: (w) => `✗ Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
+    comment: (w) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`,
+  },
+  answering: {
+    log: (w) => `✗ Understanding check: ${w.sum.done} of ${w.sum.total} done (${w.rule}). Finish in VS Code, commit ${w.rel} and push.`,
+    comment: (w) => `**Understanding check in progress:** ${w.sum.done} of ${w.sum.total} done (about ${minutesFor(w.sum.total - w.sum.done)} min left).`,
+  },
+  short: {
+    log: (w) => `✗ Understanding check: ${w.sum.passed} passed, ${w.sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`,
+    comment: (w) => `**Understanding check in progress:** all ${w.sum.total} answered, not finished yet.`,
+  },
+  done: {
+    log: (w) => `✓ Understanding check done: ${w.sum.passed} of ${w.sum.total} passed (${w.rule}).${w.room}`,
+    comment: (w) => `**✓ Understanding check done** · ${w.sum.total} question${w.sum.total === 1 ? '' : 's'}`,
+  },
 }
 
 // ---------- threads.mjs ----------
@@ -2279,111 +2310,200 @@ export const concernBody = (check, q, where, o = {}) => threadBody(check, { id: 
  * reopens only what it resolved itself. "Worth discussing" threads are left to the reviewer. Returns log lines; never throws.
  */
 export async function syncConcerns(ctx, check, { head, link = () => undefined, urls = new Map(), repo, items = reviewItems(check), diff, changed = new Map() } = {}) {
-  const lines = []
-  // The file at the head commit, for a concern's line that moved since it was graded.
-  const fileAt = (f) => { try { return repo && head ? git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) : undefined } catch { return undefined } }
+  const log = syncLog()
   const want = new Map(items.map((it) => [it.id, it]))
-  // The line it is about: a concern's own line, else the question's first line; then the nearest line of the diff.
-  const aboutOf = (it) => (isConcernItem(it) ? concernPlace(it.q, fileAt) : it.q.target === 'file' || !Number.isInteger(it.q.start) ? undefined : { file: it.q.file, line: it.q.start })
+  const text = threadTexts(check, { head, link, repo, diff, changed })
+  if (ctx.platform === 'gitlab') await syncGitlab(ctx, want, { urls, text, log })
+  else if (ctx.platform === 'github') await syncGithub(ctx, want, { urls, text, log, head })
+  return log.lines
+}
+
+/** What syncConcerns says: `say(line)` (true, for chains of `&&`), `safe(what, fn)` (a failed API call said, undefined). */
+function syncLog() {
+  const lines = []
+  return {
+    lines,
+    say: (s) => { lines.push(`  ${s}`); return true },
+    safe: async (what, fn) => {
+      try {
+        return await fn()
+      } catch (e) {
+        lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`)
+        return undefined
+      }
+    },
+  }
+}
+
+/**
+ * Where each item's thread goes and what it says, the same on both platforms: `placeOf(it)` (the line it is about, moved
+ * to the nearest line of the diff), `bodyOf(it, onLine)` (onLine: the thread is on a line of the diff), `what(it)`.
+ */
+function threadTexts(check, { head, link, repo, diff, changed }) {
+  // The file at the head commit, for a concern's line that moved since it was graded.
+  const fileAt = (f) => {
+    try { return repo && head ? git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) : undefined } catch { return undefined }
+  }
+  // The line it is about: a concern's own line, else the question's first line.
+  const aboutOf = (it) => {
+    if (isConcernItem(it)) return concernPlace(it.q, fileAt)
+    return it.q.target === 'file' || !Number.isInteger(it.q.start) ? undefined : { file: it.q.file, line: it.q.start }
+  }
+  // Then the nearest line of the diff (`moved`: not the line it is about).
   const placeOf = (it) => {
     const p = aboutOf(it)
     if (!p || diff === undefined) return p
     const line = nearestChanged(diff, p.file, p.line)
     return line === undefined ? p : { ...p, line, ...(line !== p.line ? { moved: true } : {}) }
   }
-  const whereAt = (p) => { if (!p) return undefined; const u = link({ file: p.file, start: p.line, end: p.line }); return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\`` }
-  // On a line of the diff: the text says where it is about only when that is another line.
-  const bodyOf = (it, onLine) => threadBody(check, it, onLine ? (placeOf(it)?.moved ? whereAt(aboutOf(it)) : undefined) : whereAt(aboutOf(it)), isConcernItem(it) && changed.has(it.id) ? { changed: changed.get(it.id) } : {})
-  const say = (s) => { lines.push(`  ${s}`); return true }
-  const safe = async (what, fn) => { try { return await fn() } catch (e) { lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`); return undefined } }
-  const what = (it) => (isConcernItem(it) ? 'Concern' : 'Worth discussing')
-  // A thread of a question: its id, or the id an earlier version gave a "Worth discussing" thread.
-  const idOf = (raw) => raw.replace(/^discuss-/, '')
-
-  if (ctx.platform === 'gitlab') {
-    const mr = glMr(ctx)
-    const discussions = await safe('read the merge request threads', () => api(ctx, 'GET', `${mr}/discussions?per_page=100`))
-    if (!Array.isArray(discussions)) return lines
-    const mine = new Map()
-    for (const d of discussions) {
-      const n = d.notes?.[0], raw = concernIdOf(n?.body)
-      if (!raw) continue
-      const id = idOf(raw), had = mine.get(id)
-      if (!had || (had.raw !== id && raw === id)) mine.set(id, { d, n, raw })
-    }
-    const sameUser = (a, b) => !!a && !!b && (a.id !== undefined && b.id !== undefined ? a.id === b.id : a.username === b.username)
-    // A person replied in the thread: theirs now.
-    const touched = (d, n) => (d.notes ?? []).slice(1).some((x) => !x.system && !sameUser(x.author, n.author))
-    const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
-    let refs
-    for (const [id, it] of want) {
-      const had = mine.get(id)
-      if (had) {
-        urls.set(id, noteUrl(had.n.id))
-        const body = bodyOf(it, !!had.n.position || had.n.type === 'DiffNote').replace(concernMarker(id), concernMarker(had.raw))
-        if (had.n.body !== body && await safe('update a thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true))) say(`${what(it)} updated (${id}).`)
-        // Flagged again after the bot resolved it: reopened. Resolved by a person: left as it is.
-        if (had.n.resolved && isConcernItem(it) && sameUser(had.n.resolved_by, had.n.author) && await safe('reopen a thread', () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true))) say(`${what(it)} reopened (${id}).`)
-        continue
-      }
-      const p = placeOf(it)
-      if (p && refs === undefined) refs = await safe('read the diff refs', async () => (await api(ctx, 'GET', mr))?.diff_refs ?? null) ?? null
-      const position = p && refs?.base_sha ? { position_type: 'text', base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line } : undefined
-      // A line outside the diff is rejected: then a plain note, quietly (no error in the log).
-      let ok = false
-      const posted = (d) => { const nid = d?.notes?.[0]?.id; if (nid !== undefined) urls.set(id, noteUrl(nid)); return true }
-      if (position) { try { posted(await api(ctx, 'POST', `${mr}/discussions`, { body: bodyOf(it, true), position })); ok = true } catch { /* not in the diff */ } }
-      if (ok) { say(`${what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
-      if (await safe('post a thread', () => api(ctx, 'POST', `${mr}/discussions`, { body: bodyOf(it, false) }).then(posted))) say(`${what(it)} posted as a note (${id}).`)
-    }
-    for (const [id, { d, n, raw }] of mine) {
-      // Only the bot's own concern threads that nobody replied to; "Worth discussing" is the reviewer's to resolve.
-      if (want.has(id) || n.resolved || raw !== id || !/\n⚠/.test(n.body) || touched(d, n)) continue
-      if (await safe('resolve a thread', () => api(ctx, 'PUT', `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true))) say(`Concern resolved (${id}): no longer flagged.`)
-    }
-    return lines
+  const whereAt = (p) => {
+    if (!p) return undefined
+    const u = link({ file: p.file, start: p.line, end: p.line })
+    return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\``
   }
+  // On a line of the diff: the text says where it is about only when that is another line.
+  const bodyOf = (it, onLine) => {
+    const where = onLine ? (placeOf(it)?.moved ? whereAt(aboutOf(it)) : undefined) : whereAt(aboutOf(it))
+    return threadBody(check, it, where, isConcernItem(it) && changed.has(it.id) ? { changed: changed.get(it.id) } : {})
+  }
+  const what = (it) => (isConcernItem(it) ? 'Concern' : 'Worth discussing')
+  return { placeOf, bodyOf, what }
+}
 
-  if (ctx.platform !== 'github') return lines
+/** A thread of a question: its id, or the id an earlier version gave a "Worth discussing" thread. */
+const idOf = (raw) => raw.replace(/^discuss-/, '')
+/** Keeps one thread per question in `mine`: the one with its own id rather than an earlier version's. */
+function keepThread(mine, id, x) {
+  const had = mine.get(id)
+  if (!had || (had.raw !== id && x.raw === id)) mine.set(id, x)
+}
+
+/** GitLab: discussions with a diff position; the bot resolves what is no longer flagged and reopens what it resolved. */
+async function syncGitlab(ctx, want, { urls, text, log }) {
+  const { say, safe } = log
+  const mr = glMr(ctx)
+  const discussions = await safe('read the merge request threads', () => api(ctx, 'GET', `${mr}/discussions?per_page=100`))
+  if (!Array.isArray(discussions)) return
+  const mine = new Map()
+  for (const d of discussions) {
+    const n = d.notes?.[0], raw = concernIdOf(n?.body)
+    if (raw) keepThread(mine, idOf(raw), { d, n, raw })
+  }
+  const sameUser = (a, b) => !!a && !!b && (a.id !== undefined && b.id !== undefined ? a.id === b.id : a.username === b.username)
+  // A person replied in the thread: theirs now.
+  const touched = (d, n) => (d.notes ?? []).slice(1).some((x) => !x.system && !sameUser(x.author, n.author))
+  const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
+  let refs
+  for (const [id, it] of want) {
+    const had = mine.get(id)
+    if (had) {
+      urls.set(id, noteUrl(had.n.id))
+      const onLine = !!had.n.position || had.n.type === 'DiffNote'
+      const body = text.bodyOf(it, onLine).replace(concernMarker(id), concernMarker(had.raw))
+      const update = () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true)
+      if (had.n.body !== body && await safe('update a thread', update)) say(`${text.what(it)} updated (${id}).`)
+      // Flagged again after the bot resolved it: reopened. Resolved by a person: left as it is.
+      const reopen = () => api(ctx, 'PUT', `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true)
+      const botResolved = had.n.resolved && sameUser(had.n.resolved_by, had.n.author)
+      if (botResolved && isConcernItem(it) && await safe('reopen a thread', reopen)) say(`${text.what(it)} reopened (${id}).`)
+      continue
+    }
+    const p = text.placeOf(it)
+    if (p && refs === undefined) refs = await safe('read the diff refs', async () => (await api(ctx, 'GET', mr))?.diff_refs ?? null) ?? null
+    const position = p && refs?.base_sha
+      ? { position_type: 'text', base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line }
+      : undefined
+    const posted = (d) => {
+      const nid = d?.notes?.[0]?.id
+      if (nid !== undefined) urls.set(id, noteUrl(nid))
+      return true
+    }
+    // A line outside the diff is rejected: then a plain note, quietly (no error in the log).
+    let ok = false
+    if (position) {
+      try {
+        posted(await api(ctx, 'POST', `${mr}/discussions`, { body: text.bodyOf(it, true), position }))
+        ok = true
+      } catch { /* not in the diff */ }
+    }
+    if (ok) { say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
+    const note = () => api(ctx, 'POST', `${mr}/discussions`, { body: text.bodyOf(it, false) }).then(posted)
+    if (await safe('post a thread', note)) say(`${text.what(it)} posted as a note (${id}).`)
+  }
+  for (const [id, { d, n, raw }] of mine) {
+    // Only the bot's own concern threads that nobody replied to; "Worth discussing" is the reviewer's to resolve.
+    if (want.has(id) || n.resolved || raw !== id || !/\n⚠/.test(n.body) || touched(d, n)) continue
+    const resolve = () => api(ctx, 'PUT', `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true)
+    if (await safe('resolve a thread', resolve)) say(`Concern resolved (${id}): no longer flagged.`)
+  }
+}
+
+/**
+ * GitHub: review comments (side RIGHT) or, off the diff, issue comments; what is no longer flagged gets one "No longer
+ * flagged." reply (resolving a review thread needs GraphQL), removed when it is flagged again.
+ */
+async function syncGithub(ctx, want, { urls, text, log, head }) {
+  const { say, safe } = log
   const repoUrl = `/repos/${ctx.project}`
   const pr = `${repoUrl}/pulls/${ctx.mr}`
   const review = await safe('read the review comments', () => api(ctx, 'GET', `${pr}/comments?per_page=100`))
   const notes = await safe('read the comments', () => api(ctx, 'GET', `${repoUrl}/issues/${ctx.mr}/comments?per_page=100`))
-  if (!Array.isArray(review) || !Array.isArray(notes)) return lines
+  if (!Array.isArray(review) || !Array.isArray(notes)) return
   const mine = new Map(), closed = new Map()
-  const keep = (id, x) => { const had = mine.get(id); if (!had || (had.raw !== id && x.raw === id)) mine.set(id, x) }
-  for (const c of review) { const raw = concernIdOf(c.body); if (raw && !c.in_reply_to_id) keep(idOf(raw), { c, review: true, raw }) }
-  for (const c of notes) { const raw = concernIdOf(c.body); if (raw) keep(idOf(raw), { c, review: false, raw }) }
-  for (const c of review) { const id = closedIdOf(c.body); if (id) closed.set(id, c) }
+  for (const c of review) {
+    const raw = concernIdOf(c.body)
+    if (raw && !c.in_reply_to_id) keepThread(mine, idOf(raw), { c, review: true, raw })
+  }
+  for (const c of notes) {
+    const raw = concernIdOf(c.body)
+    if (raw) keepThread(mine, idOf(raw), { c, review: false, raw })
+  }
+  for (const c of review) {
+    const id = closedIdOf(c.body)
+    if (id) closed.set(id, c)
+  }
   for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c) }
   // A person replied to the review thread: theirs now.
   const replied = (c) => review.some((x) => x.in_reply_to_id === c.id && !closedIdOf(x.body) && x.user?.login !== c.user?.login)
+  const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
   for (const [id, it] of want) {
     const had = mine.get(id)
-    const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
     if (had) {
       urls.set(id, ghUrl(had.c, had.review))
-      const body = bodyOf(it, had.review).replace(concernMarker(id), concernMarker(had.raw))
-      if (had.c.body !== body && await safe('update a thread', () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true))) say(`${what(it)} updated (${id}).`)
+      const body = text.bodyOf(it, had.review).replace(concernMarker(id), concernMarker(had.raw))
+      const update = () => api(ctx, 'PATCH', `${repoUrl}/${had.review ? 'pulls' : 'issues'}/comments/${had.c.id}`, { body }).then(() => true)
+      if (had.c.body !== body && await safe('update a thread', update)) say(`${text.what(it)} updated (${id}).`)
       // Flagged again: the "No longer flagged." reply goes.
       const gone = closed.get(id)
-      if (gone && had.review && await safe('remove a reply', () => api(ctx, 'DELETE', `${repoUrl}/pulls/comments/${gone.id}`).then(() => true))) say(`Concern flagged again (${id}).`)
+      const remove = () => api(ctx, 'DELETE', `${repoUrl}/pulls/comments/${gone.id}`).then(() => true)
+      if (gone && had.review && await safe('remove a reply', remove)) say(`Concern flagged again (${id}).`)
       continue
     }
-    const p = placeOf(it)
+    const p = text.placeOf(it)
     let ok = false
-    if (p && head) { try { const c = await api(ctx, 'POST', `${pr}/comments`, { body: bodyOf(it, true), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' }); if (c?.id !== undefined) urls.set(id, ghUrl(c, true)); ok = true } catch { /* not in the diff */ } }
-    if (ok) { say(`${what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
-    if (await safe('post a thread', () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: bodyOf(it, false) }).then((c) => { if (c?.id !== undefined) urls.set(id, ghUrl(c, false)); return true }))) say(`${what(it)} posted as a comment (${id}).`)
+    if (p && head) {
+      try {
+        const c = await api(ctx, 'POST', `${pr}/comments`, { body: text.bodyOf(it, true), commit_id: head, path: p.file, line: p.line, side: 'RIGHT' })
+        if (c?.id !== undefined) urls.set(id, ghUrl(c, true))
+        ok = true
+      } catch { /* not in the diff */ }
+    }
+    if (ok) { say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
+    const comment = () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: text.bodyOf(it, false) }).then((c) => {
+      if (c?.id !== undefined) urls.set(id, ghUrl(c, false))
+      return true
+    })
+    if (await safe('post a thread', comment)) say(`${text.what(it)} posted as a comment (${id}).`)
   }
   for (const [id, { c, review: rv, raw }] of mine) {
-    if (want.has(id) || raw !== id || !/\n⚠/.test(c.body) || (rv && (closed.has(id) || replied(c))) || (!rv && closedIdOf(c.body))) continue
+    const ours = !want.has(id) && raw === id && /\n⚠/.test(c.body)
+    const settled = rv ? closed.has(id) || replied(c) : !!closedIdOf(c.body)
+    if (!ours || settled) continue
     const reply = `${closedMarker(id)}\nNo longer flagged.`
     const ok = rv ? await safe('reply to a concern', () => api(ctx, 'POST', `${pr}/comments/${c.id}/replies`, { body: reply }).then(() => true))
       : await safe('mark a concern', () => api(ctx, 'PATCH', `${repoUrl}/issues/comments/${c.id}`, { body: `${c.body}\n\n${reply}` }).then(() => true))
     if (ok) say(`Concern no longer flagged (${id}).`)
   }
-  return lines
 }
 
 // ---------- init.mjs ----------
@@ -2402,11 +2522,6 @@ export const INIT_LINES = {
 /** Lines an earlier `init` wrote, replaced by today's. */
 const OLD_LINES = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] }
 
-/**
- * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
- * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
- * version wrote is replaced in place. Returns what it added, as "file: line".
- */
 /** The `init` lines the repository doesn't have yet (in its working tree), as "file: line". */
 export function setupMissing(repo) {
   const out = []
@@ -2419,6 +2534,11 @@ export function setupMissing(repo) {
   return out
 }
 
+/**
+ * Writes or extends `.gitattributes` and `.ignore` in the repository's root so the check files stay out of diffs and
+ * search. Idempotent: a line already there (ignoring surrounding spaces) is never added twice; a line an earlier
+ * version wrote is replaced in place. `only`: that file alone. Returns what it added, as "file: line".
+ */
 export function initRepo(repo, { only } = {}) {
   const added = []
   for (const [name, want] of Object.entries(INIT_LINES)) {
@@ -2451,7 +2571,7 @@ export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
 
 /** Where the skill ships beside this file (in the extension and in its repository), if it does. */
 const skillSource = () => {
-  const here = path.dirname(fileURLToPath(import.meta.url))
+  const here = path.dirname(SELF)
   return [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
 }
 /** The CLI the repository has committed already (e.g. tools/understanding.mjs), outside the skill's folder. */
@@ -2467,7 +2587,7 @@ export function installSkill(repo) {
   const src = skillSource()
   if (!src) return undefined
   const want = [['SKILL.md', path.join(src, 'SKILL.md')], ['scripts/questions.mjs', path.join(src, 'scripts/questions.mjs')]]
-  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', fileURLToPath(import.meta.url)])
+  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', SELF])
   const out = []
   for (const [rel, from] of want) {
     const to = path.join(repo, SKILL_DIR, rel)
@@ -2532,141 +2652,202 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
   const cmd = o._[0]
   const repo = repoRoot(cwd) ?? cwd
   if (!cmd || cmd === 'help' || o.help) { print(HELP); return 0 }
-  if (cmd === 'status') {
-    const s = localStatus(repo, { base: typeof o.base === 'string' ? o.base : undefined, env })
-    if (o.json) { const { check, ...rest } = s; print(JSON.stringify(rest, null, 2)); return 0 }
-    const w = stateWords(s.state, s)
-    print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
-    if (s.state.phase === 'none') {
-      print('  Run "Code Notes: Check my understanding" in VS Code.')
-      print(`  ${withoutVsCode(hasSkill(repo))}`)
-    }
-    print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code line${s.changed === 1 ? '' : 's'} changed`)
-    if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
-    if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
-    const unknown = unknownSettings(repo)
-    if (unknown.length) print(unknownLine(unknown))
-    // A file that can't be read is an error for scripts and hooks too.
-    return s.state.phase === 'invalid' ? 1 : 0
-  }
-  if (cmd === 'init') {
-    const changed = initRepo(repo)
-    const skill = installSkill(repo)
-    const files = [...new Set(changed.map((l) => l.split(':')[0]))]
-    print(changed.length || skill?.length ? `Added: ${[...changed, ...(skill?.length ? [`the skill (${SKILL_DIR}: ${skill.map((f) => path.basename(f)).join(', ')})`] : [])].join('; ')}.` : 'Already set up.')
-    if (files.length || skill?.length) print(`Commit them: git add ${[...files, ...(skill?.length ? [SKILL_DIR] : [])].join(' ')} && git commit -m "Add understanding check setup"`)
-    if (skill?.length || (skill && hasSkill(repo))) print('Without VS Code: type /understanding-check in Claude Code.')
-    else if (!skill) print(withoutVsCode(hasSkill(repo)))
-    // The CI job goes in the last stage with needs: [] (in .pre, a missing check would skip lint and tests).
-    print(`CI recipe: ${CI_URL}`)
+  if (!Object.hasOwn(COMMANDS, cmd)) { print(`unknown command "${cmd}"\n\n${HELP}`); return 2 }
+  return COMMANDS[cmd]({ o, repo, cwd, env, print })
+}
+
+/** The commands, each `({ o: the arguments, repo, cwd, env, print })` → its exit code. */
+const COMMANDS = {
+  status: statusCommand,
+  init: initCommand,
+  validate: validateCommand,
+  grade: gradeCommand,
+  next: nextCommand,
+  flag: flagCommand,
+  commit: commitCommand,
+  ci: ciCommand,
+}
+
+function statusCommand({ o, repo, env, print }) {
+  const s = localStatus(repo, { base: typeof o.base === 'string' ? o.base : undefined, env })
+  if (o.json) {
+    const { check, ...rest } = s
+    print(JSON.stringify(rest, null, 2))
     return 0
   }
-  if (cmd === 'validate') {
-    const f = o._[1]
-    if (!f) { print('validate: which file?'); return 2 }
-    let c
-    try { c = readCheck(path.resolve(cwd, f)) } catch (e) { print(`✗ ${f}: ${e.message}`); return 1 }
-    const errs = validateCheck(c, { repo })
-    if (!errs.length) { print(`✓ ${f}: ${c.questions.length} questions`); return 0 }
-    for (const e of errs) print(`✗ ${e}`)
-    return 1
+  const w = stateWords(s.state, s)
+  print(w.title ? `${w.title}${w.line ? ` · ${w.line}` : ''}` : w.line)
+  if (s.state.phase === 'none') {
+    print('  Run "Code Notes: Check my understanding" in VS Code.')
+    print(`  ${withoutVsCode(hasSkill(repo))}`)
   }
-  if (cmd === 'grade') {
-    const f = o._[1] ? path.resolve(cwd, o._[1]) : path.join(repo, fileFor(currentBranch(repo, env)))
-    let c
-    try { c = readCheck(f) } catch (e) { print(`✗ ${f}: ${e.message}`); return 2 }
-    const errs = validateCheck(c)
-    if (errs.length) { print(`✗ not valid: ${errs[0]}`); return 2 }
-    const cfg = loadConfig(repo)
-    let list = c.questions.filter((q) => stateOf(q) === 'ungraded')
-    if ((o.prompt || o.reply !== undefined) && (typeof o.question !== 'string' || typeof o.answer !== 'string')) { print(`--${o.prompt ? 'prompt' : 'reply'} needs --question and --answer`); return 2 }
-    if (typeof o.question === 'string') {
-      const q = c.questions.find((x) => x.id === o.question)
-      if (!q) { print(`✗ no question ${o.question}`); return 2 }
-      // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
-      if (o.prompt) { print(promptFor(repo, c, q, o.answer)); return 0 }
-      if (typeof o.answer === 'string') addAttempt(c, q, o.answer, gitIdentity(repo))
-      // A grade written elsewhere (Claude Code in a chat): checked and recorded like the grader's own reply.
-      if (o.reply !== undefined) {
-        let a
-        try { a = applyGrade(repo, q, q.attempts.at(-1), String(o.reply)) } catch (e) { print(`✗ ${e.message}`); return 2 }
-        writeCheck(f, stamp(c, cfg))
-        print(gradeLine(q, a))
-        print(progressLine(c, cfg, repo, env))
-        return 0
-      }
-      list = [q]
-    } else if (typeof o.answer === 'string') { print('--answer needs --question'); return 2 }
-    if (!list.length) { print('Nothing to grade: no answers without a verdict.'); return 0 }
-    let backend
-    try { backend = pickBackend({ flag: typeof o.backend === 'string' ? o.backend : undefined, cfg, env }) } catch (e) { print(`! ${e.message}`); return 2 }
-    const model = typeof o.model === 'string' ? o.model : cfg.model ?? env.UNDERSTANDING_MODEL ?? undefined
-    let diff
-    try { diff = diffText(repo, c.base ?? c.head, undefined) } catch { diff = '' }
-    let failed = 0
-    await Promise.all(list.map(async (q) => {
-      try {
-        const a = await gradeQuestion(repo, c, q, { backend, model, env, diff })
-        print(gradeLine(q, a))
-      } catch (e) { failed++; print(`! ${q.id}: ${e.message}`) }
-    }))
-    if (o.write) { writeCheck(f, stamp(c, cfg)); print(`Saved ${path.relative(repo, f)}.`) }
-    return failed ? 2 : 0
+  print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code line${s.changed === 1 ? '' : 's'} changed`)
+  if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
+  if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
+  const unknown = unknownSettings(repo)
+  if (unknown.length) print(unknownLine(unknown))
+  // A file that can't be read is an error for scripts and hooks too.
+  return s.state.phase === 'invalid' ? 1 : 0
+}
+
+function initCommand({ repo, print }) {
+  const changed = initRepo(repo)
+  const skill = installSkill(repo)
+  const files = [...new Set(changed.map((l) => l.split(':')[0]))]
+  const skillLine = skill?.length ? [`the skill (${SKILL_DIR}: ${skill.map((f) => path.basename(f)).join(', ')})`] : []
+  print(changed.length || skill?.length ? `Added: ${[...changed, ...skillLine].join('; ')}.` : 'Already set up.')
+  if (files.length || skill?.length) {
+    print(`Commit them: git add ${[...files, ...(skill?.length ? [SKILL_DIR] : [])].join(' ')} && git commit -m "Add understanding check setup"`)
   }
-  if (cmd === 'next') {
-    const f = path.join(repo, fileFor(currentBranch(repo, env)))
-    let c
-    try { c = readCheck(f) } catch { print(`No check yet: ${path.relative(repo, f)} doesn't exist.`); return 1 }
-    const q = nextQuestion(c)
-    if (!q) { print(progressLine(c, loadConfig(repo), repo, env)); return 0 }
-    const i = c.questions.indexOf(q)
-    const tries = (q.attempts ?? []).filter((a) => a.verdict).length
-    print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ''}) · ${q.kind} · ${q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`}${q.also?.length ? ` · also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''}`)
-    print(q.text)
-    const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts.at(-1).hint : ''
-    if (hint) print(`Hint: ${hint}`)
-    return 0
+  if (skill?.length || (skill && hasSkill(repo))) print('Without VS Code: type /understanding-check in Claude Code.')
+  else if (!skill) print(withoutVsCode(hasSkill(repo)))
+  // The CI job goes in the last stage with needs: [] (in .pre, a missing check would skip lint and tests).
+  print(`CI recipe: ${CI_URL}`)
+  return 0
+}
+
+function validateCommand({ o, repo, cwd, print }) {
+  const f = o._[1]
+  if (!f) { print('validate: which file?'); return 2 }
+  let c
+  try { c = readCheck(path.resolve(cwd, f)) } catch (e) { print(`✗ ${f}: ${e.message}`); return 1 }
+  const errs = validateCheck(c, { repo })
+  if (!errs.length) { print(`✓ ${f}: ${c.questions.length} questions`); return 0 }
+  for (const e of errs) print(`✗ ${e}`)
+  return 1
+}
+
+/**
+ * `grade`: the ungraded answers (or `--question`'s) graded by a backend; `--prompt` prints the grader's instructions
+ * instead; `--reply` records a grade written elsewhere.
+ */
+async function gradeCommand({ o, repo, cwd, env, print }) {
+  const f = o._[1] ? path.resolve(cwd, o._[1]) : path.join(repo, fileFor(currentBranch(repo, env)))
+  let c
+  try { c = readCheck(f) } catch (e) { print(`✗ ${f}: ${e.message}`); return 2 }
+  const errs = validateCheck(c)
+  if (errs.length) { print(`✗ not valid: ${errs[0]}`); return 2 }
+  const cfg = loadConfig(repo)
+  let list = c.questions.filter((q) => stateOf(q) === 'ungraded')
+  const one = typeof o.question === 'string'
+  if ((o.prompt || o.reply !== undefined) && (!one || typeof o.answer !== 'string')) {
+    print(`--${o.prompt ? 'prompt' : 'reply'} needs --question and --answer`)
+    return 2
   }
-  if (cmd === 'flag') {
-    const f = path.join(repo, fileFor(currentBranch(repo, env)))
-    let c
-    try { c = readCheck(f) } catch { print(`No check yet: ${path.relative(repo, f)} doesn't exist.`); return 1 }
+  if (!one && typeof o.answer === 'string') { print('--answer needs --question'); return 2 }
+  if (one) {
     const q = c.questions.find((x) => x.id === o.question)
-    if (!q) { print(`✗ no question ${o.question ?? '(--question q1)'}`); return 2 }
-    if (!flagConcern(c, q, gitIdentity(repo))) { print(`${q.id} has no concern to flag.`); return 1 }
-    writeCheck(f, c)
-    print(`⚠ Flagged for the reviewer: ${q.concern.text}`)
-    return 0
+    if (!q) { print(`✗ no question ${o.question}`); return 2 }
+    // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
+    if (o.prompt) { print(promptFor(repo, c, q, o.answer)); return 0 }
+    if (typeof o.answer === 'string') addAttempt(c, q, o.answer, gitIdentity(repo))
+    // A grade written elsewhere (Claude Code in a chat): checked and recorded like the grader's own reply.
+    if (o.reply !== undefined) return recordReply({ f, c, q, cfg, reply: String(o.reply), repo, env, print })
+    list = [q]
   }
-  if (cmd === 'commit') {
-    const r = await commitCheck(repo, { env, push: !o['no-push'] })
-    if (!r.ok) { print(`✗ ${r.line}`); return 1 }
-    const what = `${r.files.map((x) => path.basename(x)).join(', ')}${r.files.includes('.gitattributes') ? ` (${FOLD_TEXT.replace(/ \(.*$/, '')})` : ''}`
-    print(`${r.committed ? `Committed ${what}. ` : ''}${r.line === 'Committed.' ? '' : r.line}${r.mr ? ` Open a merge request: ${r.mr}` : ''}`.trim())
-    return 0
+  if (!list.length) { print('Nothing to grade: no answers without a verdict.'); return 0 }
+  let backend
+  try {
+    backend = pickBackend({ flag: typeof o.backend === 'string' ? o.backend : undefined, cfg, env })
+  } catch (e) {
+    print(`! ${e.message}`)
+    return 2
   }
-  if (cmd === 'ci') {
-    const r = await runCi(repo, { env, comment: !o['no-comment'], base: typeof o.base === 'string' ? o.base : undefined })
-    for (const l of r.lines) print(l)
-    return r.code
+  const model = typeof o.model === 'string' ? o.model : cfg.model ?? env.UNDERSTANDING_MODEL ?? undefined
+  let diff
+  try { diff = diffText(repo, c.base ?? c.head, undefined) } catch { diff = '' }
+  let failed = 0
+  await Promise.all(list.map(async (q) => {
+    try {
+      const a = await gradeQuestion(repo, c, q, { backend, model, env, diff })
+      print(gradeLine(q, a))
+    } catch (e) { failed++; print(`! ${q.id}: ${e.message}`) }
+  }))
+  if (o.write) { writeCheck(f, stamp(c, cfg)); print(`Saved ${path.relative(repo, f)}.`) }
+  return failed ? 2 : 0
+}
+
+/** `grade --reply`: the grade (`reply`) recorded on question `q`'s latest answer, the file saved, what is next said. */
+function recordReply({ f, c, q, cfg, reply, repo, env, print }) {
+  let a
+  try { a = applyGrade(repo, q, q.attempts.at(-1), reply) } catch (e) { print(`✗ ${e.message}`); return 2 }
+  writeCheck(f, stamp(c, cfg))
+  print(gradeLine(q, a))
+  print(progressLine(c, cfg, repo, env))
+  return 0
+}
+
+function nextCommand({ repo, env, print }) {
+  const branch = branchCheck(repo, env, print)
+  if (!branch) return 1
+  const c = branch.check
+  const q = nextQuestion(c)
+  if (!q) { print(progressLine(c, loadConfig(repo), repo, env)); return 0 }
+  const i = c.questions.indexOf(q)
+  const tries = (q.attempts ?? []).filter((a) => a.verdict).length
+  const where = q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`
+  const also = q.also?.length ? ` · also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''
+  print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ''}) · ${q.kind} · ${where}${also}`)
+  print(q.text)
+  const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts.at(-1).hint : ''
+  if (hint) print(`Hint: ${hint}`)
+  return 0
+}
+
+function flagCommand({ o, repo, env, print }) {
+  const branch = branchCheck(repo, env, print)
+  if (!branch) return 1
+  const c = branch.check
+  const q = c.questions.find((x) => x.id === o.question)
+  if (!q) { print(`✗ no question ${o.question ?? '(--question q1)'}`); return 2 }
+  if (!flagConcern(c, q, gitIdentity(repo))) { print(`${q.id} has no concern to flag.`); return 1 }
+  writeCheck(branch.file, c)
+  print(`⚠ Flagged for the reviewer: ${q.concern.text}`)
+  return 0
+}
+
+async function commitCommand({ o, repo, env, print }) {
+  const r = await commitCheck(repo, { env, push: !o['no-push'] })
+  if (!r.ok) { print(`✗ ${r.line}`); return 1 }
+  const fold = r.files.includes('.gitattributes') ? ` (${FOLD_TEXT.replace(/ \(.*$/, '')})` : ''
+  const what = `${r.files.map((x) => path.basename(x)).join(', ')}${fold}`
+  print(`${r.committed ? `Committed ${what}. ` : ''}${r.line === 'Committed.' ? '' : r.line}${r.mr ? ` Open a merge request: ${r.mr}` : ''}`.trim())
+  return 0
+}
+
+async function ciCommand({ o, repo, env, print }) {
+  const r = await runCi(repo, { env, comment: !o['no-comment'], base: typeof o.base === 'string' ? o.base : undefined })
+  for (const l of r.lines) print(l)
+  return r.code
+}
+
+/** This branch's check file (`file`) and its check, or undefined after saying there is none yet. */
+function branchCheck(repo, env, print) {
+  const file = path.join(repo, fileFor(currentBranch(repo, env)))
+  try {
+    return { file, check: readCheck(file) }
+  } catch {
+    print(`No check yet: ${path.relative(repo, file)} doesn't exist.`)
+    return undefined
   }
-  print(`unknown command "${cmd}"\n\n${HELP}`)
-  return 2
 }
 
 /** One grade in a line: "✓ q1 pass: Right: …", with the hint and a concern when there are. */
-const gradeLine = (q, a) => `${MARK[a.verdict]} ${q.id} ${a.verdict}${a.partial ? ' (mostly right)' : ''}: ${a.feedback}${a.hint ? `\n  Hint: ${a.hint}` : ''}${a.concern ? `\n  Concern: ${a.concern}` : ''}`
+function gradeLine(q, a) {
+  const hint = a.hint ? `\n  Hint: ${a.hint}` : ''
+  const concern = a.concern ? `\n  Concern: ${a.concern}` : ''
+  return `${MARK[a.verdict]} ${q.id} ${a.verdict}${a.partial ? ' (mostly right)' : ''}: ${a.feedback}${hint}${concern}`
+}
 /** Where the check stands after a grade, and what is next: the next question, or the commit. */
 function progressLine(check, cfg, repo, env) {
   const s = summarize(check, cfg)
   const next = nextQuestion(check)
   if (next) return `${s.done} of ${s.total} done · next: ${next.id}`
-  return s.met ? `✓ Done: ${s.passed} of ${s.total} passed (${s.needed} needed). Commit and push: node ${cliName(repo)} commit` : `${s.passed} passed, ${s.needed} must pass: say an explained answer back in one sentence (grade --question <id> --answer "…" --reply …).`
+  if (s.met) return `✓ Done: ${s.passed} of ${s.total} passed (${s.needed} needed). Commit and push: node ${cliName(repo)} commit`
+  return `${s.passed} passed, ${s.needed} must pass: say an explained answer back in one sentence (grade --question <id> --answer "…" --reply …).`
 }
-/** This file's path for a command line: relative to the repository when it is inside it. */
-const cliName = (repo) => { const me = path.relative(repo, fileURLToPath(import.meta.url)); return me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs' }
 
-const self = fileURLToPath(import.meta.url)
-if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(self) } catch { return false } })()) {
+// Run as a command (not imported): the command line, its exit code.
+if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF) } catch { return false } })()) {
   main().then((code) => { process.exitCode = code }, (e) => { console.error(`! ${e.message}`); process.exitCode = 2 })
 }

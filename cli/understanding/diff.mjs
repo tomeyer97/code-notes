@@ -8,7 +8,7 @@ import { isCode } from './comments.mjs'
 const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
 
 /** A hunk header: "@@ -a,b +c,d @@" (a: the old side's first line; c, d: the new side's first line and count). */
-export const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
 /**
  * Each line of a unified diff, as what it is (`kind`) and where it is. `line`: the line as it is.
@@ -20,7 +20,7 @@ export const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
  *   other      anything else ("index …", "\\ No newline at end of file", "new file mode …")
  * The counters go on from line to line and start again at each hunk; `shift`: old minus new after the line.
  */
-export function* walkDiff(diff) {
+function* walkDiff(diff) {
   let n = 0, o = 0
   for (const line of diff.split('\n')) {
     if (line.startsWith('diff --git')) { yield { kind: 'section', line }; continue }

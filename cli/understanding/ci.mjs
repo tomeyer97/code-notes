@@ -1,8 +1,7 @@
 // The CI job (`ci`): never calls a model; checks that the check was done for this change and meets the rule.
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { DEFAULTS, hasSkill, MARKER, withoutVsCode } from './constants.mjs'
+import { cliName, DEFAULTS, hasSkill, MARKER, withoutVsCode } from './constants.mjs'
 import { currentBranch, defaultBase, gitOk, hasCommit, mergeBase, stackBase } from './git.mjs'
 import { codeStat, diffText, linesOf, numstat } from './diff.mjs'
 import { minutesFor, questionsForChange, sizeWords } from './size.mjs'
@@ -117,8 +116,7 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag }
   done.lines.push(...synced)
   // The repository doesn't collapse check files in diffs yet: a tip in the log (never in the comment).
   if (res.check && setupMissing(repo).length) {
-    const me = path.relative(repo, fileURLToPath(import.meta.url))
-    done.lines.push(`  tip: run "node ${me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
+    done.lines.push(`  tip: run "node ${cliName(repo)} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
   }
   return finish(done)
 }
@@ -157,26 +155,47 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
   }
   // The check and its links go along: runCi posts the review items on their lines.
   const out = (r) => Object.assign(r, { check, link, diff, changed })
-  if (state.phase === 'drift') {
-    return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
-      ...made(`**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, { qa: sum.met }) })
-  }
-  const bad = hashProblems(check)
-  if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
-
-  const plainQ = (q) => q.text.replace(/`/g, '').trim()
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
-  const rule = ruleText(sum)
-  if (state.phase === 'answering') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (about ${minutesFor(sum.total - sum.done)} min left).`) })
-  }
-  if (state.phase === 'short') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** all ${sum.total} answered, not finished yet.`) })
-  }
   // How much room is left before a top-up is needed.
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-  return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
+  const words = { sum, drift, rel, rule: ruleText(sum), room }
+  if (state.phase === 'drift') {
+    return out({ code: 1, lines: [RESULT.drift.log(words)], ...made(RESULT.drift.comment(words), { qa: sum.met }) })
+  }
+  const bad = hashProblems(check)
+  if (bad.length) {
+    const them = bad.length === 1 ? 'it' : 'them'
+    return out(short(
+      `✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${them} again in VS Code, then commit and push.`,
+      '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.',
+    ))
+  }
+  const plainQ = (q) => q.text.replace(/`/g, '').trim()
+  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
+  const phase = state.phase === 'answering' || state.phase === 'short' ? state.phase : 'done'
+  const r = RESULT[phase]
+  return out({ code: phase === 'done' ? 0 : 1, lines: [r.log(words), ...qLines], ...made(r.comment(words), phase === 'done' ? { qa: true } : {}) })
+}
+
+/**
+ * The job's result in words, by phase (checkState's; stateWords has the same phases' words for VS Code and `status`):
+ * `log`, the CI log's first line, and `comment`, the merge request comment's headline. `w`: `{ sum, drift, rel, rule,
+ * room }`.
+ */
+const RESULT = {
+  drift: {
+    log: (w) => `✗ Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
+    comment: (w) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`,
+  },
+  answering: {
+    log: (w) => `✗ Understanding check: ${w.sum.done} of ${w.sum.total} done (${w.rule}). Finish in VS Code, commit ${w.rel} and push.`,
+    comment: (w) => `**Understanding check in progress:** ${w.sum.done} of ${w.sum.total} done (about ${minutesFor(w.sum.total - w.sum.done)} min left).`,
+  },
+  short: {
+    log: (w) => `✗ Understanding check: ${w.sum.passed} passed, ${w.sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`,
+    comment: (w) => `**Understanding check in progress:** all ${w.sum.total} answered, not finished yet.`,
+  },
+  done: {
+    log: (w) => `✓ Understanding check done: ${w.sum.passed} of ${w.sum.total} passed (${w.rule}).${w.room}`,
+    comment: (w) => `**✓ Understanding check done** · ${w.sum.total} question${w.sum.total === 1 ? '' : 's'}`,
+  },
 }
