@@ -2,14 +2,19 @@
 
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'
-import { Check } from '../checkModel'
+import { Check, QState } from '../checkModel'
 import { seeAlso } from '../journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'
 import { endTour } from './commands'
 import { card, tour, walk } from './tour'
 
-export const qDone = (st: string) => st === 'pass' || st === 'explained' || st === 'restated'
+/**
+ * A question of the check that needs no more answers: passed, explained, or said back in your own words. For every
+ * QState it is the opposite of checkModel's notDone ('' and other strings: neither); checkModel's answerBox counts
+ * only pass and restated as passed.
+ */
+export const questionDone = (state: QState | string) => state === 'pass' || state === 'explained' || state === 'restated'
 
 /** A stop of a check's tour: a step, or a question `q` placed after it. */
 export interface Stop { step: number; q?: string }
@@ -19,9 +24,11 @@ export interface Stop { step: number; q?: string }
 export function stopsOf(lj: LoadedJourney): Stop[] {
   const qs = lj.check ? understanding?.tourStops() ?? [] : []
   const out: Stop[] = []
+  // The question the walk is at stays a stop once answered (the walk goes on from it).
+  const walkIsAt = (q: { id: string; step: number }) => q.id === tour.checkpointId && tour.isAt(lj, q.step)
   for (const s of lj.j.steps) {
     out.push({ step: s.n })
-    for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tour.checkpointId && tour.step === s.n && tour.key === lj.key))) out.push({ step: s.n, q: q.id })
+    for (const q of qs) if (q.step === s.n && (!questionDone(q.state) || walkIsAt(q))) out.push({ step: s.n, q: q.id })
   }
   return out
 }
@@ -69,7 +76,9 @@ export function seeAlsoLink(files: string[], span?: { start: number; end: number
   const hit = seeAlso(listItems(), files, span)
   const lj = hit && journeys.list.get(hit.key)
   const s = lj?.j.steps[hit!.step - 1]
-  return lj && s ? cmdLink(`${lj.j.title.replace(/[[\]]/g, '')}, step ${hit!.step}`, 'codeNotes.openStepLink', lj.j.id, s.id, hit!.step) : undefined
+  if (!lj || !s) return undefined
+  const label = `${lj.j.title.replace(/[[\]]/g, '')}, step ${hit!.step}`
+  return cmdLink(label, 'codeNotes.openStepLink', lj.j.id, s.id, hit!.step)
 }
 
 /** The check's tour follows the check: another branch's (or none) goes; this branch's is read, and the map and the
@@ -81,7 +90,10 @@ export async function tourChanged(check: Check | undefined, file: string | undef
   // Another branch (or no check): the last one's tour goes.
   if (checkTour && (!uri || checkTour.uri.toString() !== uri.toString())) {
     const old = currentTour()
-    if (old && mapPanel.journey?.key === old.key) { if (old.key === tour.key && tour.step) await endTour(); mapPanel.close() }
+    if (old && mapPanel.journey?.key === old.key) {
+      if (old.key === tour.key && tour.step) await endTour()
+      mapPanel.close()
+    }
     await journeys.setTour(f, checkTour.uri, undefined, checkTour.branch)
     checkTour = undefined
   }
@@ -89,5 +101,7 @@ export async function tourChanged(check: Check | undefined, file: string | undef
   const lj = await journeys.setTour(f, uri, check?.journey, branch)
   checkTour = lj ? { uri, branch } : undefined
   // Its questions' states (the storyline's rows, the card's Next) follow the check.
-  if (lj) { mapPanel.update(); if (lj.key === tour.key && tour.step) card.show(lj, tour.step) }
+  if (!lj) return
+  mapPanel.update()
+  if (lj.key === tour.key && tour.step) card.show(lj, tour.step)
 }

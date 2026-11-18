@@ -13,7 +13,7 @@ import { escapeTags } from '../journeyModel'
 import { seenCount, visitFrom } from '../seen'
 import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { Note } from '../store'
-import { qDone, seeAlsoLink } from '../tour/checkTour'
+import { questionDone, seeAlsoLink } from '../tour/checkTour'
 import { tour, walk } from '../tour/tour'
 import { docUri, missing, openDoc, pastEnd } from './anchoring'
 import { syncThread } from './threads'
@@ -233,7 +233,7 @@ function statusRows(n: Note): vscode.Comment[] {
   if (chk?.concern) out.push(concernRow(id, chk.concern))
   // An open check question whose code a journey of the repository walks: one link to that step.
   const cq = understanding?.isCheck(n) ? understanding.questionOf(n) : undefined
-  if (cq && !qDone(understanding!.rowOf(n)?.state ?? '')) {
+  if (cq && !questionDone(understanding!.rowOf(n)?.state ?? '')) {
     const also = seeAlsoLink([cq.file, ...(cq.also ?? []).map((x) => x.file)], cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
     if (also) out.push(systemRow(systemMarkdown(also), 'See also'))
   }
