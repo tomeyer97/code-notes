@@ -24,11 +24,26 @@ import { stepFileUri } from '../journeys/codeGroup'
 type Pos = { step: number; id?: string; at: string }
 export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
 
+/** A group with the reader's own work in it: an unsaved file, or an untitled one (a scratch or notes draft). */
+function readersOwn(g: vscode.TabGroup): boolean {
+  return g.tabs.some((t) => t.isDirty || (t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'untitled'))
+}
+
 export class Walk {
   constructor(private readonly tour: TourState, private readonly card: StepCard) {}
 
   /** Called once the walk has moved, or the journeys changed (updateTour): the podcast follows a reader's move. */
   onMoved: (() => void) | undefined
+  /** The step on screen was removed from the journey: true when the podcast puts the walk where its time is now. */
+  onStepRemoved: ((lj: LoadedJourney) => boolean) | undefined
+  /** Next / Previous (the card, the keys) while a podcast drives the walk: true when the podcast's own ⏮ ⏭ did it. */
+  transport: ((dir: 1 | -1) => boolean) | undefined
+  /** A podcast is playing or paused on this journey (its row, Open Journey… on it: focus, never reopen). */
+  podcastOn: ((lj: LoadedJourney) => boolean) | undefined
+
+  /** The editor follows the walk (scrolls to what it shows); false while the reader looks around on their own during
+   *  a podcast (the follow lock, podcast/follow.ts): it only highlights. */
+  following: () => boolean = () => true
 
   tourJourney(): LoadedJourney | undefined { return this.tour.key ? journeys.list.get(this.tour.key) : undefined }
   /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
@@ -67,7 +82,7 @@ export class Walk {
       return
     }
     const n = i + 1
-    if (tour.step !== n) vscode.window.setStatusBarMessage(`$(info) Journey updated: this step is now ${n}/${lj.j.steps.length}`, 5000)
+    if (tour.step !== n) this.say(`$(info) Journey updated: this step is now ${n}/${lj.j.steps.length}`, 5000)
     tour.step = n
     void this.savePos(lj, n)
     const was = tour.shownAt
@@ -78,9 +93,17 @@ export class Walk {
     tree.refresh()
   }
 
-  /** The step the tour was on is gone from the journey: the next one (or the last), said on the card. */
+  /** A status message about the step on screen: it goes as soon as the walk moves to another step (F46). */
+  private say(text: string, ms: number): void {
+    this.tour.notice?.dispose()
+    this.tour.notice = vscode.window.setStatusBarMessage(text, ms)
+  }
+
+  /** The step the tour was on is gone from the journey: the next one (or the last), said on the card. A podcast
+   *  driving the walk decides instead (the view its time has now: onStepRemoved). */
   private followRemovedStep(lj: LoadedJourney): void {
     const { tour } = this
+    if (this.onStepRemoved?.(lj)) return
     const total = lj.j.steps.length
     if (!total) {
       void endJourney()
@@ -91,7 +114,7 @@ export class Walk {
     // Said on the card, where the eyes are, and the editor goes with it.
     const text = `The step you were on was removed from the journey. This is the next one (${tour.step}/${total}).`
     tour.cardNotice = { id: tour.stepId, text }
-    vscode.window.setStatusBarMessage(`$(info) The step you were on was removed from the journey: now at ${tour.step}/${total}`, 5000)
+    this.say(`$(info) The step you were on was removed from the journey: now at ${tour.step}/${total}`, 5000)
     void this.savePos(lj, tour.step)
     // Map, card AND editor on the new step.
     void this.goToStep(lj, tour.step, { focus: false })
@@ -195,15 +218,27 @@ export class Walk {
     tourItems.end.hide()
   }
 
-  /** The code group: never the map's. The one the tour used, else another visible editor's, else the other side. */
+  /**
+   * The code group: never the map's. The group the walk showed code in (kept for the window: another journey, the
+   * map's moments of a podcast, a walk ended keep it), while it is open; else the group nearest the panel that isn't
+   * holding the reader's own work (an unsaved file, an untitled draft); else a new group. One predictable group, so
+   * step code never lands on a notes draft and never shows in two groups (F16, F109, F122).
+   */
   readonly codeColumn = (): vscode.ViewColumn | undefined => {
-    const doc = this.tour.doc
     const mapCol = mapPanel.viewColumn
-    if (mapCol === undefined) return doc?.column ?? vscode.window.activeTextEditor?.viewColumn
-    const docGroupOpen = vscode.window.tabGroups.all.some((g) => g.viewColumn === doc?.column)
-    if (doc && doc.column !== mapCol && docGroupOpen) return doc.column
-    const other = vscode.window.visibleTextEditors.find((e) => e.viewColumn !== undefined && e.viewColumn !== mapCol)
-    return other?.viewColumn ?? (mapCol === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One)
+    const groups = vscode.window.tabGroups.all
+    const kept = this.tour.walkGroup
+    if (kept && groups.includes(kept) && kept.viewColumn !== mapCol) return kept.viewColumn
+    this.tour.walkGroup = undefined
+    if (mapCol === undefined) return this.tour.doc?.column ?? vscode.window.activeTextEditor?.viewColumn
+    const others = groups.filter((g) => g.viewColumn !== mapCol).sort((a, b) => Math.abs(a.viewColumn - mapCol) - Math.abs(b.viewColumn - mapCol) || a.viewColumn - b.viewColumn)
+    const free = others.find((g) => !readersOwn(g))
+    if (free) {
+      this.tour.walkGroup = free
+      return free.viewColumn
+    }
+    // Every other group holds the reader's own work (or there is none): a new group, at the end.
+    return Math.max(0, ...groups.map((g) => g.viewColumn)) + 1
   }
 
   /**
@@ -254,8 +289,13 @@ export class Walk {
   /** The tour is on step n now (another journey's walk ended first), stored, its map and lists follow. False: superseded. */
   private async enterStep(lj: LoadedJourney, n: number, superseded: () => boolean): Promise<boolean> {
     const { tour } = this
-    // Another step: the last one's beat is no longer lit (its scene sends the new step's beats).
-    if (!tour.isAt(lj, n)) beats.clear()
+    // Another step: the last one's beat is no longer lit (its scene sends the new step's beats); a message about the
+    // step before ("this step is now 4/14") goes with it.
+    if (!tour.isAt(lj, n)) {
+      beats.clear()
+      tour.notice?.dispose()
+      tour.notice = undefined
+    }
     // A step opened: the walk is on the step, not at a question after it (openCheckpoint sets that after).
     tour.checkpointId = undefined
     // One journey at a time, ended cleanly.
@@ -308,7 +348,10 @@ export class Walk {
     const shown = { preview: true, preserveFocus: opts.focus === false, ...(column ? { viewColumn: column } : {}) }
     const editor = await vscode.window.showTextDocument(uri, shown)
     if (superseded()) return undefined
-    if (editor.viewColumn) tour.doc = { uri, column: editor.viewColumn }
+    if (editor.viewColumn) {
+      tour.doc = { uri, column: editor.viewColumn }
+      tour.walkGroup = vscode.window.tabGroups.all.find((g) => g.viewColumn === editor.viewColumn)
+    }
     // Steps right after opening the file: anchoring against the open document (unsaved edits count).
     await journeys.locate(lj, (k) => k === n)
     if (superseded()) return undefined
@@ -386,6 +429,7 @@ export class Walk {
         return
       }
       if (!here) return
+      if (!this.following()) return
       const top = Math.max(0, Math.min(cardLine(lj, n), lj.at[n - 1].start - 1) - 1)
       editor.revealRange(new vscode.Range(top, 0, top, 0), vscode.TextEditorRevealType.AtTop)
     }
@@ -404,6 +448,8 @@ export class Walk {
 
   /** Next or previous: a step, or on a check's tour a stop (its open questions are stops between the steps). */
   async stepBy(dir: 1 | -1): Promise<void> {
+    // One transport while a podcast plays: the card's Previous / Next and the keys are the player's ⏮ ⏭ (F71).
+    if (this.transport?.(dir)) return
     if (!this.touring()) return this.startOrResume()
     const lj = this.tourJourney()!
     const to = lj.check ? stopBy(lj, dir) : this.stepAt(lj, this.tour.step + dir)

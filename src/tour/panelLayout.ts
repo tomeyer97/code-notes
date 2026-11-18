@@ -59,13 +59,15 @@ export async function panelFits(): Promise<boolean> {
 
 /**
  * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
- * 80 columns; a window too narrow for both walks with the step card in the editor only (no panel).
+ * 80 columns. A panel that is open is never closed from here (a reload, a row clicked again): too little room keeps
+ * the layout as it is; only opening a journey decides "the step card only" (openMapIfRoom). The layout never changes
+ * on its own mid-walk (F15, F51, F112, F128).
  */
 export async function codeGetsMoreRoom(): Promise<void> {
   const s = await sideBySide()
   if (!s) return
   const share = shareFor(s.total)
-  if (!share) { cardOnly(); return }
+  if (!share) { log.info('journey panel: no room beside 80 columns of code; the layout stays as it is'); return }
   const want = s.layout.groups.map((_, i) => (i === s.panel ? share : 1 - share))
   const now = (s.layout.groups[s.panel].size ?? 0) / s.total
   if (Math.abs(now - share) < 0.02) return
@@ -105,6 +107,30 @@ export async function keepOffMap(t: vscode.Tab): Promise<void> {
   if (!sel) return
   ed.selection = sel
   ed.revealRange(sel, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+}
+
+/** The panel needs this many px for its map's boxes (journey-splitter.js MAPMIN, with the panel's padding). */
+const MAP_ROOM_PX = 300
+
+/**
+ * The map asked for (Ctrl+' V) in a panel too narrow for its boxes: the panel gets the room, taken from the widest
+ * other group beside it (side by side only). Asked for, so the layout may change; never otherwise.
+ */
+export async function roomForMap(): Promise<void> {
+  const mapCol = mapPanel.viewColumn
+  const read = await readEditorLayout()
+  if (mapCol === undefined || !read || read.layout.orientation !== 0 || read.layout.groups.some((g) => (g as { groups?: unknown[] }).groups?.length)) return
+  const sizes = read.layout.groups.map((g) => g.size ?? 0)
+  const i = mapCol - 1
+  if (i < 0 || i >= sizes.length || sizes[i] >= MAP_ROOM_PX) return
+  const from = sizes.map((w, k) => (k === i ? -1 : w)).reduce((best, w, k, a) => (w > a[best] ? k : best), i === 0 ? 1 : 0)
+  const give = Math.min(MAP_ROOM_PX - sizes[i], sizes[from] - MAP_ROOM_PX)
+  if (give <= 0) return
+  sizes[i] += give
+  sizes[from] -= give
+  layoutSetAt = Date.now()
+  const layout = { orientation: 0, groups: sizes.map((w) => ({ size: w / read.total })) }
+  await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
 }
 
 /** The walk goes on with the step card in the editor; the panel (if open) closes. Said once per walk. */
