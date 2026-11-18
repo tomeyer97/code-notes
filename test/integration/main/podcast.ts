@@ -107,7 +107,115 @@ function writePodJourney() {
 const at = (step: number, file?: string, line = 0) => () =>
   tour().step === step && (!file || codeFile() === file) && litLine() === line && !pod().applying
 
+/** The journey "podauto": one step, a podcast that never leaves the map (all its parts on no step). */
+function writeAutoJourney() {
+  writeLines(wsPath('src', 'auto.ts'), ['export const auto = 1'])
+  writeJourney(journeysDir(), journey('podauto', [step('src/auto.ts', 1, 1, { id: 'u1', title: 'auto' })], { title: 'Pod auto' }))
+  fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), path.join(journeysDir(), 'podauto.mp3'))
+  fs.writeFileSync(path.join(journeysDir(), 'podauto.podcast.json'), JSON.stringify({
+    version: 1, title: 'Pod auto', journey: { id: 'podauto' }, audio: 'podauto.mp3', duration: 40,
+    segments: [{ id: 'a', at: null, speaker: 'host', text: 'All on the map.', start: 0, end: 39 }],
+  }))
+}
+
+/**
+ * The webviews' frames (the frame inside each webview's iframe) and where their iframes are, found without running
+ * anything inside a webview: a script the test runs in a page (Playwright's evaluate) counts there as a click.
+ */
+async function webviewFrames(): Promise<{ f: import('playwright').Frame; x: number; h: number }[]> {
+  const out: { f: import('playwright').Frame; x: number; h: number }[] = []
+  for (const f of (await ui()).frames()) {
+    const outer = f.parentFrame()
+    if (!outer || !outer.parentFrame()) continue
+    const b = await (await outer.frameElement()).boundingBox().catch(() => null)
+    if (b && b.height > 50) out.push({ f, x: b.x, h: b.height })
+  }
+  return out
+}
+/** The journey panel's frame: the webview in the editor area (the side bar's are left of it). */
+async function panelFrameQuiet(): Promise<import('playwright').Frame> {
+  const editor = await (await ui()).locator('.part.editor').boundingBox()
+  return until('the journey panel\'s frame', async () => (await webviewFrames()).find((w) => w.x >= editor!.x - 1)?.f, 10000)
+}
+/** A real click (the mouse, through the window) on `sel` in frame `f`; its place is read 5.5 s before, so the
+ *  reading's own activation is over by the click. */
+async function realClick(f: import('playwright').Frame, sel: string): Promise<void> {
+  const b = await f.locator(sel).boundingBox()
+  assert.ok(b, `${sel} on screen`)
+  await sleep(5500)
+  await (await ui()).mouse.click(b.x + b.width / 2, b.y + b.height / 2)
+}
+/** The audio in frame `f` plays: its own clock moves. */
+async function audioMoves(f: import('playwright').Frame, what: string): Promise<void> {
+  const t = () => f.evaluate(() => { const a = (globalThis as any).document.querySelector('.pod audio'); return a && a.getAttribute('src') ? a.currentTime : -1 })
+  const t0 = await t()
+  await sleep(1200)
+  const t1 = await t()
+  assert.ok(t0 >= 0 && t1 > t0 + 0.6, `${what}: the audio's clock moves (${t0} → ${t1})`)
+}
+
 export const podcastTests = [
+  test('podcast: ▶ starts the sound wherever it was pressed, with no click in the Listen view first', async () => {
+    // VS Code lets a webview's audio play only after a click or a key in that webview (a click in the workbench or in
+    // another webview does not count). Nothing here has been clicked yet.
+    await cameraWaits(0, 0)
+    writeAutoJourney()
+    await until('the podcast is found', () => pod().journeys.includes('podauto'), 10000)
+    if (pod().mapVisible) await closePanel()
+    assert.deepEqual(pod().unlocked, { listen: false, panel: false }, 'no click in either player yet')
+
+    // 1. From a command (a Journeys row's ▶ Listen, the palette, the key): no webview may play yet. The audio goes to
+    // the panel that opens, paused there, the panel and its ▶ take the keyboard: Space plays it. No hint text.
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podauto')
+    await until('refused in the Listen view: in the panel, paused, the panel focused', () => pod().hostIn === 'panel' && !pod().playing && pod().mapVisible && pod().error === 'NotAllowedError', 10000)
+    const tab = () => vscode.window.tabGroups.activeTabGroup.activeTab?.input
+    await until('the panel is the active editor', () => tab() instanceof vscode.TabInputWebview && /codeNotes\.journey/.test((tab() as vscode.TabInputWebview).viewType), 5000)
+    await sleep(800) // the focus inside the panel settles (▶)
+    await (await ui()).keyboard.press('Space')
+    await until('Space in the panel: playing', () => pod().playing && pod().t > 0.5, 8000)
+    const pf = await panelFrameQuiet()
+    await audioMoves(pf, 'played in the panel')
+    assert.equal(await pf.evaluate(() => { const e = (globalThis as any).document.querySelector('.pod-err'); return e.hidden ? '' : e.textContent }), '', 'no hint or error line')
+    assert.ok(pod().unlocked.panel && !pod().unlocked.listen, `the panel unlocked, the Listen view not: ${JSON.stringify(pod().unlocked)}`)
+
+    // 2. Closing the panel: the audio goes to the Listen view, which may not play yet: it waits there, paused, where
+    // it was (the one start that still needs a click: the status item or ▶ opens the panel again).
+    const tClose = pod().t
+    await closePanel()
+    await until('back in the Listen view, paused there', () => pod().hostIn === 'listen' && !pod().playing && pod().hostAlive, 8000)
+    assert.ok(Math.abs(pod().t - tClose) < 2, `kept its place: ${tClose} → ${pod().t}`)
+
+    // 3. A new panel (its audio locked too): one real click on its ▶ plays, there.
+    await vscode.commands.executeCommand('codeNotes.podcastOpen')
+    await until('the panel shows it', () => tour().map === 'podauto' && pod().mapVisible, 10000)
+    assert.ok(!pod().unlocked.panel, 'a new panel: its audio locked')
+    const pf2 = await panelFrameQuiet()
+    await realClick(pf2, '.pod-b.play')
+    await until('the click on the panel\'s ▶: playing in the panel', () => pod().playing && pod().hostIn === 'panel', 8000)
+    await audioMoves(pf2, 'the panel\'s ▶')
+    assert.ok(Math.abs(pod().t - tClose) < 4, `on from where it was: ${tClose} → ${pod().t}`)
+
+    // 4. Then a start from a command plays at once (the panel's audio may play now).
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podauto')
+    await until('a command plays at once', () => pod().playing, 4000)
+    await audioMoves(pf2, 'started by a command')
+
+    // 5. One click in the Listen view (its ▶, a remote now: it pauses) unlocks it for the window: the panel closing
+    // then hands it the audio, and later starts play there with no click.
+    const lf = await listenFrame()
+    await realClick(lf, '.pod-b.play')
+    await until('the Listen view\'s ▶ paused it; the Listen view unlocked', () => !pod().playing && pod().unlocked.listen, 8000)
+    await closePanel()
+    await until('the audio back in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive, 8000)
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podauto')
+    await until('a command plays in the Listen view at once', () => pod().playing && pod().hostIn === 'listen', 6000)
+    await audioMoves(await listenFrame(), 'in the Listen view')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
   test('podcast: a journey with a podcast file can be played; Play opens the panel and the mp3 plays in VS Code', async () => {
     // The walk's own timing is tested with the camera's waits off; the camera tests (at the end) turn them on.
     await cameraWaits(0, 0)
@@ -117,16 +225,7 @@ export const podcastTests = [
     await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
     await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
     await until('the Listen view has its audio', () => pod().hostAlive && pod().hostKey !== undefined, 10000)
-    // VS Code's webviews play audio only after a click or key in them: the first Play asks for one in the Listen
-    // view, its ▶ focused.
-    await until('the first Play, from a command: refused until a click in the Listen view', () => pod().error === 'NotAllowedError' || pod().playing, 10000)
-    if (!pod().playing) {
-      const f = await listenFrame()
-      await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
-      assert.match(await f.evaluate(() => (globalThis as any).document.querySelector('.pod-err').textContent), /Space/)
-      await windowShot('podcast-first-play', { wait: 300 })
-      await f.click('.pod-b.play')
-    }
+    // The Listen view was clicked once (the test before): it plays at once.
     await until('playing, the time moving', () => pod().playing && pod().t > 0.6, 10000)
     assert.equal(tour().step, 0, 'the intro: no step open')
     assert.match(pod().item, /^\$\(unmute\) Listening · Intro · 0:0\d$/, `the status bar: ${pod().item}`)
@@ -1080,12 +1179,11 @@ async function panelVisible(sel: string): Promise<boolean> {
 async function playPod(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
   await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
-  // A new Listen view may need one click on ▶ (the webview plays only after one); `error` may be a stale
-  // NotAllowedError, so playing on its own is waited for first. One click only: a second would pause it.
   if (!(await until('playing on its own', () => pod().playing, 3000).catch(() => false))) {
-    const f = await listenFrame()
-    await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
-    await f.click('.pod-b.play')
+    // A new Listen view's audio may not play before a click in it: the panel has the audio then, its ▶ focused.
+    await until('in the panel, its ▶ focused', () => pod().hostIn === 'panel', 5000)
+    await sleep(500)
+    await (await ui()).keyboard.press('Space')
   }
   await until('playing', () => pod().playing && pod().session === 'pod', 10000)
 }

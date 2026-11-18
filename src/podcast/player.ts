@@ -117,10 +117,19 @@ class Podcasts {
   private asked: { kind: 'seek' | 'pause'; at: number; key?: string } | undefined
   /** "Show why" asked (tests). */
   private whyShown = 0
-  /** The Listen view, where the audio plays; the journey whose episode it has loaded, and its last state. */
+  /** The Listen view, where the audio mostly plays; the journey whose episode the host has loaded, and its last state. */
   listen!: ListenView
   private hostKey: string | undefined
   private hostState: HostState | undefined
+  /**
+   * Where the audio plays: the Listen view, or the journey panel. VS Code's window lets a webview's audio play only
+   * once a click or a key in that webview started it (an element unlocked once stays unlocked; a click in the
+   * workbench or in another webview does not count). Each player says when it is unlocked; the audio goes to the
+   * panel when only the panel's is (its ▶ was pressed, or a start found the Listen view's locked: then the panel's ▶
+   * takes the keyboard), and back to the Listen view when the panel goes.
+   */
+  private hostIn: 'listen' | 'panel' = 'listen'
+  private unlocked = { listen: false, panel: false }
   /** The marks lit (marks.ts); the segment they are of and how it was reached (played into: the view hold's view;
    *  sought: its own view); the timer that lights the next one on time while playing; each segment's plan. */
   lights!: MarkLights
@@ -151,7 +160,7 @@ class Podcasts {
     this.listen.onGone = () => this.hostGone()
     context.subscriptions.push(this.item, this.listen, this.listen.register(), journeys.onDidChange(() => void this.scan()))
     podcastReports.init(context, () => void this.scan())
-    mapPanel.podcastFor = (lj, toUri) => this.episodeFor(lj, toUri)
+    mapPanel.podcastFor = (lj, toUri) => { this.panelShows(lj); return this.episodeFor(lj, toUri) }
     mapPanel.podcastStateFor = (lj) => this.stateFor(lj)
     walk.onMoved = () => this.walkMoved()
     walk.onStepRemoved = (lj) => this.stepRemoved(lj)
@@ -164,8 +173,8 @@ class Podcasts {
     beats.follow = walk.following
     this.lights = new MarkLights(log)
     this.camera = new Camera({
-      hold: () => this.listen.send({ type: 'podcastCmd', action: 'pause', hold: true }),
-      resume: () => this.listen.send({ type: 'podcastCmd', action: 'unhold' }),
+      hold: () => this.toHost({ type: 'podcastCmd', action: 'pause', hold: true }),
+      resume: () => this.toHost({ type: 'podcastCmd', action: 'unhold' }),
       audio: () => ({ t: this.audioNow(), playing: this.audible }),
       resync: () => this.resync(),
       log: (line) => log.info(line),
@@ -351,9 +360,9 @@ class Podcasts {
   private stateFor(lj: LoadedJourney): HostState | undefined {
     if (!this.eps.has(lj.key)) return undefined
     if (this.hostKey === lj.key && this.hostState?.of === lj.key) return this.hostState
-    // Not in the Listen view yet: loaded there now (its length is checked, ▶ starts at once), unless another
-    // journey's episode is in it.
-    if (!this.sessionJourney() && this.listen.alive) this.loadHost(lj)
+    // Not in the host yet: loaded there now (its length is checked, ▶ starts at once), unless another journey's
+    // episode is in it.
+    if (!this.sessionJourney() && this.listen.alive && this.hostIn === 'listen') void this.loadHost(lj)
     // The panel newly showing a journey whose place was kept, nothing listened to: the session again, paused there
     // (a podcast file read again sends this too: that is no reopening).
     if (this.panelKey !== lj.key) this.reopened(lj, this.eps.get(lj.key)!.ep)
@@ -363,9 +372,13 @@ class Podcasts {
 
   // ---------- the Listen view: the audio ----------
 
-  /** Journey `lj`'s episode into the Listen view (the view made first); `play`: it plays once loaded, from `at`. */
+  /** Journey `lj`'s episode into the host (the Listen view made first; the panel when only its audio may play, and it
+   *  shows `lj`); `play`: it plays once loaded, from `at`. */
   private async loadHost(lj: LoadedJourney, o: { play?: boolean; at?: number; until?: number } = {}): Promise<boolean> {
     if (!(await this.listen.ensure())) return false
+    const play = { at: o.at ?? this.posOf(lj), play: !!o.play || o.until !== undefined, ...(o.until !== undefined ? { until: o.until } : {}) }
+    if (this.panelPlays(lj.key)) { this.moveHost('panel', lj, play); return true }
+    if (this.hostIn === 'panel') { this.moveHost('listen', lj, play); return true }
     const episode = this.episodeFor(lj, (u) => this.listen.toUri(u), true) as Record<string, unknown> | undefined
     if (!episode || episode.unavailable) return false
     this.hostKey = lj.key
@@ -376,7 +389,7 @@ class Podcasts {
   }
 
   /** The podcast files were read again: the Listen view's episode follows (the same audio keeps playing; one that
-   *  went or can't be played now leaves the view). */
+   *  went or can't be played now leaves the view). The panel's comes with the panel's own update. */
   private refreshHost(): void {
     const key = this.hostKey
     if (!key || !this.listen.alive) return
@@ -393,19 +406,109 @@ class Podcasts {
   private onHost(m: ListenMessage): void {
     const shown = (m as { of?: string }).of ? journeys.list.get((m as { of: string }).of) : undefined
     switch (m.type) {
-      case 'podcastTime': if (shown) this.timeReport(shown, m); break
-      case 'podcastState': this.onState(m as unknown as HostState); break
-      case 'podcastError': this.onError(shown, String(m.message), m.of); break
-      case 'podcastMeta': if (shown) this.onAudioMeta(shown, Number(m.duration), m.of); break
+      case 'podcastTime': case 'podcastState': case 'podcastError': case 'podcastMeta':
+        if (this.hostIn === 'listen') this.hostSays(m)
+        break
+      case 'podcastUnlocked': this.unlocked.listen = true; break
+      case 'podcastAsk': {
+        const lj = (m.of && journeys.list.get(m.of)) || (this.hostKey ? journeys.list.get(this.hostKey) : undefined)
+        if (lj) void this.onAsk(lj, m)
+        break
+      }
       case 'podcastWhy': void this.showWhy(shown ?? (this.hostKey ? journeys.list.get(this.hostKey) : undefined)); break
       case 'podcastOpen': void this.openSessionMap(); break
       case 'podcastEnd': { const lj = (m.of && journeys.list.get(m.of)) || this.sessionJourney(); if (lj) void this.onEnd(lj, m.action) } break
       case 'ready':
-        // A new page (the view was made again): it has no episode until it is sent one.
+        // A new page (the view was made again): its audio locked, no episode until it is sent one. While the panel
+        // plays the audio, it is the panel's remote.
+        this.unlocked.listen = false
+        if (this.hostIn === 'panel') {
+          const lj = this.hostKey ? journeys.list.get(this.hostKey) : undefined
+          this.listen.send({ type: 'podcastRole', role: 'remote' })
+          if (lj) this.listen.send({ type: 'podcast', episode: this.episodeFor(lj, (u) => this.listen.toUri(u)) })
+          break
+        }
         this.hostKey = undefined
         this.hostState = undefined
         break
     }
+  }
+
+  /** What the host says (the Listen view, or the panel playing the audio). */
+  private hostSays(m: { type: string; of?: string; [k: string]: unknown }): void {
+    const shown = m.of ? journeys.list.get(m.of) : undefined
+    switch (m.type) {
+      case 'podcastTime': if (shown) this.timeReport(shown, m as unknown as TimeReport); break
+      case 'podcastState': this.onState(m as unknown as HostState); break
+      case 'podcastError': this.onError(shown, String(m.message), m.of); break
+      case 'podcastMeta': if (shown) this.onAudioMeta(shown, Number(m.duration), m.of); break
+    }
+  }
+
+  /** What the panel's player says of the audio: unlocked (a click or key there), and, while it is the host, where the
+   *  audio is (a remote's or an older page's reports are not the audio's). */
+  fromPanel(m: { type: string; of?: string; [k: string]: unknown }): void {
+    if (m.type === 'podcastUnlocked') { this.unlocked.panel = true; return }
+    if (this.hostIn === 'panel') this.hostSays(m)
+  }
+
+  /** The audio may play in the panel and not in the Listen view, and the panel shows journey `key`. */
+  private panelPlays(key: string): boolean {
+    return !this.unlocked.listen && this.unlocked.panel && mapPanel.journey?.key === key
+  }
+
+  /** Where `lj`'s audio is now: playing, its time; else where it was left. */
+  private nowOf(lj: LoadedJourney): number {
+    return this.session === lj.key && this.hostKey === lj.key ? this.audioNow() : this.posOf(lj)
+  }
+
+  /** A message for the audio's host. */
+  private toHost(m: unknown): void {
+    if (this.hostIn === 'panel') mapPanel.send(m)
+    else this.listen.send(m)
+  }
+
+  /** The host is there and takes commands. */
+  private hostAlive(): boolean {
+    return this.hostIn === 'panel' ? !!this.hostKey && mapPanel.journey?.key === this.hostKey : this.listen.alive
+  }
+
+  /** The audio of `lj` to `to` (at `o.at`, playing if `o.play`; one step if `o.until`): the other player becomes its
+   *  remote, the Listen view showing the same episode. */
+  private moveHost(to: 'listen' | 'panel', lj: LoadedJourney, o: { at?: number; play?: boolean; until?: number }): void {
+    const from = this.hostIn
+    if (from !== to) {
+      if (from === 'listen') this.listen.send({ type: 'podcastRole', role: 'remote' })
+      else if (mapPanel.journey) mapPanel.send({ type: 'podcastRole', role: 'remote' })
+    }
+    this.hostIn = to
+    this.hostKey = lj.key
+    this.hostState = undefined
+    this.listen.send({ type: 'podcast', episode: this.episodeFor(lj, (u) => this.listen.toUri(u)) })
+    this.toHost({ type: 'podcastRole', role: 'host', ...o })
+    log.info(`podcast ${lj.j.id}: the audio plays in the ${to === 'panel' ? 'journey panel' : 'Listen view'}${o.play ? '' : ' (paused)'}`)
+  }
+
+  /** The panel is about to show `lj`: playing another journey's audio, that audio goes to the Listen view first. */
+  private panelShows(lj: LoadedJourney): void {
+    if (this.hostIn !== 'panel' || !this.hostKey || this.hostKey === lj.key) return
+    const was = journeys.list.get(this.hostKey)
+    if (was) this.moveHost('listen', was, { at: this.nowOf(was), play: this.playing })
+    else this.hostIn = 'listen'
+  }
+
+  /**
+   * The host's audio may not play (no click or key in it yet). Started in the Listen view, with the panel showing the
+   * journey: the audio goes to the panel, playing when the panel's audio may, else paused there with its ▶ taking the
+   * keyboard, so Space or one click there plays it.
+   */
+  private notAllowed(): void {
+    const lj = this.hostKey ? journeys.list.get(this.hostKey) : undefined
+    if (!lj || mapPanel.journey?.key !== lj.key) return
+    if (this.hostIn === 'listen') this.moveHost('panel', lj, { at: this.nowOf(lj), play: this.unlocked.panel })
+    if (this.unlocked.panel) return
+    walk.showMap(lj, false)
+    mapPanel.send({ type: 'podcastCmd', action: 'focus' })
   }
 
   /**
@@ -477,7 +580,9 @@ class Podcasts {
     if (!m || m.of !== this.hostKey) return
     this.hostState = m
     if (typeof m.muted === 'boolean' && m.muted !== !!gstate.get<boolean>(MUTE_KEY)) void gstate.update(MUTE_KEY, m.muted)
-    if (mapPanel.journey?.key === m.of) mapPanel.send({ type: 'podcastState', ...m })
+    // To the remote: the panel (when it shows that journey), or the Listen view.
+    if (this.hostIn === 'panel') this.listen.send({ type: 'podcastState', ...m })
+    else if (mapPanel.journey?.key === m.of) mapPanel.send({ type: 'podcastState', ...m })
     // The end of the episode: the row and the status item say so.
     if (m.ended !== this.ended) { this.ended = !!m.ended; this.renderItem(); journeysTree?.refresh() }
   }
@@ -485,15 +590,17 @@ class Podcasts {
   /** The journey the rows last showed as listened to. */
   private rowSession: string | undefined
 
-  /** What the panel's player asks (it is a remote: the audio is in the Listen view). */
+  /** What a remote player asks: the panel's (the audio in the Listen view), or the Listen view's (the audio in the
+   *  panel). */
   async onAsk(lj: LoadedJourney, m: AskMessage): Promise<void> {
     const key = m.of && journeys.list.get(m.of) ? m.of : lj.key
     const j = journeys.list.get(key)!
     if (!this.eps.has(key)) return
-    const loaded = this.hostKey === key && this.listen.alive
+    const loaded = this.hostKey === key && this.hostAlive()
     const { action } = m
     if (action === 'play' || action === 'toggle') {
-      if (loaded && this.session === key) {
+      // A ▶ in the panel while only the panel's audio may play: play() moves it there.
+      if (loaded && this.session === key && !(this.hostIn === 'listen' && this.panelPlays(key))) {
         this.command(action, { ...(typeof m.at === 'number' ? { at: m.at } : {}), ...(typeof m.until === 'number' ? { until: m.until } : {}) })
         return
       }
@@ -525,6 +632,8 @@ class Podcasts {
 
   /** The Listen view went for good (its view closed): the audio with it; its place is kept. */
   private hostGone(): void {
+    this.unlocked.listen = false
+    if (this.hostIn === 'panel') return
     const lj = this.sessionJourney()
     if (lj) this.savePos(lj, this.posOf(lj), true)
     this.hostKey = undefined
@@ -1008,7 +1117,7 @@ class Podcasts {
   private transport(dir: 1 | -1): boolean {
     const lj = this.sessionJourney()
     // The audio is in the Listen view (the panel may be closed): the transport is the player's once it has the episode.
-    if (!lj || this.hostKey !== lj.key || !this.listen.alive) return false
+    if (!lj || this.hostKey !== lj.key || !this.hostAlive()) return false
     const walking = walk.touring()
     if (walking && tourState.key !== lj.key) return false
     if (!this.playing && walking) return false
@@ -1091,9 +1200,16 @@ class Podcasts {
     card.show(lj, tourState.step)
   }
 
-  /** The panel closed: the audio is in the Listen view and plays on; the status item and the card are drawn again. */
+  /** The panel closed: the audio is in the Listen view and plays on (playing in the panel, it goes there; if the
+   *  Listen view's audio may not play yet, it waits there, paused); the status item and the card are drawn again. */
   onClosed(): void {
     this.panelKey = undefined
+    this.unlocked.panel = false
+    if (this.hostIn === 'panel') {
+      const lj = this.hostKey ? journeys.list.get(this.hostKey) : undefined
+      this.hostIn = 'listen'
+      if (lj) this.moveHost('listen', lj, { at: this.nowOf(lj), play: this.playing })
+    }
     const lj = this.sessionJourney()
     this.renderItem()
     if (lj) this.redrawCard(lj, true)
@@ -1108,10 +1224,10 @@ class Podcasts {
       return
     }
     this.lastError = message
-    // Not started by a click or a key in the panel (VS Code's webviews need one, once): the panel takes the keyboard,
-    // its ▶ focused, so Space starts it.
+    // Not started by a click or a key in the host's own webview (VS Code's webviews need one, once).
     if (message === 'NotAllowedError') {
-      void this.listen.focus()
+      log.info('podcast: the audio may not play here without a click in it')
+      this.notAllowed()
       return
     }
     const lj = (of && journeys.list.get(of)) || shown
@@ -1143,7 +1259,7 @@ class Podcasts {
 
   private command(action: string, more: Record<string, unknown> = {}): void {
     if (action === 'seek' || action === 'pause') this.asked = { kind: action, at: Date.now(), key: this.session }
-    this.listen.send({ type: 'podcastCmd', action, ...more })
+    this.toHost({ type: 'podcastCmd', action, ...more })
   }
 
   /** Listen to Journey: the journey (a row, a key; else the one walked or on the map; else picked) in the Listen view,
@@ -1153,7 +1269,7 @@ class Podcasts {
     const lj = await this.journeyFor(arg)
     if (!lj) return
     // Not the episode in the Listen view: it goes on where it was left (or where the walk is: resumeTime).
-    const fresh = this.session !== lj.key || this.hostKey !== lj.key || !this.listen.alive
+    const fresh = this.session !== lj.key || this.hostKey !== lj.key || !this.hostAlive()
     if (mapPanel.journey?.key !== lj.key) await openMap(lj)
     else if (!mapPanel.visible) walk.showMap(lj, true)
     const walkStep = walk.touring() && tourState.key === lj.key ? tourState.step : 0
@@ -1169,7 +1285,12 @@ class Podcasts {
     // Where the walk is now (the walk telling of a move that isn't one pauses nothing).
     this.want = { step: walkStep }
     const until = typeof o.until === 'number' ? { until: o.until } : {}
-    if (this.hostKey !== lj.key || !this.listen.alive) {
+    // Loaded in the Listen view, whose audio may not play, and the panel's may: it plays in the panel.
+    if (this.hostKey === lj.key && this.hostIn === 'listen' && this.panelPlays(lj.key) && this.listen.alive) {
+      this.moveHost('panel', lj, { at: at ?? this.nowOf(lj), play: true, ...until })
+      return
+    }
+    if (this.hostKey !== lj.key || !this.hostAlive()) {
       if (!(await this.loadHost(lj, { play: o.until === undefined, at: at ?? this.posOf(lj), until: o.until }))) {
         void vscode.window.showWarningMessage('The Listen view could not be opened, so the audio has nowhere to play.')
       }
@@ -1212,7 +1333,7 @@ class Podcasts {
   /** Space for listening: pause, or play (the journey in the Listen view; else as Listen to Journey). In a journey
    *  without a podcast it says so: never another journey's podcast, ending this walk (F120). */
   async toggle(): Promise<void> {
-    if (this.sessionJourney() && this.hostKey === this.session && this.listen.alive) {
+    if (this.sessionJourney() && this.hostKey === this.session && this.hostAlive()) {
       if (this.playing) this.reason = 'paused by the reader'
       this.command(this.playing ? 'pause' : 'play')
       return
@@ -1294,7 +1415,7 @@ class Podcasts {
     return {
       journeys: journeys.all().filter((x) => this.has(x)).map((x) => x.j.id),
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
-      item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostAlive: this.listen.alive, hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
+      item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostIn: this.hostIn, unlocked: { ...this.unlocked }, hostAlive: this.hostAlive(), hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
       why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor, marks: this.lights.lit(),
       camera: { waiting: this.camera.waiting, cue: this.camera.cue, waits: [...this.camera.waits] }, audible: this.audible, audioNow: this.audioNow(),
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),

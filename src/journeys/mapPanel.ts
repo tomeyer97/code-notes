@@ -37,14 +37,16 @@ export type MapMessage =
   | { type: 'ref'; i: number }
   | { type: 'details'; open: boolean }
   | { type: 'beat'; n: number; i: number; user?: boolean }
-  // The panel's listening player (media/journey-podcast.js, a remote: the audio is in the Listen view): what it asks of
-  // the audio; "Show why" on a podcast with problems (src/podcast/validate.ts); the end's Walk it yourself / Next journey.
+  // The panel's listening player (media/journey-podcast.js; a remote of the Listen view's audio, or the host itself
+  // after a ▶ here: src/podcast/player.ts): what it asks of the audio; "Show why" on a podcast with problems
+  // (src/podcast/validate.ts); the end's Walk it yourself / Next journey; a click or key here (its audio may play);
+  // as the host, where the audio is.
   | { type: 'podcastAsk'; of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
   | { type: 'podcastWhy' }
   | { type: 'podcastEnd'; of?: string; action: 'walk' | 'next' }
-  // Before the audio moved to the Listen view (0.25), the panel had it and said these; kept for a panel of an older
-  // page still open (reloaded with the window).
+  | { type: 'podcastUnlocked' }
   | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
+  | { type: 'podcastState'; of: string; [k: string]: unknown }
   | { type: 'podcastError'; message: string; of?: string }
   | { type: 'podcastMeta'; duration: number; of?: string }
   | { type: 'ask'; update?: boolean }

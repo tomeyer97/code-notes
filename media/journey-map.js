@@ -19,8 +19,9 @@
 //   { type: 'code', n, i, code }            the lines of beat i of step n's animation
 //   { type: 'hello' }                       answered with ready (the extension lost it)
 //   { type: 'test', click?: selector, key?: key } (integration tests drive the real handlers)
-//   { type: 'podcast', episode? }  { type: 'podcastState', … }  the listening player's (journey-podcast.js, a remote:
-//                                          the audio plays in the Listen view)
+//   { type: 'podcast', episode? }  { type: 'podcastState', … }  { type: 'podcastRole', … }  { type: 'podcastCmd', … }
+//                                          the listening player's (journey-podcast.js: a remote of the Listen view's
+//                                          audio, or the host itself after a ▶ here)
 //   { type: 'podcastBeat', n, i, still? }  the podcast is on step n's beat i (-1: the step without its animation): the
 //                                          animation shows it (still: no flight, it was a jump)
 // Out:
@@ -35,7 +36,8 @@
 //   { type: 'ref', i } (a link in the step card)  { type: 'ask', update? }  { type: 'details', open }
 //   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
 //   { type: 'beat', n, i, user? } (the animation's beat on step n; i = -1: the scene is gone; user: the reader moved it)
-//   { type: 'podcastAsk', of, action, … }  { type: 'podcastWhy' }  { type: 'podcastEnd', of, action } (journey-podcast.js)
+//   { type: 'podcastAsk', of, action, … }  { type: 'podcastWhy' }  { type: 'podcastEnd', of, action }
+//   { type: 'podcastUnlocked' }  and, as the host, podcastTime / podcastState / podcastError / podcastMeta (journey-podcast.js)
 //   These are src/journeys/mapPanel.ts MapMessage (the extension's list, with `close` and `pick`, which it handles but
 //   nothing here posts, and its own `closed`): a name added here goes there too.
 ;(function () {
@@ -189,6 +191,8 @@
     code(m) { if (scene && animOn && m.n === cur && m.i === scene.beat) scene.code(m.code) },
     podcast(m) { if (podcast) { podcast.set(m.episode); render() } },
     podcastState(m) { if (podcast) podcast.hostState(m) },
+    podcastRole(m) { if (podcast) podcast.setRole(m) },
+    podcastCmd(m) { if (podcast) podcast.cmd(m) },
     podcastBeat(m) { podcastBeat(m) },
     test(m) {
       if (m.click) {

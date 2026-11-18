@@ -1,12 +1,19 @@
-// The journey's listening player: the caption, a timeline marked by step, and the controls. Two of them are made:
+// The journey's listening player: the caption, a timeline marked by step, and the controls. Two of them are made, one
+// in the Listen view (media/listen.js, starts as the host) and one in the journey panel (journey-map.js, starts as a
+// remote); the extension says which one is the host (podcastRole):
 //
-// - The audio's host (mode 'host', the Listen view: media/listen.js). The <audio> lives here, in a view VS Code keeps
-//   alive while hidden (retainContextWhenHidden), so the episode goes on when the journey panel is closed, behind
-//   another tab, or VS Code has no focus. Where the journey should be at a time is the extension's to work out
-//   (src/podcast/): this player only plays, seeks and says where the audio is.
-// - A remote (mode 'remote', the journey panel: journey-map.js). Same look, no audio: it draws the state the host
-//   reports (relayed by the extension as podcastState) and asks the host, through the extension, to play, seek …
-//   (podcastAsk). The panel can close and open again: the audio does not notice.
+// - The audio's host plays the audio. Mostly the Listen view: VS Code keeps it alive while hidden
+//   (retainContextWhenHidden), so the episode goes on when the journey panel is closed, behind another tab, or VS Code
+//   has no focus. Where the journey should be at a time is the extension's to work out (src/podcast/): this player
+//   only plays, seeks and says where the audio is.
+// - A remote: same look, no sound. It draws the state the host reports (relayed by the extension as podcastState)
+//   and asks the host, through the extension, to play, seek … (podcastAsk).
+//
+// Why the host can move: VS Code's window lets an <audio> play only once a click or a key in its own webview started
+// it (or any earlier one: an element unlocked once stays unlocked). A click in the workbench (a Journeys row, a
+// command) or in another webview does not count. So every player unlocks its <audio> on the first click or key in its
+// page (podcastUnlocked), and the extension plays the episode where that happened: a ▶ in the journey panel plays in
+// the panel, with the Listen view as its remote, until the Listen view is unlocked too or the panel goes.
 //
 // Needs common.js. JourneyPodcast({ post, mode, stepTitle(n), stepCount(), keyPrefix(), onShown(h), onListening(on),
 // onTick(t), onEnd(action), mount? }) — `mount`: where the player goes (default: fixed at the window's bottom).
@@ -27,6 +34,8 @@
 //                                  (nothing if the reader paused, sought or played meanwhile).
 //   { type: 'podcastState', … }    (remote) the host's state: { of, t, playing, held?, rate, muted, ready, loading,
 //                                  ended, dur, reach, err, note, until, seek?, sent }
+//   { type: 'podcastRole', role, at?, play?, until? }  this player becomes the host (loads its episode, at `at`, playing
+//                                  if `play`) or a remote (its audio stops and goes)
 // Out:
 //   host:   { type: 'podcastTime', of, t, playing, held?, rate, seek?, sent }  where the audio is (seek: moved by a
 //                                  seek; playing: the audio itself; held: in a hold; sent: Date.now() when said); said
@@ -35,6 +44,7 @@
 //           { type: 'podcastError', of, message }  { type: 'podcastMeta', of, duration }
 //   remote: { type: 'podcastAsk', of, action, … }  the actions above, for the host
 //   both:   { type: 'podcastWhy' }  "Show why";  { type: 'podcastEnd', action: 'walk' | 'next' } (the end's buttons)
+//           { type: 'podcastUnlocked' }  a click or key here: this page's audio may play from now on
 ;(function () {
   const { el, svgEl, runKey } = window.common
 
@@ -133,9 +143,13 @@
 
   window.JourneyPodcast = function (opts) {
     const { post } = opts
-    const host = opts.mode !== 'remote'
-    const audio = host ? el('audio') : undefined
-    if (audio) audio.preload = 'metadata'
+    /** Whether this player plays the audio (the host) or draws another's (a remote): the extension may swap them. */
+    let host = opts.mode !== 'remote'
+    const audio = el('audio')
+    audio.preload = 'metadata'
+    /** The audio may play without a click here (one was made here, or it played): said once to the extension. */
+    let unlocked = false
+    const markUnlocked = () => { if (!unlocked) { unlocked = true; post({ type: 'podcastUnlocked' }) } }
     const root = el('div', `pod${opts.mount ? ' inline' : ''}`)
     root.setAttribute('role', 'region')
     root.setAttribute('aria-label', 'Listen')
@@ -215,7 +229,7 @@
     const live = el('div', 'pod-sr')
     live.setAttribute('aria-live', 'polite')
     root.append(note, cap, endBox, tl, row, err, menu, live)
-    if (audio) root.append(audio)
+    root.append(audio)
     ;(opts.mount || document.body).append(root)
 
     /** The episode shown ({ key, duration, chapters: [{ start, end, step }], segments: [{ start, end, text, step,
@@ -255,7 +269,7 @@
     let movedAt = 0
     /** Play was refused for want of a click or key here: ▶ takes the keyboard when the view gets it. */
     let askFocus = false
-    if (host) window.addEventListener('focus', () => { if (askFocus) playB.focus({ preventScroll: true }) })
+    window.addEventListener('focus', () => { if (host && askFocus) playB.focus({ preventScroll: true }) })
 
     /** Remote: the host's last state, when it came (performance.now()), and a seek asked meanwhile. */
     let R = { t: 0, playing: false, held: false, rate: 1, muted: false, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false, sent: 0 }
@@ -443,12 +457,14 @@
       if (p && p.catch) p.catch((e) => {
         // A pause before it started (a quick Space, Space): nothing went wrong (the extension logs it at debug level).
         if (e && e.name === 'AbortError') { say('AbortError'); return }
-        // VS Code's webviews play audio only after a click or a key in them (once per view): ▶ takes the keyboard.
+        // Not started by a click or a key here (VS Code's webviews need one, once): paused, no error shown; the extension
+        // moves the audio where the reader is (the journey panel, its ▶ focused). ▶ takes the keyboard when this view
+        // gets it.
         const gesture = e && e.name === 'NotAllowedError'
         // Not playing: never "playing" with the clock still.
         if (!audio.paused) audio.pause()
-        showError(gesture ? 'Press Space to play' : `Can't play: ${e && e.message}`)
-        if (gesture) { askFocus = true; playB.focus({ preventScroll: true }) }
+        if (!gesture) showError(`Can't play: ${e && e.message}`)
+        if (gesture) askFocus = true
         say(String(e && (e.name || e.message)))
         draw()
         report(false)
@@ -715,9 +731,7 @@
     }
     /** The error line: a remote asking for Space says where to press it. */
     function remoteErr(s) {
-      if (!s.err) return ''
-      if (!host && /^Press Space to play/.test(s.err)) return 'Click ▶ in the Listen view to start'
-      return s.err
+      return s.err || ''
     }
 
     // ---------- the caption: the sentence being said, in parts of two lines ----------
@@ -808,7 +822,7 @@
       frame = requestAnimationFrame(() => { draw(); tick() })
     }
     // A remote with reduced motion still moves its clock: once a second.
-    if (!host) setInterval(() => { if (R.playing && reduced()) draw() }, 1000)
+    setInterval(() => { if (!host && R.playing && reduced()) draw() }, 1000)
 
     // ---------- the Media Session: headphone keys and the system's "now playing" (host) ----------
 
@@ -828,7 +842,7 @@
       if (!d) return
       try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: audio.playbackRate, position: Math.min(d, audio.currentTime || 0) }) } catch { /* a bad state: skipped */ }
     }
-    if (host && 'mediaSession' in navigator) {
+    if ('mediaSession' in navigator) {
       const on = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f) } catch { /* not supported */ } }
       on('play', () => play())
       on('pause', () => pause())
@@ -943,8 +957,9 @@
 
     // ---------- the audio's events (host) ----------
 
-    if (host) {
+    {
       audio.addEventListener('loadedmetadata', () => {
+        if (!host) return
         if (ep && Number.isFinite(audio.duration)) post({ type: 'podcastMeta', of: ep.key, duration: audio.duration })
         const to = Math.min(startAt, Math.max(0, reach() - 0.05))
         startAt = 0
@@ -956,20 +971,20 @@
         } else report(true) // Where it starts, said once it is there (the walk, when it follows this podcast, goes there).
         draw()
       })
-      audio.addEventListener('seeked', () => { seeked(); draw() })
+      audio.addEventListener('seeked', () => { if (host) { seeked(); draw() } })
       audio.addEventListener('timeupdate', () => {
-        if (untilCheck()) return
+        if (!host || untilCheck()) return
         if (dragT === undefined) draw()
         if (!seeking) report(false)
         frozenCheck()
       })
-      audio.addEventListener('play', () => { askFocus = false; endedSelf = false; if (!errNote) showError(''); movedT = -1; draw(); tick(); report(false) })
-      audio.addEventListener('pause', () => { draw(); report(false) })
-      audio.addEventListener('ended', () => { endedSelf = true; held = false; until = undefined; draw(); report(false) })
-      audio.addEventListener('ratechange', () => { draw(); report(false) })
-      audio.addEventListener('volumechange', () => { draw(); postState() })
+      audio.addEventListener('play', () => { markUnlocked(); if (!host) return; askFocus = false; endedSelf = false; if (!errNote) showError(''); movedT = -1; draw(); tick(); report(false) })
+      audio.addEventListener('pause', () => { if (host) { draw(); report(false) } })
+      audio.addEventListener('ended', () => { if (!host) return; endedSelf = true; held = false; until = undefined; draw(); report(false) })
+      audio.addEventListener('ratechange', () => { if (host) { draw(); report(false) } })
+      audio.addEventListener('volumechange', () => { if (host) { draw(); postState() } })
       audio.addEventListener('error', () => {
-        if (!audio.getAttribute('src')) return // emptied on purpose (another episode, none)
+        if (!host || !audio.getAttribute('src')) return // emptied on purpose (another episode, none)
         const e = audio.error
         seeking = undefined
         // Not playing: never "playing" with the clock still.
@@ -1005,6 +1020,58 @@
       podH = h
       document.documentElement.style.setProperty('--podH', h)
     })).observe(root)
+
+    // The first click or key here unlocks this page's <audio> for good: load() with no source, inside the event (the
+    // browser lets an element play once a gesture in its own page has touched it). With a source loaded, the ▶ that
+    // plays it unlocks it (play() in the click). Only a real gesture counts (userActivation), not a script's event.
+    function unlockNow() {
+      if (unlocked || !navigator.userActivation || !navigator.userActivation.isActive) return
+      if (audio.getAttribute('src')) return
+      audio.load()
+      markUnlocked()
+    }
+    for (const k of ['pointerdown', 'pointerup', 'click', 'keydown', 'keyup']) document.addEventListener(k, unlockNow, true)
+
+    /** This player becomes the host (its episode loaded, at `o.at`, playing if `o.play`) or a remote. */
+    function setRole(role, o = {}) {
+      const toHost = role === 'host'
+      if (toHost === host) {
+        if (toHost && ep && o.play) play(typeof o.at === 'number' ? o.at : undefined, typeof o.until === 'number' ? o.until : undefined)
+        return
+      }
+      if (!toHost) {
+        // What it showed stays (as a remote's state) until the new host says where it is.
+        const s = S()
+        R = { t: s.t, playing: false, held: false, rate: s.rate || 1, muted: !!s.muted, ready: !!s.ready, loading: false, ended: !!s.ended, dur: s.dur, reach: s.reach, err: '', note: false, sent: 0 }
+        rAt = performance.now()
+        asked = undefined
+        pend = {}
+        unload()
+        host = false
+        errText = ''
+        errNote = false
+        askFocus = false
+        draw()
+        return
+      }
+      host = true
+      if (!ep) return
+      const rate = R.rate || ep.rate || 1
+      const muted = R.muted
+      errText = ''
+      errNote = false
+      resumeAt = undefined
+      endedSelf = false
+      held = false
+      until = typeof o.until === 'number' ? o.until : undefined
+      startAt = typeof o.at === 'number' ? o.at : R.t || ep.at || 0
+      wantPlay = !!o.play
+      setRate(RATES.includes(rate) ? rate : 1)
+      audio.muted = !!muted
+      load(ep)
+      draw()
+      postState()
+    }
 
     /** No episode (none, or unavailable): the audio unloaded (host). */
     function unload() {
@@ -1077,8 +1144,11 @@
         postState()
         if (opts.onShown) opts.onShown(true)
       },
-      /** The extension's command (host). */
+      /** The extension's choice: this player the audio's host, or a remote (podcastRole). */
+      setRole(m) { setRole(m.role, m) },
+      /** The extension's command (host; `focus` either way). */
       cmd(m) {
+        if (m.action === 'focus') { playB.focus({ preventScroll: true }); return }
         if (!ep || !host) return
         const actions = {
           play: () => play(typeof m.at === 'number' ? m.at : undefined, typeof m.until === 'number' ? m.until : undefined),

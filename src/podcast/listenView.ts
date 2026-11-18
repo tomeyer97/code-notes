@@ -1,8 +1,9 @@
 // The Listen view: a webview view (in the Code Notes side bar, under Journeys) where a journey's audio plays
-// (media/listen.js, media/journey-podcast.js in host mode). VS Code keeps it alive while hidden
-// (retainContextWhenHidden), so the episode goes on when the journey panel closes, is behind another tab, or the side
-// bar is closed; the panel's player is a remote of this one (player.ts relays). It is made only once the view has been
-// shown: `ensure()` shows it once (it is shown wherever its side bar is open), then gives the keyboard back.
+// (media/listen.js, media/journey-podcast.js as the host; the panel's remote while the panel plays it: player.ts
+// hostIn). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
+// panel closes, is behind another tab, or the side bar is closed; the panel's player is mostly a remote of this one
+// (player.ts relays). It is made only once the view has been shown: `ensure()` shows it once (it is shown wherever
+// its side bar is open), then gives the keyboard back.
 //
 // Why there and not in the bottom panel: the ▶ people press first is on a Journeys row, right above it, so the view is
 // usually already on screen (no panel pops up over the code), and it is small enough to stay open.
@@ -25,6 +26,9 @@ export type ListenMessage =
   | { type: 'podcastWhy' }
   | { type: 'podcastOpen' }
   | { type: 'podcastEnd'; of?: string; action: 'walk' | 'next' }
+  // While the journey panel plays the audio, the Listen view's player is its remote (src/podcast/player.ts hostIn).
+  | { type: 'podcastUnlocked' }
+  | { type: 'podcastAsk'; of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
 
 export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined
@@ -123,12 +127,6 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
     }
     const timeout = new Promise<'late'>((r) => setTimeout(() => r('late'), 10000))
     return (await Promise.race([ready, timeout])) !== 'late'
-  }
-
-  /** The view on screen with the keyboard (VS Code asks for a click or key in it before it plays). */
-  async focus(): Promise<void> {
-    await vscode.commands.executeCommand(`${LISTEN_VIEW}.focus`)
-    this.send({ type: 'podcastCmd', action: 'focus' })
   }
 
   dispose(): void {

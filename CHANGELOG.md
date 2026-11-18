@@ -26,6 +26,11 @@
     it, no longer stops the episode. The panel's player and the status bar are remotes; the status bar says
     **Listening · 6:58** / **Paused · 6:58** (the glyph shows the state), its tooltip lists the actions with their
     keys, and its click opens the journey's map, whose player shows where the audio is.
+  - ▶ starts the sound where you pressed it: no second ▶ to find in the Listen view. VS Code lets a webview play
+    audio only after a click or a key in that webview, so ▶ in the journey panel plays the audio in the panel (the
+    Listen view follows it, and takes the audio over when the panel closes, once it has been clicked too). A start
+    from a row, the palette or a key before any click in either player opens the panel with its ▶ focused: Space or
+    one click there plays it, and later starts play at once.
   - The caption is the sentence being said, two lines at most and never cut (a long sentence in parts), with the
     speaker's name when the voice changes. A segment may give its own sentence times (`sentences`, checked when
     present); else they are estimated from the text.

@@ -3,8 +3,12 @@
 // Shows the journey, the part being talked about, and the player (journey-podcast.js in host mode). Needs common.js
 // and journey-podcast.js before it.
 //
-// In: { type: 'podcast', episode? }  { type: 'podcastCmd', … } (journey-podcast.js)  { type: 'hello' }
-// Out: { type: 'ready' }  journey-podcast.js's host messages  { type: 'podcastOpen' } (the journey's map)
+// The player starts as the audio's host; the extension makes it a remote while the journey panel plays the audio
+// (podcastRole: journey-podcast.js's header says why).
+//
+// In: { type: 'podcast', episode? }  { type: 'podcastCmd', … }  { type: 'podcastRole', … }  { type: 'podcastState', … }
+//     (journey-podcast.js)  { type: 'hello' }
+// Out: { type: 'ready' }  journey-podcast.js's messages  { type: 'podcastOpen' } (the journey's map)
 ;(function () {
   const { el, connect, onMessages } = window.common
   const { post } = connect()
@@ -46,6 +50,8 @@
   onMessages({
     podcast(m) { show(m.episode) },
     podcastCmd(m) { player.cmd(m) },
+    podcastRole(m) { player.setRole(m) },
+    podcastState(m) { player.hostState(m) },
     hello() { post({ type: 'ready' }) },
     test(m) {
       if (m.click) { const t = document.querySelector(m.click); if (t) t.dispatchEvent(new MouseEvent('click', { bubbles: true })) }

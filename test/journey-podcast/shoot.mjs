@@ -361,7 +361,7 @@ async function behaviour(b, w) {
   ok(!!canMp3, `this Chromium plays mp3 (canPlayType: "${canMp3}")`)
   await until('the audio\'s length is known', async () => (await audioState(host)).ready >= 1)
   ok((await audioState(host)).blob, 'served without Range, the audio is loaded whole (a blob: URL)')
-  ok(await map.evaluate(() => !document.querySelector('.pod audio')), 'the panel has no audio of its own (a remote)')
+  ok(await map.evaluate(() => { const a = document.querySelector('.pod audio'); return !!a && !a.getAttribute('src') }), 'the panel plays no audio of its own (a remote: its <audio> has no source)')
 
   // Play from the panel: the host plays, the walk follows (the intro: no step).
   await map.click('.pod-b.play')
