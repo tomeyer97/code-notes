@@ -154,6 +154,51 @@ for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
   if (errors.length) bad++
   console.log(w, 'errors', JSON.stringify(errors))
 }
+
+// ---------- names that are Object.prototype's keys ----------
+
+/** A scene whose ids, actor type, status and screen are Object.prototype's keys: it draws, steps and sends its
+ *  packets like any other (no page errors, no chip toned by a prototype function), and the unknown type is left out. */
+const ODD_SCENE = {
+  actors: [
+    { id: '__proto__', type: 'service', col: 0, label: 'API', checks: ['take it'] },
+    { id: 'constructor', type: 'app', col: 1, brand: 'Shop', screen: '__proto__', detail: { title: 'Order', status: 'constructor' }, pages: { account: { title: 'Account', chip: 'constructor' } } },
+    { id: 'odd', type: 'toString', col: 2 },
+  ],
+  wires: [['__proto__', 'constructor'], ['hasOwnProperty', 'constructor']],
+  beats: [
+    { focus: 'constructor', caption: 'One.', set: { constructor: { screen: 'detail' }, toString: { x: 1 } } },
+    { focus: 'valueOf', caption: 'Two.', packet: { from: '__proto__', to: 'constructor', label: 'go' }, set: { __proto__: { done: 1 } } },
+    { focus: '__proto__', caption: 'Three.', packet: { from: 'hasOwnProperty', to: 'constructor', label: 'go' } },
+    { focus: 'constructor', caption: 'Four.', set: { constructor: { screen: 'account' } } },
+  ],
+}
+{
+  // As JSON text, parsed in the page: an object literal (or Playwright's argument copy) would turn "__proto__" into a prototype.
+  const odd = { ...journey, steps: [{ ...journey.steps.find((x) => x.scene), n: 1, scene: ODD_SCENE }] }
+  const errors = []
+  ;({ page } = await openHarness(b, HARNESS, { width: 1300, height: 900, theme: 'dark', ready: true }))
+  page.on('pageerror', (e) => errors.push(e.message))
+  const sendJson = (m) => page.evaluate((x) => window.postMessage(JSON.parse(x), '*'), JSON.stringify(m))
+  await sendJson({ type: 'journey', journey: odd, ...tour({ current: 1 }) })
+  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
+  const out = []
+  try {
+    if (!(await page.locator('.scn').count())) await page.click('li:has(.st.cur) .animbtn', { timeout: 5000 })
+    for (let i = 1; i <= ODD_SCENE.beats.length; i++) {
+      await still(i, ODD_SCENE.beats.length)
+      if (i < ODD_SCENE.beats.length) await page.click('.scn-next', { timeout: 5000 })
+    }
+  } catch (e) { out.push(`didn't step through: ${e.message.split('\n')[0]}`) }
+  const actors = await page.evaluate(() => document.querySelectorAll('.scn-actor').length)
+  const chips = await page.evaluate(() => [...document.querySelectorAll('.ap-chip')].map((c) => c.className))
+  out.push(...errors)
+  if (actors !== 2) out.push(`${actors} actors drawn (want 2: the unknown type left out)`)
+  const toned = (c) => /^ap-chip (neutral|active|good|bad)$/.test(c)
+  if (chips.length < 2 || !chips.every(toned)) out.push(`status chips ${JSON.stringify(chips)}`)
+  if (out.length) { bad++; console.log('prototype-key names', JSON.stringify(out)) }
+  await page.close()
+}
 await b.close()
 console.log(`smallest text: ${smallest.px.toFixed(1)} px (${smallest.cls} "${smallest.text}", ${smallest.at})`)
 console.log(bad ? 'FAILED' : 'ok')

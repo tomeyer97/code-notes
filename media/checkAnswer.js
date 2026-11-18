@@ -13,7 +13,7 @@
 //   (src/check/viewMessages.ts lists these with check.js's; test/checkViewMessages.test.ts compares them.)
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
-  const drafts = {}
+  const drafts = Object.create(null)
   let timer
   /** The question whose answer was just sent from its box: once graded, the keyboard goes back into it (or onto "Next"). */
   let sent

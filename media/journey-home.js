@@ -91,8 +91,8 @@
      *  stale steps: [{ n, when }]). */
     let sel = ''
     let unfolded = ''
-    const previews = {}
-    const staleOf = {}
+    const previews = Object.create(null)
+    const staleOf = Object.create(null)
     /** The search box: one, kept across renders (it keeps the caret). */
     let searchEl
     let listTimer = 0
