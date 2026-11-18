@@ -8,6 +8,7 @@ import { checked } from '../sidebar/notesFilter'
 import { folderName, Note } from '../store'
 import { plural, rangeLabel } from '../text'
 import { notesFrom } from './which'
+import { fileName } from '../jsonFolder'
 
 /** The prompt's words; `dir`: the notes folder. No frozen timestamp: a prompt pasted an hour later must not date replies in the past. */
 const PROMPT = {
@@ -26,7 +27,7 @@ export function agentPrompt(list?: Note[]): string {
   const dir = folderName()
   const rules = PROMPT.rules(dir, me())
   if (list?.length) {
-    const which = list.map((n) => `${dir}/${n.uri.path.split('/').pop()} (${n.data.file} ${rangeLabel(n)})`).join(', ')
+    const which = list.map((n) => `${dir}/${fileName(n.uri)} (${n.data.file} ${rangeLabel(n)})`).join(', ')
     return `${PROMPT.these(list.length, which)} ${PROMPT.answer} ${rules}`
   }
   return `${PROMPT.waiting(dir)} ${PROMPT.answer} ${rules}`

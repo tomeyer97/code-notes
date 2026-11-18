@@ -5,6 +5,7 @@ import { capValue } from './journeys/textFormat'
 import { TrackedLine, TrackedLines } from './followEdits'
 import { stepFileUri } from './journeys/codeGroup'
 import type { ValueHint } from './journeyModel'
+import { baseName } from './paths'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
 // says what it holds in the example run: `objs = [Secret run-…, Pod run-…]`. Like a debugger's inline values, but
@@ -44,7 +45,7 @@ export class ValueHints implements vscode.Disposable {
   }
 
   /** For tests: "file name:line: text". */
-  get state(): string[] { return this.hints.items.map((h) => `${h.uri.split('/').pop()}:${h.line}: ${h.title}`).sort() }
+  get state(): string[] { return this.hints.items.map((h) => `${baseName(h.uri)}:${h.line}: ${h.title}`).sort() }
 
   /** The step shown: its values appear above their lines. The same step again changes nothing. */
   present(key: string, folder: vscode.Uri, values: ValueHint[], renames: Map<string, string>): void {

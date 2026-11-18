@@ -1,6 +1,7 @@
 // A question's thread as text: the question (with the code it also depends on), the grader's replies, the code links
 // of each message, and the messages a thread is missing. No vscode API here (unit-tested in test/checkModel.test.ts).
 import type { Attempt, Link, Question, Range } from './types'
+import { baseName } from '../paths'
 
 /** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {
@@ -16,7 +17,7 @@ export function alsoLinks(q: Question): Link[] {
   const linked = (r: Range) => (q.links ?? []).some((l) => l.file === r.file && l.start <= r.end && r.start <= l.end)
   const seen = new Map<string, number>()
   return (q.also ?? []).filter((r) => !linked(r)).map((r) => {
-    const name = r.file.split('/').pop()!, k = (seen.get(name) ?? 0) + 1
+    const name = baseName(r.file), k = (seen.get(name) ?? 0) + 1
     seen.set(name, k)
     return { phrase: k > 1 ? `${name} (${k})` : name, file: r.file, start: r.start, end: r.end }
   })

@@ -8,6 +8,7 @@ import { Note } from '../store'
 import { noteTitle, plain } from '../text'
 import { reveal } from './reveal'
 import { pickOne } from '../quickPick'
+import { baseName } from '../paths'
 
 /** What a note's words are searched in: its file, session, and every message's author and text. */
 const haystack = (n: Note) => [n.data.file, n.data.session ?? '', ...n.data.messages.flatMap((m) => [m.author, m.body])].join('\n').toLowerCase()
@@ -31,7 +32,7 @@ export const findNote = async () => {
     const shown = hit && hit !== n.data.messages[0] ? hit : n.data.messages.length > 1 ? lastMessage(n) : undefined
     return {
       label: `${findIcon(n)}${noteTitle(n, 70)}`,
-      description: [`${n.data.file.split('/').pop()}:${n.data.range.start}`, n.data.session ? plain(n.data.session, 30) : ''].filter(Boolean).join(' · '),
+      description: [`${baseName(n.data.file)}:${n.data.range.start}`, n.data.session ? plain(n.data.session, 30) : ''].filter(Boolean).join(' · '),
       detail: shown ? `${shown.author}: ${plain(shown.body, 100)}` : undefined,
       alwaysShow: true, // filtered here, not by VS Code
       note: n,

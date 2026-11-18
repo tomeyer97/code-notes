@@ -8,6 +8,7 @@ import { fileOf, LoadedJourney } from '../journeys/steps'
 import type { JStep } from '../journeyModel'
 import { readLinks } from '../journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeys/textFormat'
+import { baseName } from '../paths'
 
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }
@@ -68,7 +69,7 @@ export const isSentence = (r: string) => /\s/.test(r.trim())
 /** A bare ref, `path[:line][-end]`: it reads as the file's name and line. */
 export function parseBare(r: string): Ref {
   const m = /^(.*?)(?::(\d+))?(?:[-–](\d+))?$/.exec(r)!
-  return { text: `${m[1].split('/').pop()}${m[2] ? `:${m[2]}` : ''}`, file: m[1], line: Number(m[2]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
+  return { text: `${baseName(m[1])}${m[2] ? `:${m[2]}` : ''}`, file: m[1], line: Number(m[2]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
 }
 
 /** Every file a step's text names (its refs, lead and details), as written: the ones to check exist. */
@@ -119,7 +120,7 @@ const shiftLines = (text: string, delta: number) =>
 export function label(ref: Ref, place: Placed, delta: number): string {
   if (place.gone) return `~~${shortPaths(ref.text.replace(/[[\]]/g, ''))}~~ (${place.gone} gone)`
   let t = place.same && delta ? shiftLines(ref.text, delta) : ref.text
-  if (place.file !== ref.file) t = `${t.replace(ref.file, place.file).replace(ref.file.split('/').pop()!, place.file.split('/').pop()!)} (moved)`
+  if (place.file !== ref.file) t = `${t.replace(ref.file, place.file).replace(baseName(ref.file), baseName(place.file))} (moved)`
   return shortPaths(t)
 }
 

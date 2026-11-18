@@ -39,6 +39,7 @@ import { CheckThreads } from './threads'
 import { CheckViewProvider } from './view'
 import type { CheckViewMessage, CheckViewMessageOf, CheckViewRequest } from './viewMessages'
 import { Writer } from './writer'
+import { baseName } from '../paths'
 
 export type { CheckHost } from './host'
 export { SESSION } from './constants'
@@ -525,7 +526,7 @@ export class CheckController implements vscode.Disposable {
     // Done here and another one open: the way on, under the grade.
     const next = !!q && !notDone(this.cli.stateOf(q)) && this.hasOpen()
     const t = q && this.todos.get(this.st?.branch)[q.id]
-    const todo = t ? `${t.file.split('/').pop()}:${t.line}` : undefined
+    const todo = t ? `${baseName(t.file)}:${t.line}` : undefined
     if (!c && !next) return undefined
     return definedOnly({ concern: c ? definedOnly({ ...c, todo }) : undefined, next: next || undefined })
   }

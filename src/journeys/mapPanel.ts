@@ -313,8 +313,9 @@ export class MapPanel implements vscode.Disposable {
     return webviewPage(w, {
       css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-home.css'), file('media', 'journey-scene.css')],
       body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
-      // journeyModel.js is a CommonJS module loaded as a plain script.
-      inline: 'var exports = {}',
+      // journeyModel.js is a CommonJS module loaded as a plain script: it fills `exports`, which the page reads as
+      // JourneyModel.
+      inline: 'var exports = {}; var JourneyModel = exports',
       // In this order: each of media/ needs the ones before it (its header says which).
       scripts: [
         file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),

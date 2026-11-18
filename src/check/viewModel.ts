@@ -6,6 +6,7 @@ import { concernOf, samePerson } from './concernState'
 import { SAY_IT_BACK, retryText } from './threadText'
 import { notDone } from './types'
 import type { Attempt, Kind, QState, Question, Range, Status, Who, Words } from './types'
+import { baseName } from '../paths'
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
 
@@ -120,7 +121,6 @@ function gradeOf(a: Attempt, state: QState): AnswerBox['grade'] {
 }
 
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
-const baseName = (f: string) => f.split('/').pop()!
 
 /** What the view shows besides the CLI's status, by the part that knows it (controller.ts current() gathers them). */
 export interface CheckViewOptions {

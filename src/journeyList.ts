@@ -3,6 +3,7 @@
 // No vscode API (the panel's tests load the compiled file as is): unit-tested in test/journeyList.test.ts. The search's
 // word matching is match.ts.
 import { matchScore, queryWords } from './match'
+import { baseName } from './paths'
 
 /** Only journeys are listed ('review': nothing makes one yet). 'check' is not listed: a check lives in the Check view. */
 export type ListKind = 'journey' | 'check' | 'review'
@@ -318,7 +319,7 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
     hereShown: o.hereAll ? here : here.slice(0, HERE_CAP),
     cont: continueRows(sorted),
     fresh: sorted.filter((r) => r.isNew),
-    fileName: o.activeFile?.split('/').pop(),
+    fileName: o.activeFile === undefined ? undefined : baseName(o.activeFile),
   }
   // A search keeps the list's order when one was picked (Newest, Recently walked, A–Z); "By area" means best match.
   const searchSort = o.searchSort ?? (sort === 'area' ? 'best' : sort)

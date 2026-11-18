@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { wfs } from './workspaceFs'
+import { baseName } from './paths'
 
 // Folders of JSON files the extension reads one file per item from (notes, journeys): watched for changes, read once
 // at load, and what a file's name says.
@@ -7,7 +8,7 @@ import { wfs } from './workspaceFs'
 const decoder = new TextDecoder()
 
 /** The last part of `uri`'s path: `20261111-153012-ab12.json`. */
-export const fileName = (uri: vscode.Uri) => uri.path.split('/').pop()!
+export const fileName = (uri: vscode.Uri) => baseName(uri.path)
 /** The file's name without `.json`: a note's id, a journey's fallback name. */
 export const jsonName = (uri: vscode.Uri) => fileName(uri).replace(/\.json$/, '')
 

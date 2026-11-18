@@ -37,7 +37,8 @@ export class Journeys extends StepTracker {
 
   constructor(log: vscode.LogOutputChannel, state?: vscode.Memento) { super(log, state) }
 
-  /** The journeys of the lists, lenses and search: never a check's tour (it is reached from the Check view). */
+  /** The journeys of the lists, lenses and search: never a check's tour (it is reached from the Check view).
+   *  By title: an order that never jumps while journeys change. */
   all(): LoadedJourney[] { return [...this.list.values()].filter((x) => !x.check).sort((a, b) => a.j.title.localeCompare(b.j.title)) }
   byPos(key: string | undefined): LoadedJourney | undefined { return key ? [...this.list.values()].find((x) => posKey(x) === key) : undefined }
 

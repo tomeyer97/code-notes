@@ -10,7 +10,6 @@ import { LoadedJourney, posKey } from '../journeys/steps'
 import { isNewJourney } from '../seen'
 import { relPath } from '../notes/location'
 import { tourState, walk } from '../tour/instances'
-import { docLines } from '../documents'
 import { refreshing } from '../write/refreshJourney'
 
 export const SORT_KEY = 'codeNotes.journeySort'

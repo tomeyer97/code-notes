@@ -6,7 +6,7 @@ import * as vm from 'vm'
 
 // media/journey-layout.js runs in the webview; its pure parts are loaded here as the page loads them.
 const media = path.join(__dirname, '../../media')
-const window: Record<string, any> = { exports: {} }
+const window: Record<string, any> = { JourneyModel: {} }
 const context = vm.createContext({ window })
 for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(fs.readFileSync(path.join(media, f), 'utf8'), context)
 const { verb } = window.JourneyLayout

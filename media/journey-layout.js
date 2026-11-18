@@ -9,8 +9,8 @@
 ;(function () {
   const { el, overlapArea, edgesOf } = window.common
   // out/src/journeyModel.js is a CommonJS module the page loads as a plain script: it fills the `exports` object the
-  // page declares (src/journeys/mapPanel.ts, test/journey-map/harness.html).
-  const JourneyModel = window.exports
+  // page declares, also named JourneyModel (src/journeys/mapPanel.ts, test/journey-map/harness.html).
+  const JourneyModel = window.JourneyModel
 
   // ---------- an arrow's label: a plain verb phrase ----------
 

@@ -1,6 +1,7 @@
 // Code links: a phrase of a step's text that is a link to the lines doing what it says. Pure, unit-tested. What a link
 // is in the journey file (StepLink, readLinks) is journeyModel.ts.
 import type { StepLink } from './journeyModel'
+import { baseName } from './paths'
 
 /** A markdown link (`[text](target)`) or a code span: a phrase inside one is left alone. */
 const LINK_OR_CODE = /\[[^\]]*\]\([^)]*\)|`[^`]*`/g
@@ -47,7 +48,7 @@ export function linkPhrases(text: string, links: StepLink[], used: Set<number>, 
  * with the text: copied words no longer matched a search).
  */
 export function codeLinkMarkup(key: string, i: number, l: { file: string; start: number; end: number }, phrase: string, tint = 'var(--vscode-toolbar-hoverBackground)', what = 'show the code that does this'): string {
-  const tip = `${l.file.split('/').pop()}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · ${what}`
+  const tip = `${baseName(l.file)}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · ${what}`
   const words = String(phrase).split(/ +/).filter(Boolean)
   const tinted = words.map((w, k) => `<span style="color:var(--vscode-foreground);background-color:${tint};">${w}${k < words.length - 1 ? ' ' : ''}</span>`).join('<wbr>')
   return `[${tinted}](command:codeNotes.codeLink?${encodeURIComponent(JSON.stringify([key, i]))} "${tip}")`

@@ -6,6 +6,7 @@ import { byId } from '../app'
 import { Note } from '../store'
 import { plain, rangeLabel } from '../text'
 import { wfs } from '../workspaceFs'
+import { baseName } from '../paths'
 
 /** A folder note's thread lives on a read-only page about the folder (there is no document to put it on). */
 const FOLDER_SCHEME = 'code-notes-folder'
@@ -20,7 +21,7 @@ export function folderPage(folder: vscode.WorkspaceFolder, file: string): vscode
 
 /** The page of a note whose file is gone. */
 export function orphanPage(n: Note): vscode.Uri {
-  return vscode.Uri.from({ scheme: ORPHAN_SCHEME, path: `/${n.data.file.split('/').pop()} (note).md`, query: n.data.id })
+  return vscode.Uri.from({ scheme: ORPHAN_SCHEME, path: `/${baseName(n.data.file)} (note).md`, query: n.data.id })
 }
 
 const isDir = (t: vscode.FileType) => t & vscode.FileType.Directory

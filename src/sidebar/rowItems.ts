@@ -14,6 +14,7 @@ import { badJourneyItem, journeyItem, journeyOfNote, questionsItem, showIntro, s
 import { listState } from './listModel'
 import { lastMessage, Node, sessionOf, SEV_ICON } from './nodes'
 import { hiddenSessions, ownRow } from './notesFilter'
+import { baseName } from '../paths'
 
 /** The row of each kind of node. */
 const ITEMS: { [K in Node['kind']]: (node: Extract<Node, { kind: K }>) => vscode.TreeItem } = {
@@ -98,7 +99,7 @@ function sessionItem(node: Extract<Node, { kind: 'session' }>): vscode.TreeItem 
 /** A note file that can't be used. */
 function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
   const known = store.notes.get(node.uri)
-  const name = vscode.Uri.parse(node.uri).path.split('/').pop() ?? node.uri
+  const name = baseName(vscode.Uri.parse(node.uri).path)
   const title = store.brokenTitle.get(node.uri) ?? known?.data.messages[0]?.body
   const item = new vscode.TreeItem(title ? plain(title, 50) : name)
   item.id = `broken:${node.uri}`
@@ -114,7 +115,7 @@ function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
 const DIRS_SHOWN = 2
 
 function fileItem(node: Extract<Node, { kind: 'file' }>): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.file.split('/').pop() ?? node.file, vscode.TreeItemCollapsibleState.Expanded)
+  const item = new vscode.TreeItem(baseName(node.file), vscode.TreeItemCollapsibleState.Expanded)
   item.id = `file:${node.key}`
   const dir = node.file.includes('/') ? node.file.slice(0, node.file.lastIndexOf('/')) : ''
   const stale = node.notes.filter((n) => n.data.stale).length
@@ -166,7 +167,7 @@ function noteDescription(n: Note, f: NoteFlags): string {
   const d = n.data
   const replies = d.messages.length - 1
   // Alone in its file: the row says which file (`app.ts:12`), there is no file row above it.
-  const base = d.file.split('/').pop() ?? d.file
+  const base = baseName(d.file)
   const where = !ownRow(n) ? rangeLabel(n) : d.target === 'folder' ? `${base}/` : d.target ? base : `${base}:${d.range.start}`
   return [
     f.unread ? `${f.unread} new` : '',

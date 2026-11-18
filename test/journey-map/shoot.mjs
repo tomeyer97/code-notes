@@ -693,7 +693,7 @@ async function anotherOpensAtTop() {
 async function samples() {
   for (const f of ['stripe-plan-change', ...real]) {
     const name = path.basename(f).replace(/\.json$/, '')
-    const j = f === 'stripe-plan-change' ? stripe : await page.evaluate(([raw, n]) => window.exports.parseJourney(raw, n), [fs.readFileSync(f, 'utf8'), name])
+    const j = f === 'stripe-plan-change' ? stripe : await page.evaluate(([raw, n]) => window.JourneyModel.parseJourney(raw, n), [fs.readFileSync(f, 'utf8'), name])
     if (typeof j === 'string') { fail(`${tag}: ${f}: ${j}`); continue }
     await setJ(j)
     await open(j, { current: 1 })

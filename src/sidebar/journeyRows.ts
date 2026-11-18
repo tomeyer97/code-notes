@@ -17,6 +17,7 @@ import { journeysView } from './journeysTree'
 import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
 import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode, order } from './nodes'
 import { matchesFilter } from './notesFilter'
+import { fileName } from '../jsonFolder'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
@@ -173,7 +174,7 @@ export function questionsItem(node: Extract<Node, { kind: 'questions' }>): vscod
 
 /** A journey file that can't be read: one dimmed row (the text is the row's muted description), why on hover, click opens it. */
 export function badJourneyItem(node: Extract<Node, { kind: 'badJourney' }>): vscode.TreeItem {
-  const name = node.uri.path.split('/').pop()!
+  const name = fileName(node.uri)
   const item = new vscode.TreeItem('')
   item.id = `badJourney:${node.uri}`
   item.description = `⚠ ${name}`

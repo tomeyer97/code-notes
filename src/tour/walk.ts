@@ -19,6 +19,7 @@ import { pickJourney } from './pick'
 import { MAP_KEY, POS_KEY, ShownAt, TOUR_KEY, TourState } from './state'
 import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
 import { cardLine, stepUri, wroteAt } from './stepPlace'
+import { baseName } from '../paths'
 
 type Pos = { step: number; id?: string; at: string }
 export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
@@ -109,7 +110,7 @@ export class Walk {
       this.redrawStep(lj)
       return
     }
-    if (rewritten) tour.cardNotice = { id: was.id, text: `This step was updated: its code is now at ${file.split('/').pop()}:${at.start}.` }
+    if (rewritten) tour.cardNotice = { id: was.id, text: `This step was updated: its code is now at ${baseName(file)}:${at.start}.` }
     void this.goToStep(lj, n, { focus: false })
   }
 
