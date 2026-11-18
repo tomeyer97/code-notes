@@ -49,6 +49,7 @@
     "skills/understanding-check/SKILL.md",
     "skills/understanding-check/scripts/questions.mjs",
     "cli/understanding.mjs",
+    "docs/podcast-format.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

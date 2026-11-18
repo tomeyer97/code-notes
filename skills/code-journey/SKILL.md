@@ -166,6 +166,17 @@ write. Journeys are read from `<repo>/journeys/` (`.code-notes/journeys/` when o
 | `$J rmlink … N "<phrase>"`, `rmvalue … N <name> [line]`, `rmscene … N` | removes one |
 | `$J set … <node> label\|blurb\|path\|kind\|at\|parent <v>`, `rmnode`, `setedge`, `rmedge`, `meta … title\|question\|summary <v>`, `meta … start true` (the journey to open first), `restore` | changes the map, the journey fields; puts back the last good copy |
 
+## Podcasts
+
+A journey may have an audio episode next to it: `journeys/<slug>.podcast.json` plus its audio file (format:
+`docs/podcast-format.md` in the Code Notes extension, also on its GitHub page). The extension plays it and moves the
+walk with the voice. Segments link to steps **by id** (`check … story` prints them) and to beats **by position**
+(1-based), so a podcast must be checked again after `rmstep`, `scene` or `rmscene` on its journey. After writing or
+editing one, run `$J podcast <repo> <slug> [<audio seconds>]` (`check` runs it too): fix every PROBLEM (the extension
+won't play the file) and WARNING (a part points at a step or beat that isn't there, times overlap or run past the
+audio). The audio goes inside `journeys/`, `audio` relative to the podcast file. Extra segment fields (`say`, the
+spoken form) are ignored.
+
 ## Notes on a step
 
 "Ask about this step" and "Ask the agent to update this step" write a normal note in `<repo>/.code-notes/` with

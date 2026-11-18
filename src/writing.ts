@@ -27,7 +27,7 @@ const PHASES: Record<string, string[]> = {
   'writing the steps': ['step', 'restep', 'rmstep', 'mvstep', 'stepnode'],
   // What each step gets after it is written: its code links, its value hints, its animation.
   'adding links and animations': ['link', 'value', 'scene', 'rmlink', 'rmvalue', 'rmscene'],
-  'checking': ['check'],
+  'checking': ['check', 'podcast'],
 }
 
 /**
