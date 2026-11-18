@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { beats, cmdLink, codeLinks, journeys, log, mapPanel, notes, now, provide, setCtx, state, store, tourItems, valueHints } from '../app'
-import { checkLinkNote } from '../understanding'
+import { checkLinkNote } from '../check/wiring'
 import { Asked, askedOf, askedText, revealJourneyRow, stepLinkOf } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
 import { linesOfUri, notesFor } from '../notes/location'

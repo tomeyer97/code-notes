@@ -1,7 +1,7 @@
 // The notes' comment threads in the editor: one per note shown, kept in step with the note.
 
 import * as vscode from 'vscode'
-import { byId, cfg, controller, understanding } from '../app'
+import { byId, cfg, controller, notes, understanding } from '../app'
 import { askErrors, asking } from '../ask/run'
 import { otherBranch } from '../checkout'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
@@ -120,4 +120,16 @@ function threadLabel(n: Note): string {
 export function noteOfThread(t: vscode.CommentThread): Note | undefined {
   for (const [id, th] of threads) if (th === t) return byId(id)
   return undefined
+}
+
+/** Every note shown has its thread, and no thread is left of a note gone. Returns the ids of the notes shown. */
+export function syncThreads(): Set<string> {
+  for (const n of notes()) syncThread(n)
+  const ids = new Set(notes().map((n) => n.data.id))
+  for (const id of [...threads.keys()]) {
+    if (ids.has(id)) continue
+    threads.get(id)!.dispose()
+    threads.delete(id)
+  }
+  return ids
 }
