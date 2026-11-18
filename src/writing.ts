@@ -31,6 +31,12 @@ const PHASES: Record<string, string[]> = {
 }
 
 /**
+ * A journey.py command line and its subcommand (`sub`):
+ * `python3 <skill>/scripts/journey.py --dir <stage> check <repo> <slug>` → check.
+ */
+const JOURNEY_PY_COMMAND = /journey\.py(?:\s+--dir(?:=|\s+)\S+)?\s+(?<sub>[a-z-]+)/
+
+/**
  * What Claude is doing, in plain words, from its last tool call: reading the code, drawing the map, writing the
  * steps, adding links and animations, checking. journey.py's subcommand says which (the commands it runs are
  * `…/journey.py [--dir x] <cmd> …`).
@@ -40,9 +46,8 @@ export function phaseOf(tool: ToolCall | undefined, prev: string): string {
   const reading = prev === 'starting' || prev === 'reading the code'
   if (READ_TOOLS.includes(tool.name)) return reading ? 'reading the code' : prev
   if (tool.name !== 'Bash') return prev
-  const m = /journey\.py((?:\s+--dir(?:=|\s+)\S+)?)\s+([a-z-]+)/.exec(String(tool.input?.command ?? ''))
-  if (!m) return prev
-  const sub = m[2]
+  const sub = JOURNEY_PY_COMMAND.exec(String(tool.input?.command ?? ''))?.groups?.sub
+  if (!sub) return prev
   if (sub === 'range') return prev === 'starting' ? 'reading the code' : prev
   return Object.keys(PHASES).find((phase) => PHASES[phase].includes(sub)) ?? prev
 }

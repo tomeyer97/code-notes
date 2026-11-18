@@ -1,6 +1,8 @@
 import * as vscode from 'vscode'
-import type { ListKind, Sort } from '../journeyList'
+import type { ListKind, ListModel, Sort } from '../journeyList'
+import type { StepCard } from '../tour/card'
 import { escapeHtml, webviewPage } from '../webview/page'
+import { fileName } from '../jsonFolder'
 import { LoadedJourney } from './steps'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
@@ -11,40 +13,57 @@ import { LoadedJourney } from './steps'
  * and journey-scene.js post them). JS can't import this type: a name added on one side goes in the other's list too.
  * Two more: `close` and `pick` have handlers (tour/map.ts) but no page posts them today; `closed` is this panel's own
  * (disposed()).
+ *
+ * Handled here (MapPanel.receive): ready, rendered, story, error, legend, view, and home with `on`. Every other
+ * message is handled in src/tour/map.ts (MAP_MESSAGES); `tutorial` in src/tour/tutorial.ts.
  */
 export type MapMessage =
+  // The page itself: drawn, its errors, what it shows (tests read these).
   | { type: 'ready' }
-  | { type: 'openPath'; path: string }
-  | { type: 'end' }
-  | { type: 'step'; n: number }
-  | { type: 'view'; node: string }
   | { type: 'rendered'; boxes: number }
+  | { type: 'story'; steps: number; stops: string[]; cur?: string; overflow: string[]; width: number }
+  | { type: 'view'; node: string }
   | { type: 'error'; message?: string; text?: string }
-  | { type: 'legend'; hidden: boolean }
-  | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
-  | { type: 'ref'; i: number }
-  | { type: 'ask'; update?: boolean }
-  | { type: 'details'; open: boolean }
-  | { type: 'authors' }
-  | { type: 'restore' }
-  | { type: 'close' }
-  | { type: 'openFile' }
-  | { type: 'pick' }
+  | { type: 'closed' }
+
+  // Walking a journey: steps, their links and refs, the end.
+  | { type: 'step'; n: number }
+  | { type: 'end' }
   | { type: 'finish' }
+  | { type: 'openPath'; path: string }
+  | { type: 'openFile' }
+  | { type: 'ref'; i: number }
+  | { type: 'details'; open: boolean }
+  | { type: 'beat'; n: number; i: number }
+  | { type: 'ask'; update?: boolean }
+  | { type: 'restore' }
+  | { type: 'authors' }
+  | { type: 'close' }
+  | { type: 'pick' }
+
+  // A check's tour: its questions on the storyline.
   | { type: 'question'; id: string }
   | { type: 'checkpoint'; id: string }
   | { type: 'nextStop' }
-  | { type: 'story'; steps: number; stops: string[]; cur?: string; overflow: string[]; width: number }
+
+  // The tutorial.
+  | { type: 'tutorial'; action: 'bar' | 'card' | 'skip' | 'done'; card?: number; inside?: boolean; editor?: false | 'card' | 'links' }
+
+  // The Journeys list (the panel's home).
   | { type: 'home'; on?: boolean }
   | { type: 'walk'; key: string }
   | { type: 'list'; query?: string; kind?: ListKind | 'all'; area?: string; sort?: Sort; searchSort?: Sort | 'best' }
   | { type: 'preview'; key: string }
   | { type: 'refresh'; key: string }
   | { type: 'hereAll' }
+
+  // Layout: the legend, the panel's and the map's widths.
+  | { type: 'legend'; hidden: boolean }
   | { type: 'panelWidth'; w: number }
   | { type: 'mapWidth'; w: number }
-  | { type: 'beat'; n: number; i: number }
-  | { type: 'closed' }
+
+/** A row of the panel's own short journey list (TourInfo.list). */
+export interface PanelListRow { key: string; title: string; question: string; steps: number; resume: number; here?: boolean; start?: boolean }
 
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
@@ -56,15 +75,15 @@ export interface TourInfo {
   /** The chord prefix to show in hints; offer the tutorial bar. */
   key: string; tutorial: boolean
   /** Every journey, for the panel's home list (0.21): title, steps, where it was left. */
-  list?: { key: string; title: string; question: string; steps: number; resume: number; here?: boolean; start?: boolean }[]
+  list?: PanelListRow[]
   /** The home's list model (journeyList.ts): sections, rows, chips, with the home's own search. */
-  home?: object
+  home?: ListModel
   /** The walk was just finished: the panel says Done, the summary, and offers the list. */
   done?: boolean
   /** Files the steps followed through a rename (old -> new path): box paths say where the code went. */
   moved: Record<string, string>
   /** The step card, when it lives in the map ("panel"). */
-  card?: object
+  card?: ReturnType<StepCard['panelCard']>
   /** One muted line under the question: "Written by AI · 2 days ago · 3 commits behind"; `changed` stale steps. */
   prov?: { text: string; tip: string; changed: number }
   /** Steps someone asked about. */
@@ -74,6 +93,19 @@ export interface TourInfo {
 }
 
 export const MAP_VIEW = 'codeNotes.journey'
+/** Workspace state: the group the map was last in, and whether the legend is hidden. */
+const MAP_COLUMN_KEY = 'codeNotes.mapColumn'
+export const LEGEND_HIDDEN_KEY = 'codeNotes.legendHidden'
+
+/**
+ * The group a new map opens in: the whole group when there is nothing to read beside it (`alone`); else the one it
+ * was last in, unless that now holds the tour's code (`codeCol`); else beside the editor.
+ */
+function mapColumn(alone: boolean, last: number | undefined, codeCol: vscode.ViewColumn | undefined): vscode.ViewColumn {
+  if (alone) return vscode.ViewColumn.Active
+  if (last !== undefined && last !== codeCol) return last
+  return vscode.ViewColumn.Beside
+}
 
 /** The map of one journey at a time, in a webview beside the editor. */
 export class MapPanel implements vscode.Disposable {
@@ -122,10 +154,10 @@ export class MapPanel implements vscode.Disposable {
     if (!this.panel) {
       // The map keeps its side: the group it was last in, else beside the editor; never among the tour's code
       // (closing it merged the groups, so that group now holds the code).
-      const last = this.state.get<number>('codeNotes.mapColumn')
+      const last = this.state.get<number>(MAP_COLUMN_KEY)
       // Nothing to read beside it (the Welcome page, no editor): the map takes the group, not a 480px split.
       const alone = !vscode.window.visibleTextEditors.length && codeCol === undefined
-      const col = alone ? vscode.ViewColumn.Active : last !== undefined && last !== codeCol ? last : vscode.ViewColumn.Beside
+      const col = mapColumn(alone, last, codeCol)
       this.ready = false
       this.adopt(vscode.window.createWebviewPanel(MAP_VIEW, lj.j.title, { viewColumn: col, preserveFocus }, this.options()))
     } else {
@@ -163,7 +195,7 @@ export class MapPanel implements vscode.Disposable {
       this.paged.add(panel)
     }
     if (this.shown) panel.title = this.title()
-    const remember = () => { if (panel.viewColumn) void this.state.update('codeNotes.mapColumn', panel.viewColumn) }
+    const remember = () => { if (panel.viewColumn) void this.state.update(MAP_COLUMN_KEY, panel.viewColumn) }
     remember()
     this.subs.push(
       panel.webview.onDidReceiveMessage((m: MapMessage) => this.receive(panel, m)),
@@ -176,16 +208,38 @@ export class MapPanel implements vscode.Disposable {
 
   /** A message from the webview: what the panel keeps itself here; the rest goes to the extension (`onMessage`). */
   private receive(panel: vscode.WebviewPanel, m: MapMessage): void {
+    const handled = this.handleOwn(panel, m)
+    if (!handled && this.shown) this.onMessage(this.shown, m)
+  }
+
+  /** The messages the panel handles itself; false: the extension's (`home` without `on` is the extension's too). */
+  private handleOwn(panel: vscode.WebviewPanel, m: MapMessage): boolean {
     switch (m?.type) {
-      case 'ready': this.onReady(panel); return
-      case 'rendered': this.rendered = m.boxes; return
-      case 'story': this.story = { steps: m.steps, stops: m.stops, cur: m.cur, overflow: m.overflow, width: m.width }; return
-      case 'error': this.log.error(`journey map: ${m.text ?? m.message}`); return // the webview's errors
-      case 'legend': void this.state.update('codeNotes.legendHidden', m.hidden); return
-      case 'view': this.focus = m.node; return
-      case 'home': if (m.on !== undefined) { this.onHome(panel, m.on); return } break
+      case 'ready':
+        this.onReady(panel)
+        return true
+      case 'rendered':
+        this.rendered = m.boxes
+        return true
+      case 'story':
+        this.story = { steps: m.steps, stops: m.stops, cur: m.cur, overflow: m.overflow, width: m.width }
+        return true
+      case 'error': // the webview's errors
+        this.log.error(`journey map: ${m.text ?? m.message}`)
+        return true
+      case 'legend':
+        void this.state.update(LEGEND_HIDDEN_KEY, m.hidden)
+        return true
+      case 'view':
+        this.focus = m.node
+        return true
+      case 'home':
+        if (m.on === undefined) return false
+        this.onHome(panel, m.on)
+        return true
+      default:
+        return false
     }
-    if (this.shown) this.onMessage(this.shown, m)
   }
 
   private onReady(panel: vscode.WebviewPanel): void {
@@ -206,7 +260,11 @@ export class MapPanel implements vscode.Disposable {
   private disposed(): void {
     // The panel closed mid-animation: its beat's line is no longer lit.
     if (this.shown) this.onMessage(this.shown, { type: 'closed' })
-    this.panel = undefined; this.rendered = -1; this.lastTour = ''; this.ready = false; this.queue = []
+    this.panel = undefined
+    this.rendered = -1
+    this.lastTour = ''
+    this.ready = false
+    this.queue = []
     for (const s of this.subs) s.dispose()
     this.subs = []
   }
@@ -226,13 +284,18 @@ export class MapPanel implements vscode.Disposable {
   markDeleted(key: string): void {
     if (!this.panel || this.shown?.key !== key) return
     this.lastTour = ''
-    this.send({ type: 'deleted', file: this.shown.uri.path.split('/').pop() })
+    this.send({ type: 'deleted', file: fileName(this.shown.uri) })
   }
 
   /** The journey file changed (or another one is shown): send it all again; otherwise only the tour position. */
   update(lj?: LoadedJourney): void {
     if (!this.panel || !this.shown) return
-    if (lj && lj.key === this.shown.key) { this.shown = lj; this.panel.title = this.title(); this.post(true); return }
+    if (lj && lj.key === this.shown.key) {
+      this.shown = lj
+      this.panel.title = this.title()
+      this.post(true)
+      return
+    }
     this.post(false)
   }
 
