@@ -66,10 +66,11 @@ export function refsIn(t: string): Ref[] {
 
 /** A ref is a bare `path:line` (listed with ' · '), or an explained sentence holding such tokens. */
 export const isSentence = (r: string) => /\s/.test(r.trim())
-/** A bare ref, `path[:line][-end]`: it reads as the file's name and line. */
+/** A bare ref, `path[:line[-end]]` or `path#Lline`: it reads as the file's name and its lines as written. */
 export function parseBare(r: string): Ref {
-  const m = /^(.*?)(?::(\d+))?(?:[-–](\d+))?$/.exec(r)!
-  return { text: `${baseName(m[1])}${m[2] ? `:${m[2]}` : ''}`, file: m[1], line: Number(m[2]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
+  const m = /^(.*?)(?::(\d+)(?:[-–](\d+))?|#L(\d+))?$/.exec(r)!
+  const text = `${baseName(m[1])}${r.slice(m[1].length)}`
+  return { text, file: m[1], line: Number(m[2] ?? m[4]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
 }
 
 /** Every file a step's text names (its refs, lead and details), as written: the ones to check exist. */

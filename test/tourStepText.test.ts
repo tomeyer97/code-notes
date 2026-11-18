@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
 import { Journey, JStep, parseJourney } from '../src/journeyModel'
-import { StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
+import { parseBare, refFiles, StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
 import type { StepAt } from '../src/journeys/steps'
 
 /** Each link as `[label](file:line-end)`: what the card would link, in one string. */
@@ -19,7 +19,7 @@ const text = (lj: TextJourney, o: Partial<StepTextInput> = {}) => stepText(lj, 1
 
 test('a ref into the step\'s own file moves with the step (delta); one into another file does not', () => {
   const t = text(one({ refs: ['src/a.ts:40', 'src/a.ts:40-42', 'lib/b.ts:7'] }, { start: 15, end: 25 }))
-  assert.equal(t.refs, '[a.ts:45](src/a.ts:45-45) · [a.ts:45](src/a.ts:45-47) · [b.ts:7](lib/b.ts:7-7)')
+  assert.equal(t.refs, '[a.ts:45](src/a.ts:45-45) · [a.ts:45-47](src/a.ts:45-47) · [b.ts:7](lib/b.ts:7-7)')
   assert.equal(t.stale, false)
 })
 
@@ -51,7 +51,17 @@ test('a stale step: no delta, and its own lines dedupe nothing', () => {
 
 test('bare refs are joined with " · "; one without a line goes to line 1', () => {
   const t = text(one({ refs: ['lib/b.ts:7', 'lib/c.ts', 'lib/e.ts#L9'] }))
-  assert.equal(t.refs, '[b.ts:7](lib/b.ts:7-7) · [c.ts](lib/c.ts:1-1) · [e.ts#L9](lib/e.ts#L9:1-1)')
+  assert.equal(t.refs, '[b.ts:7](lib/b.ts:7-7) · [c.ts](lib/c.ts:1-1) · [e.ts#L9](lib/e.ts:9-9)')
+})
+
+test('a bare `#L` ref names its file and line: the file checked is the path without `#L`', () => {
+  assert.deepEqual(parseBare('lib/e.ts#L9'), { text: 'e.ts#L9', file: 'lib/e.ts', line: 9 })
+  assert.deepEqual([...refFiles({ refs: ['lib/e.ts#L9'], lead: '', details: '' })], ['lib/e.ts'])
+})
+
+test('a bare range ref reads as its range', () => {
+  assert.deepEqual(parseBare('a/b.ts:40-42'), { text: 'b.ts:40-42', file: 'a/b.ts', line: 40, end: 42 })
+  assert.equal(text(one({ refs: ['lib/b.ts:40-42'] })).refs, '[b.ts:40-42](lib/b.ts:40-42)')
 })
 
 const deduped: Partial<JStep> = {
@@ -83,7 +93,7 @@ test('"(path:line)" asides are dropped from the details; other paths there becom
 test('the link callback gets where the ref goes now, never marked gone or stale', () => {
   const got: StepRef[] = []
   stepText(one({ refs: ['src/a.ts:40-42'] }, { start: 15, end: 25 }), 1, (r) => { got.push(r); return '' }, input())
-  assert.deepEqual(got, [{ label: 'a.ts:45', file: 'src/a.ts', line: 45, end: 47, gone: false, stale: false }])
+  assert.deepEqual(got, [{ label: 'a.ts:45-47', file: 'src/a.ts', line: 45, end: 47, gone: false, stale: false }])
 })
 
 test('the stale banner: file gone, lines lost, or changed; nothing for a fresh step', () => {
