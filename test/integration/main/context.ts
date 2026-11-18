@@ -53,13 +53,13 @@ export const closeAllEditors = () => vscode.commands.executeCommand('workbench.a
 /** Is a text tab whose path matches `re` open in any group? */
 export const tabOpen = (re: RegExp) => vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputText && re.test(t.input.uri.path)))
 
-/** The CodeLenses VS Code gets for `uri` (the active editor's by default). */
-export async function codeLenses(uri = vscode.window.activeTextEditor!.document.uri): Promise<vscode.CodeLens[]> {
+/** The CodeLenses VS Code gets for `uri` (always named: while a panel has the focus there is no active editor). */
+export async function codeLenses(uri: vscode.Uri): Promise<vscode.CodeLens[]> {
   return (await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', uri)) ?? []
 }
 
-/** The CodeLenses of `uri` (the active editor's by default) as "line:title", the line 1-based as the editor shows it. */
-export async function lenses(uri?: vscode.Uri): Promise<string[]> {
+/** The CodeLenses of `uri` as "line:title", the line 1-based as the editor shows it. */
+export async function lenses(uri: vscode.Uri): Promise<string[]> {
   return (await codeLenses(uri)).map((l) => `${l.range.start.line + 1}:${l.command?.title ?? ''}`)
 }
 

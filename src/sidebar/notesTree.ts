@@ -6,16 +6,14 @@ import { unread } from '../seen'
 import { Note } from '../store'
 import { journeyOfNote, journeyQuestionRows, journeyRows, questionRows } from './journeyRows'
 import { journeysTree } from './journeysTree'
-import { fileNode, journeyNode, Node, noteNode, rowOrder, sessionNode, sessionOf } from './nodes'
+import { fileNode, Node, noteNode, rowOrder, sessionNode, sessionOf } from './nodes'
 import { checked, fileGroups, matchesFilter, ownRow, sameRow, scopeOf } from './notesFilter'
 import { itemOf } from './rowItems'
+import { ViewSync } from './viewSync'
 
 export let tree: NotesTree
 
 export let treeView: vscode.TreeView<Node>
-
-/** The kinds of rows the Journeys view lists: their parents are that view's (journeysTree.getParent). */
-const JOURNEY_VIEW_KINDS = new Set<Node['kind']>(['journey', 'intro', 'badJourney', 'jgroup', 'jmore'])
 
 /** The rows under each kind of row. */
 const CHILDREN: { [K in Node['kind']]?: (node: Extract<Node, { kind: K }>) => Node[] } = {
@@ -27,12 +25,15 @@ const CHILDREN: { [K in Node['kind']]?: (node: Extract<Node, { kind: K }>) => No
 }
 
 class NotesTree implements vscode.TreeDataProvider<Node> {
-  private readonly changed = new vscode.EventEmitter<Node | undefined>()
-  readonly onDidChangeTreeData = this.changed.event
   /** One redraw for a burst of changes (as the Journeys view): VS Code asked for a row of one drawing after the next had
-   *  dropped it ("Cannot resolve tree item"). */
-  private timer: NodeJS.Timeout | undefined
-  refresh() { clearTimeout(this.timer); this.timer = setTimeout(() => this.changed.fire(undefined), 50); journeysTree?.refresh() }
+   *  dropped it ("Cannot resolve tree item"). Reveals: `revealRow`. */
+  readonly sync = new ViewSync<Node>(50)
+  refresh() { this.sync.refresh(); journeysTree?.refresh() }
+
+  /** Selects a row once the view holds it, or holds its group (viewSync.ts). */
+  revealRow(node: Node): void {
+    this.sync.reveal(treeView, this, () => node, { select: true, focus: false })
+  }
 
   getChildren(node?: Node): Node[] {
     if (!node) return rootRows()
@@ -40,15 +41,12 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
     return children ? children(node) : []
   }
 
+  /** Only for rows this view lists: a question asked from a step is listed in the Journeys view (journeyOfNote), as
+   *  journeys are; they have no parent here. */
   getParent(node: Node): Node | undefined {
-    if (JOURNEY_VIEW_KINDS.has(node.kind)) return journeysTree.getParent(node)
-    if (node.kind === 'questions') return journeyNode(node.lj)
     if (node.kind === 'file') return node.session !== undefined ? sessionNode(node.session) : undefined
-    if (node.kind !== 'note') return undefined
+    if (node.kind !== 'note' || journeyOfNote(node.note)) return undefined
     const n = node.note
-    // A question asked from a step is listed under its journey.
-    const lj = journeyOfNote(n)
-    if (lj) return journeyNode(lj)
     const scope = scopeOf(n)
     if (ownRow(n)) return scope !== undefined ? sessionNode(scope) : undefined
     return fileNode(n, scope, sameRow(n))
@@ -91,7 +89,7 @@ function sessionRows(grouped: Note[]): Node[] {
 export function createNotesView(context: vscode.ExtensionContext): void {
   tree = new NotesTree()
   treeView = vscode.window.createTreeView('codeNotes.notes', {
-    treeDataProvider: tree, showCollapseAll: false, canSelectMany: true, manageCheckboxStateManually: true,
+    treeDataProvider: tree.sync.provider(tree), showCollapseAll: false, canSelectMany: true, manageCheckboxStateManually: true,
   })
   const folded = (e: vscode.TreeViewExpansionEvent<Node>, st: vscode.TreeItemCollapsibleState) => {
     const id = tree.getTreeItem(e.element).id
@@ -100,6 +98,7 @@ export function createNotesView(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     treeView.onDidExpandElement((e) => folded(e, vscode.TreeItemCollapsibleState.Expanded)),
     treeView.onDidCollapseElement((e) => folded(e, vscode.TreeItemCollapsibleState.Collapsed)),
+    ...tree.sync.watch(treeView),
   )
 }
 

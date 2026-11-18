@@ -8,7 +8,7 @@ import { markRead, visitFrom } from '../seen'
 import { journeyOfNote } from '../sidebar/journeyRows'
 import { Node, noteNode } from '../sidebar/nodes'
 import { matchesFilter } from '../sidebar/notesFilter'
-import { treeView } from '../sidebar/notesTree'
+import { tree, treeView } from '../sidebar/notesTree'
 import { Note } from '../store'
 import { threadRange } from '../threads/comments'
 import { editorSettling, editorShownAt, setCollapse, settling } from '../threads/settle'
@@ -126,7 +126,7 @@ export async function focusReply(n: Note): Promise<boolean> {
 function revealInList(n: Note): void {
   // A step's question is listed under its journey in the Journeys view, not in this one.
   if (!treeView.visible || !matchesFilter(n) || journeyOfNote(n)) return
-  treeView.reveal(noteNode(n), { select: true, focus: false }).then(undefined, () => { /* not in the list */ })
+  tree.revealRow(noteNode(n))
 }
 
 /** codeNotes.openAt (a link in a thread): the file at a line; a step's reference while its journey is walked. */

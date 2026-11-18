@@ -5,6 +5,9 @@ import * as path from 'path'
 /** Backslashes as slashes, no trailing slash: `C:\\w\\` → `C:/w`. */
 export const slashPath = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
 
+/** A folder setting as a path from the workspace folder: slashes, no trailing one, no leading `./` (`notes\`, `./notes`: `notes`). */
+export const settingFolder = (p: string) => slashPath(p).replace(/^(\.\/)+/, '')
+
 /** The last part of a slash path (`a/b/c.ts` → `c.ts`). */
 export const baseName = (p: string) => p.split('/').pop()!
 
