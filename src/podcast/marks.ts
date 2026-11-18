@@ -1,7 +1,7 @@
 // Marks (docs/podcast-format.md, "Marks"): word-timed highlights within a segment. While the voice says a phrase, the
 // code it names lights: whole lines, or only a `match` within them. The newest mark (with any said with the same
-// phrase) is the focus, a strong tint; the segment's earlier marks stay, lighter; the beat's own line box stays under
-// them. The next segment clears them. At any time T exactly the marks lit by T in the segment playing at T show (also
+// phrase) is the focus, the one coloured tint on the code; the segment's earlier marks stay, lighter (while it plays
+// the beat's own line box is not drawn: beats.ts `quiet`). The next segment clears them. At any time T exactly the marks lit by T in the segment playing at T show (also
 // paused, after a seek); the timing is precomputed per segment (model.ts markTimes, planMarks), so a time report costs
 // a few comparisons. A mark in another file than the one on screen is a view change: the view hold applies
 // (model.ts planMarks). Marks never scroll a reader who looks around on their own (the follow lock); otherwise a new
@@ -24,20 +24,16 @@ export interface LitMark { file: string; line: number; col: number; endLine: num
 
 export class MarkLights implements vscode.Disposable {
   /**
-   * One family, no borders around text (a box per line splits a block of lines into rows): a mark within a line is a
-   * tint over its characters; a mark of whole lines tints the full lines as one block, the focus with a thin bar on
-   * the left. The newest mark (the focus) is the stronger tint; the segment's earlier ones a lighter one. Theme
-   * colours only: both read in light and dark themes.
+   * One family, fills only (no borders, no bars, nothing in the scrollbar): a mark within a line is a tint over its
+   * characters; a mark of whole lines tints the full lines as one block. The newest mark (the focus) is the one
+   * coloured thing on the code (codeNotes.markBackground); the segment's earlier ones a lighter, grey tint.
    */
   private readonly focus = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground'), borderRadius: '2px',
-    overviewRulerColor: new vscode.ThemeColor('focusBorder'), overviewRulerLane: vscode.OverviewRulerLane.Right,
+    backgroundColor: new vscode.ThemeColor('codeNotes.markBackground'), borderRadius: '2px',
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
   private readonly focusLines = vscode.window.createTextEditorDecorationType({
-    isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground'),
-    borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('focusBorder'),
-    overviewRulerColor: new vscode.ThemeColor('focusBorder'), overviewRulerLane: vscode.OverviewRulerLane.Right,
+    isWholeLine: true, backgroundColor: new vscode.ThemeColor('codeNotes.markBackground'),
   })
   private readonly dim = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor('editor.wordHighlightBackground'), borderRadius: '2px',

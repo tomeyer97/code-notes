@@ -582,7 +582,7 @@ export const podcastTests = [
 
   // ---------- the editor while it plays (src/podcast/player.ts, follow.ts; src/tour/walk.ts, card.ts, panelLayout.ts) ----------
 
-  test('listening: the one-line card with one transport, the follow lock, a view held at least 8 s', async () => {
+  test('listening: the header-only card, the follow lock, a view held at least 8 s', async () => {
     watchConsole()
     writeListenJourney()
     await until('its podcast is found', () => pod().journeys.includes('podlisten'), 10000)
@@ -595,13 +595,8 @@ export const podcastTests = [
     // Paused: the full card, with ▶.
     await until('the full card, ▶ Play on it', () => /▶ Play/.test(tour().card?.body ?? '') && /codeNotes\.askStep/.test(tour().card?.body ?? ''), 5000)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
-    // Playing: one line: ⏸, narrating, the beat, the player's ⏮ ⏭ (the card's own Ask, More go).
-    await until('the one-line card', () => /narrating · beat 1\/4/.test(tour().card?.body ?? ''), 5000)
-    const body = tour().card!.body as string
-    assert.match(body, /codeNotes\.podcastToggle/)
-    assert.match(body, /⏮.*codeNotes\.previousStep/)
-    assert.match(body, /⏭.*codeNotes\.nextStep/)
-    assert.doesNotMatch(body, /codeNotes\.askStep|Follow along/)
+    // Playing: the header line only (the player is the transport; the card's own Ask, More go).
+    await until('the header-only card', () => tour().card?.body === '', 5000)
     assert.equal(tour().card!.label, '1/3 · listen one', 'the header line stays')
     // The reader scrolls away on their own (well after the walk's own move).
     await sleep(1700)
@@ -1041,7 +1036,7 @@ export const podcastTests = [
     await until('paused', () => !pod().playing)
   }),
 
-  test('camera: a wait is no pause (card one line, status Listening, ⏸ in the players, no line under them); the reader scrolling in small steps opens the follow lock and ends the wait; the card changing size does not', async () => {
+  test('camera: a wait is no pause (card a header line, status Listening, ⏸ in the players, no line under them); the reader scrolling in small steps opens the follow lock and ends the wait; the card changing size does not', async () => {
     await vscode.commands.executeCommand('codeNotes.podcastFollow')
     // A long read time: the wait starts before the code moves (the reader's scroll is theirs then).
     await cameraWaits(6, 0.8)
@@ -1057,7 +1052,7 @@ export const podcastTests = [
     assert.ok(a.paused, 'the audio holds')
     assert.equal(a.note, '', 'no line under the player')
     assert.match(pod().item, /^\$\(unmute\) Listening/, `the status item: ${pod().item}`)
-    assert.match(tour().card?.body ?? '', /narrating/, 'the step card stays one line')
+    assert.equal(tour().card?.body ?? '', '', 'the step card stays its header line')
     assert.equal(await playButtonOn(await listenFrame()), 'true', 'the Listen view shows ⏸')
     assert.equal(await playButtonOn(await panelFrame()), 'true', 'the panel shows ⏸')
     assert.equal(await panelText('.pod-err'), '', 'no line under the panel\'s player')
@@ -1077,7 +1072,7 @@ export const podcastTests = [
     await sleep(1700)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
-    await until('the full card', () => !/narrating/.test(tour().card?.body ?? ''), 3000)
+    await until('the full card', () => /▶ Play/.test(tour().card?.body ?? ''), 3000)
     await sleep(1700)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('playing', () => pod().playing)

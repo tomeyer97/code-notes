@@ -31,6 +31,9 @@ export class Beats implements vscode.Disposable {
   /** False while the reader looks around on their own during a podcast (the follow lock): a beat is lit where it is,
    *  the editor is not moved to it. */
   follow: () => boolean = () => true
+  /** True while a podcast plays (its marks show what is said): the beat's line is known but not drawn, and the caret
+   *  is not moved to it. */
+  quiet: () => boolean = () => false
 
   constructor(private log: vscode.LogOutputChannel) {
     this.subs = [this.deco, this.litLine, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
@@ -43,10 +46,12 @@ export class Beats implements vscode.Disposable {
   /** For tests: what is lit. */
   get lit(): { uri: string; line: number } | undefined { return this.here && { uri: this.here.uri, line: this.here.line } }
 
-  private paint(): void {
+  /** The lit line drawn, or not (`quiet`). */
+  paint(): void {
     const h = this.here
+    const quiet = this.quiet()
     for (const e of vscode.window.visibleTextEditors) {
-      const on = h && e.document.uri.toString() === h.uri
+      const on = h && !quiet && e.document.uri.toString() === h.uri
       setDecorations(e, this.deco, on ? [new vscode.Range(h.line, 0, h.line, 0)] : [])
     }
   }
@@ -112,8 +117,9 @@ export class Beats implements vscode.Disposable {
     const ed = await showInCodeGroup(doc, column, { keepFocus: true })
     if (mine !== this.seq || !this.here) return false
     const at = this.here.line
-    // The caret on the lit line: one lit line, never the current-line band left elsewhere by the step.
-    ed.selection = new vscode.Selection(at, 0, at, 0)
+    // The caret on the lit line: one lit line, never the current-line band left elsewhere by the step (while it plays
+    // the caret stays where it is).
+    if (!this.quiet()) ed.selection = new vscode.Selection(at, 0, at, 0)
     ed.revealRange(new vscode.Range(Math.max(0, at - 6), 0, Math.min(doc.lineCount - 1, at + 6), 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
     // From column 1: an editor scrolled sideways would show the lit line's end, or nothing (F90).
     ed.revealRange(new vscode.Range(at, 0, at, 0), vscode.TextEditorRevealType.Default)

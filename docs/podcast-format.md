@@ -144,8 +144,11 @@ position.
   brief beats by the same rule.)
 - **Reading around**: scroll or click in the narrated code yourself and the editor stops following (the beat is still
   lit where it is); the step card says **Follow along** to snap back, and the next step follows again.
-- **The step card** is one line while it plays: "3/14 · title", ⏸, "narrating · beat 2/6", ⏮ ⏭. Paused, the full
-  card comes back, with ▶ Play.
+- **The step card** is its header line while it plays ("3/14 · title"; **Follow along** under it while you read on
+  your own), above the signature of the function the step is in. Paused, the full card comes back above the step's
+  first line, with ▶ Play.
+- **Only the marks are coloured while it plays**: the step's lines have a thin grey bar (no tint), and the beat's box,
+  value hints, note bars and scrollbar ticks are off on the narrated code. They come back on pause.
 - **The map's moments** (Intro, Recap, `at: null`): the walk's code tabs close, so the map has the editor; the code
   comes back beside it at the next step. The editor at a time depends only on that time.
 - **A note or a question** (Ctrl+' C, Ask on the card) pauses it: the code stays under your draft; ▶ (the card,
@@ -189,10 +192,10 @@ the line that rejects it.
 
 While it plays:
 
-- A mark lights 0.12 s before `start + at` (the eye gets there as the word is said). The beat's own line box stays;
-  marks have no borders: a mark within a line tints its characters, a mark of whole lines tints the full lines as one
-  block (the newest with a thin bar on the left). The newest mark is the stronger tint, the segment's earlier marks
-  stay, lighter. The next segment clears them.
+- A mark lights 0.12 s before `start + at` (the eye gets there as the word is said). Marks are fills only (no
+  borders, nothing in the scrollbar): a mark within a line tints its characters, a mark of whole lines tints the full
+  lines as one block. The newest mark is the one colour on the code (`codeNotes.markBackground`), the segment's
+  earlier marks stay, a lighter grey. The next segment clears them.
 - At any time T, exactly the marks lit by T in the segment playing at T show: a seek forward lights them, a seek back
   takes them away, also while paused.
 - `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or

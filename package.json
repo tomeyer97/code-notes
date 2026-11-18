@@ -1597,6 +1597,16 @@
         }
       },
       {
+        "id": "codeNotes.markBackground",
+        "description": "Background of the code a journey's podcast is talking about now (the newest mark).",
+        "defaults": {
+          "dark": "#2bb3a24d",
+          "light": "#00a39033",
+          "highContrast": "#2bb3a280",
+          "highContrastLight": "#00a39040"
+        }
+      },
+      {
         "id": "codeNotes.noteBackground",
         "description": "Background of lines with an open note.",
         "defaults": {
