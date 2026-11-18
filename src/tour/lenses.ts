@@ -85,10 +85,12 @@ function stepLens(line: number, steps: LensStep[]): vscode.CodeLens {
   const journeyIds = [...new Set(steps.map((x) => x.journey))]
   if (journeyIds.length === 1) {
     const s = firstStep(steps)
-    return new vscode.CodeLens(range, { title: `◇ Step ${s.n} of ${s.title}`, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n], tooltip: s.stepTitle })
+    const title = `◇ Step ${s.n} of ${s.title}`
+    return new vscode.CodeLens(range, { title, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n], tooltip: s.stepTitle })
   }
   const titles = [...new Set(steps.map((x) => x.title))].join(' · ')
-  return new vscode.CodeLens(range, { title: `◇ ${journeyIds.length} journeys`, command: 'codeNotes.pickJourneyStep', arguments: [steps], tooltip: titles })
+  const title = `◇ ${journeyIds.length} journeys`
+  return new vscode.CodeLens(range, { title, command: 'codeNotes.pickJourneyStep', arguments: [steps], tooltip: titles })
 }
 
 /** The lowest-numbered step. */

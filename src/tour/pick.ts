@@ -50,7 +50,8 @@ function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickI
     .map((v) => journeyItem(v.x, words, multi))
   const q = value.trim()
   if (items.length || !q) return items
-  return [{ ask: q, label: `$(sparkle) Write a journey for '${q}' with Claude`, description: `${modelLabel(journeyModel())}, about 3 min`, alwaysShow: true, lj: undefined }]
+  const label = `$(sparkle) Write a journey for '${q}' with Claude`
+  return [{ ask: q, label, description: `${modelLabel(journeyModel())}, about 3 min`, alwaysShow: true, lj: undefined }]
 }
 
 /**

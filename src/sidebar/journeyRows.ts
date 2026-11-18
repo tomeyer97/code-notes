@@ -104,7 +104,8 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   const s: JourneyState = { active, left, newReplies: qs.filter((n) => unread(n) > 0).length }
   const nestsQuestions = !group || group === 'all' || group.startsWith('area:')
   // The title isolated: right-to-left text in it never pulls the description into the label.
-  const item = new vscode.TreeItem(isolate(lj.j.title), q && nestsQuestions ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None)
+  const folds = q && nestsQuestions ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+  const item = new vscode.TreeItem(isolate(lj.j.title), folds)
   item.id = group ? `${group}|journey:${lj.key}` : `journey:${lj.key}`
   item.description = journeyDescription(lj, s, group)
   item.iconPath = journeyIcon(s)

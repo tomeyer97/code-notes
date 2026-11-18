@@ -90,7 +90,9 @@ function sessionRows(grouped: Note[]): Node[] {
 /** The Code Notes view; what the person folds stays folded. */
 export function createNotesView(context: vscode.ExtensionContext): void {
   tree = new NotesTree()
-  treeView = vscode.window.createTreeView('codeNotes.notes', { treeDataProvider: tree, showCollapseAll: false, canSelectMany: true, manageCheckboxStateManually: true })
+  treeView = vscode.window.createTreeView('codeNotes.notes', {
+    treeDataProvider: tree, showCollapseAll: false, canSelectMany: true, manageCheckboxStateManually: true,
+  })
   const folded = (e: vscode.TreeViewExpansionEvent<Node>, st: vscode.TreeItemCollapsibleState) => {
     const id = tree.getTreeItem(e.element).id
     if (id) tree.folded.set(id, st)

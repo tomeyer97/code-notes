@@ -15,7 +15,8 @@ export async function showClarify(question: string, session: string, text: strin
   let body: string
   try { body = await vscode.commands.executeCommand<string>('markdown.api.render', text) } catch { body = '' }
   if (!body) body = `<pre>${escapeHtml(text)}</pre>`
-  const panel = vscode.window.createWebviewPanel('codeNotes.claudeAsks', 'Claude asks', { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, retainContextWhenHidden: true })
+  const panel = vscode.window.createWebviewPanel('codeNotes.claudeAsks', 'Claude asks',
+    { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, retainContextWhenHidden: true })
   const media = (f: string) => vscode.Uri.joinPath(extUri, 'media', f)
   // Claude's text is rendered Markdown: its images (https:, data:) and style attributes are let in.
   panel.webview.html = webviewPage(panel.webview, {

@@ -183,7 +183,8 @@ function noteDescription(n: Note, f: NoteFlags): string {
 function noteContext(n: Note, f: NoteFlags): string {
   const d = n.data
   const replied = d.messages.some((m) => !mine(m))
-  return ['note', d.status, d.stale ? 'stale' : '', f.unread ? 'unread' : '', replied ? 'replied' : '', asking.has(d.id) ? 'asking' : ''].filter(Boolean).join(';')
+  const flags = [d.stale ? 'stale' : '', f.unread ? 'unread' : '', replied ? 'replied' : '', asking.has(d.id) ? 'asking' : '']
+  return ['note', d.status, ...flags].filter(Boolean).join(';')
 }
 
 /** What Claude is doing with the note, for its row. */

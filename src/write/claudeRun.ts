@@ -34,7 +34,8 @@ const JOURNEY_PY_MAX_OUTPUT = 8 << 20
 /** journey.py with a staging folder; never throws. */
 export function journeyPy(skill: string, repo: string, stage: string, args: string[]): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    execFile('python3', [`${skill}/scripts/journey.py`, '--dir', stage, ...args], { cwd: repo, timeout: JOURNEY_PY_TIMEOUT, maxBuffer: JOURNEY_PY_MAX_OUTPUT }, (err, out, errOut) => {
+    const opts = { cwd: repo, timeout: JOURNEY_PY_TIMEOUT, maxBuffer: JOURNEY_PY_MAX_OUTPUT }
+    execFile('python3', [`${skill}/scripts/journey.py`, '--dir', stage, ...args], opts, (err, out, errOut) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0
       resolve({ code, out: `${out ?? ''}${errOut ?? ''}`.trim() })
     })

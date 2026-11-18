@@ -97,12 +97,15 @@ function homeQueryChanged(m: Extract<MapMessage, { type: 'list' }>): void {
 /** A journey file that can't be read: back to its last good version. */
 function restoreLastGood(lj: LoadedJourney): void {
   const raw = journeys.lastGood.get(lj.key)
-  if (raw) void wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(() => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000))
+  if (!raw) return
+  const restored = () => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000)
+  void wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(restored)
 }
 
 /** Author mode: the journey's rule breaks, in the Output channel. */
 function showRuleBreaks(lj: LoadedJourney): void {
-  log.info(`journey ${lj.j.id} (${relPath(lj.folder, lj.uri)}): ${lj.j.problems.length} rule break(s) for its author:\n${lj.j.problems.map((p) => `  - ${p}`).join('\n')}`)
+  const list = lj.j.problems.map((p) => `  - ${p}`).join('\n')
+  log.info(`journey ${lj.j.id} (${relPath(lj.folder, lj.uri)}): ${lj.j.problems.length} rule break(s) for its author:\n${list}`)
   log.show(true)
 }
 
