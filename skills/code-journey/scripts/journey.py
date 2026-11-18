@@ -3012,12 +3012,27 @@ def _mark_own_file(x, steps_by_id):
     return bf or st.get('file') or ''
 
 
-def _mark_code_problems(x, k_drop, steps_by_id, files, docs):
-    """The marks of segment x against the code: [(n, message)]. As validate.ts markCodeProblems."""
+def _pod_bad_beat(x, beats_by_id):
+    """Segment x names a beat its step doesn't have (or one that isn't a number): the step only is shown. As
+    validate.ts hasBadBeat."""
+    at = x.get('at')
+    if not isinstance(at, dict) or not isinstance(at.get('step'), str) or 'beat' not in at or x.get('cue') == 'map':
+        return False
+    if at['step'] not in beats_by_id:
+        return False
+    b = at['beat']
+    return not (_is_int(b) and 1 <= b <= beats_by_id[at['step']])
+
+
+def _mark_code_problems(x, k_drop, steps_by_id, files, docs, bad_beat=False):
+    """The marks of segment x against the code: [(n, message)]. As validate.ts markCodeProblems (a segment with a
+    bad beat: only the marks naming their own file)."""
     out = []
     own = _mark_own_file(x, steps_by_id)
     for n, m in enumerate(x['marks']):
         if n in k_drop:
+            continue
+        if bad_beat and not isinstance(m.get('file'), str):
             continue
         f = m['file'] if isinstance(m.get('file'), str) else own
         if not f:
@@ -3188,6 +3203,7 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed
     # said once, with the segments about it and when.
     if journey:
         steps = {s['id']: s['beats'] for s in journey['steps']}
+        step_n = {s['id']: k + 1 for k, s in enumerate(journey['steps'])}
         missing = {}
         for x, i, _, _ in srt:
             at = x.get('at', ...)
@@ -3214,12 +3230,12 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed
             if 'beat' not in at or x.get('cue') == 'map':
                 continue
             b, beats = at['beat'], steps[at['step']]
+            sn = step_n[at['step']]
             if isinstance(b, str):
-                warn('beat', f'beat must be a number, got the string {json.dumps(b)}; the step only', n)
+                warn('beat', f'Step {sn}: beat must be a number, got the string {json.dumps(b)}; showing the whole step', n, prefix=False)
                 continue
-            ok = _pnum(b) is not None and float(b).is_integer() and 1 <= b <= beats
-            if not ok:
-                warn('beat', f'step "{at["step"]}" has no beat {json.dumps(b)} (it has {beats}); the step only', n)
+            if _pod_bad_beat(x, steps):
+                warn('beat', f'Step {sn}: no beat {json.dumps(b)} (it has {beats or "none"}); showing the whole step', n, prefix=False)
     # The marks against the code: the file, the lines, the match (when the files can be read).
     if journey and files is not None:
         read = files if callable(files) else (lambda f: files.get(f, ...))
@@ -3227,15 +3243,17 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed
         docs = {}
         for x, i, _, _ in srt:
             if isinstance(x.get('marks'), list):
-                for _, msg in _mark_code_problems(x, mark_drops.get(i, set()), by_id, read, docs):
+                # A beat the step doesn't have is said once: its marks are not checked against the step's file.
+                bad_beat = _pod_bad_beat(x, {s['id']: s['beats'] for s in journey['steps']})
+                for _, msg in _mark_code_problems(x, mark_drops.get(i, set()), by_id, read, docs, bad_beat):
                     warn('mark', msg, name(x, i))
     # Recorded for an older commit, and steps' code changed since: worth knowing, nothing wrong with the file.
     commit = j.get('commit') if isinstance(j.get('commit'), str) else ''
     if commit and changed:
         k = len(changed)
         out.append({'level': 'info', 'code': 'recorded-for', 'segment': None,
-                    'message': f'recorded for {commit}; {k} {"step" if k == 1 else "steps"} changed since '
-                               f'({"step" if k == 1 else "steps"} {", ".join(str(c) for c in changed)})'})
+                    'message': f'Code changed since recording: {"step" if k == 1 else "steps"} '
+                               f'{", ".join(str(c) for c in changed)}'})
     # The audio's real length.
     if audio_duration and audio_duration > 0:
         L = audio_duration

@@ -145,6 +145,8 @@ export class MapPanel implements vscode.Disposable {
   layoutChanged: (() => void) | undefined
   /** The panel became the active editor: tour/panelLayout.ts undoes VS Code widening it (keepWidthOnFocus). */
   activated: (() => void) | undefined
+  /** The panel came on screen, went off it (a tab in front of it, its group hidden) or closed. */
+  viewChanged: (() => void) | undefined
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
     private tourOf: (lj: LoadedJourney) => TourInfo, private state: vscode.Memento) {}
@@ -152,8 +154,10 @@ export class MapPanel implements vscode.Disposable {
   get journey(): LoadedJourney | undefined { return this.panel ? this.shown : undefined }
   /** The tab's title (for the integration test). */
   get tabTitle(): string | undefined { return this.panel?.title }
-  /** The map is on screen (not a hidden tab). */
-  get visible(): boolean { return !!this.panel?.visible }
+  /** The map is on screen (not a hidden tab). Not while it closes (asked from its own `closed`: VS Code throws then). */
+  get visible(): boolean { return !!this.panel && !this.closing && this.panel.visible }
+  /** The panel is closing (disposed(): what it tells the extension then must not read the closed panel). */
+  private closing = false
   /** The map's group, while it is open (visible or not). */
   get viewColumn(): vscode.ViewColumn | undefined { return this.panel?.viewColumn }
 
@@ -189,6 +193,7 @@ export class MapPanel implements vscode.Disposable {
       if (switched) this.post(true)
     }
     this.panel!.title = this.title()
+    this.viewChanged?.()
   }
 
   private options(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -215,19 +220,18 @@ export class MapPanel implements vscode.Disposable {
   /** A panel to draw in: a new one, or one VS Code restored after a reload. */
   adopt(panel: vscode.WebviewPanel, lj?: LoadedJourney): void {
     if (lj) this.shown = lj
+    // Drawn first: a panel already closed throws here, and is never taken as the map.
+    const paged = this.paged.has(panel)
+    if (!paged) panel.webview.html = this.html(panel.webview, this.shown ? `${this.shown.j.question} · Loading…` : undefined)
+    if (this.shown) panel.title = this.title()
+    this.paged.add(panel)
     this.ready = false
     this.panel = panel
-    const paged = this.paged.has(panel)
-    if (!paged) {
-      panel.webview.html = this.html(panel.webview, this.shown ? `${this.shown.j.question} · Loading…` : undefined)
-      this.paged.add(panel)
-    }
-    if (this.shown) panel.title = this.title()
     const remember = () => { if (panel.viewColumn) void this.state.update(MAP_COLUMN_KEY, panel.viewColumn) }
     remember()
     this.subs.push(
       panel.webview.onDidReceiveMessage((m: MapMessage) => this.receive(panel, m)),
-      panel.onDidChangeViewState((e) => { remember(); if (e.webviewPanel.active) this.activated?.() }),
+      panel.onDidChangeViewState((e) => { remember(); this.viewChanged?.(); if (e.webviewPanel.active) this.activated?.() }),
       panel.onDidDispose(() => this.disposed()),
       vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutChanged?.() }),
     )
@@ -289,7 +293,10 @@ export class MapPanel implements vscode.Disposable {
 
   private disposed(): void {
     // The panel closed mid-animation: its beat's line is no longer lit.
-    if (this.shown) this.onMessage(this.shown, { type: 'closed' })
+    this.closing = true
+    try {
+      if (this.shown) this.onMessage(this.shown, { type: 'closed' })
+    } finally { this.closing = false }
     this.panel = undefined
     this.rendered = -1
     this.lastTour = ''
@@ -297,6 +304,7 @@ export class MapPanel implements vscode.Disposable {
     this.queue = []
     for (const s of this.subs) s.dispose()
     this.subs = []
+    this.viewChanged?.()
   }
 
   /** A message for the webview itself (tutorial, tests): sent once it is ready. */

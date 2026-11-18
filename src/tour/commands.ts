@@ -146,23 +146,44 @@ export function restoreMapPanel(context: vscode.ExtensionContext): () => void {
   let journeysLoaded!: () => void
   const journeysReady = new Promise<void>((r) => { journeysLoaded = r })
   context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(MAP_VIEW, {
-    deserializeWebviewPanel: async (panel, st) => {
-      mapPanel.placeholder(panel, st as { q?: string; cur?: number; n?: number } | undefined)
-      await journeysReady
-      const lj = await mapJourneyRead()
-      const afterRestore = (f: () => void) => setTimeout(f, AFTER_RESTORE_MS)
-      if (!lj) {
-        log.info('journey panel: its journey is gone; closed after the reload')
-        afterRestore(() => panel.dispose())
-        return
-      }
-      if (!tourState.key) tourState.key = lj.key
-      mapPanel.adopt(panel, lj)
-      walk.updateTour()
-      afterRestore(() => void codeGetsMoreRoom())
-    },
+    deserializeWebviewPanel: (panel, st) => restorePanel(panel, st as PanelState | undefined, journeysReady),
   }))
   return journeysLoaded
+}
+
+/** What a map panel keeps over a reload (media/journey-map.js setState). */
+type PanelState = { q?: string; cur?: number; n?: number }
+
+/**
+ * A map panel VS Code restored, drawn once `ready` (the journeys read). Closed meanwhile (VS Code still loading),
+ * it is left alone: nothing is drawn in it, and nothing here throws (the extension's activation waits on this).
+ */
+export async function restorePanel(panel: vscode.WebviewPanel, st: PanelState | undefined, ready: Promise<void>): Promise<void> {
+  let closed = false
+  const sub = panel.onDidDispose(() => { closed = true })
+  try {
+    mapPanel.placeholder(panel, st)
+    await ready
+    const lj = await mapJourneyRead()
+    if (closed) {
+      log.info('journey panel: closed while it was restored')
+      return
+    }
+    const afterRestore = (f: () => void) => setTimeout(f, AFTER_RESTORE_MS)
+    if (!lj) {
+      log.info('journey panel: its journey is gone; closed after the reload')
+      afterRestore(() => panel.dispose())
+      return
+    }
+    if (!tourState.key) tourState.key = lj.key
+    mapPanel.adopt(panel, lj)
+    walk.updateTour()
+    afterRestore(() => void codeGetsMoreRoom())
+  } catch (e) {
+    log.warn(`journey panel: not restored (${e instanceof Error ? e.message : e})`)
+  } finally {
+    sub.dispose()
+  }
 }
 
 /** How long after VS Code restored a panel it is closed or resized (closed while VS Code still restored it, it left an

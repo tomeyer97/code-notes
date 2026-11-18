@@ -2,8 +2,8 @@
 // (media/listen.js, media/journey-podcast.js as the host; the panel's remote while the panel plays it: player.ts
 // hostIn). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
 // panel closes, is behind another tab, or the side bar is closed; the panel's player is mostly a remote of this one
-// (player.ts relays). It is made only once the view has been shown: `ensure()` shows it once (it is shown wherever
-// its side bar is open), then gives the keyboard back.
+// (player.ts relays). The view is there only while a journey is listened to (`codeNotes.listening`, player.ts); it is
+// made only once it has been shown: `ensure()` brings it in and shows it once, then gives the keyboard back.
 //
 // Why there and not in the bottom panel: the ▶ people press first is on a Journeys row, right above it, so the view is
 // usually already on screen (no panel pops up over the code), and it is small enough to stay open.
@@ -12,8 +12,11 @@ import * as vscode from 'vscode'
 import { webviewPage } from '../webview/page'
 import { journeysFolderName } from '../journeys/journeys'
 import { folderName } from '../store'
+import { setCtx } from '../app'
 
 export const LISTEN_VIEW = 'codeNotes.listen'
+/** The context key that brings the view in (package.json: the view's and the transport commands' `when`). */
+export const LISTENING_CTX = 'codeNotes.listening'
 
 /** What the Listen view sends: journey-podcast.js's host messages, and its own. */
 export type ListenMessage =
@@ -117,6 +120,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
     const ready = new Promise<void>((r) => this.waiting.push(r))
     if (!this.view) {
       try {
+        await setCtx(LISTENING_CTX, true)
         await vscode.commands.executeCommand(`${LISTEN_VIEW}.focus`)
       } catch (e) {
         this.log.warn(`listen view: could not be shown (${e})`)

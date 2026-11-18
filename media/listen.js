@@ -1,5 +1,6 @@
 // The Listen view (src/podcast/listenView.ts): where a journey's audio plays. A webview view VS Code keeps alive while
 // hidden, so the episode goes on when the journey panel closes; the journey panel's player is a remote of this one.
+// The view is there only while a journey is listened to: nothing to say before one is loaded.
 // Shows the journey, the part being talked about, and the player (journey-podcast.js in host mode). Needs common.js
 // and journey-podcast.js before it.
 //
@@ -23,9 +24,8 @@
   title.onclick = () => post({ type: 'podcastOpen' })
   const where = el('div', 'ls-where')
   head.append(title, where)
-  const empty = el('p', 'ls-empty', 'Nothing to listen to yet. A journey with a podcast has ▶ Listen on its row in the Journeys view.')
   const mount = el('div', 'ls-player')
-  app.append(head, empty, mount)
+  app.append(head, mount)
 
   let ep
   /** The journey the panel shows ('' : closed). */
@@ -46,13 +46,13 @@
       if (where.textContent !== text) { where.textContent = text; where.title = text }
     },
   })
+  /** An episode, or nothing (none, or one that can't be played: the journey panel says why). */
   function show(e) {
     ep = e && !e.unavailable ? e : undefined
-    title.textContent = e ? e.journey || e.title || '' : ''
-    head.hidden = !e
-    empty.hidden = !!e
+    title.textContent = ep ? ep.journey || ep.title || '' : ''
+    head.hidden = !ep
     if (!ep) where.textContent = ''
-    player.set(e)
+    player.set(ep)
     compact()
   }
   show(undefined)

@@ -202,10 +202,14 @@ export class Walk {
     this.card.clear()
   }
 
-  /** Only while a tour runs, and one item: "3/14", click = the map; ‹ › × live on the map and the card. */
+  /** A journey started or stopped being listened to: the status item again. */
+  statusChanged(): void { this.renderStatusItem(this.tourJourney()) }
+
+  /** Only while a tour runs, and one item: "3/14", click = the map; ‹ › × live on the map and the card. None while
+   *  its journey is listened to (the podcast's item is the one then: src/podcast/player.ts). */
   private renderStatusItem(lj: LoadedJourney | undefined): void {
     const step = this.tour.step
-    if (!lj || !step) {
+    if (!lj || !step || this.podcastOn?.(lj)) {
       for (const i of Object.values(tourItems)) i.hide()
       return
     }

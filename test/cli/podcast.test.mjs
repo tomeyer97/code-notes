@@ -45,10 +45,10 @@ print(json.dumps(out))
   const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
   const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
   assert.deepEqual(got["a step the journey doesn't have, in three segments: said once, with its segments and times"], ['step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them'])
-  assert.deepEqual(got['a beat written as a string'], ['segment a2: beat must be a number, got the string "2"; the step only'])
+  assert.deepEqual(got['a beat written as a string'], ['Step 1: beat must be a number, got the string "2"; showing the whole step'])
   assert.ok(got['a duplicate id and an unknown cue'].includes('segment s1: the id "s1" is used twice (0:00 and 0:10)'))
   assert.match(got["narrated in another order than the journey's (steps reordered since)"][0], /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
-  assert.deepEqual(got['recorded for an older commit, steps changed since: a quiet note'], ['recorded for 609d0bb; 2 steps changed since (steps 1, 3)'])
+  assert.deepEqual(got['recorded for an older commit, steps changed since: a quiet note'], ['Code changed since recording: steps 1, 3'])
 })
 
 test('journey.py podcast: marks are said in the same words as the extension', async () => {
@@ -125,7 +125,7 @@ test('journey.py podcast: problems and warnings, each on its segment; exit 1 on 
   p.segments.push({ id: 's4', at: { step: 'nope' }, text: '', start: 40, end: 60 })
   let r = run(shop(p), 'podcast', '.', 'place-order')
   assert.equal(r.code, 0, r.out)
-  assert.match(r.out, /WARNING: podcast: segment s2: step "s2xple" has no beat 9 \(it has 3\); the step only/)
+  assert.match(r.out, /WARNING: podcast: Step 1: no beat 9 \(it has 3\); showing the whole step/)
   assert.match(r.out, /WARNING: podcast: segment s3: starts at 0:15, before segment s2 ends \(0:20\)/)
   assert.match(r.out, /WARNING: podcast: step "nope" isn't in the journey \(segment s4, 0:40–1:00\): it keeps the view before it/)
   assert.match(r.out, /WARNING: podcast: segment s4: ends at 1:00, after the episode's "duration" \(0:30\)/)

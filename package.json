@@ -89,7 +89,7 @@
           "type": "webview",
           "id": "codeNotes.listen",
           "name": "Listen",
-          "when": "codeNotes.hasPodcasts"
+          "when": "codeNotes.listening"
         }
       ]
     },
@@ -463,15 +463,8 @@
         "icon": "$(play)"
       },
       {
-        "command": "codeNotes.podcastUnavailable",
-        "title": "Listen: Unavailable (the Journey's Tooltip Says Why)",
-        "category": "Code Notes",
-        "icon": "$(play)",
-        "enablement": "false"
-      },
-      {
         "command": "codeNotes.podcastToggle",
-        "title": "Listen: Play/Pause",
+        "title": "Listen: Pause/Play",
         "category": "Code Notes"
       },
       {
@@ -496,20 +489,8 @@
       },
       {
         "command": "codeNotes.podcastOpen",
-        "title": "Listen: Open the Journey's Map",
+        "title": "Listen: Open the Map",
         "category": "Code Notes"
-      },
-      {
-        "command": "codeNotes.podcastPauseRow",
-        "title": "Pause Listening",
-        "category": "Code Notes",
-        "icon": "$(debug-pause)"
-      },
-      {
-        "command": "codeNotes.podcastResumeRow",
-        "title": "Resume Listening",
-        "category": "Code Notes",
-        "icon": "$(play)"
       },
       {
         "command": "codeNotes.checkUnderstanding",
@@ -1162,35 +1143,32 @@
           "command": "codeNotes.playPodcast",
           "group": "inline@0",
           "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast($|;)/"
-        },
-        {
-          "command": "codeNotes.podcastPauseRow",
-          "group": "inline@0",
-          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastPlaying/"
-        },
-        {
-          "command": "codeNotes.podcastResumeRow",
-          "group": "inline@0",
-          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastPaused/"
-        },
-        {
-          "command": "codeNotes.podcastUnavailable",
-          "group": "inline@0",
-          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastBroken/"
         }
       ],
       "commandPalette": [
         {
-          "command": "codeNotes.podcastPauseRow",
-          "when": "false"
+          "command": "codeNotes.podcastToggle",
+          "when": "codeNotes.listening"
         },
         {
-          "command": "codeNotes.podcastResumeRow",
-          "when": "false"
+          "command": "codeNotes.podcastBack",
+          "when": "codeNotes.listening"
         },
         {
-          "command": "codeNotes.podcastUnavailable",
-          "when": "false"
+          "command": "codeNotes.podcastForward",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastPrevStep",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastNextStep",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastOpen",
+          "when": "codeNotes.listening"
         },
         {
           "command": "codeNotes.reply",

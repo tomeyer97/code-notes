@@ -111,7 +111,7 @@ test('a bad link degrades: missing beat → the step only; unknown step or bad "
     ['a9', 1, undefined], ['b1', 2, undefined], ['x', 2, undefined], ['c1', 3, 0], ['bad', 3, 0], ['none', 3, 0], ['map', 3, undefined], ['half', 1, undefined],
   ])
   assert.equal(ep.warnings.length, 6, ep.warnings.join('\n'))
-  assert.match(ep.warnings[0], /no beat 9 \(it has 3\); the step only/)
+  assert.equal(ep.warnings[0], 'Step 1: no beat 9 (it has 3); showing the whole step')
   assert.match(ep.warnings[2], /no step "nope"/)
 })
 

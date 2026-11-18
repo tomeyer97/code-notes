@@ -253,7 +253,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.toggleAnimation': chord(toggleAnimation),
       'codeNotes.playPodcast': (arg?: unknown) => podcasts.play(arg),
       // The greyed ▶ of a podcast that can't be played (disabled in the menu): why, if it is ever run.
-      'codeNotes.podcastUnavailable': (arg?: unknown) => podcasts.play(arg),
       'codeNotes.podcastToggle': chord(() => podcasts.toggle()),
       'codeNotes.podcastBack': chord(() => podcasts.back()),
       'codeNotes.podcastForward': chord(() => podcasts.forward()),
@@ -261,8 +260,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.podcastNextStep': chord(() => podcasts.part(1)),
       'codeNotes.podcastOpen': () => podcasts.openSessionMap(),
       // The row's ⏸ (listening) and ▶ Resume (paused there).
-      'codeNotes.podcastPauseRow': (arg?: unknown) => podcasts.toggleRow(arg),
-      'codeNotes.podcastResumeRow': (arg?: unknown) => podcasts.toggleRow(arg),
       // "Follow along" on the step card: the editor follows the voice again (podcast/follow.ts).
       'codeNotes.podcastFollow': () => podcasts.followAlong(),
       'codeNotes.askQuestion': askQuestion,

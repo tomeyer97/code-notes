@@ -131,7 +131,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
   // Recorded for an older commit, and steps' code changed since (F63): a quiet line, nothing wrong with the file.
   if (podcast.journey.commit && ctx.changed?.length) {
     const n = ctx.changed.length
-    problems.push({ level: 'info', code: 'recorded-for', message: `recorded for ${podcast.journey.commit}; ${n} ${n === 1 ? 'step' : 'steps'} changed since (${n === 1 ? 'step' : 'steps'} ${ctx.changed.join(', ')})`, path: ['journey', 'commit'] })
+    problems.push({ level: 'info', code: 'recorded-for', message: `Code changed since recording: ${n === 1 ? 'step' : 'steps'} ${ctx.changed.join(', ')}`, path: ['journey', 'commit'] })
   }
   // The audio's real length, once known (F43, F37).
   if (ctx.audioDuration !== undefined && ctx.audioDuration > 0) problems.push(...audioLengthProblems(written, podcast.duration, ctx.audioDuration))
@@ -226,8 +226,12 @@ function markCodeProblems(written: { s: WrittenSegment; i: number }[], journey: 
     const text = typeof x.s.text === 'string' ? x.s.text : ''
     const dropped = new Set(marksProblems(x.s.marks, text, x.start!, end, x.s.at === null).filter((p) => p.drop).map((p) => p.k))
     const own = ownFile(x.s, byId)
+    // A beat the step doesn't have is said once (the step only is shown): the marks on its code are not checked
+    // against the step's file instead (they would all be "not there").
+    const badBeat = hasBadBeat(x.s, byId)
     ;(x.s.marks as Record<string, unknown>[]).forEach((m, n) => {
       if (dropped.has(n)) return
+      if (badBeat && typeof m.file !== 'string') return
       const file = typeof m.file === 'string' ? m.file : own
       if (!file) return
       const lines = doc(file)
@@ -271,6 +275,15 @@ function ownFile(s: WrittenSegment, byId: Map<string, JourneyShape['steps'][numb
   const b = at.beat
   const beatFile = s.cue !== 'map' && typeof b === 'number' && Number.isInteger(b) && b >= 1 ? st.beatFiles?.[b - 1] : undefined
   return beatFile ?? st.file ?? ''
+}
+
+/** The segment names a beat its step doesn't have (or a beat that isn't a number): the step only is shown. */
+function hasBadBeat(s: WrittenSegment, byId: Map<string, JourneyShape['steps'][number]>): boolean {
+  const at = s.at
+  if (!isObj(at) || typeof at.step !== 'string' || at.beat === undefined || s.cue === 'map') return false
+  const st = byId.get(at.step)
+  const b = at.beat
+  return !!st && !(typeof b === 'number' && Number.isInteger(b) && b >= 1 && b <= st.beats)
 }
 
 /** Where a segment is, in a message: its start time, else its place in the file. */
@@ -368,24 +381,13 @@ function audioLengthProblems(written: { s: WrittenSegment; i: number }[], durati
 export const brokenLinks = (problems: PodcastProblem[]) => new Set(problems.filter((p) => LINK_CODES.has(p.code)).flatMap((p) => p.segments ?? [p.segment])).size
 
 /**
- * One short line about what is wrong with a podcast that plays (undefined: nothing to say). `writtenFor`: the title of
- * the journey it was written for, when it is another one.
+ * One short line about what is wrong with a podcast that plays (undefined: nothing to say): how many problems the
+ * Problems view lists for its file ("Show why" opens it); with none, that its code changed since it was recorded.
  */
-export function playNotice(problems: PodcastProblem[], writtenFor?: string): string | undefined {
-  const parts: string[] = []
-  const short = problems.find((p) => p.code === 'audio-short')
-  if (short) parts.push(short.message.replace(/ \(\d+ parts? starts? after its end\)$/, ''))
-  if (problems.some((p) => p.code === 'journey')) parts.push(`Written for “${writtenFor ?? problems.find((p) => p.code === 'journey')!.message.match(/"([^"]*)"/)![1]}”`)
-  const links = brokenLinks(problems)
-  if (links) parts.push(`${links} ${links === 1 ? "part can't" : "parts can't"} be shown`)
-  if (problems.some((p) => p.code === 'narration-order')) parts.push("Narrated in another order than the journey's")
-  const said = new Set(['audio-short', 'journey', 'narration-order'])
-  const rest = problems.filter((p) => p.level === 'warning' && !said.has(p.code) && !LINK_CODES.has(p.code)).length
-  if (rest && parts.length < 2) parts.push(`${rest} ${rest === 1 ? 'problem' : 'problems'} in the podcast file`)
-  // Quiet, and only when nothing else is said: recorded for an older commit.
-  const recorded = problems.find((p) => p.code === 'recorded-for')
-  if (recorded && !parts.length) parts.push(recorded.message.replace(/^recorded/, 'Recorded').replace(/ \(steps? [\d, ]+\)$/, ''))
-  return parts.length ? parts.slice(0, 2).join(' · ') : undefined
+export function playNotice(problems: PodcastProblem[]): string | undefined {
+  const n = problems.filter((p) => p.level !== 'info').length
+  if (n) return `${n} ${n === 1 ? 'problem' : 'problems'}`
+  return problems.find((p) => p.code === 'recorded-for')?.message
 }
 
 // ---------- where a problem is in the text ----------

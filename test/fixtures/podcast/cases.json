@@ -1211,5 +1211,36 @@
    "warning:mark@s1",
    "warning:mark@s1"
   ]
+ },
+ {
+  "name": "a beat the step doesn't have: said once, its marks on the beat's code not checked against the step's file (a mark with its own file still is)",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "audioDuration": 30,
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 2,
+     "file": "src/a.go",
+     "beatFiles": [
+      "src/a.go",
+      "src/b.go"
+     ]
+    }
+   ]
+  },
+  "files": {
+   "src/a.go": "package a\n\nfunc one() int { return 1 }",
+   "src/b.go": "package b\n\n//\n//\n//\n//\nfunc two() int { return 2 }"
+  },
+  "expect": [
+   "warning:beat@s1",
+   "warning:mark@s1"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 30,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"s1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 99\n      },\n      \"speaker\": \"host\",\n      \"text\": \"The function two returns two, in the other file.\",\n      \"start\": 10,\n      \"end\": 29,\n      \"marks\": [\n        {\n          \"phrase\": \"two returns two\",\n          \"at\": 1.0,\n          \"lines\": [\n            7,\n            7\n          ],\n          \"match\": \"return 2\"\n        },\n        {\n          \"phrase\": \"the other file\",\n          \"at\": 3.0,\n          \"file\": \"src/b.go\",\n          \"lines\": [\n            1,\n            1\n          ],\n          \"match\": \"nope\"\n        }\n      ]\n    }\n  ]\n}"
  }
 ]

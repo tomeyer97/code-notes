@@ -50,7 +50,7 @@ write one.
   storyline becomes the chapter list (▶ for one step, the transcript of the step being said). The audio plays in the
   Listen view, so it goes on when the journey panel is closed or VS Code is in the background.
   [docs/podcast-format.md](docs/podcast-format.md) describes the format and its checks: problems show in the
-  Problems view, and a podcast that can't play keeps a greyed ▶ that says why.
+  Problems view, and a podcast that can't play says why in its row's tooltip.
 
 ![What a step's animation can draw](docs/images/objects.png)
 

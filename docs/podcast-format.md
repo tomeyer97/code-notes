@@ -78,7 +78,7 @@ position.
   seeks (a drag, a key held down), only the last one moves the walk.
 - **Moving the walk yourself moves the audio**: a step in the storyline or a beat of the animation (‹ ›), and, while
   paused, Next and Previous, jump the audio to the first segment about it. Ending the walk or opening another journey
-  pauses it and ends the listening (the status item goes; ▶ goes on where it was, and says from where). Pausing never
+  pauses it and ends the listening (the status item and the Listen view go; ▶ goes on where it was). Pausing never
   ends the walk.
 - **One transport while it plays**: the step card's ⏮ ⏭, Ctrl+' A / D and the player's ⏮ ⏭ do the same thing: the
   part before or after, in the order of the audio. ⏮ always goes to the part before (it never restarts the one
@@ -102,14 +102,16 @@ position.
   audio errors.
 - **A link the journey can't show degrades**: a beat the step doesn't have (the journey was edited) shows the step
   without its animation; a step id that isn't in the journey keeps the view of the segment before it. Each is a
-  warning (below), and the player counts them: "2 parts can't be shown".
+  warning (below), said by the step ("Step 3: no beat 9 (it has 5); showing the whole step"); marks on that beat's code
+  aren't checked against the step's file as well.
 
 ## Listening
 
-- **▶ Listen** on the journey's row (⏸ while it plays, ▶ Resume when it is paused there), the ▶ on its row in
-  **Open Journey…**, the command **Code Notes: Listen to Journey**, or the player's ▶ in the panel.
-- **Where the audio lives**: in the **Listen** view (in the Code Notes side bar, under Journeys; shown once there is a
-  podcast). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused. While the
+- **▶ Listen** on the journey's row (not while it plays; paused, it goes on where it was), the ▶ on its row in
+  **Open Journey…** (a ♪ after the title; the one listened to says "listening"), the command **Code Notes: Listen to
+  Journey**, or the player's ▶ in the panel. The row says the length ("♪ 12:47") and nothing more.
+- **Where the audio lives**: in the **Listen** view (in the Code Notes side bar, under Journeys; there only while a
+  journey is listened to, playing or paused). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused. While the
   journey panel shows the episode, its player is the player and the Listen view is one line (the journey, ⏸ / ▶, the
   time); the whole player shows there when the panel is closed. Closing the Listen view itself stops it (where it was
   is kept).
@@ -133,9 +135,10 @@ position.
   next step (⏮ is always the part before). On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up
   and Page Down a step.
 - **From anywhere** (the editor too): **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward
-  15 s, **Ctrl+' Shift+←** / **→** the previous and next step (commands **Listen: Play/Pause**, **Listen: Back 15 s**,
-  **Listen: Forward 15 s**, **Listen: Previous Step**, **Listen: Next Step**). The status bar says **Listening ·
-  6:58** or **Paused · 6:58**; its tooltip has these actions and keys; a click opens the journey's map. Headphone and
+  15 s, **Ctrl+' Shift+←** / **→** the previous and next step (commands **Listen: Pause/Play**, **Listen: Back 15 s**,
+  **Listen: Forward 15 s**, **Listen: Previous Step**, **Listen: Next Step**, in the palette only while a journey is
+  listened to). While the journey panel is not on screen, the status bar says **Listening · 6:58** or **Paused ·
+  6:58** (it is the only Code Notes item then; gone after the end); a click opens the journey's map. Headphone and
   media keys work too (the system's "now playing" names the journey and the step).
 - The speed and muting are remembered (every journey).
 
@@ -161,7 +164,7 @@ position.
 - **The panel keeps its width**: focusing it, ‹ Journeys, its row in the Journeys view or Open Journey… on the journey
   you're in (which focus it, never close it) don't resize it, and a reload doesn't close it. Ctrl+' V in a panel too
   narrow for the map gives it the room.
-- Reopened mid-episode, the panel shows the beat at the time it was left, and the status item shows the paused time.
+- Reopened mid-episode, the panel shows the beat at the time it was left, paused there.
   The output logs each play, pause and stop with why.
 - If the audio can't play (a broken or cut file), ▶ stays paused and the player says why; it never shows "playing"
   with the clock standing still.
@@ -222,8 +225,8 @@ whose code is out of view. Quick moves leave no time to read what was just lit, 
 - **Time to read before leaving**: what the view on screen lit last (a mark, a beat, a step arriving) stays at least
   `codeNotes.listen.readBeforeMove` seconds (2.5) before the code moves; the audio waits for the rest.
 - **A moment after arriving**: the audio waits `codeNotes.listen.settleAfterMove` seconds (0.8) more, the new mark lit.
-- A wait is a hold, not a pause: the audio stops, but the player, the status item, the Journeys row and the step
-  card go on showing it playing; the edge cue is all that shows it. The time stays the audio's. ⏸ or Space during a
+- A wait is a hold, not a pause: the audio stops, but the player, the status item and the step card go on
+  showing it playing; the edge cue is all that shows it. The time stays the audio's. ⏸ or Space during a
   wait pauses (the move is dropped). 0 turns a wait off.
 - The walk never lags the voice. Whether the audio stopped is what it reports itself: still moving 0.25 s after the
   hold was asked, the wait is dropped, the log says so once, the walk goes to what the audio says now (its view and
@@ -269,11 +272,12 @@ header, or `ffprobe` when it is installed).
 
 ## What you see when something is wrong
 
-- **A podcast that can't be played** keeps a trace: its row in the Journeys view has a greyed ▶ and the row's tooltip
+- **A podcast that can't be played** keeps a trace: its row in the Journeys view has no ▶ and the row's tooltip
   says why ("Podcast unavailable: version 2: this player reads version 1"); the panel shows one line, "Podcast
   unavailable", with **Show why**; Listen to Journey says why too.
-- **One that plays with warnings**: the panel shows one short line above the timeline ("2 parts can't be shown",
-  "Written for “Test run”", the cut-off audio), with **Show why**; the row's tooltip says the same.
+- **One that plays with warnings**: the panel shows one short line above the timeline, as many problems as the
+  Problems view lists ("⚠ 3 problems"), with **Show why**. With no problem but steps whose code changed since it was
+  recorded, that line is "Code changed since recording: steps 2, 5, 9".
 - **Every problem** is in the Problems view, on the `.podcast.json` at the field or segment it is about, and in the
   "Code Notes" output (at warning level, once per change).
 - **A file that breaks while it plays** (half-written by an agent or an editor) doesn't stop the audio: the last good

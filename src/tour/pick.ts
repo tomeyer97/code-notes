@@ -9,7 +9,6 @@ import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
 import { tourState, walk } from './instances'
 import { podcasts } from '../podcast/player'
-import { clock } from '../podcast/model'
 
 /** The ▶ on a picker row whose journey has a podcast. */
 const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('play'), tooltip: 'Listen to Journey' }
@@ -62,21 +61,24 @@ function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickI
 }
 
 /**
- * One line per journey: the short title; the step that matched (when only a step did), else the question when it
- * says more than the title; a ⚠ when its file can't be read; the folder when there are several.
+ * One line per journey: the short title (a ♪ after it when it has a podcast); the step that matched (when only a step
+ * did), else the question when it says more than the title; a ⚠ when its file can't be read; the folder when there
+ * are several. The journey listened to: "listening", and no ▶.
  */
 function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickItem {
   const step = words.length ? x.j.steps.find((st) => words.some((w) => st.title.toLowerCase().includes(w))) : undefined
   const onlyStepMatched = step && !words.every((w) => journeyHay(x).includes(w))
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
-  // A podcast: its length first, and a ▶ button on the row that opens it and listens.
+  // A podcast: ♪ after the title, and a ▶ button on the row that opens it and listens.
   const pod = podcasts.status(x)
-  const listen = pod?.state === 'ok' ? `♪ ${clock(pod.duration ?? 0)}` : ''
+  const has = pod?.state === 'ok'
+  const listening = has && !!pod?.session
+  const walking = x.key === tourState.key && tourState.step && !listening
   return {
     ask: undefined,
-    label: `${x.key === tourState.key && tourState.step ? '$(play-circle) ' : ''}${x.j.title}`,
-    description: [listen, about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
-    ...(listen ? { buttons: [LISTEN_BUTTON] } : {}),
+    label: `${walking ? '$(play-circle) ' : ''}${x.j.title}${has ? ' ♪' : ''}`,
+    description: [listening ? 'listening' : about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
+    ...(has && !listening ? { buttons: [LISTEN_BUTTON] } : {}),
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,
   }

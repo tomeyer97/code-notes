@@ -167,6 +167,14 @@ export function segProblem(s: WrittenSegment, i: number, code: string, what: str
   return { level: 'warning', code, message: `segment ${name}: ${what}`, path: ['segments', i, ...sub], segment: name }
 }
 
+/** A warning about segment `i` said by the step it is on, as the reader sees it ("Step 3: …"): no segment name. */
+export function stepProblem(s: WrittenSegment, i: number, n: number, code: string, what: string, sub: (string | number)[] = []): PodcastProblem {
+  return { ...segProblem(s, i, code, what, sub), message: `Step ${n}: ${what}` }
+}
+
+/** "it has 5", "it has none": how many beats a step has, in a message. */
+export const beatsItHas = (n: number) => `it has ${n || 'none'}`
+
 /** Sentence times this close (s) to the segment's bounds or to each other count as in order (rounding in a generator). */
 const SENTENCE_SLACK_S = 0.05
 
@@ -220,11 +228,11 @@ function viewOf(s: WrittenSegment, i: number, byId: Map<string, { n: number; bea
   const b = at.beat
   // A beat written as a string ("2") is not beat 2: said as what it is, not as a beat the step lacks (F104).
   if (typeof b === 'string') {
-    problems.push(segProblem(s, i, 'beat', `beat must be a number, got the string ${JSON.stringify(b)}; the step only`, ['at', 'beat']))
+    problems.push(stepProblem(s, i, st.n, 'beat', `beat must be a number, got the string ${JSON.stringify(b)}; showing the whole step`, ['at', 'beat']))
     return { step: st.n }
   }
   if (typeof b !== 'number' || !Number.isInteger(b) || b < 1 || b > st.beats) {
-    problems.push(segProblem(s, i, 'beat', `step "${at.step}" has no beat ${JSON.stringify(b)} (it has ${st.beats}); the step only`, ['at', 'beat']))
+    problems.push(stepProblem(s, i, st.n, 'beat', `no beat ${JSON.stringify(b)} (${beatsItHas(st.beats)}); showing the whole step`, ['at', 'beat']))
     return { step: st.n }
   }
   return { step: st.n, beat: b - 1 }

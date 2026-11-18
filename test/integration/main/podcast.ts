@@ -154,6 +154,23 @@ async function audioMoves(f: import('playwright').Frame, what: string): Promise<
   assert.ok(t0 >= 0 && t1 > t0 + 0.6, `${what}: the audio's clock moves (${t0} → ${t1})`)
 }
 
+/**
+ * Pictures for a person to look at (CODE_NOTES_SHOTS): the window as it is, and with the palette filtered to
+ * "Listen" and the journey picker open.
+ */
+async function shots(tag: string, palette = false): Promise<void> {
+  if (!process.env.CODE_NOTES_SHOTS) return
+  await windowShot(tag, { wait: 600 })
+  if (!palette) return
+  await vscode.commands.executeCommand('workbench.action.quickOpen', '>Listen')
+  await windowShot(`${tag}-palette`, { wait: 800 })
+  await vscode.commands.executeCommand('workbench.action.closeQuickOpen')
+  const picked = vscode.commands.executeCommand('codeNotes.openJourney')
+  await windowShot(`${tag}-picker`, { wait: 800 })
+  await vscode.commands.executeCommand('workbench.action.closeQuickOpen')
+  await picked
+}
+
 export const podcastTests = [
   test('podcast: ▶ starts the sound wherever it was pressed, with no click in the Listen view first', async () => {
     // VS Code lets a webview's audio play only after a click or a key in that webview (a click in the workbench or in
@@ -163,6 +180,14 @@ export const podcastTests = [
     await until('the podcast is found', () => pod().journeys.includes('podauto'), 10000)
     if (pod().mapVisible) await closePanel()
     assert.deepEqual(pod().unlocked, { listen: false, panel: false }, 'no click in either player yet')
+    await vscode.commands.executeCommand('codeNotes.journeys.focus')
+    // Nothing listened to: no Listen view (nor its focus command), no transport in the palette, a plain row.
+    assert.ok(!pod().listening && !pod().hostAlive, 'no Listen view before a journey is listened to')
+    const idle = ctx.api.journeyRow('podauto')!
+    assert.match(idle.description ?? '', /^♪ 0:40( · |$)/, `the row: its length: ${idle.description}`)
+    assert.match(idle.contextValue!, /;podcast$/, 'its ▶ Listen')
+    assert.doesNotMatch(String(idle.tooltip), /podcast|Listen/i, 'no podcast line in the tooltip')
+    await shots('listen-idle', true)
 
     // 1. From a command (a Journeys row's ▶ Listen, the palette, the key): no webview may play yet. The audio goes to
     // the panel that opens, paused there, the panel and its ▶ take the keyboard: Space plays it. No hint text.
@@ -184,6 +209,13 @@ export const podcastTests = [
     await closePanel()
     await until('back in the Listen view, paused there', () => pod().hostIn === 'listen' && !pod().playing && pod().hostAlive, 8000)
     assert.ok(Math.abs(pod().t - tClose) < 2, `kept its place: ${tClose} → ${pod().t}`)
+    assert.ok(pod().listening && pod().itemShown, 'paused with the panel closed: the Listen view and the status item')
+    assert.match(pod().item, /^Paused · 0:\d\d$/, `the status item: ${pod().item}`)
+    const paused = ctx.api.journeyRow('podauto')!
+    assert.match(paused.description ?? '', /^♪ 0:40/, 'the row: its length')
+    assert.doesNotMatch(paused.description ?? '', /Paused|Listening|step/, `the row says no more while paused: ${paused.description}`)
+    assert.match(paused.contextValue!, /;podcast$/, 'its ▶ goes on where it was')
+    await shots('listen-panel-closed-paused')
 
     // 3. A new panel (its audio locked too): one real click on its ▶ plays, there.
     await vscode.commands.executeCommand('codeNotes.podcastOpen')
@@ -228,17 +260,25 @@ export const podcastTests = [
     // The Listen view was clicked once (the test before): it plays at once.
     await until('playing, the time moving', () => pod().playing && pod().t > 0.6, 10000)
     assert.equal(tour().step, 0, 'the intro: no step open')
-    assert.match(pod().item, /^\$\(unmute\) Listening · Intro · 0:0\d$/, `the status bar: ${pod().item}`)
+    assert.match(pod().item, /^Listening · 0:0\d$/, `the status item's text: ${pod().item}`)
+    assert.ok(!pod().itemShown, 'no status item while the panel (the player) is on screen')
+    const row = ctx.api.journeyRow('pod')!
+    assert.match(row.description ?? '', /^♪ 0:40/, 'the row: its length')
+    assert.doesNotMatch(row.description ?? '', /Paused|Listening|step/, `the row says no more while it plays: ${row.description}`)
+    assert.match(row.contextValue!, /;podcastPlaying$/, 'no ▶ and no ⏸ on the row while it plays')
+    assert.notEqual(row.icon, 'unmute', 'no speaker icon')
     // The voice reaches step 1: its code opens, the animation lights beat 1's line.
     await until('3 s: step 1 opened on its first beat', at(1, 'pod.ts', 1), 8000)
     await windowShot('podcast-playing', { wait: 300 })
-    assert.match(pod().item, /^\$\(unmute\) Listening · 0:0\d$/, `the status bar: the time (the walk's item beside it says 1/3): ${pod().item}`)
+    assert.ok(!tour().statusShown, 'the walk\'s "1/3" item steps aside while it is listened to')
     // Space for the podcast (Ctrl+' Space): paused, and the walk stays.
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
     await sleep(500)
     assert.equal(tour().step, 1, 'pausing the podcast does not end the walk')
-    assert.match(pod().item, /^\$\(debug-pause\) Paused · 0:0\d$/, `paused: ${pod().item}`)
+    assert.match(pod().item, /^Paused · 0:0\d$/, `paused: ${pod().item}`)
+    assert.ok(!pod().itemShown && !tour().statusShown, 'paused, the panel on screen: no status item at all')
+    await shots('listen-panel-open-paused', true)
   }),
 
   test('podcast: a seek anywhere, forwards or backwards, puts the walk exactly where it is at that time', async () => {
@@ -456,7 +496,8 @@ export const podcastTests = [
     const t0 = pod().t
     await sleep(1500)
     assert.ok(pod().playing && pod().t > t0 + 0.8, `still playing without the panel: ${t0} → ${pod().t}`)
-    assert.ok(pod().itemShown && /Listening/.test(pod().item), `the status item stays: ${pod().item}`)
+    assert.ok(pod().itemShown && /^Listening · \d:\d\d$/.test(pod().item), `the status item, the panel closed: ${pod().item}`)
+    await shots('listen-panel-closed-playing')
     assert.equal((await panelAudio()).paused, false, 'the audio itself plays on')
     // The status item's click: the map again, its player showing the audio's time and that it plays.
     await vscode.commands.executeCommand('codeNotes.podcastOpen')
@@ -472,6 +513,27 @@ export const podcastTests = [
     await until('paused from the panel', () => !pod().playing, 5000)
   }),
 
+  test('a journey panel closed while VS Code restores it after a reload: nothing throws, the map and the place are kept', async () => {
+    const map = tour().map
+    const t0 = pod().t
+    assert.ok(map && pod().session, 'a journey listened to, its map open')
+    // VS Code hands the old panel over, the journeys are still being read, and the tab is closed meanwhile.
+    let journeysRead!: () => void
+    const ready = new Promise<void>((r) => { journeysRead = r })
+    const panel = vscode.window.createWebviewPanel('codeNotes.journey', 'Restored', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true })
+    const restoring = ctx.api.restorePanel(panel, ready)
+    panel.dispose()
+    journeysRead()
+    await restoring // threw "Webview is disposed" (and failed the activation)
+    assert.equal(tour().map, map, 'the open map is still the map')
+    assert.ok(pod().mapVisible, 'and still on screen')
+    assert.ok(Math.abs(pod().t - t0) < 0.5 && pod().session, `the listening place kept: ${t0} → ${pod().t}`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('it still plays', () => pod().playing, 5000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing, 5000)
+  }),
+
   // ---------- broken podcast files (src/podcast/validate.ts, load.ts) ----------
 
   test('podcast: a half-written podcast file mid-play keeps the last good version playing, and says so', async () => {
@@ -484,14 +546,13 @@ export const podcastTests = [
     const t0 = pod().t
     await sleep(1200)
     assert.ok(pod().playing && pod().t > t0 + 0.6, `still playing: ${t0} → ${pod().t}`)
-    assert.match(pod().item, /\$\(warning\)/, `the status item says it: ${pod().item}`)
     assert.match(await panelText('.pod-note'), /last good version/)
     const errs = diagnostics()
     assert.equal(errs[0]?.severity, vscode.DiagnosticSeverity.Error, 'an error in the Problems view')
     assert.match(errs[0].message, /not valid JSON: line \d+, column \d+/)
     // Written in full again: read again, nothing to say.
     fs.writeFileSync(podFile(), good)
-    await until('the file is good again (the fixture\'s one warning: beat 4 of a step without an animation)', () => pod().notices.pod === "1 part can't be shown" && diagnostics().length === 1, 8000)
+    await until('the file is good again (the fixture\'s one warning: beat 4 of a step without an animation)', () => pod().notices.pod === '1 problem' && diagnostics().length === 1, 8000)
     assert.ok(pod().playing, 'it played on throughout')
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
@@ -507,21 +568,18 @@ export const podcastTests = [
     await until('unavailable: version 2', () => /version 2/.test(pod().broken.pod ?? ''), 8000)
     await until('the status item went with it', () => !pod().itemShown, 5000)
     const row = ctx.api.journeyRow('pod')!
-    assert.match(row.contextValue!, /;podcastBroken/, 'the greyed ▶')
+    assert.match(row.contextValue!, /;podcastBroken/)
     assert.doesNotMatch(row.contextValue!, /;podcast(;|$)/, 'not the ▶ that plays')
-    assert.match(row.tooltip!, /Podcast unavailable: version 2: this player reads version 1/)
+    assert.equal(String(row.tooltip).split('\n').filter((l) => /podcast/i.test(l)).join('\n'), 'Podcast unavailable: version 2: this player reads version 1', 'one tooltip line: the reason')
     await until('the panel: one line, "Podcast unavailable", and Show why', async () => /Podcast unavailable/.test(await panelText('.pod-note')) && !(await panelVisible('.pod-tl')), 5000)
-    // The row's ▶ is there, greyed (disabled): hovered, in the Journeys view.
+    // The row offers no ▶ (hovered, in the Journeys view): the tooltip and the panel say why.
     await vscode.commands.executeCommand('codeNotes.journeys.focus')
     const page = await ui()
     const rowSel = '.monaco-list-row[aria-label^="Pod,"], .monaco-list-row[aria-label^="Pod "], .monaco-list-row[aria-label="Pod"]'
     await until('the row in the Journeys view', async () => (await page.locator(rowSel).count()) > 0, 5000)
     await page.locator(rowSel).first().hover()
-    const play = await until('its greyed ▶', async () => page.locator(rowSel).first().evaluate((r) => {
-      const a = r.querySelector('.actions .codicon-play')?.closest('.action-label')
-      return a ? { disabled: a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true', title: a.getAttribute('aria-label') ?? '' } : undefined
-    }), 5000)
-    assert.ok(play.disabled, `the ▶ is disabled: ${JSON.stringify(play)}`)
+    await sleep(500)
+    assert.equal(await page.locator(rowSel).first().locator('.actions .codicon-play').count(), 0, 'no ▶ on the row')
     await windowShot('podcast-unavailable', { wait: 300 })
     const before = pod().why
     await (await panelFrame()).click('.pod-why')
@@ -559,15 +617,20 @@ export const podcastTests = [
     p.duration = 600
     fs.writeFileSync(podFile(), JSON.stringify(p, null, 2))
     // The panel loads the 40 s audio and reports its length: the file says 10 minutes.
-    await until('the player says it in plain words', () => /The audio is 0:40 long but the episode is 10:00/.test(pod().notices.pod ?? ''), 10000)
-    assert.equal(pod().links.pod, 2, 'two parts can\'t be shown (the fixture\'s beat 4 of a step without one, and "nope")')
+    // The Problems view says it in plain words; the player's one line counts what it lists.
+    await until('the cut-off audio in the Problems view', () => diagnostics().some((d) => /The audio is 0:40 long but the episode is 10:00/.test(d.message)), 10000)
+    await until('the player\'s line: as many problems as the Problems view lists', () => pod().notices.pod === `${diagnostics().length} problems`, 5000)
+    assert.equal(pod().links.pod, 2, 'two steps can\'t be shown as written (the fixture\'s beat 4 of a step without one, and "nope")')
+    const beat4 = diagnostics().find((d) => d.code === 'beat')!
+    assert.equal(beat4.message, 'Step 3: no beat 4 (it has none); showing the whole step')
     await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
-    await until('the note in the panel', async () => /The audio is 0:40 long/.test(await panelText('.pod-note')), 5000)
+    await until('the note in the panel', async () => /^\d+ problems$/.test(await panelText('.pod-note-t')), 5000)
+    await shots('podcast-notice')
     p.segments.pop()
     p.duration = 40
     fs.writeFileSync(podFile(), JSON.stringify(p, null, 2))
-    await until('the other journey and the broken link', () => pod().notices.pod === 'Written for “Pod long” · 2 parts can\'t be shown', 8000)
-    assert.match(ctx.api.journeyRow('pod')!.tooltip!, /Podcast: Written for “Pod long” · 2 parts can't be shown/)
+    await until('the other journey and the broken link: 3 problems', () => pod().notices.pod === '3 problems' && diagnostics().length === 3, 8000)
+    assert.doesNotMatch(String(ctx.api.journeyRow('pod')!.tooltip), /podcast/i, 'the row\'s tooltip: nothing about a podcast that plays')
     const ws = diagnostics()
     assert.ok(ws.every((d) => d.severity === vscode.DiagnosticSeverity.Warning), 'warnings only')
     const link = ws.find((d) => d.code === 'step')!
@@ -575,7 +638,7 @@ export const podcastTests = [
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing, 5000)
     fs.writeFileSync(podFile(), good)
-    await until('back to the fixture\'s one warning', () => pod().notices.pod === "1 part can't be shown" && diagnostics().length === 1, 8000)
+    await until('back to the fixture\'s one warning', () => pod().notices.pod === '1 problem' && diagnostics().length === 1, 8000)
     const errors = consoleErrors()
     assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
   }),
@@ -1051,7 +1114,7 @@ export const podcastTests = [
     const a = await panelAudio()
     assert.ok(a.paused, 'the audio holds')
     assert.equal(a.note, '', 'no line under the player')
-    assert.match(pod().item, /^\$\(unmute\) Listening/, `the status item: ${pod().item}`)
+    assert.match(pod().item, /^Listening · /, `the status item: ${pod().item}`)
     assert.equal(tour().card?.body ?? '', '', 'the step card stays its header line')
     assert.equal(await playButtonOn(await listenFrame()), 'true', 'the Listen view shows ⏸')
     assert.equal(await playButtonOn(await panelFrame()), 'true', 'the panel shows ⏸')

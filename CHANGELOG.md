@@ -57,6 +57,18 @@
   cycles 1×–2×, no mute button (M stays), neutral greys; the end is Replay · Walk it yourself · Next journey only.
   Beside the code the panel is 360–420 px while an episode is on. A caption or transcript sentence no longer splits
   at the dot inside `repo.ReadTestFile`; the animation draws no wire stub to an actor out of view.
+- **Listen: the side bar, the status bar and the palette, quieter.** The Listen view is there only while a journey is
+  listened to (playing or paused), with no empty-state text. A Journeys row says "♪ 12:47" and nothing more (no
+  "Listening", no "Paused at", no step, no speaker icon); its ▶ shows unless it plays (paused, ▶ goes on), with no ⏸ or
+  Resume row action and no podcast line in the tooltip unless the podcast can't play (then no ▶: the tooltip says
+  why). Open Journey… marks a podcast with a ♪ after the title, and the journey listened to says "listening" without a
+  ▶. The status item shows only while the journey panel is off screen ("Listening · 6:58", a one-line tooltip), is
+  gone after the end, and the walk's "3/14" item steps aside meanwhile. No status-bar flashes (resume, the follow
+  lock, a note being written, a removed step): the output logs them. The transport commands are in the palette only
+  while a journey is listened to (**Listen: Pause/Play**, **Listen: Open the Map**). The panel's notice is one line,
+  "⚠ 3 problems · Show why", counting what the Problems view lists; a bad beat is said by the step ("Step 1: no beat 99
+  (it has 5); showing the whole step") and its marks aren't reported again; "Code changed since recording: steps 2, 5,
+  9". A journey panel closed while VS Code was restoring it no longer fails the extension's activation.
 - **Listen: the editor while it plays.** The editor is calmer: a view is held at least 8 s (a shorter part in
   another file stays in the view before; beats in the same file just move the highlight). Scroll or click in the
   narrated code and it stops following until the next step; **Follow along** on the step card snaps back. While it
