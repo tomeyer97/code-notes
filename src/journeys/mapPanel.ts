@@ -252,10 +252,13 @@ export class MapPanel implements vscode.Disposable {
       body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
       // journeyModel.js is a CommonJS module loaded as a plain script.
       inline: 'var exports = {}',
+      // In this order: each of media/ needs the ones before it (its header says which).
       scripts: [
-        file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'), file('media', 'common.js'), file('media', 'journey-layout.js'),
-        file('media', 'journey-graph.js'), file('media', 'journey-scene.js'), file('media', 'journey-home.js'),
-        file('media', 'journey-splitter.js'), file('media', 'journey-tutorial.js'), file('media', 'journey-map.js'),
+        file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
+        ...[
+          'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'journey-scene',
+          'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-map',
+        ].map((name) => file('media', `${name}.js`)),
       ],
     })
   }

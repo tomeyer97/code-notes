@@ -46,7 +46,7 @@
   }
 
   /** A rectangle given as { x, y, w, h }, as { left, top, right, bottom } (overlapArea's). */
-  function edges(r) {
+  function edgesOf(r) {
     return { left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h }
   }
 
@@ -84,6 +84,11 @@
     if (stop) e.stopPropagation()
     f()
     return true
+  }
+
+  /** `v`, kept between `lo` and `hi` (`hi` wins when they cross). */
+  function between(v, lo, hi) {
+    return Math.min(hi, Math.max(lo, v))
   }
 
   /** `items[j]`, `j` kept inside the list: before the first, the first; past the last, the last. */
@@ -138,7 +143,7 @@
   }
 
   window.common = {
-    el, svgEl, button, joinDots, baseName, overlapArea, edges, connect, onMessages, runKey, itemAt, rovingKeys,
+    el, svgEl, button, joinDots, baseName, overlapArea, edgesOf, between, connect, onMessages, runKey, itemAt, rovingKeys,
     watched, WATCHED, overflowing, QSTATE,
   }
 })()
