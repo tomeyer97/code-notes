@@ -84,6 +84,12 @@
         {
           "id": "codeNotes.journeys",
           "name": "Journeys"
+        },
+        {
+          "type": "webview",
+          "id": "codeNotes.listen",
+          "name": "Listen",
+          "when": "codeNotes.hasPodcasts"
         }
       ]
     },
@@ -452,31 +458,58 @@
       },
       {
         "command": "codeNotes.playPodcast",
-        "title": "Play Journey Podcast",
+        "title": "Listen to Journey",
         "category": "Code Notes",
         "icon": "$(play)"
       },
       {
         "command": "codeNotes.podcastUnavailable",
-        "title": "Podcast Unavailable (the Journey's Tooltip Says Why)",
+        "title": "Listen: Unavailable (the Journey's Tooltip Says Why)",
         "category": "Code Notes",
         "icon": "$(play)",
         "enablement": "false"
       },
       {
         "command": "codeNotes.podcastToggle",
-        "title": "Play or Pause the Journey Podcast",
+        "title": "Listen: Play/Pause",
         "category": "Code Notes"
       },
       {
         "command": "codeNotes.podcastBack",
-        "title": "Journey Podcast: Back 15 Seconds",
+        "title": "Listen: Back 15 s",
         "category": "Code Notes"
       },
       {
         "command": "codeNotes.podcastForward",
-        "title": "Journey Podcast: Forward 15 Seconds",
+        "title": "Listen: Forward 15 s",
         "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "title": "Listen: Previous Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "title": "Listen: Next Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastOpen",
+        "title": "Listen: Open the Journey's Map",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastPauseRow",
+        "title": "Pause Listening",
+        "category": "Code Notes",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "codeNotes.podcastResumeRow",
+        "title": "Resume Listening",
+        "category": "Code Notes",
+        "icon": "$(play)"
       },
       {
         "command": "codeNotes.checkUnderstanding",
@@ -670,6 +703,34 @@
         }
       },
       {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+[IntlBackslash] ctrl+shift+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+[IntlBackslash] shift+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+[IntlBackslash] ctrl+shift+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+[IntlBackslash] shift+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
         "command": "codeNotes.add",
         "key": "ctrl+' ctrl+c",
         "args": {
@@ -805,6 +866,34 @@
       {
         "command": "codeNotes.podcastForward",
         "key": "ctrl+' right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+' ctrl+shift+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+' shift+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+' ctrl+shift+right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+' shift+right",
         "args": {
           "prefix": "'"
         }
@@ -1075,12 +1164,30 @@
           "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast($|;)/"
         },
         {
+          "command": "codeNotes.podcastPauseRow",
+          "group": "inline@0",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastPlaying/"
+        },
+        {
+          "command": "codeNotes.podcastResumeRow",
+          "group": "inline@0",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastPaused/"
+        },
+        {
           "command": "codeNotes.podcastUnavailable",
           "group": "inline@0",
           "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcastBroken/"
         }
       ],
       "commandPalette": [
+        {
+          "command": "codeNotes.podcastPauseRow",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.podcastResumeRow",
+          "when": "false"
+        },
         {
           "command": "codeNotes.podcastUnavailable",
           "when": "false"

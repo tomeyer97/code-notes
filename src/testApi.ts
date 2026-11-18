@@ -150,6 +150,8 @@ export function testApi() {
     mementos: () => [state, gstate],
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),
+    /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
+    listenSend: (m: unknown) => podcasts.listen.send(m),
     /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
     podcast: () => podcasts.snapshot(),
     /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */

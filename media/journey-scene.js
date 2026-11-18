@@ -474,12 +474,16 @@
     root.setAttribute('aria-label', 'Animation of this step (← → beats, Esc: map)')
     const bar = el('div', 'scn-bar')
     const prev = el('button', 'icon scn-prev', '‹'), next = el('button', 'icon scn-next', '›'), pos = el('span', 'scn-pos')
+    // The beat as dots (up to DOTS_MAX beats): "6 / 6" next to "Next step ›" read as "step 6 of 6". The words stay for
+    // screen readers (and for more beats).
+    const dots = el('span', 'scn-dots')
+    dots.setAttribute('aria-hidden', 'true')
     prev.title = 'Previous (←)'
     // The beat's file when it is not the step's: muted, next to the counter.
     const file = el('span', 'scn-file')
     const close = el('button', 'link scn-close', 'Map')
     close.title = 'Back to the map (Esc)'
-    bar.append(prev, pos, next, file, el('span', 'scn-space'), close)
+    bar.append(prev, pos, dots, next, file, el('span', 'scn-space'), close)
     const view = el('div', 'scn-view')
     const world = el('div', 'scn-world')
     view.append(world)
@@ -491,8 +495,10 @@
     const codeEl = el('div', 'scn-code')
     codeEl.hidden = true
     root.append(bar, view, cap, codeEl)
-    return { root, prev, next, pos, file, close, view, world, cap, codeEl }
+    return { root, prev, next, pos, dots, file, close, view, world, cap, codeEl }
   }
+  /** At most this many beats show as dots. */
+  const DOTS_MAX = 12
 
 
   /** The camera's margin around the actor it looks at (scene px, both sides together), and its closest zoom. */
@@ -507,7 +513,7 @@
    *  go()), else it came with the scene shown. `onNextStep`: at the last beat › becomes "Next step ›". */
   function create(opts) {
     opts = opts || {}
-    const { root, prev, next, pos, file, close, view, world, cap, codeEl } = playerEl()
+    const { root, prev, next, pos, dots, file, close, view, world, cap, codeEl } = playerEl()
 
     /** The scene shown (a step's `scene`) and its key: the same key again keeps the beat. */
     let scene
@@ -598,6 +604,15 @@
       cap.append(el('span', '', b.caption || ''))
       if (b.muted) cap.append(el('span', 'scn-muted', ` ${b.muted}`))
       pos.textContent = `${beat + 1} / ${scene.beats.length}`
+      pos.setAttribute('aria-label', `Beat ${beat + 1} of ${scene.beats.length}`)
+      const asDots = scene.beats.length <= DOTS_MAX
+      pos.classList.toggle('sr', asDots)
+      dots.hidden = !asDots
+      if (asDots) {
+        dots.textContent = ''
+        for (let k = 0; k < scene.beats.length; k++) dots.append(el('i', k === beat ? 'on' : k < beat ? 'past' : ''))
+        dots.title = `Beat ${beat + 1} of ${scene.beats.length}`
+      }
       // A beat without code shows none; one with code keeps the last lines until its own arrive (no flicker).
       if (!b.code) showCode(codeEl, undefined)
       const f = b.code && b.code.file

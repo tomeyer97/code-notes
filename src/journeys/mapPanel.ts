@@ -37,12 +37,16 @@ export type MapMessage =
   | { type: 'ref'; i: number }
   | { type: 'details'; open: boolean }
   | { type: 'beat'; n: number; i: number; user?: boolean }
-  // The podcast's bar (media/journey-podcast.js): where the audio is, and what went wrong.
+  // The panel's listening player (media/journey-podcast.js, a remote: the audio is in the Listen view): what it asks of
+  // the audio; "Show why" on a podcast with problems (src/podcast/validate.ts); the end's Walk it yourself / Next journey.
+  | { type: 'podcastAsk'; of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
+  | { type: 'podcastWhy' }
+  | { type: 'podcastEnd'; of?: string; action: 'walk' | 'next' }
+  // Before the audio moved to the Listen view (0.25), the panel had it and said these; kept for a panel of an older
+  // page still open (reloaded with the window).
   | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
   | { type: 'podcastError'; message: string; of?: string }
-  // The audio's real length once loaded; "Show why" on a podcast with problems (src/podcast/validate.ts).
   | { type: 'podcastMeta'; duration: number; of?: string }
-  | { type: 'podcastWhy' }
   | { type: 'ask'; update?: boolean }
   | { type: 'restore' }
   | { type: 'authors' }
@@ -132,6 +136,8 @@ export class MapPanel implements vscode.Disposable {
   /** The journey's podcast for the panel's bar (src/podcast/player.ts): undefined when it has none. `toUri`: a file
    *  as the webview loads it. */
   podcastFor: ((lj: LoadedJourney, toUri: (u: vscode.Uri) => string) => unknown) | undefined
+  /** Where the audio of `lj` is (the panel's player draws it): sent right after the episode. */
+  podcastStateFor: ((lj: LoadedJourney) => object | undefined) | undefined
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
     private tourOf: (lj: LoadedJourney) => TourInfo, private state: vscode.Memento) {}
@@ -330,6 +336,8 @@ export class MapPanel implements vscode.Disposable {
     if (!panel || !this.shown || !this.ready) return
     const episode = this.podcastFor?.(this.shown, (u) => panel.webview.asWebviewUri(u).toString())
     void panel.webview.postMessage({ type: 'podcast', episode })
+    const st = episode ? this.podcastStateFor?.(this.shown) : undefined
+    if (st) void panel.webview.postMessage({ type: 'podcastState', ...st })
   }
 
   private html(w: vscode.Webview, loading?: string): string {

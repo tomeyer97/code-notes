@@ -254,6 +254,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.podcastToggle': chord(() => podcasts.toggle()),
       'codeNotes.podcastBack': chord(() => podcasts.back()),
       'codeNotes.podcastForward': chord(() => podcasts.forward()),
+      'codeNotes.podcastPrevStep': chord(() => podcasts.part(-1)),
+      'codeNotes.podcastNextStep': chord(() => podcasts.part(1)),
+      'codeNotes.podcastOpen': () => podcasts.openSessionMap(),
+      // The row's ⏸ (listening) and ▶ Resume (paused there).
+      'codeNotes.podcastPauseRow': (arg?: unknown) => podcasts.toggleRow(arg),
+      'codeNotes.podcastResumeRow': (arg?: unknown) => podcasts.toggleRow(arg),
       'codeNotes.askQuestion': askQuestion,
       'codeNotes.backToStep': backToStep,
       'codeNotes.askStep': (text?: string) => askStep(text),

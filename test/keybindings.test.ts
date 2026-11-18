@@ -21,10 +21,12 @@ test('one chord scheme on two prefixes: Ctrl+< by scan code (ISO key) and Ctrl+\
     v: 'codeNotes.showMap',
     p: 'codeNotes.toggleAnimation',
     j: 'codeNotes.searchJourneys',
-    // The journey podcast: play / pause, back and forward 15 s (src/podcast/player.ts).
+    // Listening (the journey podcast): play / pause, back and forward 15 s, previous and next step (src/podcast/player.ts).
     space: 'codeNotes.podcastToggle',
     left: 'codeNotes.podcastBack',
     right: 'codeNotes.podcastForward',
+    'shift+left': 'codeNotes.podcastPrevStep',
+    'shift+right': 'codeNotes.podcastNextStep',
   }
   const prefixes = ['ctrl+[IntlBackslash]', "ctrl+'"]
   // Every prefix × letter, with Ctrl released or still held for the second key.

@@ -1,5 +1,7 @@
-// Podcast mode: a journey with a podcast file next to it (`<journey>.podcast.json`, docs/podcast-format.md) plays in
-// the journey panel (media/journey-podcast.js has the audio and the timeline), and the walk follows the voice: at
+// Listening: a journey with a podcast file next to it (`<journey>.podcast.json`, docs/podcast-format.md) plays in the
+// Listen view (listenView.ts: the audio lives there, so it outlives the journey panel; media/journey-podcast.js), the
+// panel's player is a remote of it (its asks come here and go on to the view; the view's state goes back to it), and
+// the status item is one too (click: the journey's map). The walk follows the voice: at
 // every time the panel reports, the view at that time (model.ts viewAt) is applied the way a reader's own move is
 // (walk.goToStep; the animation's beat set in the panel). A seek applies the view at the new time directly: never
 // the cues in between, and only the newest of quick seeks (LatestWins). The other way round: the reader moving the
@@ -19,10 +21,13 @@ import { clock, Episode, LatestWins, PodcastProblem, sameView, timeOf, View, vie
 import { podcastReports, PodcastRead, readPodcast } from './load'
 import { afterStep, remapTime, resumeTime } from './resume'
 import { brokenLinks, playNotice } from './validate'
+import { ListenMessage, ListenView } from './listenView'
+import { KEY, setCtx } from '../app'
 
 /** Workspace state: where each podcast was left (posKey -> seconds); global: the speed. */
 const POS_KEY = 'codeNotes.podcastPos'
 const RATE_KEY = 'codeNotes.podcastRate'
+const MUTE_KEY = 'codeNotes.podcastMuted'
 /** While playing, where it is is stored this often (ms). */
 const SAVE_EVERY_MS = 5000
 const SKIP_S = 15
@@ -40,6 +45,10 @@ const LAST_GOOD = 'The podcast file has errors: playing the last good version'
 
 /** What the panel sends about the audio (MapMessage podcastTime): `of`, the journey (key) whose audio it is. */
 export interface TimeReport { t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
+/** What the audio's player shows (journey-podcast.js S()), as the Listen view says it; relayed to the panel's remote. */
+export interface HostState { of: string; t: number; playing: boolean; rate?: number; muted?: boolean; ready?: boolean; ended?: boolean; dur?: number; reach?: number; err?: string; note?: boolean; seek?: boolean }
+/** What the panel's player (a remote) asks of the audio. */
+export interface AskMessage { of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
 
 class Podcasts {
   /** By journey key. */
@@ -74,13 +83,21 @@ class Podcasts {
   private asked: { kind: 'seek' | 'pause'; at: number } | undefined
   /** "Show why" asked (tests). */
   private whyShown = 0
+  /** The Listen view, where the audio plays; the journey whose episode it has loaded, and its last state. */
+  listen!: ListenView
+  private hostKey: string | undefined
+  private hostState: HostState | undefined
 
   init(context: vscode.ExtensionContext): void {
-    this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.25)
-    this.item.command = 'codeNotes.podcastToggle'
-    context.subscriptions.push(this.item, journeys.onDidChange(() => void this.scan()))
+    this.item = vscode.window.createStatusBarItem('codeNotes.listen', vscode.StatusBarAlignment.Left, 49.25)
+    this.item.name = 'Listen'
+    this.item.command = 'codeNotes.podcastOpen'
+    this.listen = new ListenView(context.extensionUri, log, (m) => this.onHost(m))
+    this.listen.onGone = () => this.hostGone()
+    context.subscriptions.push(this.item, this.listen, this.listen.register(), journeys.onDidChange(() => void this.scan()))
     podcastReports.init(context, () => void this.scan())
     mapPanel.podcastFor = (lj, toUri) => this.episodeFor(lj, toUri)
+    mapPanel.podcastStateFor = (lj) => this.stateFor(lj)
     walk.onMoved = () => this.walkMoved()
   }
 
@@ -88,9 +105,12 @@ class Podcasts {
   episode(lj: LoadedJourney): Episode | undefined { return this.eps.get(lj.key)?.ep }
   /** What the Journeys view says about a journey's podcast: none, playable (with a line about what is wrong with it,
    *  if anything), or unavailable and why. */
-  status(lj: LoadedJourney): { state: 'ok' | 'broken'; text?: string } | undefined {
+  status(lj: LoadedJourney): { state: 'ok' | 'broken'; text?: string; duration?: number; session?: boolean; playing?: boolean; t?: number } | undefined {
     const l = this.eps.get(lj.key)
-    if (l) return { state: 'ok', text: l.notice }
+    if (l) {
+      const session = this.session === lj.key && !!this.sessionJourney()
+      return { state: 'ok', text: l.notice, duration: l.ep.duration, session, playing: session && this.playing, t: this.pos.has(lj.key) || this.positions()[posKey(lj)] ? this.posOf(lj) : undefined }
+    }
     const b = this.broken.get(lj.key)
     return b && { state: 'broken', text: b.reason }
   }
@@ -119,6 +139,7 @@ class Podcasts {
       else broken.set(lj.key, { file: r.file, reason })
     }
     podcastReports.report(reads)
+    void setCtx('codeNotes.hasPodcasts', reads.length > 0)
     const sig = (m: Map<string, Loaded>, b: Map<string, Broken>) => [...m].map(([k, l]) => `${k}=${l.sig}|${l.notice ?? ''}`).concat([...b].map(([k, x]) => `${k}!${x.reason}`)).join('\n')
     const changed = sig(next, broken) !== sig(this.eps, this.broken)
     const before = this.eps
@@ -147,6 +168,7 @@ class Podcasts {
       if (key === mapPanel.journey?.key && now.audio.toString() === was.audio.toString()) seekTo = t2
     }
     mapPanel.sendPodcast()
+    this.refreshHost()
     if (seekTo !== undefined) this.command('seek', { to: seekTo })
     journeysTree?.refresh()
   }
@@ -165,27 +187,170 @@ class Podcasts {
     }
   }
 
-  /** What the panel's bar gets for `lj` (undefined: no podcast; `unavailable`: one that can't be played, and why). */
-  private episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string): unknown {
+  /** What a player gets for `lj` (undefined: no podcast; `unavailable`: one that can't be played, and why): the
+   *  panel's (a remote: what to draw) or the Listen view's (`host`: the audio too, and whether it plays once loaded). */
+  private episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string | undefined, host = false): unknown {
     const l = this.eps.get(lj.key)
     if (!l) {
       const b = this.broken.get(lj.key)
       return b && { unavailable: b.reason }
     }
     const { ep } = l
-    const play = this.playOnReturn.delete(lj.key)
+    const play = host && this.playOnReturn.delete(lj.key)
+    const next = this.nextOf(lj)
     return {
       key: lj.key,
-      src: toUri(l.audio),
+      src: toUri(l.audio) ?? '',
       title: ep.title,
+      journey: lj.j.title,
       duration: ep.duration,
       at: this.posOf(lj),
       ...(play ? { play: true } : {}),
       rate: gstate.get<number>(RATE_KEY) ?? 1,
+      muted: !!gstate.get<boolean>(MUTE_KEY),
+      keyPrefix: KEY,
       chapters: ep.chapters,
-      segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step })),
+      segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step, speaker: s.speaker, ...(s.sentences ? { sentences: s.sentences } : {}) })),
+      steps: lj.j.steps.map((s, i) => ({ n: i + 1, title: s.title })),
+      ...(next ? { next: { key: next.key, title: next.j.title } } : {}),
       ...(l.notice ? { notice: l.notice } : {}),
     }
+  }
+
+  /** The journey after `lj` (in the Journeys view's order) with a podcast that plays: the end's "Next journey". */
+  private nextOf(lj: LoadedJourney): LoadedJourney | undefined {
+    const all = journeys.all()
+    const i = all.findIndex((x) => x.key === lj.key)
+    return all.slice(i + 1).find((x) => this.has(x))
+  }
+
+  /** What the panel's remote draws for `lj` right after its episode: the audio's own state when the Listen view has
+   *  it, else where it was left, paused. */
+  private stateFor(lj: LoadedJourney): HostState | undefined {
+    if (!this.eps.has(lj.key)) return undefined
+    if (this.hostKey === lj.key && this.hostState?.of === lj.key) return this.hostState
+    // Not in the Listen view yet: loaded there now (its length is checked, ▶ starts at once), unless another
+    // journey's episode is in it.
+    if (!this.sessionJourney() && this.listen.alive) this.loadHost(lj)
+    return { of: lj.key, t: this.posOf(lj), playing: false }
+  }
+
+  // ---------- the Listen view: the audio ----------
+
+  /** Journey `lj`'s episode into the Listen view (the view made first); `play`: it plays once loaded, from `at`. */
+  private async loadHost(lj: LoadedJourney, o: { play?: boolean; at?: number; until?: number } = {}): Promise<boolean> {
+    if (!(await this.listen.ensure())) return false
+    const episode = this.episodeFor(lj, (u) => this.listen.toUri(u), true) as Record<string, unknown> | undefined
+    if (!episode || episode.unavailable) return false
+    this.hostKey = lj.key
+    this.hostState = undefined
+    this.listen.send({ type: 'podcast', episode: { ...episode, ...(o.at !== undefined ? { at: o.at } : {}), ...(o.play ? { play: true } : {}) } })
+    if (o.until !== undefined) this.command('play', { ...(o.at !== undefined ? { at: o.at } : {}), until: o.until })
+    return true
+  }
+
+  /** The podcast files were read again: the Listen view's episode follows (the same audio keeps playing; one that
+   *  went or can't be played now leaves the view). */
+  private refreshHost(): void {
+    const key = this.hostKey
+    if (!key || !this.listen.alive) return
+    const lj = journeys.list.get(key)
+    const episode = lj && this.episodeFor(lj, (u) => this.listen.toUri(u), true)
+    if (!episode || (episode as { unavailable?: string }).unavailable) {
+      this.hostKey = undefined
+      this.hostState = undefined
+    }
+    this.listen.send({ type: 'podcast', episode })
+  }
+
+  /** What the Listen view says. */
+  private onHost(m: ListenMessage): void {
+    const shown = (m as { of?: string }).of ? journeys.list.get((m as { of: string }).of) : undefined
+    switch (m.type) {
+      case 'podcastTime': if (shown) this.onTime(shown, m); break
+      case 'podcastState': this.onState(m as unknown as HostState); break
+      case 'podcastError': this.onError(shown, String(m.message), m.of); break
+      case 'podcastMeta': if (shown) this.onAudioMeta(shown, Number(m.duration), m.of); break
+      case 'podcastWhy': void this.showWhy(shown ?? (this.hostKey ? journeys.list.get(this.hostKey) : undefined)); break
+      case 'podcastOpen': void this.openSessionMap(); break
+      case 'podcastEnd': { const lj = (m.of && journeys.list.get(m.of)) || this.sessionJourney(); if (lj) void this.onEnd(lj, m.action) } break
+      case 'ready':
+        // A new page (the view was made again): it has no episode until it is sent one.
+        this.hostKey = undefined
+        this.hostState = undefined
+        break
+    }
+  }
+
+  /** The audio's state: kept (a reopened panel draws it), the muting remembered, and passed on to the panel. */
+  private onState(m: HostState): void {
+    if (!m || m.of !== this.hostKey) return
+    this.hostState = m
+    if (typeof m.muted === 'boolean' && m.muted !== !!gstate.get<boolean>(MUTE_KEY)) void gstate.update(MUTE_KEY, m.muted)
+    if (mapPanel.journey?.key === m.of) mapPanel.send({ type: 'podcastState', ...m })
+    // The end of the episode: the row and the status item say so.
+    if (m.ended !== this.ended) { this.ended = !!m.ended; this.renderItem(); journeysTree?.refresh() }
+  }
+  private ended = false
+  /** The journey the rows last showed as listened to. */
+  private rowSession: string | undefined
+
+  /** What the panel's player asks (it is a remote: the audio is in the Listen view). */
+  async onAsk(lj: LoadedJourney, m: AskMessage): Promise<void> {
+    const key = m.of && journeys.list.get(m.of) ? m.of : lj.key
+    const j = journeys.list.get(key)!
+    if (!this.eps.has(key)) return
+    const loaded = this.hostKey === key && this.listen.alive
+    const { action } = m
+    if (action === 'play' || action === 'toggle') {
+      if (loaded && this.session === key) {
+        this.command(action, { ...(typeof m.at === 'number' ? { at: m.at } : {}), ...(typeof m.until === 'number' ? { until: m.until } : {}) })
+        return
+      }
+      await this.play(key, { at: m.at, until: m.until })
+      return
+    }
+    if (!loaded) {
+      // Not in the Listen view: a seek is where ▶ starts next.
+      if (action === 'seek' && typeof m.to === 'number') { this.savePos(j, m.to, true); mapPanel.send({ type: 'podcastState', of: key, t: m.to, playing: false }) }
+      return
+    }
+    const more: Record<string, unknown> = {}
+    for (const k of ['to', 'by', 'dir', 'rate', 'muted'] as const) if (m[k] !== undefined) more[k] = m[k]
+    if (action === 'seek') more.reader = true
+    this.command(action, more)
+  }
+
+  /** The end's buttons, from the panel (`of`: the journey the episode is of). */
+  endAction(lj: LoadedJourney, action: 'walk' | 'next', of?: string): Promise<void> {
+    return this.onEnd((of && journeys.list.get(of)) || lj, action)
+  }
+
+  /** The end's buttons: walk the journey yourself (from its first step), or listen to the next one. */
+  private async onEnd(lj: LoadedJourney, action: 'walk' | 'next'): Promise<void> {
+    if (action === 'walk') { await walk.goToStep(lj, 1, { focus: false }); return }
+    const next = this.nextOf(lj)
+    if (next) await this.play(next.key)
+  }
+
+  /** The Listen view went for good (its view closed): the audio with it; its place is kept. */
+  private hostGone(): void {
+    const lj = this.sessionJourney()
+    if (lj) this.savePos(lj, this.posOf(lj), true)
+    this.hostKey = undefined
+    this.hostState = undefined
+    this.session = undefined
+    this.playing = false
+    this.want = undefined
+    this.renderItem()
+  }
+
+  /** The status item's click, the Listen view's title: the listened journey's map (its player shows where it is). */
+  async openSessionMap(): Promise<void> {
+    const lj = this.sessionJourney() ?? (this.hostKey ? journeys.list.get(this.hostKey) : undefined)
+    if (!lj) { await this.play(); return }
+    if (mapPanel.journey?.key !== lj.key) await openMap(lj)
+    else walk.showMap(lj, true)
   }
 
   /** The panel loaded the audio of journey `of` (else the one shown): its real length. Checked against the file (a
@@ -245,6 +410,8 @@ class Podcasts {
     this.savePos(lj, m.t, (wasPlaying && !m.playing) || !!m.seek)
     if (m.playing) this.session = lj.key
     if (this.session !== lj.key) return
+    // The Journeys row says listening or paused.
+    if (this.playing !== m.playing || this.rowSession !== lj.key) { this.rowSession = lj.key; setTimeout(() => journeysTree?.refresh(), 0) }
     this.playing = m.playing
     this.renderItem()
     // Paused and not moved: the walk is the reader's.
@@ -340,13 +507,8 @@ class Podcasts {
     this.command('seek', { to: t })
   }
 
-  /** The panel closed: its audio is gone. */
+  /** The panel closed: the audio is in the Listen view and plays on; only the status item is drawn again. */
   onClosed(): void {
-    const lj = this.sessionJourney()
-    if (lj) this.savePos(lj, this.posOf(lj), true)
-    this.session = undefined
-    this.playing = false
-    this.want = undefined
     this.renderItem()
   }
 
@@ -362,7 +524,7 @@ class Podcasts {
     // Not started by a click or a key in the panel (VS Code's webviews need one, once): the panel takes the keyboard,
     // its ▶ focused, so Space starts it.
     if (message === 'NotAllowedError') {
-      mapPanel.takeFocus()
+      void this.listen.focus()
       return
     }
     const lj = (of && journeys.list.get(of)) || shown
@@ -394,23 +556,32 @@ class Podcasts {
 
   private command(action: string, more: Record<string, unknown> = {}): void {
     if (action === 'seek' || action === 'pause') this.asked = { kind: action, at: Date.now() }
-    mapPanel.send({ type: 'podcastCmd', action, ...more })
+    this.listen.send({ type: 'podcastCmd', action, ...more })
   }
 
-  /** Play Journey Podcast: the journey (a row, a key; else the one walked or on the map; else picked) in the panel, playing. */
-  async play(arg?: unknown): Promise<void> {
+  /** Listen to Journey: the journey (a row, a key; else the one walked or on the map; else picked) in the Listen view,
+   *  playing, its map open. `o.at`: from there (else where it was left, or where the walk is); `o.until`: it stops
+   *  there (one step). */
+  async play(arg?: unknown, o: { at?: number; until?: number } = {}): Promise<void> {
     const lj = await this.journeyFor(arg)
     if (!lj) return
-    // Not the podcast playing in the panel: it goes on where it was left (or where the walk is: resumeTime).
-    const fresh = this.session !== lj.key || mapPanel.journey?.key !== lj.key
+    // Not the episode in the Listen view: it goes on where it was left (or where the walk is: resumeTime).
+    const fresh = this.session !== lj.key || this.hostKey !== lj.key || !this.listen.alive
     if (mapPanel.journey?.key !== lj.key) await openMap(lj)
     else if (!mapPanel.visible) walk.showMap(lj, true)
     const walkStep = walk.touring() && tourState.key === lj.key ? tourState.step : 0
-    const at = fresh ? resumeTime(this.eps.get(lj.key)!.ep, this.posOf(lj), walkStep) : undefined
+    const at = typeof o.at === 'number' ? o.at : fresh ? resumeTime(this.eps.get(lj.key)!.ep, this.posOf(lj), walkStep) : undefined
     this.session = lj.key
     // Where the walk is now (the walk telling of a move that isn't one pauses nothing).
     this.want = { step: walkStep }
-    this.command('play', at === undefined || Math.abs(at - this.posOf(lj)) < 0.05 ? {} : { at })
+    const until = typeof o.until === 'number' ? { until: o.until } : {}
+    if (this.hostKey !== lj.key || !this.listen.alive) {
+      if (!(await this.loadHost(lj, { play: o.until === undefined, at: at ?? this.posOf(lj), until: o.until }))) {
+        void vscode.window.showWarningMessage('The Listen view could not be opened, so the audio has nowhere to play.')
+      }
+      return
+    }
+    this.command('play', { ...(at === undefined || (Math.abs(at - this.posOf(lj)) < 0.05 && o.at === undefined) ? {} : { at }), ...until })
   }
 
   private async journeyFor(arg?: unknown): Promise<LoadedJourney | undefined> {
@@ -426,10 +597,10 @@ class Podcasts {
     if (broken) { this.cantPlay(broken); return undefined }
     const all = journeys.all().filter((x) => this.has(x))
     if (all.length <= 1) {
-      if (!all.length) vscode.window.setStatusBarMessage('$(info) No journey here has a podcast', 3000)
+      if (!all.length) vscode.window.setStatusBarMessage('$(info) No journey here has a podcast to listen to', 3000)
       return all[0]
     }
-    const pick = await vscode.window.showQuickPick(all.map((x) => ({ label: x.j.title, description: clock(this.eps.get(x.key)!.ep.duration), lj: x })), { placeHolder: 'Play a journey podcast' })
+    const pick = await vscode.window.showQuickPick(all.map((x) => ({ label: x.j.title, description: clock(this.eps.get(x.key)!.ep.duration), lj: x })), { placeHolder: 'Listen to a journey' })
     return pick?.lj
   }
 
@@ -440,18 +611,35 @@ class Podcasts {
     void vscode.window.showWarningMessage(`The podcast of “${lj.j.title}” can't be played: ${b.reason}`, 'Show Why').then((a) => { if (a) void this.showWhy(lj) })
   }
 
-  /** Space for the podcast: pause, or play (the session's journey; else as Play). */
+  /** Space for listening: pause, or play (the journey in the Listen view; else as Listen to Journey). */
   async toggle(): Promise<void> {
-    if (this.sessionJourney() && mapPanel.journey?.key === this.session) {
+    if (this.sessionJourney() && this.hostKey === this.session && this.listen.alive) {
       this.command(this.playing ? 'pause' : 'play')
       return
     }
     await this.play()
   }
 
+  /** The row's ⏸ / ▶ (Resume): that journey paused, or played on where it was left. */
+  async toggleRow(arg?: unknown): Promise<void> {
+    const lj = await this.journeyFor(arg)
+    if (!lj) return
+    if (this.session === lj.key && this.playing) { this.command('pause'); return }
+    await this.play(lj.key)
+  }
+
+  /** Previous / next step of the episode (⏮ ⏭, Ctrl+' Shift+← →). */
+  part(dir: 1 | -1): void {
+    if (!this.sessionJourney()) {
+      vscode.window.setStatusBarMessage('$(info) Nothing is being listened to', 2000)
+      return
+    }
+    this.command('part', { dir })
+  }
+
   skip(by: number): void {
     if (!this.sessionJourney()) {
-      vscode.window.setStatusBarMessage('$(info) No podcast playing', 2000)
+      vscode.window.setStatusBarMessage('$(info) Nothing is being listened to', 2000)
       return
     }
     this.command('skip', { by })
@@ -461,21 +649,37 @@ class Podcasts {
 
   // ---------- the status bar ----------
 
-  /** While a podcast is in the panel: ⏸ (playing) or ▶ and the time; on the map, Intro or Recap (on a step, the walk's
-   *  own item beside it says which). Click: pause / play. */
+  /** While a journey is listened to: what it does (Listening / Paused / Ended: a word and a glyph for the state, never
+   *  the action), the time, and Intro or Recap on the map (on a step, the walk's own item beside it says which). The
+   *  tooltip is the remote: its actions with their keys. Click: the journey's map. */
   private renderItem(): void {
     const item = this.item
     if (!item) return
     const lj = this.sessionJourney()
     if (!lj) { item.hide(); return }
-    const ep = this.eps.get(lj.key)!.ep
+    const l = this.eps.get(lj.key)!
+    const ep = l.ep
     const v = viewAt(ep, this.t)
     const where = v.step ? `${v.step}/${lj.j.steps.length}` : mapPartName(ep, this.t)
     const onWalkItem = !!v.step && walk.touring() && tourState.key === lj.key
-    const l = this.eps.get(lj.key)!
-    item.text = `${this.playing ? '$(debug-pause)' : '$(play)'} ${onWalkItem ? '' : `${where} · `}${clock(this.t)}${l.lastGood ? ' $(warning)' : ''}`
-    item.tooltip = `${lj.j.title}: ${this.playing ? 'pause' : 'play'} the podcast (${clock(this.t)} of ${clock(ep.duration)})${l.notice ? `\n${l.notice}` : ''}`
-    item.accessibilityInformation = { label: `Podcast ${this.playing ? 'playing' : 'paused'}, ${v.step ? `step ${v.step}` : where}, ${clock(this.t)}. ${this.playing ? 'Pause' : 'Play'}.` }
+    const ended = this.ended && !this.playing
+    const state = this.playing ? 'Listening' : ended ? 'Ended' : 'Paused'
+    const glyph = this.playing ? '$(unmute)' : ended ? '$(check)' : '$(debug-pause)'
+    item.text = `${glyph} ${state} · ${onWalkItem ? '' : `${where} · `}${clock(this.t)}${l.lastGood ? ' $(warning)' : ''}`
+    const k = KEY
+    const cmd = (id: string, text: string, keys: string) => `[${text}](command:${id} "${text} (${keys})") ${keys}`
+    const step = v.step ? `Step ${v.step} of ${lj.j.steps.length}${lj.j.steps[v.step - 1] ? ` · ${md(lj.j.steps[v.step - 1].title)}` : ''}` : where
+    const tip = new vscode.MarkdownString([
+      `**${md(lj.j.title)}** · ${state.toLowerCase()} · ${clock(this.t)} of ${clock(ep.duration)}`,
+      step,
+      [cmd('codeNotes.podcastToggle', this.playing ? 'Pause' : 'Play', `${k} Space`), cmd('codeNotes.podcastBack', 'Back 15 s', `${k} ←`), cmd('codeNotes.podcastForward', 'Forward 15 s', `${k} →`)].join(' · '),
+      [cmd('codeNotes.podcastPrevStep', 'Previous step', `${k} Shift+←`), cmd('codeNotes.podcastNextStep', 'Next step', `${k} Shift+→`)].join(' · '),
+      ...(l.notice ? [`$(warning) ${md(l.notice)}`] : []),
+      'Click: the journey\'s map',
+    ].join('\n\n'), true)
+    tip.isTrusted = { enabledCommands: ['codeNotes.podcastToggle', 'codeNotes.podcastBack', 'codeNotes.podcastForward', 'codeNotes.podcastPrevStep', 'codeNotes.podcastNextStep'] }
+    item.tooltip = tip
+    item.accessibilityInformation = { label: `${state}: ${lj.j.title}, ${v.step ? `step ${v.step} of ${lj.j.steps.length}` : where}, ${clock(this.t)}. Opens the journey's map; ${k} Space to ${this.playing ? 'pause' : 'play'}.` }
     item.show()
   }
 
@@ -485,7 +689,7 @@ class Podcasts {
     return {
       journeys: journeys.all().filter((x) => this.has(x)).map((x) => x.j.id),
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
-      item: this.item?.text, itemShown: !!lj, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
+      item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostAlive: this.listen.alive, hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
       why: this.whyShown,
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
       notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
@@ -499,6 +703,9 @@ function resumeAfter(ep: Episode, step: number): { resumeAt?: number } {
   const t = afterStep(ep, step)
   return t === undefined ? {} : { resumeAt: t }
 }
+
+/** Text as Markdown, its marks escaped. */
+const md = (t: string) => t.replace(/[\\`*_[\]<>#|]/g, '\\$&')
 
 const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`)
 

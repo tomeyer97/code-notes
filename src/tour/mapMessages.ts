@@ -48,6 +48,8 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   podcastError: (lj, m) => podcasts.onError(lj, String(m.message), m.of),
   podcastMeta: (lj, m) => podcasts.onAudioMeta(lj, Number(m.duration), m.of),
   podcastWhy: (lj) => void podcasts.showWhy(lj),
+  podcastAsk: (lj, m) => void podcasts.onAsk(lj, m),
+  podcastEnd: (lj, m) => void podcasts.endAction(lj, m.action, m.of),
   panelWidth: () => void rememberPanelWidth(),
   mapWidth: (_lj, m) => void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined),
   list: (_lj, m) => homeQueryChanged(m),
@@ -207,9 +209,20 @@ export function mapState(lj: LoadedJourney): TourInfo {
     prov: provenance(lj),
     ...(lj.check ? { stops: checkStops(lj) } : {}),
     list: journeys.all().map((x) => listRow(x, lj)),
-    home: listModel(listState.homeQuery),
+    home: withPodcasts(listModel(listState.homeQuery)),
     ...(done ? { done: true } : {}),
   }
+}
+
+/** The home's rows with their podcast (its length; listening, or where it was paused): `podcast` on each row that
+ *  has one (journey-home.js marks them). */
+function withPodcasts<M extends { rows: Record<string, object> }>(m: M): M {
+  for (const [key, row] of Object.entries(m.rows)) {
+    const lj = journeys.list.get(key)
+    const p = lj && podcasts.status(lj)
+    if (p?.state === 'ok') Object.assign(row, { podcast: { duration: p.duration ?? 0, playing: !!p.playing, at: p.session && !p.playing ? p.t ?? 0 : undefined } })
+  }
+  return m
 }
 
 /** A check's tour: its questions, the one the walk is at marked `cur`. */
