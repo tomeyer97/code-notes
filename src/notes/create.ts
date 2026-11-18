@@ -11,7 +11,6 @@ import { setSeen } from '../seen'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
 import { anchorAt, inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from './location'
-import { card } from '../tour/instances'
 import { diskLines, docLines } from '../documents'
 import { wfs } from '../workspaceFs'
 import { shape, shapeOf } from './changedOnDisk'
@@ -186,11 +185,7 @@ export const noteFromNewThread = async (reply: vscode.CommentReply): Promise<Not
   if (!body) { t.dispose(); say('Empty note: not saved'); return undefined } // no empty shell
   const doc = await vscode.workspace.openTextDocument(t.uri)
   const r = t.range ?? new vscode.Range(0, 0, 0, 0)
-  // From "Ask about this step": the note says which step it is about.
-  const ask = card.asks.get(t)
-  card.asks.delete(t)
   t.dispose()
-  if (ask) return createNote(doc, rangeLines(doc, r), `${body}\n\n${ask.about}`, undefined, { journey: ask.link })
   return createNote(doc, rangeLines(doc, r), body, partialSelection(doc, r))
 }
 

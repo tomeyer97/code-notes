@@ -56,8 +56,6 @@ export class StepCard {
   thread: vscode.CommentThread | undefined
   deco!: { at: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
   refDeco: vscode.TextEditorDecorationType | undefined
-  /** Empty note boxes opened by "Ask about this step": what the note will say it is about. */
-  readonly asks = new Map<vscode.CommentThread, { about: string; link: { id: string; step: string; n: number } }>()
   /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
   readonly lensChanged = new vscode.EventEmitter<void>()
 
@@ -315,8 +313,6 @@ export class StepCard {
     this.tour.refHere = undefined
     this.lensChanged.fire()
     for (const e of vscode.window.visibleTextEditors) if (this.refDeco) setDecorations(e, this.refDeco, [])
-    for (const t of this.asks.keys()) t.dispose()
-    this.asks.clear()
     if (!this.deco) return
     for (const e of vscode.window.visibleTextEditors) {
       setDecorations(e, this.deco.at, [])
