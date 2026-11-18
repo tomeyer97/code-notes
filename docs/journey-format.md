@@ -33,6 +33,7 @@ personal.
       ],
       "links": [ /* { phrase, file, start, end, anchor }: a phrase of the lead or details linked to those lines */ ],
       "values": [ /* { name, value, file, line, text, note? }: a value hint above that line */ ],
+      "marks": [ /* { lines, match?, nth?, file? }: the part of the code the text names (see "Marks") */ ],
       "scene": { /* the step's animation: actors, wires, beats (see "Step animations") */ }
     }
   ]
@@ -144,6 +145,45 @@ bottom, hierarchical). `lane` is still read but ignored; a store is drawn dashed
 parent rule stays a `check` problem for readability, but nothing is hidden when it is broken. Edge labels are
 shortened (first clause, no timings; a generic "calls" is not drawn); the whole label and `detail` are the label's
 tooltip. Function boxes open `at` (lines selected), else `path`, else their first step's lines.
+
+## Marks: the part of a line the step is about
+
+A step, and each beat of its animation, may carry `marks`: the few characters its text names (one call, one argument,
+one condition, one field) instead of whole lines. The same shape as a podcast segment's marks
+(docs/podcast-format.md, "Marks") without the time: `lines`, an optional `match` and `nth`, an optional `file`.
+
+```jsonc
+"steps": [{
+  "title": "An empty cart is refused first", "file": "api/orders.js", "range": { "start": 10, "end": 15 },
+  "marks": [{ "lines": [12, 12], "match": "total <= 0" }],
+  "scene": { "actors": […], "beats": [
+    { "focus": "api", "caption": "It holds the stock for 30 s.", "code": { "file": "api/orders.js", "line": 13, "text": "…" },
+      "marks": [{ "lines": [13, 13], "match": "{ hold: 30 }" }] }
+  ] }
+}]
+```
+
+| Field | |
+|---|---|
+| `lines` | `[first, last]`, 1-based, inclusive, in the code at the journey's commit |
+| `match` | Optional: only this text within `lines` lights (whitespace as written; it may span the lines). Without it the whole lines light |
+| `nth` | Optional, 1-based: which occurrence of `match` within `lines` (default 1) |
+| `file` | Optional, relative to the repository. Default: the step's file; on a beat, the beat's `code` file, else the step's |
+
+While the step is walked:
+
+- Opening the step lights its marks. A beat lights its own as the focus (`codeNotes.markBackground`); the step's
+  marks and earlier beats' stay, a lighter grey. A beat without marks keeps the newest ones before it as the focus.
+  The look is a podcast's: fills only, a mark within a line tints its characters, a mark of whole lines the lines.
+- While there are marks, the step's lines get a thin grey bar instead of the bar and tint, and a beat with marks has
+  no box on its line: the marks carry the attention. A step without marks looks as it always did.
+- Marks in the step's file move with the step (its anchor). `match` not where `lines` say: the nearest place with the
+  same lines shifted up to 20 lines up or down; not there either, the mark lights nothing (said once in the output).
+  Lines past the end of the file: nothing.
+- `journey.py check` checks them (the file, the lines, `match` on them and its `nth`); `journey.py marks <slug> [n]`
+  prints each mark with the characters it lights.
+
+Keep them sparse: at most ~3 per step or beat, and only what the text names.
 
 ## Step animations (`scene`)
 

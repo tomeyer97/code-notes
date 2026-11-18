@@ -5,9 +5,11 @@ import { findLine } from './lineFollow'
 import { TrackedLine, TrackedLines } from './followEdits'
 import { showInCodeGroup, stepFileUri } from './journeys/codeGroup'
 import { docLines } from './documents'
+import { marksIn } from './marks/model'
 
 // A step's animation: the beat on screen lights the one line that does what it shows, nothing else
-// (values are the step's value hints: valueHints.ts).
+// (values are the step's value hints: valueHints.ts). A beat with marks (tour/stepMarks.ts) leaves its line unboxed:
+// the marks show what it is about.
 
 /** What a beat request did: lit its line, lit nothing (no code, or its line is gone), or a newer request took over. */
 export type BeatShown = 'lit' | 'none' | 'superseded'
@@ -34,6 +36,10 @@ export class Beats implements vscode.Disposable {
   /** True while a podcast plays (its marks show what is said): the beat's line is known but not drawn, and the caret
    *  is not moved to it. */
   quiet: () => boolean = () => false
+  /** The beat on screen (0-based, in its step's scene), as the panel last sent it; none lit: undefined. */
+  index: number | undefined
+  /** The beat asked for last: its marks, when it has any, are drawn instead of its line's box. */
+  private current: JBeat | undefined
 
   constructor(private log: vscode.LogOutputChannel) {
     this.subs = [this.deco, this.litLine, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
@@ -46,10 +52,13 @@ export class Beats implements vscode.Disposable {
   /** For tests: what is lit. */
   get lit(): { uri: string; line: number } | undefined { return this.here && { uri: this.here.uri, line: this.here.line } }
 
-  /** The lit line drawn, or not (`quiet`). */
+  /** For tests: the lit line has its box (not quiet, the beat has no marks). */
+  get boxed(): boolean { return !!this.here && !this.quiet() && !marksIn(this.current?.marks).length }
+
+  /** The lit line drawn, or not (`quiet`, or the beat has marks). */
   paint(): void {
     const h = this.here
-    const quiet = this.quiet()
+    const quiet = this.quiet() || marksIn(this.current?.marks).length > 0
     for (const e of vscode.window.visibleTextEditors) {
       const on = h && !quiet && e.document.uri.toString() === h.uri
       setDecorations(e, this.deco, on ? [new vscode.Range(h.line, 0, h.line, 0)] : [])
@@ -60,6 +69,8 @@ export class Beats implements vscode.Disposable {
   clear(): void {
     this.seq++
     this.litLine.cancel()
+    this.index = undefined
+    this.current = undefined
     if (!this.here) return
     this.litLine.set([])
     this.paint()
@@ -68,6 +79,7 @@ export class Beats implements vscode.Disposable {
   /** Lights the beat's line in the code group (the panel keeps the focus); no beat, or no code: nothing is lit. */
   async show(folder: vscode.Uri, beat: JBeat | undefined, renames: Map<string, string>, column: () => vscode.ViewColumn | undefined): Promise<BeatShown> {
     const mine = ++this.seq
+    this.current = beat
     const c = beat?.code
     const none = (): BeatShown => {
       this.litLine.set([])

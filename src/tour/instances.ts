@@ -6,7 +6,8 @@
 // objects are made here.
 
 import * as vscode from 'vscode'
-import { beats, provide, tourItems } from '../app'
+import { beats, log, provide, tourItems } from '../app'
+import { MarkPainter } from '../marks/lights'
 import { StepCard } from './card'
 import { stepLenses } from './lenses'
 import { STEP_SCHEME } from './refs'
@@ -70,7 +71,9 @@ export function createCard(context: vscode.ExtensionContext): void {
       overviewRulerColor: new vscode.ThemeColor('editorWarning.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
     }),
   }
-  context.subscriptions.push(card.controller, card.deco.at, card.deco.quiet, card.deco.stale, { dispose: () => card.clear() })
+  // A step's marks (stepMarks.ts): a match that can't be found lights nothing.
+  card.marks = new MarkPainter(log, 'drop')
+  context.subscriptions.push(card.controller, card.deco.at, card.deco.quiet, card.deco.stale, card.marks, { dispose: () => card.clear() })
   // While the voice tells the step the marks show what is said: no beat box, no caret moved to it.
   beats.quiet = () => card.narrating()
 }
