@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { Beats } from './beats'
-import { Understanding } from './check/index'
+import { CheckController } from './check/controller'
 import { ClaudeLinks } from './claudeLinks'
 import { CodeLinks } from './codeLinks'
 import { Journeys } from './journeys/journeys'
@@ -26,7 +26,7 @@ export let extUri: vscode.Uri
 export let extVersion = '0.0.0'
 export let journeys: Journeys
 /** The understanding check (src/check/): its questions are notes of a session "Check · <branch>". */
-export let understanding: Understanding | undefined
+export let understanding: CheckController | undefined
 export let mapPanel: MapPanel
 export let beats: Beats
 export let tutorialSpot: TutorialSpot
@@ -37,7 +37,7 @@ export let tourItems: TourItems
 
 interface Services {
   store: Store; state: vscode.Memento; gstate: vscode.Memento; log: vscode.LogOutputChannel; controller: vscode.CommentController
-  extUri: vscode.Uri; extVersion: string; journeys: Journeys; understanding: Understanding; mapPanel: MapPanel; beats: Beats
+  extUri: vscode.Uri; extVersion: string; journeys: Journeys; understanding: CheckController; mapPanel: MapPanel; beats: Beats
   tutorialSpot: TutorialSpot; codeLinks: CodeLinks; claudeLinks: ClaudeLinks; valueHints: ValueHints; tourItems: TourItems
 }
 

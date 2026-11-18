@@ -124,7 +124,7 @@ function gradeOf(a: Attempt, state: QState): AnswerBox['grade'] {
 const where = (q: Question) => (q.target === 'file' || !q.start ? q.file : `${q.file}:${q.start}`)
 const baseName = (f: string) => f.split('/').pop()!
 
-/** What the view shows besides the CLI's status, by the part that knows it (index.ts current() gathers them). */
+/** What the view shows besides the CLI's status, by the part that knows it (controller.ts current() gathers them). */
 export interface CheckViewOptions {
   // ---- the writer (writer.ts) ----
   /** Writing the questions now: "Writing questions · 0:42 · reading the change" (or "Pushing…"). */
@@ -153,7 +153,7 @@ export interface CheckViewOptions {
   mr?: string
   /** What Commit & push would commit. */
   commit?: CommitPlan
-  // ---- the view itself (index.ts) ----
+  // ---- the view itself (controller.ts) ----
   /** The question selected in the view (its answer box is shown), and its unsent answer. */
   selected?: string
   draft?: string

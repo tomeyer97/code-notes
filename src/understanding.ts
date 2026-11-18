@@ -3,19 +3,19 @@
 import * as vscode from 'vscode'
 import { byId, cfg, log, mapPanel, now, provide, state, store, understanding } from './app'
 import { askAbout, claudeAllowed } from './ask'
-import { Understanding } from './check/index'
+import { CheckController } from './check/controller'
 import { findCli } from './claude'
 import { me } from './identity'
 import { newId } from './notes/create'
 import { focusReply, reveal } from './notes/reveal'
-import { addReply, resolve } from './notes/status'
+import { addReply } from './notes/status'
 import { refreshAll } from './refresh'
 import { markRead, setSeen } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
 import { noteOfThread, revealed, shape, shapeOf } from './threads/threads'
 import { currentTour, openCheckpoint, tourChanged } from './tour/checkTour'
 import { walkJourney } from './tour/open'
-import { card, tour, walk } from './tour/tour'
+import { card, walk } from './tour/tour'
 import { journeySkill } from './write/writer'
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
@@ -26,18 +26,18 @@ export const answerCheck = async (r: vscode.CommentReply) => {
 
 export const checkConcern = async (id?: string, action?: string, reason?: string) => {
   const n = typeof id === 'string' ? byId(id) : undefined
-  if (n && (action === 'fix' || action === 'todo' || action === 'flag' || action === 'dismiss' || action === 'fixed')) await understanding!.concern(n, action, typeof reason === 'string' ? reason : undefined)
+  if (n && (action === 'fix' || action === 'todo' || action === 'flag' || action === 'dismiss' || action === 'fixed')) await understanding!.concerns.act(n, action, typeof reason === 'string' ? reason : undefined)
 }
 
 export const gradeCheck = async (id?: string) => {
   const n = typeof id === 'string' ? byId(id) : undefined
   const q = n && understanding!.qidOf(n)
-  if (q) await understanding!.grade(q)
+  if (q) await understanding!.grader.grade(q)
 }
 
 /** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
 export function createUnderstanding(context: vscode.ExtensionContext): void {
-  provide({ understanding: new Understanding({
+  provide({ understanding: new CheckController({
     log, store, extUri: context.extensionUri, memento: state, me, now, newId,
     revealed: () => revealed.id,
     focusReply,
@@ -52,7 +52,6 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
       refreshAll()
     },
     addReply: (n, text) => addReply(n, text),
-    resolve: (n) => resolve([n]),
     reveal: (n, col, keep) => reveal(n, col ?? walk.codeColumn(), keep),
     refresh: () => refreshAll(),
     codeColumn: walk.codeColumn,
@@ -61,7 +60,6 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     tourChanged,
     walkTour: async () => { const lj = currentTour(); if (!lj || !lj.j.steps.length) return false; await walkJourney(lj); return true },
     openInTour: async (id) => { const lj = currentTour(); return lj ? openCheckpoint(lj, id) : false },
-    tourNext: async (id) => { const lj = walk.tourJourney(); if (!lj?.check || !walk.touring() || tour.cp !== id) return false; await walk.stepBy(1); return true },
   }) })
   context.subscriptions.push(understanding!)
 }

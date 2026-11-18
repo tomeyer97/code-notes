@@ -5,10 +5,12 @@
 // both ways. Where the check stands comes from the CLI (checkState / stateWords): the status bar, the view, `status`
 // and CI say the same thing.
 //
-// This file is the controller: refresh, the status bar, the command, the Check view's requests, and what
-// extension.ts calls. Its parts: writer.ts (Claude writes the questions and the tour), grading.ts (answers and
-// grades), threads.ts (the questions as note threads), concern.ts (concerns about the code), push.ts (Commit & push),
-// view.ts (the Check view's webview).
+// This file is the controller: refresh, the status bar, the command, opening questions, the Check view's requests, and
+// what the rest of the extension asks. Its parts: writer.ts (Claude writes the questions and the tour), grading.ts
+// (answers and grades), threads.ts (the questions as note threads), concern.ts (concerns about the code), push.ts
+// (Commit & push), park.ts (a check moved aside while another branch is checked out), background.ts (questions after a
+// push), invalidFile.ts (a check file that can't be read), view.ts (the Check view's webview). The model they share
+// is in types.ts, viewModel.ts and the other vscode-free files; the CLI (cli/understanding.mjs) holds the rules.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -17,21 +19,21 @@ import { Check, Cli, Link, QState, Question, RefreshResult, Status, Who, Words }
 import { linksAt, gradeMessageAt, gradedAttempts } from './threadText'
 import { concernOf } from './concernState'
 import { CheckView, checkView, definedOnly, notDone, runAction, statusText } from './viewModel'
-import { gradeFailure, jsonErrorAt } from './failures'
-import { CliThread } from '../cliThread'
+import { gradeFailure } from './failures'
 import { Coalesced } from '../coalesced'
-import { gitOut } from '../git'
-import { importCli } from '../importCli'
+import { BackgroundQuestions } from './background'
+import { CliThread } from './cliThread'
 import { Concerns, ConcernAction, VIEW_CONCERN_ACTIONS } from './concern'
-import {
-  BG_COMMITS_KEPT, BG_KEY, CACHE, DRAFT_KEY, FIX_KEY, FIX_REFRESH_MS, REFRESH_SOON_MS, REPO_FILES, RESTORED_OPEN_MS,
-  REVEAL_RETRY_MS, SKILL, TODO_KEY,
-} from './constants'
+import { DRAFT_KEY, FIX_KEY, FIX_REFRESH_MS, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SKILL, TODO_KEY } from './constants'
 import { Grader } from './grading'
-import type { CheckHost, GitApi, GitRepo } from './host'
+import type { CheckHost } from './host'
+import { importCli } from './importCli'
+import { InvalidFile } from './invalidFile'
 import { isCheck, linkOf } from './links'
+import { checkLog, type CheckLog } from './log'
 import { PerScope } from './memento'
-import { Pusher } from './push'
+import { Parking } from './park'
+import { Pusher, unsavedDocument } from './push'
 import { CheckThreads } from './threads'
 import { CheckViewProvider } from './view'
 import type { CheckViewMessage, CheckViewMessageOf, CheckViewRequest } from './viewMessages'
@@ -40,7 +42,7 @@ import { Writer } from './writer'
 export type { CheckHost } from './host'
 export { SESSION } from './constants'
 
-export class Understanding implements vscode.Disposable {
+export class CheckController implements vscode.Disposable {
   // ---------- shared with the parts in this folder (extension.ts uses the methods further down) ----------
 
   /** The understanding CLI (cli/understanding.mjs), loaded by init(). Not Claude Code (host.cli()). */
@@ -71,6 +73,11 @@ export class Understanding implements vscode.Disposable {
   readonly threads = new CheckThreads(this)
   readonly concerns = new Concerns(this)
   readonly push = new Pusher(this)
+  readonly parking = new Parking(this)
+  readonly background = new BackgroundQuestions(this)
+  readonly invalid = new InvalidFile(this)
+  /** The extension's log, each line starting "understanding check: ". */
+  readonly log: CheckLog
 
   // ---------- refresh ----------
 
@@ -82,9 +89,10 @@ export class Understanding implements vscode.Disposable {
   /** A refreshSoon meanwhile asked for a full refresh (not gated). */
   private soonForce = false
   /** One refresh at a time; the calls made meanwhile share one more (coalesced). */
-  private runs = new Coalesced((force) => this.doRefresh(force).catch((e) => { this.key = undefined; this.host.log.error(`understanding check: ${e}`) }))
-  /** Branches whose unfinished check was moved out of the tree when another branch was checked out: put back quietly. */
-  private parkedQuiet = new Set<string>()
+  private runs = new Coalesced((force) => this.doRefresh(force).catch((e) => {
+    this.key = undefined
+    this.log.error(`${e}`)
+  }))
 
   // ---------- what the window shows ----------
 
@@ -93,11 +101,10 @@ export class Understanding implements vscode.Disposable {
   private itemShown: string | undefined
   /** The codeNotes.checkOpen context as last set. */
   private checkOpen: boolean | undefined
-  /** What the push watcher saw last (integration test). */
-  private bgTrace: string[] = []
   private subs: vscode.Disposable[] = []
 
   constructor(readonly host: CheckHost) {
+    this.log = checkLog(host.log)
     this.cliPath = vscode.Uri.joinPath(host.extUri, 'cli', 'understanding.mjs').fsPath
     this.drafts = new PerScope(host.memento, DRAFT_KEY)
     this.fixes = new PerScope(host.memento, FIX_KEY)
@@ -128,13 +135,15 @@ export class Understanding implements vscode.Disposable {
       this.subs.push(w)
     }
     // An applied fix undone (or edited) before it is saved: what Commit & push offers follows.
-    const isFixFile = (doc: vscode.TextDocument) => Object.values(this.fixes.get(this.st?.branch)).some((f) => doc.uri.fsPath === path.join(this.repo!, f))
+    const isFixFile = (doc: vscode.TextDocument) => {
+      return Object.values(this.fixes.get(this.st?.branch)).some((f) => doc.uri.fsPath === path.join(this.repo!, f))
+    }
     this.subs.push(
       vscode.window.onDidChangeWindowState((s) => { if (s.focused) later() }),
       vscode.workspace.onDidSaveTextDocument(later),
       vscode.workspace.onDidChangeTextDocument((e) => { if (this.repo && e.contentChanges.length && isFixFile(e.document)) later() }),
     )
-    this.watchPushes()
+    this.background.watchPushes()
     await this.refresh()
   }
 
@@ -172,11 +181,11 @@ export class Understanding implements vscode.Disposable {
     const before = this.st?.branch
     this.st = r.st
     this.who = r.ident
-    if (!r.st) this.host.log.info(`understanding check: no status (${r.error ?? 'unknown'})`)
+    if (!r.st) this.log.info(`no status (${r.error ?? 'unknown'})`)
     if (this.st && this.st.branch !== before) await this.branchChanged(before)
     await this.push.forgetIfMoved(repo)
     this.writer.followBranch()
-    if (this.st && !this.st.exists && (await this.restoreCached())) return this.doRefresh(true)
+    if (this.st && !this.st.exists && (await this.parking.restore())) return this.doRefresh(true)
     this.words = this.st ? this.cli.stateWords(this.st.state, this.st) : undefined
     this.uncommittedOnly = await this.nothingCommitted(repo)
     this.writer.startIfCommitted()
@@ -193,16 +202,16 @@ export class Understanding implements vscode.Disposable {
       void vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', open)
     }
     // A file that can't be read (a bad edit, a conflict) keeps the tour shown as it was until it reads again.
-    if (this.st?.state.phase !== 'invalid') await this.host.tourChanged?.(this.st?.check, this.abs, this.st?.branch)
+    if (this.st?.state.phase !== 'invalid') await this.host.tourChanged(this.st?.check, this.abs, this.st?.branch)
     this.post()
-    this.host.listChanged?.()
+    this.host.listChanged()
     this.key = r.key
   }
   /** Where the branch stands, read on the worker (gated by the last key unless `force`). */
   private readState(repo: string, force: boolean): Promise<RefreshResult> {
     // An applied fix edited and not saved yet: only the editor knows (Commit & push offers it).
     const fixFiles = Object.values(this.fixes.get(this.st?.branch))
-    const edited = fixFiles.filter((f) => vscode.workspace.textDocuments.some((d) => d.isDirty && d.uri.fsPath === path.join(repo, f)))
+    const edited = fixFiles.filter((f) => !!unsavedDocument(repo, f))
     const files = [...REPO_FILES, ...this.todoFiles(), ...fixFiles]
     const o = { prev: force ? undefined : this.key, files, untracked: !!this.writer.notice, extra: edited.join('\0') }
     return this.worker.call<RefreshResult>('refreshState', repo, o)
@@ -214,14 +223,15 @@ export class Understanding implements vscode.Disposable {
     this.selected = undefined
     this.said = undefined
     // The branch left behind had an unfinished check (untracked): it waits in the cache, not in this branch's tree.
-    if (before && (await this.park(before))) this.parkedQuiet.add(before)
+    if (before) await this.parking.left(before)
   }
   /** No check yet and nothing of the change committed (the questions would have nothing to ask about). */
   private async nothingCommitted(repo: string): Promise<boolean> {
     const st = this.st
     if (!(st?.state.phase === 'none' && !!st.base && !!st.head && st.changed > 0)) return false
     const exempt = this.cli.loadConfig(repo).exempt
-    return this.worker.call<{ added: number; removed: number }>('codeStat', repo, st.base, st.head, exempt).then((s) => this.cli.linesOf(s) === 0, () => false)
+    const stat = this.worker.call<{ added: number; removed: number }>('codeStat', repo, st.base, st.head, exempt)
+    return stat.then((s) => this.cli.linesOf(s) === 0, () => false)
   }
   /** The status bar item, from the CLI's words (only what changed is sent to the window: each change is a message). */
   private paintStatusItem(): void {
@@ -266,7 +276,7 @@ export class Understanding implements vscode.Disposable {
       busy: w.busy(),
       tourBusy: w.tourBusy(),
       uncommitted: this.uncommittedOnly,
-      invalidAt: this.parseError()?.text,
+      invalidAt: this.invalid.parseError()?.text,
       tourFailed: w.tourFailed === st.branch,
       grading: new Set([...this.grader.grading.keys(), ...this.grader.answering]),
       unpushed: p.unpushed,
@@ -282,19 +292,6 @@ export class Understanding implements vscode.Disposable {
     }))
   }
   post(): void { this.view.update(this.current()) }
-
-  /** Where an invalid check file stops being JSON (not a conflict: that has its own words). */
-  private parseError(): { line: number; col: number; text: string } | undefined {
-    if (this.st?.state.phase !== 'invalid' || this.st.conflict || !this.abs) return undefined
-    let text: string | undefined
-    try {
-      text = fs.readFileSync(this.abs, 'utf8')
-      JSON.parse(text)
-      return undefined
-    } catch (e) {
-      return jsonErrorAt(String((e as Error).message), text)
-    }
-  }
 
   // ---------- the command ----------
 
@@ -312,145 +309,28 @@ export class Understanding implements vscode.Disposable {
       await this.writer.noteLoose(st.branch)
       await this.refresh()
     }
+    // The view is shown along with what the step does, except where the step opens something itself.
     const step = runAction(st, { commit: this.push.commit, unpushed: this.push.unpushed })
     switch (step) {
       // A file that can't be read: open it, at the first conflict marker.
-      case 'openFile': return this.openFile()
+      case 'openFile': return this.invalid.open()
       case 'show': return this.show()
       case 'start': await this.writer.write(false); return
-    }
-    this.show()
-    switch (step) {
-      case 'scm': return openScm()
-      case 'topUp': await this.writer.write(true); return
+      case 'scm': this.show(); return openScm()
+      case 'topUp': this.show(); await this.writer.write(true); return
       // Done but not committed or pushed: the status item does what the view's button does.
-      case 'commitPush': return this.push.commitPush()
+      case 'commitPush': this.show(); return this.push.commitPush()
+      case 'walk':
+        this.show()
+        // A check with a tour opens it: the steps lead to the questions. Without one, the first open question.
+        if (st.check?.journey && (await this.host.walkTour())) return
+        await this.openNext()
     }
-    // A check with a tour opens it: the steps lead to the questions. Without one, the first open question.
-    if (st.check?.journey && (await this.host.walkTour?.())) return
-    await this.openNext()
   }
 
   show(): void { this.view.reveal() }
 
-  // ---------- branches: a check parked while another branch is checked out ----------
-
-  /** Moves the questions written for `branch` out of a working tree that has another branch now. */
-  async park(branch: string): Promise<boolean> {
-    const repo = this.repo!
-    const rel = this.cli.fileFor(branch)
-    const src = path.join(repo, rel)
-    if (!fs.existsSync(src)) return false
-    try {
-      fs.mkdirSync(path.join(repo, CACHE), { recursive: true })
-      const ignore = path.join(repo, '.code-notes/.cache/.gitignore')
-      if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n')
-      // Tracked on this branch (it has a check of that name): leave it, it is not ours to move.
-      const tracked = !!(await gitOut(repo, ['ls-files', '--', rel]))
-      if (tracked) return false
-      fs.renameSync(src, path.join(repo, this.cli.cachedFor(branch)))
-      this.host.log.info(`understanding check: questions for ${branch} kept in ${CACHE} until it is checked out`)
-      return true
-    } catch (e) {
-      this.host.log.error(`understanding check: couldn't keep the questions for ${branch}: ${e}`)
-      return false
-    }
-  }
-
-  /** Back on a branch whose questions were parked: they go in place, and question 1 opens. */
-  private async restoreCached(): Promise<boolean> {
-    const repo = this.repo!, st = this.st!
-    const cached = path.join(repo, CACHE, `${this.cli.slugOf(st.branch)}.json`)
-    if (!fs.existsSync(cached)) return false
-    try {
-      fs.mkdirSync(path.dirname(path.join(repo, st.file)), { recursive: true })
-      fs.renameSync(cached, path.join(repo, st.file))
-    } catch (e) {
-      this.host.log.error(`understanding check: couldn't put back the questions for ${st.branch}: ${e}`)
-      return false
-    }
-    // Moved out only because another branch was checked out: back where it was, nothing said.
-    if (this.parkedQuiet.delete(st.branch)) return true
-    void vscode.window.showInformationMessage(`Your questions for ${st.branch} are here.`)
-    setTimeout(() => void this.openNext(), RESTORED_OPEN_MS)
-    return true
-  }
-
-  // ---------- background questions after a push ----------
-
-  /**
-   * Background questions: when a branch is pushed (it has an upstream and nothing left to push, after it had
-   * something or no upstream), has code changes and no check, and is not the default branch, its questions are
-   * written quietly. One run at a time; never twice for the same commit. Setting codeNotes.understanding.background.
-   */
-  private watchPushes(): void {
-    const git = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')
-    if (!git) { this.bgTrace.push('no git extension'); return }
-    const hook = (api: GitApi) => {
-      this.bgTrace.push(`git api: ${api.repositories.length} repositories`)
-      api.repositories.forEach((r) => this.watchRepo(r))
-      this.subs.push(api.onDidOpenRepository((r) => this.watchRepo(r)))
-    }
-    if (git.isActive) hook(git.exports.getAPI(1))
-    else void git.activate().then((e) => hook(e.getAPI(1)), () => undefined)
-  }
-  /** A repository of VS Code's Git view: this folder's is followed (per branch: pushed as last seen). */
-  private watchRepo(r: GitRepo): void {
-    if (!this.folder || path.resolve(r.rootUri.fsPath) !== path.resolve(this.folder.uri.fsPath)) return
-    // A branch first seen already pushed (a checkout) starts nothing.
-    const was = new Map<string, boolean>()
-    this.subs.push(r.state.onDidChange(() => this.onRepoChange(r, was)))
-  }
-  /** The Git view read the repository again (a file changed, a commit, a checkout, a push). */
-  private onRepoChange(r: GitRepo, was: Map<string, boolean>): void {
-    // Whatever the check shows follows, if it changed (gated: nothing is read again otherwise).
-    this.refreshSoon(REFRESH_SOON_MS, false)
-    const h = r.state.HEAD
-    if (!h?.name) return
-    const pushed = !!h.upstream && h.ahead === 0
-    const before = was.get(h.name)
-    was.set(h.name, pushed)
-    const seen = `${h.name} ${pushed ? 'pushed' : 'unpushed'}${before === undefined ? ' (new)' : ''}`
-    this.bgTrace = [...this.bgTrace.slice(-9), seen]
-    if (pushed && before === false) void this.pushedBranch(h.name, h.commit)
-  }
-  private async pushedBranch(branch: string, commit: string | undefined): Promise<void> {
-    if (!vscode.workspace.getConfiguration('codeNotes').get<boolean>('understanding.background', true) || this.writer.writing || !commit) return
-    const done = this.host.memento.get<string[]>(BG_KEY) ?? []
-    if (done.includes(commit)) return
-    await this.refresh()
-    const st = this.st
-    if (!st || st.branch !== branch || st.state.phase !== 'none') return
-    const base = (st.baseRef ?? '').replace(/^origin\//, '')
-    if (['main', 'master', base].includes(branch)) return
-    await this.host.memento.update(BG_KEY, [...done.slice(-BG_COMMITS_KEPT), commit])
-    await this.writer.write(false, { background: true })
-  }
-
-  // ---------- a conflict in the check file ----------
-
-  /** The check file, at its first conflict marker when it has one. */
-  private async openFile(): Promise<void> {
-    if (!this.abs) return
-    const pe = this.parseError()
-    const line = Math.max(0, (this.st?.conflict?.line ?? pe?.line ?? 1) - 1), col = Math.max(0, (pe?.col ?? 1) - 1)
-    const ed = await vscode.window.showTextDocument(vscode.Uri.file(this.abs), { preview: false, selection: new vscode.Selection(line, col, line, col) })
-    ed.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter)
-  }
-  /** Keep both answers: each question once, from the side with more graded answers. */
-  private async mergeConflict(): Promise<void> {
-    const abs = this.abs
-    if (!abs) return
-    const text = fs.readFileSync(abs, 'utf8')
-    const c = this.cli.conflictOf(text)
-    if (!c?.merged) { await this.openFile(); return }
-    const kept = keepFlags(c.merged, this.cli.conflictSides(text).map(parseCheck))
-    // Not relocated (save() would): the merged questions keep the lines their sides gave them.
-    this.cli.writeCheck(abs, this.cli.stamp(c.merged, this.cli.loadConfig(this.repo!)))
-    this.said = `Both answers kept.${kept.length ? ` Question ${kept.join(', ')}: its concern stays flagged (one side flagged it).` : ''}`
-    this.host.log.info(`understanding check: merge conflict in ${this.st?.file} resolved: both answers kept${kept.length ? `; flags kept on ${kept.join(', ')}` : ''}`)
-    await this.refresh()
-  }
+  // ---------- the check file ----------
 
   /** Writes the check file with today's line numbers and its result. */
   save(abs: string, check: Check): void {
@@ -527,7 +407,7 @@ export class Understanding implements vscode.Disposable {
       answer: (m) => { if (m.id && str(m.text)) void this.answerFromView(m.id, m.text) },
       draft: (m) => { if (m.id && str(m.text)) void this.setDraft(m.id, m.text) },
       link: (m) => { if (m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i) },
-      regrade: (m) => { if (m.id) void this.grade(m.id) },
+      regrade: (m) => { if (m.id) void this.grader.grade(m.id) },
       concern: (m) => { if (m.id) this.concernFromView(m.id, m.action) },
       escape: () => { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') },
       start: () => void this.writer.write(false),
@@ -536,10 +416,10 @@ export class Understanding implements vscode.Disposable {
       modelSetting: () => void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model'),
       pathSetting: () => void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.claude.path'),
       install: () => void vscode.env.openExternal(vscode.Uri.parse('https://claude.com/claude-code')),
-      tour: () => void this.host.walkTour?.(),
+      tour: () => void this.host.walkTour(),
       writeTour: () => void this.writer.writeTour(false),
-      openFile: () => void this.openFile(),
-      merge: () => void this.mergeConflict(),
+      openFile: () => void this.invalid.open(),
+      merge: () => void this.invalid.keepBoth(),
       include: (m) => { if (m.file) { this.push.tick(m.file, !!m.on); this.post() } },
       scm: () => { if (this.uncommittedOnly && this.st) this.writer.startAfterCommit = this.st.branch; void openScm() },
       commitPush: () => void this.push.commitPush(),
@@ -549,12 +429,12 @@ export class Understanding implements vscode.Disposable {
   }
   /** A row clicked: its step of the tour, then its thread (without a step: the question on its own). */
   private async openFromView(id: string): Promise<void> {
-    if (!(await (this.host.openInTour?.(id) ?? Promise.resolve(false)))) void this.open(id)
+    if (!(await this.host.openInTour(id))) void this.open(id)
   }
   private concernFromView(id: string, action: string | undefined): void {
     if (!VIEW_CONCERN_ACTIONS.includes(action as ConcernAction)) return
     const n = this.threads.noteOf(id)
-    if (n) void this.concern(n, action as ConcernAction)
+    if (n) void this.concerns.act(n, action as ConcernAction)
   }
   private async setDraft(id: string, text: string): Promise<void> {
     if (!this.st) return
@@ -583,7 +463,7 @@ export class Understanding implements vscode.Disposable {
   /** The files a TODO was added to from this branch's check. */
   todoFiles(): string[] { return [...new Set(Object.values(this.todos.get(this.st?.branch)).map((t) => t.file))] }
 
-  // ---------- what extension.ts asks ----------
+  // ---------- what the rest of the extension asks (notes, threads, the tour) ----------
 
   /** The questions as stops of the tour: after which step, their state. */
   tourStops(): { id: string; n: number; step: number; text: string; state: QState }[] {
@@ -631,12 +511,6 @@ export class Understanding implements vscode.Disposable {
     if (!link || !this.repo) return false
     return this.grader.answer(n, text, link)
   }
-  /** Grades a question's latest answer with Claude (read-only), writes the verdict, replies in the thread. */
-  grade(id: string): Promise<void> { return this.grader.grade(id) }
-  /** What to do about a concern: Suggest a fix, Add TODO, Flag for review, Dismiss, Mark fixed. */
-  concern(n: Note, action: ConcernAction, given?: string): Promise<void> { return this.concerns.act(n, action, given) }
-  /** Commit & push (the view's button). */
-  commitPush(): Promise<void> { return this.push.commitPush() }
 
   /** A thread's passing state for commentsOf: checking, why it couldn't be checked, a concern about the code. */
   threadStatus(n: Note): ThreadStatus | undefined {
@@ -675,7 +549,7 @@ export class Understanding implements vscode.Disposable {
   /** For the integration test. */
   snapshot() {
     return {
-      itemLabel: this.item.accessibilityInformation?.label, tourBusy: !!this.writer.touring, bg: this.bgTrace,
+      itemLabel: this.item.accessibilityInformation?.label, tourBusy: !!this.writer.touring, bg: this.background.trace,
       status: this.st && { ...this.st, check: undefined }, words: this.words, item: this.item.text, itemWarn: !!this.item.backgroundColor,
       view: this.current(), panel: this.view.state(), grading: [...this.grader.grading.keys()],
       errors: [...this.grader.errors.values()].map((e) => e.message), refreshes: { ...this.counts },
@@ -687,6 +561,7 @@ export class Understanding implements vscode.Disposable {
 
   dispose(): void {
     for (const s of this.subs) s.dispose()
+    this.background.dispose()
     this.item.dispose()
     clearTimeout(this.timer)
     this.worker?.dispose()
@@ -706,29 +581,6 @@ export interface ThreadStatus {
   concern?: { text: string; flagged: boolean; suspect: boolean; by?: string; todo?: string }
   /** Done, and another question is open: "Next question ›". */
   next?: boolean
-}
-
-/** A side of a conflict as a check (undefined: it doesn't read). */
-function parseCheck(text: string): Check | undefined {
-  try { return JSON.parse(text) as Check } catch { return undefined }
-}
-/**
- * A concern flagged on either side of a conflict stays flagged in the merge (a flag is a request to a reviewer; a
- * dismissal can be redone). Returns the numbers of the questions whose flag was kept that way.
- */
-function keepFlags(merged: Check, sides: (Check | undefined)[]): number[] {
-  const flagged = new Map<string, NonNullable<Question['concern']>>()
-  for (const side of sides) {
-    for (const q of side?.questions ?? []) if (q.concern?.flagged) flagged.set(q.id, q.concern)
-  }
-  const kept: number[] = []
-  merged.questions.forEach((q, i) => {
-    const f = flagged.get(q.id)
-    if (!f || q.concern?.flagged) return
-    q.concern = f
-    kept.push(i + 1)
-  })
-  return kept
 }
 
 /** Source Control with its message box focused. */

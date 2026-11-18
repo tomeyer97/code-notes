@@ -11,7 +11,7 @@ import { gradeBody, missingMessages, questionBody, showsGrade } from './threadTe
 import { notDone } from './viewModel'
 import { AUTHOR, SESSION } from './constants'
 import { linkOf, sameQuestion, textHash } from './links'
-import type { Understanding } from './index'
+import type { CheckController } from './controller'
 
 type Messages = NoteData['messages']
 
@@ -19,19 +19,19 @@ export class CheckThreads {
   /** Check threads graded in this window: they stay open where they are (the reply is read next to the code). */
   readonly graded = new Set<string>()
 
-  constructor(private u: Understanding) {}
+  constructor(private ctl: CheckController) {}
 
-  private get host() { return this.u.host }
+  private get host() { return this.ctl.host }
 
   /** The thread of question `id` of the check checked out now. */
   noteOf(id: string): Note | undefined {
-    const file = this.u.st?.file
+    const file = this.ctl.st?.file
     return this.host.store.all().find((n) => linkOf(n)?.q === id && linkOf(n)?.file === file)
   }
 
   /** Brings every thread of `check` in line with it (see the top of this file). */
   async sync(check: Check): Promise<void> {
-    const file = this.u.st!.file
+    const file = this.ctl.st!.file
     for (const n of this.host.store.all().filter((x) => linkOf(x)?.file === file)) {
       const q = check.questions.find((x) => x.id === linkOf(n)!.q)
       if (!q || !sameQuestion(n, q)) {
@@ -50,7 +50,7 @@ export class CheckThreads {
       if (!missing.length) continue
       n.data.messages.push(...missing.map((m) => ({ ...m, at: m.at ?? this.host.now() })))
       // Done: resolved quietly (the ✓ in the thread says it; no "Resolved" line under it).
-      if (!notDone(this.u.cli.stateOf(q)) && n.data.status === 'open') n.data.status = 'resolved'
+      if (!notDone(this.ctl.cli.stateOf(q)) && n.data.status === 'open') n.data.status = 'resolved'
       if (await this.host.store.save(n)) await this.host.changed(n, false)
     }
   }
@@ -80,29 +80,34 @@ export class CheckThreads {
    * last, the n-th such answer from the end is the n-th superseded attempt from the end.
    */
   private dropSuperseded(n: Note, q: Question): boolean {
-    const superseded = (q.attempts ?? []).filter((a) => a.answer === undefined)
-    const kept = new Set((q.attempts ?? []).flatMap((a) => (a.answer !== undefined ? [a.answer] : [])))
-    const ms = n.data.messages
+    const attempts = q.attempts ?? []
+    // The attempts whose answer the file no longer keeps, and the answers it keeps.
+    const superseded = attempts.filter((a) => a.answer === undefined)
+    const kept = new Set(attempts.flatMap((a) => (a.answer !== undefined ? [a.answer] : [])))
+    const messages = n.data.messages
+    const isKeptAnswer = (m: Messages[number]) => m.role === 'human' && kept.has(m.body)
     let lastKept = -1
-    ms.forEach((m, i) => { if (m.role === 'human' && kept.has(m.body)) lastKept = i })
+    messages.forEach((m, i) => { if (isKeptAnswer(m)) lastKept = i })
     if (!superseded.length || lastKept < 0) return false
-    const old = ms.flatMap((m, i) => (i > 0 && i < lastKept && m.role === 'human' && !kept.has(m.body) ? [i] : []))
-    if (!old.length) return false
-    // From the last: each old answer's message index with the superseded attempt it stands for.
-    const pairs: { answer: number; attempt: Attempt | undefined }[] = old.reverse().map((i, k) => ({ answer: i, attempt: superseded.at(-1 - k) }))
+    // The thread's other answers before it (message indexes), newest first.
+    const oldAnswers = messages.flatMap((m, i) => (i > 0 && i < lastKept && m.role === 'human' && !kept.has(m.body) ? [i] : []))
+    if (!oldAnswers.length) return false
+    const newestFirst = oldAnswers.reverse()
     const drop = new Set<number>()
-    for (const { answer, attempt } of pairs) {
+    newestFirst.forEach((answer, k) => {
+      // The k-th old answer from the end stands for the k-th superseded attempt from the end.
+      const attempt: Attempt | undefined = superseded.at(-1 - k)
       drop.add(answer)
       // Its grade (the next message) goes with it, unless it explained.
-      if (ms[answer + 1]?.role === 'agent' && attempt?.verdict !== 'explained') drop.add(answer + 1)
-    }
-    n.data.messages = ms.filter((_m, i) => !drop.has(i))
+      if (messages[answer + 1]?.role === 'agent' && attempt?.verdict !== 'explained') drop.add(answer + 1)
+    })
+    n.data.messages = messages.filter((_m, i) => !drop.has(i))
     return true
   }
 
   /** A new thread for question `q` on its lines (found again by its anchor when the code moved). */
   private async create(q: Question, messages: Messages): Promise<void> {
-    const u = this.u, folder = u.folder!
+    const ctl = this.ctl, folder = ctl.folder!
     let lines: string[]
     try { lines = fs.readFileSync(path.join(folder.uri.fsPath, q.file), 'utf8').split(/\r?\n/) } catch { return /* its file is gone */ }
     let start = q.start ?? 1, end = q.end ?? start
@@ -114,16 +119,16 @@ export class CheckThreads {
     end = clamp(end, start, lines.length)
     const at = this.host.now()
     const id = this.host.newId()
-    const done = !notDone(u.cli.stateOf(q))
+    const done = !notDone(ctl.cli.stateOf(q))
     const n: Note = {
       folder, uri: this.host.store.uriFor(folder, id),
       data: {
         id, file: q.file, range: { start, end },
         anchor: q.target ? { text: '', before: '', after: '' } : captureAnchor(lines, start - 1, end - 1),
-        session: SESSION(u.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
+        session: SESSION(ctl.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
         messages: messages.map((m) => ({ ...m, at: m.at ?? at })),
         ...(q.target ? { target: 'file' as const } : {}),
-        extra: { check: { file: u.st!.file, q: q.id, h: textHash(q) } },
+        extra: { check: { file: ctl.st!.file, q: q.id, h: textHash(q) } },
       },
     }
     if (await this.host.store.save(n)) await this.host.changed(n, true)

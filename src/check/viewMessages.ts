@@ -2,7 +2,7 @@
 // here: test/checkViewMessages.test.ts checks the pages' "Out" lists and their posts against these names.
 import { ACTIONS, type ActionId } from './viewModel'
 
-/** What the page asks the controller for besides its one button (index.ts `viewHandlers`, one handler each). */
+/** What the page asks the controller for besides its one button (controller.ts `viewHandlers`, one handler each). */
 const OTHER_REQUESTS = [
   'ready', 'open', 'select', 'answer', 'draft', 'link', 'next', 'regrade', 'escape', 'concern', 'include', 'retry',
   'modelSetting', 'pathSetting', 'install', 'tour', 'writeTour', 'openMr',

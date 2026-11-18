@@ -1,5 +1,5 @@
 // The Check view in the Code Notes sidebar (media/check.js, media/checkAnswer.js): where the check stands, the
-// questions as rows, one button. This side only carries messages: the controller (index.ts) decides what they do.
+// questions as rows, one button. This side only carries messages: the controller (controller.ts) decides what they do.
 import * as vscode from 'vscode'
 import type { CheckViewMessage } from './viewMessages'
 import type { CheckView } from './viewModel'

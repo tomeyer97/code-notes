@@ -9,7 +9,7 @@ import { concernOf, samePerson, whoOf } from '../src/check/concernState'
 import { checkView, statusText, answerBox, linkParts, runAction } from '../src/check/viewModel'
 import { todoLines, todoPlace, commentMark } from '../src/check/todoComment'
 import { gradeFailure, writeFailure, jsonErrorAt } from '../src/check/failures'
-import { importCli } from '../src/importCli'
+import { importCli } from '../src/check/importCli'
 
 /** A Bash tool call, as the stream reports it. */
 const bashCall = (command: string) => ({ name: 'Bash', input: { command } })
