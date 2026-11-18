@@ -10,7 +10,7 @@ import { checked, matchesFilter } from '../sidebar/nodes'
 import { treeView } from '../sidebar/notesTree'
 import { NoteData, NoteEvent } from '../noteModel'
 import { folderName, Note } from '../store'
-import { plain } from '../text'
+import { describeNotes, noteTitle, plural } from '../text'
 import { noteOfThread, revealed, shape, shapeOf, syncThread } from '../threads/threads'
 import { notesFrom, target } from './target'
 
@@ -59,7 +59,7 @@ export async function resolve(list: Note[], scope = ''): Promise<void> {
   if (!list.length) return
   const withUnread = list.filter((n) => unread(n) > 0)
   if (list.length > 1 && withUnread.length) {
-    const titles = list.slice(0, 5).map((n) => `• ${plain(n.data.messages[0]?.body ?? '', 60)}`).join('\n') + (list.length > 5 ? `\n… and ${list.length - 5} more` : '')
+    const titles = list.slice(0, 5).map((n) => `• ${noteTitle(n, 60)}`).join('\n') + (list.length > 5 ? `\n… and ${list.length - 5} more` : '')
     const ok = await vscode.window.showWarningMessage(`Resolve ${list.length} notes${scope}? ${withUnread.length} unread.`, { modal: true, detail: titles }, 'Resolve')
     if (ok !== 'Resolve') return
   }
@@ -67,7 +67,7 @@ export async function resolve(list: Note[], scope = ''): Promise<void> {
   const seenBefore = Object.fromEntries(list.map((n) => [n.data.id, seenCount(n)]))
   await markRead(list)
   await setStatus(list, 'resolved')
-  offerUndo(`Resolved ${list.length === 1 ? `"${plain(list[0].data.messages[0]?.body ?? '', 40)}"` : `${list.length} notes`}`, async () => {
+  offerUndo(`Resolved ${describeNotes(list)}`, async () => {
     await setSeen(Object.entries(seenBefore))
     await setStatus(list.map(undoResolveEvent), 'open', false)
   })
@@ -88,7 +88,7 @@ export async function trash(list: Note[], what: string): Promise<void> {
 
 /** An agent deleted a note file (rm): its last version is restorable from .trash ("Code Notes: Undo"), without a toast. */
 export function offerRestore(n: Note): void {
-  offerUndo(`Note deleted on disk: "${plain(n.data.messages[0]?.body ?? '', 40)}"`, async () => { await store.restore(n); refreshAll() }, true)
+  offerUndo(`Note deleted on disk: "${noteTitle(n)}"`, async () => { await store.restore(n); refreshAll() }, true)
 }
 
 /** Replies being saved (note and text): a second Ctrl+Enter meanwhile (the box keeps its text until the command returns) is not a second reply. */
@@ -133,7 +133,7 @@ export const replyAndResolve = async (reply: vscode.CommentReply) => {
   if (!(await addReply(n, reply.text.trim(), 'resolved'))) return
   if (revealed.id === n.data.id) revealed.id = undefined
   refreshAll()
-  offerUndo(`Resolved "${plain(n.data.messages[0]?.body ?? '', 40)}"`, () => setStatus([undoResolveEvent(n)], 'open', false))
+  offerUndo(`Resolved "${noteTitle(n)}"`, () => setStatus([undoResolveEvent(n)], 'open', false))
 }
 
 export const undo = () => (lastUndo ? undoLast() : vscode.window.setStatusBarMessage('$(info) Nothing to undo', 2500))
@@ -154,12 +154,12 @@ export const reopenNotes = async (arg?: any, many?: any[]) => {
   const list = await target(arg, many)
   if (!list.length) return
   await setStatus(list, 'open')
-  vscode.window.setStatusBarMessage(`$(issue-reopened) Reopened ${list.length === 1 ? `"${plain(list[0].data.messages[0]?.body ?? '', 40)}"` : `${list.length} notes`}`, 3000)
+  vscode.window.setStatusBarMessage(`$(issue-reopened) Reopened ${describeNotes(list)}`, 3000)
 }
 
 export const deleteNotes = async (arg?: any, many?: any[]) => {
   const list = await target(arg, many)
-  if (list.length) return trash(list, list.length === 1 ? `"${plain(list[0].data.messages[0]?.body ?? '', 40)}"` : `${list.length} notes`)
+  if (list.length) return trash(list, describeNotes(list))
 }
 
 export const resolveChecked = () => {
@@ -181,10 +181,10 @@ export const deleteResolved = async () => {
   const done = notes().filter((n) => n.data.status === 'resolved')
   if (!done.length) { vscode.window.setStatusBarMessage('$(info) No resolved notes', 2500); return }
   const u = done.filter((n) => unread(n) > 0).length
-  const ok = await vscode.window.showWarningMessage(`Purge ${done.length} resolved note${done.length === 1 ? '' : 's'}?`, {
+  const ok = await vscode.window.showWarningMessage(`Purge ${plural(done.length, 'resolved note')}?`, {
     modal: true, detail: `${u ? `${u} unread. ` : ''}They go to ${folderName()}/.trash; Undo brings them back.`,
   }, 'Purge')
-  if (ok === 'Purge') await trash(done, `${done.length} resolved note${done.length === 1 ? '' : 's'}`)
+  if (ok === 'Purge') await trash(done, plural(done.length, 'resolved note'))
 }
 
 export const markAllRead = async () => {
@@ -192,5 +192,5 @@ export const markAllRead = async () => {
   if (!list.length) return
   const before = seenSnapshot()
   await markRead(list)
-  offerUndo(`Marked ${list.length} note${list.length === 1 ? '' : 's'} read`, async () => { await restoreSeen(before); refreshAll() })
+  offerUndo(`Marked ${plural(list.length, 'note')} read`, async () => { await restoreSeen(before); refreshAll() })
 }

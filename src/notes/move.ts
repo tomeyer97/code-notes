@@ -6,9 +6,8 @@ import { commitInfo } from '../identity'
 import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
-import { plain } from '../text'
+import { noteTitle, rangeLabel } from '../text'
 import { docUri, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
-import { lines } from '../threads/comments'
 import { docLines } from '../wfs'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './status'
@@ -21,10 +20,10 @@ let pendingMove: string | undefined
 export async function startMove(n: Note): Promise<void> {
   pendingMove = n.data.id
   setCtx('codeNotes.moving', true)
-  moveItem.text = `$(move) Move "${plain(n.data.messages[0]?.body ?? '', 30)}" to the selection`
+  moveItem.text = `$(move) Move "${noteTitle(n, 30)}" to the selection`
   moveItem.tooltip = 'Select the code, then click here. Esc cancels.'
   moveItem.show()
-  const pick = await vscode.window.showInformationMessage(`Move note "${plain(n.data.messages[0]?.body ?? '', 40)}": select the code it belongs to, then click Move Here.`, 'Move Here', 'Cancel')
+  const pick = await vscode.window.showInformationMessage(`Move note "${noteTitle(n)}": select the code it belongs to, then click Move Here.`, 'Move Here', 'Cancel')
   if (pick === 'Move Here') await completeMove()
   else if (pick === 'Cancel') cancelMove()
 }
@@ -59,7 +58,7 @@ export async function completeMove(): Promise<void> {
   cancelMove()
   await store.save(n)
   refreshAll()
-  offerUndo(`Note moved to ${n.data.file} ${lines(n)}`, async () => { n.data = before; await store.save(n); await reanchorAll(); refreshAll() })
+  offerUndo(`Note moved to ${n.data.file} ${rangeLabel(n)}`, async () => { n.data = before; await store.save(n); await reanchorAll(); refreshAll() })
 }
 
 /** The status bar item of a move in progress (click: Move Here). */

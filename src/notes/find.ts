@@ -5,7 +5,7 @@ import { notes } from '../app'
 import { unread } from '../seen'
 import { lastMessage, order } from '../sidebar/nodes'
 import { Note } from '../store'
-import { plain } from '../text'
+import { noteTitle, plain } from '../text'
 import { reveal } from './reveal'
 
 /** Every word must match somewhere in the note: messages as written, file, session, authors. */
@@ -16,7 +16,7 @@ export const findNote = async () => {
     const hit = words.length ? [...n.data.messages].reverse().find((m) => words.some((w) => m.body.toLowerCase().includes(w))) : undefined
     const shown = hit && hit !== n.data.messages[0] ? hit : n.data.messages.length > 1 ? lastMessage(n) : undefined
     return {
-      label: `${unread(n) ? '$(circle-filled) ' : n.data.stale ? '$(warning) ' : n.data.status === 'resolved' ? '$(pass) ' : ''}${plain(n.data.messages[0]?.body ?? '', 70)}`,
+      label: `${unread(n) ? '$(circle-filled) ' : n.data.stale ? '$(warning) ' : n.data.status === 'resolved' ? '$(pass) ' : ''}${noteTitle(n, 70)}`,
       description: [`${n.data.file.split('/').pop()}:${n.data.range.start}`, n.data.session ? plain(n.data.session, 30) : ''].filter(Boolean).join(' · '),
       detail: shown ? `${shown.author}: ${plain(shown.body, 100)}` : undefined,
       alwaysShow: true, // filtered here, not by VS Code

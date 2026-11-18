@@ -4,9 +4,8 @@ import * as vscode from 'vscode'
 import { byId } from '../app'
 import { order } from '../sidebar/nodes'
 import { Note } from '../store'
-import { plain } from '../text'
+import { noteTitle, rangeLabel } from '../text'
 import { notesFor } from '../threads/anchoring'
-import { lines } from '../threads/comments'
 import { noteOfThread, revealed } from '../threads/threads'
 
 /** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor. */
@@ -39,6 +38,6 @@ export async function target(arg: any, many?: any[]): Promise<Note[]> {
   const here = editor ? notesAtCursor(editor) : []
   if (!here.length) { vscode.window.setStatusBarMessage('$(info) No note at the cursor', 2500); return [] }
   if (here.length === 1) return here
-  const pick = await vscode.window.showQuickPick(here.map((n) => ({ label: plain(n.data.messages[0]?.body ?? '', 70), description: lines(n), note: n })), { title: 'Which note?' })
+  const pick = await vscode.window.showQuickPick(here.map((n) => ({ label: noteTitle(n, 70), description: rangeLabel(n), note: n })), { title: 'Which note?' })
   return pick ? [pick.note] : []
 }

@@ -6,7 +6,8 @@ import { commitInfo } from '../identity'
 import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { docUri, missing, otherAnchor, pastEnd } from '../threads/anchoring'
-import { lines, suggestionOf } from '../threads/comments'
+import { rangeLabel } from '../text'
+import { suggestionOf } from '../threads/comments'
 import { docLines } from '../wfs'
 
 /** Apply on an agent's ```suggestion block: replaces the note's lines; the editor's Undo takes it back. */
@@ -36,7 +37,7 @@ export async function applySuggestion(id: string, mi: number, k: number): Promis
   const ed = await vscode.window.showTextDocument(doc, { preview: false })
   ed.selection = new vscode.Selection(start, 0, start, 0)
   refreshAll()
-  vscode.window.setStatusBarMessage(`$(check) Applied to ${lines(n)}. Save to keep; Ctrl+Z undoes.`, 5000)
+  vscode.window.setStatusBarMessage(`$(check) Applied to ${rangeLabel(n)}. Save to keep; Ctrl+Z undoes.`, 5000)
   // A fix suggested for a check's concern: the check offers it with Commit & push.
   const fixFor = (n.data.extra as { checkFix?: string } | undefined)?.checkFix
   if (fixFor) void understanding?.fixApplied(fixFor, n.data.file)

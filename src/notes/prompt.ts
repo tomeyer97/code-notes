@@ -5,6 +5,7 @@ import { byId, log, notes } from '../app'
 import { mine } from '../identity'
 import { checked, lastMessage } from '../sidebar/nodes'
 import { Note } from '../store'
+import { plural } from '../text'
 import { agentPrompt } from './folder'
 import { notesFrom } from './target'
 
@@ -16,7 +17,7 @@ export const copyAgentPrompt = async () => {
   await vscode.env.clipboard.writeText(agentPrompt(ticked.length ? ticked : undefined))
   log.info(`copied a prompt for ${ticked.length ? ticked.map((n) => n.data.id).join(', ') : `the ${waiting} waiting notes`}`)
   const k = ticked.length || waiting
-  vscode.window.showInformationMessage(`Copied a prompt for ${k} ${ticked.length ? 'selected' : 'waiting'} note${k === 1 ? '' : 's'}.`)
+  vscode.window.showInformationMessage(`Copied a prompt for ${plural(k, `${ticked.length ? 'selected' : 'waiting'} note`)}.`)
 }
 
 export const copyNotePrompt = async (arg?: any) => {

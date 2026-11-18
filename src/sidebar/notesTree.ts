@@ -6,9 +6,8 @@ import { askErrors, asking } from '../ask'
 import { mine } from '../identity'
 import { unread } from '../seen'
 import { Note } from '../store'
-import { ago, isolate, plain } from '../text'
+import { ago, isolate, plain, rangeLabel } from '../text'
 import { missing } from '../threads/anchoring'
-import { lines } from '../threads/comments'
 import { tour, walk } from '../tour/tour'
 import { journeyItem, journeyOfNote, journeyRows, questionsNode, showIntro, stepLinkOf } from './journeyRows'
 import { journeysTree } from './journeysTree'
@@ -161,7 +160,7 @@ function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
   const item = new vscode.TreeItem(title ? plain(title, 50) : name)
   item.id = `broken:${node.uri}`
   item.description = `⚠ ${node.why}`
-  item.tooltip = new vscode.MarkdownString(`**${name}**: ${node.why}${known ? `\n\nThe list shows its last good version (\`${known.data.file}\` ${lines(known)}).` : ''}`)
+  item.tooltip = new vscode.MarkdownString(`**${name}**: ${node.why}${known ? `\n\nThe list shows its last good version (\`${known.data.file}\` ${rangeLabel(known)}).` : ''}`)
   item.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
   item.contextValue = known ? 'broken;known' : 'broken'
   item.command = { command: 'codeNotes.openBroken', title: 'Open', arguments: [node] }
@@ -199,7 +198,7 @@ function noteItem(node: Extract<Node, { kind: 'note' }>): vscode.TreeItem {
   const replies = d.messages.length - 1
   // Alone in its file: the row says which file (`app.ts:12`), there is no file row above it.
   const base = d.file.split('/').pop() ?? d.file
-  const where = !ownRow(n) ? lines(n) : d.target === 'folder' ? `${base}/` : d.target ? base : `${base}:${d.range.start}`
+  const where = !ownRow(n) ? rangeLabel(n) : d.target === 'folder' ? `${base}/` : d.target ? base : `${base}:${d.range.start}`
   // State first: it must survive truncation at the default sidebar width.
   item.description = [
     u ? `${u} new` : '',

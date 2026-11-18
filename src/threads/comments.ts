@@ -13,6 +13,7 @@ import { escapeTags } from '../journeyModel'
 import { seenCount, visitFrom } from '../seen'
 import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { Note } from '../store'
+import { plural, rangeLabel } from '../text'
 import { qDone, seeAlsoLink } from '../tour/checkTour'
 import { tour, walk } from '../tour/tour'
 import { docUri, missing, openDoc, pastEnd } from './anchoring'
@@ -21,11 +22,6 @@ import { docLines } from '../wfs'
 
 export function threadRange(n: Note): vscode.Range {
   return new vscode.Range(n.data.range.start - 1, 0, n.data.range.end - 1, 0)
-}
-
-export function lines(n: Note): string {
-  if (n.data.target) return n.data.target === 'folder' ? 'folder' : 'whole file'
-  return n.data.range.start === n.data.range.end ? `L${n.data.range.start}` : `L${n.data.range.start}–${n.data.range.end}`
 }
 
 const FENCE = /(```[\s\S]*?```)/g
@@ -86,7 +82,7 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
     if (seg.startsWith('```')) {
       const sug = mi !== undefined && !n.data.target ? SUGGESTION.exec(seg) : null
       if (!sug) return seg
-      return `\`\`\`\n${sug[1]}\n\`\`\`\n\n[Apply suggestion](command:codeNotes.applySuggestion?${encodeURIComponent(JSON.stringify([n.data.id, mi, k++]))} "Replace ${lines(n)} with this · Ctrl+Z undoes")`
+      return `\`\`\`\n${sug[1]}\n\`\`\`\n\n[Apply suggestion](command:codeNotes.applySuggestion?${encodeURIComponent(JSON.stringify([n.data.id, mi, k++]))} "Replace ${rangeLabel(n)} with this · Ctrl+Z undoes")`
     }
     // also inside "(…)" and lists; repo-relative labels, never the home folder's path.
     return linkify(seg, n.folder.uri.fsPath, home, link)
@@ -193,7 +189,7 @@ function messageComments(n: Note, thread: vscode.CommentThread): vscode.Comment[
     const t = m.at ? Date.parse(m.at) : NaN
     if (!Number.isNaN(t)) flushEvents(t)
     if (i >= hideFrom && i < hideTo) {
-      if (i === hideFrom) toggle(`Show ${hideTo - hideFrom} earlier repl${hideTo - hideFrom === 1 ? 'y' : 'ies'}`, 'codeNotes.expandThread')
+      if (i === hideFrom) toggle(`Show ${plural(hideTo - hideFrom, 'earlier reply', 'earlier replies')}`, 'codeNotes.expandThread')
       return
     }
     if (i === 1 && expanded.has(n.data.id) && total > COLLAPSE_OVER) toggle('Show fewer', 'codeNotes.collapseThread')

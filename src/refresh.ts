@@ -6,6 +6,7 @@ import { asking } from './ask'
 import { unread } from './seen'
 import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter, sessionOf } from './sidebar/nodes'
 import { tree, treeView } from './sidebar/notesTree'
+import { plural } from './text'
 import { notesFor } from './threads/anchoring'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { walk } from './tour/tour'
@@ -25,13 +26,13 @@ export function refreshAll(): void {
   for (const id of [...checked]) if (!ids.has(id)) checked.delete(id)
   tree.refresh()
   const u = notes().filter((n) => unread(n) > 0).length
-  treeView.badge = u ? { value: u, tooltip: `${u} note${u === 1 ? '' : 's'} with new replies` } : undefined
+  treeView.badge = u ? { value: u, tooltip: `${plural(u, 'note')} with new replies` } : undefined
   // An active filter is visible: view title, a message, a filled filter icon.
   const shownCount = notes().filter(matchesFilter).length
   const label = FILTERS.find((f) => f.id === filter)!.label
   treeView.description = filter === 'all' ? undefined : `${label} · ${shownCount}`
   treeView.message = [
-    store.broken.size ? `${store.broken.size} note file${store.broken.size === 1 ? '' : 's'} can't be used (top of the list)` : '',
+    store.broken.size ? `${plural(store.broken.size, 'note file')} can't be used (top of the list)` : '',
     filter !== 'all' && !shownCount ? `No notes match "${label}".` : '',
     filter !== 'all' && journeys.all().length ? 'Journeys are hidden while filtering.' : '',
   ].filter(Boolean).join(' ') || undefined
@@ -45,7 +46,7 @@ export function refreshAll(): void {
   setCtx('codeNotes.hasHiddenSessions', notes().some((n) => hiddenSessions().has(sessionOf(n))))
   if (asking.size) {
     statusItem.text = `$(sync~spin) Claude · ${asking.size}`
-    statusItem.tooltip = `Claude is answering ${asking.size} note${asking.size === 1 ? '' : 's'}`
+    statusItem.tooltip = `Claude is answering ${plural(asking.size, 'note')}`
     statusItem.command = 'codeNotes.notes.focus'
     statusItem.show()
   } else statusItem.hide() // no note counter: the activity bar badge is the one unread count

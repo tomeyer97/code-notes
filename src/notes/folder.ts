@@ -7,7 +7,7 @@ import { refreshAll } from '../refresh'
 import { treeView } from '../sidebar/notesTree'
 import { folderProblem } from '../noteModel'
 import { folderName, Note } from '../store'
-import { lines } from '../threads/comments'
+import { plural, rangeLabel } from '../text'
 import { wfs } from '../wfs'
 
 /** The notes folder as last set (a change offers to move the notes). */
@@ -27,7 +27,7 @@ export async function changeFolder(): Promise<void> {
     let files: [string, vscode.FileType][] = []
     try { files = (await wfs.readDirectory(oldDir)).filter(([n, t]) => t === vscode.FileType.File && n.endsWith('.json') && !n.startsWith('.')) } catch { continue }
     if (!files.length) continue
-    const pick = await vscode.window.showWarningMessage(`Move ${files.length} note${files.length === 1 ? '' : 's'} from ${from}/ to ${to}/?`,
+    const pick = await vscode.window.showWarningMessage(`Move ${plural(files.length, 'note')} from ${from}/ to ${to}/?`,
       { modal: true, detail: `Cancel leaves them in ${from}/, where Code Notes no longer shows them.` }, 'Move Notes')
     if (pick !== 'Move Notes') continue
     const newDir = vscode.Uri.joinPath(f.uri, to)
@@ -67,7 +67,7 @@ export function agentPrompt(list?: Note[]): string {
   // No frozen timestamp: a prompt pasted an hour later must not date replies in the past.
   const rules = `Format and rules: ${dir}/README.md. I'm ${me()}. Use the current time for "at". If a note is "stale", the code changed: "anchor.text" is what it was about. Answer in the note; don't change code unless a note asks you to.`
   if (list?.length) {
-    const which = list.map((n) => `${dir}/${n.uri.path.split('/').pop()} (${n.data.file} ${lines(n)})`).join(', ')
+    const which = list.map((n) => `${dir}/${n.uri.path.split('/').pop()} (${n.data.file} ${rangeLabel(n)})`).join(', ')
     return `Answer ${list.length === 1 ? 'my code note' : `these ${list.length} code notes`}: ${which}. Read the code each one points at, then append your answer to "messages" with "role": "agent". ${rules}`
   }
   return `Answer my open code notes in ${dir}/: a note needs an answer when its status is "open" and its last message has "role": "human". Read the code each one points at, then append your answer to "messages" with "role": "agent". ${rules}`

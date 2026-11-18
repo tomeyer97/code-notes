@@ -10,9 +10,9 @@ import { hiddenSessions, matchesFilter, Node, noteNode, order, sessionOf } from 
 import { treeView } from '../sidebar/notesTree'
 import { serialize } from '../noteModel'
 import { Note } from '../store'
-import { plain } from '../text'
+import { plain, rangeLabel } from '../text'
 import { clampLines, docUri, missing, notesFor, relPath } from '../threads/anchoring'
-import { lines, threadRange } from '../threads/comments'
+import { threadRange } from '../threads/comments'
 import { editorSettling, editorShownAt, setCollapse, settling } from '../threads/settle'
 import { expandWhenMade, revealed, syncThread, threads } from '../threads/threads'
 import { openRef } from '../tour/refs'
@@ -27,7 +27,7 @@ import { notesFrom } from './target'
 const ORPHAN_SCHEME = 'code-notes-note'
 
 function orphanMarkdown(n: Note): string {
-  return [`# ${plain(n.data.messages[0]?.body ?? 'Note', 80)}`, '', `_${n.data.file} ${lines(n)} no longer exists._`, '',
+  return [`# ${plain(n.data.messages[0]?.body ?? 'Note', 80)}`, '', `_${n.data.file} ${rangeLabel(n)} no longer exists._`, '',
     ...(n.data.anchor.text.trim() ? ['It was about:', '', '```', n.data.anchor.text, '```', ''] : []),
     ...n.data.messages.flatMap((m) => [`**${m.author}** ${m.at ? m.at.slice(0, 16).replace('T', ' ') : ''}`, '', m.body, ''])].join('\n')
 }
