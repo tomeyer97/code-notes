@@ -256,7 +256,7 @@ export class MapPanel implements vscode.Disposable {
       scripts: [
         file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
         ...[
-          'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'journey-scene',
+          'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'code-paint', 'journey-scene', 'journey-scene-app',
           'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-map',
         ].map((name) => file('media', `${name}.js`)),
       ],
