@@ -446,6 +446,241 @@ export const podcastTests = [
     const errors = consoleErrors()
     assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
   }),
+
+  // ---------- the editor while it plays (src/podcast/player.ts, follow.ts; src/tour/walk.ts, card.ts, panelLayout.ts) ----------
+
+  test('listening: the one-line card with one transport, the follow lock, a view held at least 8 s', async () => {
+    watchConsole()
+    writeListenJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podlisten'), 10000)
+    await closeAllButPanel()
+    await playIt('podlisten')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(4.5)
+    await until('step 1, listen.ts line 12 lit', at(1, 'listen.ts', 12), 8000)
+    // Paused: the full card, with ▶.
+    await until('the full card, ▶ Play on it', () => /▶ Play/.test(tour().card?.body ?? '') && /codeNotes\.askStep/.test(tour().card?.body ?? ''), 5000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    // Playing: one line: ⏸, narrating, the beat, the player's ⏮ ⏭ (the card's own Ask, More go).
+    await until('the one-line card', () => /narrating · beat 1\/4/.test(tour().card?.body ?? ''), 5000)
+    const body = tour().card!.body as string
+    assert.match(body, /codeNotes\.podcastToggle/)
+    assert.match(body, /⏮.*codeNotes\.previousStep/)
+    assert.match(body, /⏭.*codeNotes\.nextStep/)
+    assert.doesNotMatch(body, /codeNotes\.askStep|Follow along/)
+    assert.equal(tour().card!.label, '1/3 · listen one', 'the header line stays')
+    // The reader scrolls away on their own (well after the walk's own move).
+    await sleep(1700)
+    const ed = codeEditor()!
+    ed.revealRange(new vscode.Range(185, 0, 185, 0), vscode.TextEditorRevealType.AtTop)
+    await until('not following: the card says Follow along', () => pod().follow === false && /Follow along/.test(tour().card?.body ?? ''), 5000)
+    const top = () => codeEditor()!.visibleRanges[0].start.line
+    const away = top()
+    assert.ok(away >= 170, `scrolled: ${away}`)
+    // Beat 2 (line 150, same file) at 12 s: lit, but the editor isn't moved.
+    await until('beat 2 lit at line 150', () => litLine() === 150, 12000)
+    await sleep(500)
+    const onScreen = codeEditor()!.visibleRanges.some((r) => r.contains(new vscode.Position(149, 0)))
+    assert.ok(Math.abs(top() - away) <= 3 && !onScreen, `the editor stayed where the reader is (${away} → ${top()}, ${codeFile()}, follow ${pod().follow})`)
+    await vscode.commands.executeCommand('codeNotes.podcastFollow')
+    await until('Follow along: back at line 150', () => pod().follow === true && codeEditor()!.visibleRanges.some((r) => r.contains(new vscode.Position(149, 0))), 5000)
+    // The view hold: beat 3 (20–23 s) is in listen2.ts for 3 s: held; step 2 at 23 s is listen.ts again.
+    const shown: string[] = []
+    const sub = vscode.window.onDidChangeVisibleTextEditors((es) => { for (const e of es) if (e.viewColumn !== tour().mapColumn && e.document.uri.scheme === 'file') shown.push(path.basename(e.document.uri.fsPath)) })
+    try {
+      await until('step 2 at 23 s', () => tour().step === 2 && pod().t >= 23, 15000)
+    } finally { sub.dispose() }
+    assert.ok(!shown.includes('listen2.ts'), `a 3 s part in another file was held: ${shown.join(' → ')}`)
+    assert.equal(codeFile(), 'listen.ts')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    // A seek shows its time exactly, held or not.
+    await seek(21)
+    await until('seek to 21 s: beat 3 in listen2.ts', at(1, 'listen2.ts', 1), 8000)
+  }),
+
+  test('listening: the map\'s moments give the map the editor; the code comes back in one group beside it, never on a draft', async () => {
+    await seek(1)
+    await until('the intro: no step, only the panel\'s group', () => tour().step === 0 && !pod().applying && vscode.window.tabGroups.all.length === 1, 8000)
+    const layout = await editorLayout()
+    assert.equal(layout.length, 1, 'the map has the editor area')
+    await seek(5)
+    await until('step 1: the code beside the panel', () => tour().step === 1 && codeFile() === 'listen.ts' && vscode.window.tabGroups.all.length === 2, 8000)
+    await sleep(500)
+    const two = await editorLayout()
+    const share = two[tour().mapColumn! - 1] / two.reduce((a, b) => a + b, 0)
+    assert.ok(share > 0.2 && share < 0.5, `the panel at the walk's width again: ${share}`)
+    // A draft of the reader's in a group of its own.
+    const draft = await vscode.workspace.openTextDocument({ content: 'my notes while listening' })
+    await vscode.window.showTextDocument(draft, { viewColumn: vscode.window.tabGroups.all.length + 1, preview: false, preserveFocus: true })
+    const draftGroup = () => vscode.window.tabGroups.all.find((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputText && t.input.uri.toString() === draft.uri.toString()))
+    await seek(1)
+    await until('the intro again: the walk\'s code closed', () => tour().step === 0 && !pod().applying && !groupsShowing('listen.ts').length, 8000)
+    await seek(5)
+    await until('step 1 again', () => tour().step === 1 && !pod().applying && groupsShowing('listen.ts').length === 1, 8000)
+    await sleep(400)
+    assert.ok(!draftGroup()!.tabs.some((t) => t.input instanceof vscode.TabInputText && /listen\.ts$/.test(t.input.uri.path)), 'never in the draft\'s group')
+    assert.equal(groupsShowing('listen.ts').length, 1, 'in one group only')
+    // The draft put away (not saved).
+    await vscode.window.showTextDocument(draft, { viewColumn: draftGroup()!.viewColumn, preserveFocus: false })
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor')
+    await until('the draft closed', () => !draftGroup(), 5000)
+  }),
+
+  test('listening: focusing the panel, ‹ Journeys and the row of the journey you\'re in change no width and keep it playing; Ctrl+\' V makes room for the map', async () => {
+    await until('two groups', () => vscode.window.tabGroups.all.length === 2, 5000)
+    // The panel dragged down to VS Code's minimum (220 px): focusing a group that narrow made VS Code expand it.
+    const panelAt = () => tour().mapColumn! - 1
+    // Two groups side by side, nothing else (the draft's group, empty, may linger in the layout).
+    await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: 0.5 }, { size: 0.5 }] })
+    await until('two groups in the layout', async () => (await editorLayout()).length === 2, 5000)
+    const start = await editorLayout()
+    const total = start.reduce((a, b) => a + b, 0)
+    const sized = (px: number) => ({ orientation: 0, groups: start.map((_, i) => ({ size: i === panelAt() ? px / total : 1 - px / total })) })
+    await vscode.commands.executeCommand('vscode.setEditorLayout', sized(400))
+    await sleep(800)
+    await vscode.commands.executeCommand('vscode.setEditorLayout', sized(150))
+    await until('the panel at the minimum', async () => (await editorLayout())[panelAt()] <= 221, 5000)
+    await sleep(1000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    const before = await editorLayout()
+    const same = async (what: string) => {
+      await sleep(700)
+      const now = await editorLayout()
+      assert.equal(now.length, before.length, `${what}: the groups`)
+      now.forEach((w, i) => assert.ok(Math.abs(w - before[i]) <= 2, `${what}: group ${i + 1} was ${before[i]} px, now ${w} px`))
+    }
+    const focusPanel = ['workbench.action.focusFirstEditorGroup', 'workbench.action.focusSecondEditorGroup'][panelAt()]
+    await vscode.commands.executeCommand(focusPanel)
+    await same('the panel focused (Ctrl+1/2)')
+    await vscode.commands.executeCommand(['workbench.action.focusFirstEditorGroup', 'workbench.action.focusSecondEditorGroup'][1 - panelAt()])
+    ctx.api.mapSend({ type: 'test', click: '.homeb' })
+    await same('‹ Journeys')
+    // The row of the journey you're in (and Open Journey… on it): its panel to the front, nothing closed, still playing.
+    await vscode.commands.executeCommand('codeNotes.openJourney', 'podlisten')
+    await until('its panel, the walk, still playing', () => tour().map === 'podlisten' && pod().mapVisible && pod().playing && pod().session === 'podlisten', 5000)
+    await same('its row clicked')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    // The narrow panel: Ctrl+' V gives it the room for the map's boxes (asked for).
+    await vscode.commands.executeCommand('codeNotes.showMap')
+    await until('Ctrl+\' V: room for the map', async () => (await editorLayout())[tour().mapColumn! - 1] >= 295, 5000)
+    assert.equal(tour().map, 'podlisten', 'the same panel')
+  }),
+
+  test('listening: a question or a note being written pauses it, and the code stays under it', async () => {
+    await seek(5)
+    await until('step 1', at(1, 'listen.ts', 12), 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    void vscode.commands.executeCommand('codeNotes.askStep')
+    await until('Ask: the box, the podcast paused', () => !!ctx.api.askBox() && !pod().playing && pod().held === 'question', 5000)
+    const t0 = pod().t
+    await sleep(1500)
+    assert.ok(Math.abs(pod().t - t0) < 0.3 && tour().step === 1 && codeFile() === 'listen.ts', 'nothing moves under the box')
+    await vscode.commands.executeCommand('workbench.action.closeQuickOpen')
+    await until('the box put away', () => !ctx.api.askBox(), 5000)
+    assert.ok(!pod().playing, 'still paused: ▶ (on the card) goes on')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    // A note: Ctrl+' C on the narrated code.
+    const ed = await vscode.window.showTextDocument(codeEditor()!.document, { viewColumn: codeEditor()!.viewColumn, preserveFocus: false })
+    ed.selection = new vscode.Selection(12, 0, 12, 0)
+    await vscode.commands.executeCommand('codeNotes.add')
+    await until('a note: paused', () => !pod().playing && pod().held === 'note', 5000)
+    const t1 = pod().t
+    await sleep(2000)
+    assert.ok(Math.abs(pod().t - t1) < 0.3 && tour().step === 1 && codeFile() === 'listen.ts', 'the draft\'s editor stays: nothing moves')
+  }),
+
+  test('listening: the journey edited under it keeps the step by id; a removed step shows what the podcast says at its time', async () => {
+    await seek(25)
+    await until('step 2 (L2)', () => tour().step === 2 && codeFile() === 'listen.ts' && !pod().applying, 8000)
+    await sleep(300)
+    const t0 = pod().t
+    // Steps 1 and 2 swapped: L2 is step 1 now.
+    writeListenJourney(['L2', 'L1', 'L3'])
+    await until('the walk on L2, now step 1', () => tour().step === 1 && tour().card?.title === 'listen two', 8000)
+    await sleep(1200)
+    assert.ok(Math.abs(pod().t - t0) < 0.3, `the audio stayed at ${t0.toFixed(1)}: ${pod().t}`)
+    writeListenJourney()
+    await until('back: L2 is step 2', () => tour().step === 2 && tour().card?.title === 'listen two', 8000)
+    // L2 removed: its part keeps the view before it (beat 3 of L1, listen2.ts).
+    writeListenJourney(['L1', 'L3'])
+    const shows = (name: string) => vscode.window.visibleTextEditors.some((e) => e.viewColumn !== tour().mapColumn && path.basename(e.document.uri.fsPath) === name)
+    await until('the view before the removed step\'s part: step 1, beat 3 in listen2.ts', () => tour().step === 1 && shows('listen2.ts') && litLine() === 1 && !pod().applying, 8000)
+    assert.ok(Math.abs(pod().t - t0) < 0.3, 'the audio stayed')
+    writeListenJourney()
+    await until('the journey back', () => ctx.api.snapshot().journeys.some((j: any) => j.id === 'podlisten' && j.steps === 3), 8000)
+  }),
+
+  test('listening: quick ⏭ ⏭ open only the last target; a beat it doesn\'t narrate pauses it', async () => {
+    await seek(1)
+    await until('the intro', () => tour().step === 0 && !pod().applying, 8000)
+    const steps: number[] = []
+    const poll = setInterval(() => { if (steps[steps.length - 1] !== tour().step) steps.push(tour().step) }, 15)
+    try {
+      send({ action: 'part', dir: 1 })
+      await sleep(80)
+      send({ action: 'part', dir: 1 })
+      await until('two ⏭: step 2', () => tour().step === 2 && !pod().applying, 8000)
+      await sleep(400)
+    } finally { clearInterval(poll) }
+    assert.deepEqual(steps, [0, 2], `step 1 never opened on the way: ${steps.join(' → ')}`)
+    // Ctrl+' A in the intro is ⏮ too (F85): from the intro after seeking there.
+    await seek(1)
+    await until('the intro', () => tour().step === 0 && !pod().applying, 8000)
+    await vscode.commands.executeCommand('codeNotes.next')
+    await until('Ctrl+\' D in the intro: step 1', () => tour().step === 1, 8000)
+    // Beat 4 of step 1 isn't narrated: picked in the animation while playing, it is shown and the audio pauses.
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await until('its move done', () => !pod().applying, 5000)
+    await sleep(600)
+    ctx.api.mapMessage({ type: 'beat', n: 1, i: 3, user: true })
+    await until('paused, saying so', async () => !pod().playing && /Beat 4 isn't narrated/.test((await panelAudio()).note), 5000)
+    await sleep(800)
+    assert.equal(tour().step, 1, 'the walk stays')
+    assert.equal(litLine(), 14, 'beat 4 lit')
+  }),
+
+  test('listening: End Journey ends the session (▶ says where it goes on); in a journey without a podcast the key says so; nothing piles up', async () => {
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await vscode.commands.executeCommand('codeNotes.endJourney')
+    await until('ended: paused, no session, no status item', () => !pod().playing && !pod().session && !pod().itemShown, 5000)
+    const kept = pod().t
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('▶ again: on from where it was, the walk back', () => pod().playing && pod().session === 'podlisten' && tour().step > 0 && pod().t >= kept - 0.3, 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    // Another journey, without a podcast: Ctrl+' Space doesn't end it and restart this podcast.
+    writeJourney(journeysDir(), journey('nopod', [step('src/listen.ts', 1, 2, { id: 'n1', title: 'no podcast' })], { title: 'No pod' }))
+    await until('nopod read', () => ctx.api.snapshot().journeys.some((j: any) => j.id === 'nopod'), 8000)
+    await vscode.commands.executeCommand('codeNotes.startJourney', 'nopod')
+    await until('walking nopod', () => tour().journey === 'nopod' && tour().step === 1, 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await sleep(1200)
+    assert.equal(tour().journey, 'nopod', 'its walk goes on')
+    assert.ok(!pod().playing, 'no other podcast started')
+    // Many seeks later: one walk tab, one panel (F99: editors and webviews are released).
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podlisten')
+    await until('podlisten again', () => pod().session === 'podlisten', 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing, 5000).catch(() => undefined)
+    for (const t of [5, 25, 13, 1, 21, 33, 5, 25, 13, 21, 1, 5]) { await seek(t); await sleep(250) }
+    await until('settled', () => !pod().applying, 8000)
+    await sleep(500)
+    const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs)
+    const webviews = tabs.filter((t) => t.input instanceof vscode.TabInputWebview)
+    const code = tabs.filter((t) => t.input instanceof vscode.TabInputText && /listen2?\.ts$/.test(t.input.uri.path))
+    assert.equal(webviews.length, 1, `one panel: ${tabs.map((t) => t.label).join(', ')}`)
+    assert.ok(code.length <= 1, `one walk tab: ${code.map((t) => t.label).join(', ')}`)
+    const errors = consoleErrors()
+    assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
+  }),
 ]
 
 const podFile = () => path.join(journeysDir(), 'pod.podcast.json')
@@ -487,3 +722,66 @@ function watchConsole(): void {
 }
 /** The errors seen that come from the extension (its panel, its media files). */
 const consoleErrors = () => (seen ?? []).filter((e) => /vscode-webview|code-notes|journey-|podcast/i.test(e))
+
+/** The journey "podlisten": step L1 (listen.ts, an animation of 4 beats: line 12, line 150, listen2.ts line 1, line 14
+ *  never narrated), L2 (listen.ts 100–110), L3 (listen2.ts); `order`: the steps' order in the file (ids). */
+function writeListenJourney(order = ['L1', 'L2', 'L3']) {
+  writeLines(wsPath('src', 'listen.ts'), Array.from({ length: 220 }, (_, i) => `export const l${i + 1} = ${i + 1} // ${'x'.repeat(30)}`))
+  writeLines(wsPath('src', 'listen2.ts'), ['export const other = 1', 'export const two = 2'])
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'one()', checks: ['a'] }]
+  const beat = (caption: string, file: string, line: number, text: string) => ({ focus: 'svc', caption, code: { file, line, text } })
+  const steps: Record<string, ReturnType<typeof step>> = {
+    L1: step('src/listen.ts', 10, 20, { id: 'L1', title: 'listen one', scene: { actors, wires: [], beats: [
+      beat('Here.', 'src/listen.ts', 12, `export const l12 = 12 // ${'x'.repeat(30)}`),
+      beat('Far down.', 'src/listen.ts', 150, `export const l150 = 150 // ${'x'.repeat(30)}`),
+      beat('Elsewhere.', 'src/listen2.ts', 1, 'export const other = 1'),
+      beat('Not told.', 'src/listen.ts', 14, `export const l14 = 14 // ${'x'.repeat(30)}`),
+    ] } }),
+    L2: step('src/listen.ts', 100, 110, { id: 'L2', title: 'listen two' }),
+    L3: step('src/listen2.ts', 1, 2, { id: 'L3', title: 'listen three' }),
+  }
+  writeJourney(journeysDir(), journey('podlisten', order.map((id) => steps[id]), { title: 'Pod listen' }))
+  const mp3 = path.join(journeysDir(), 'podlisten.mp3')
+  if (!fs.existsSync(mp3)) fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), mp3)
+  const file = path.join(journeysDir(), 'podlisten.podcast.json')
+  if (fs.existsSync(file)) return
+  const seg = (id: string, at: unknown, start: number, end: number) => ({ id, at, speaker: 'host', text: `Part ${id}.`, start, end })
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1, title: 'Pod listen', journey: { id: 'podlisten' }, audio: 'podlisten.mp3', duration: 40,
+    segments: [
+      seg('intro', null, 0, 3.8),
+      seg('b1', { step: 'L1', beat: 1 }, 4, 11.8),
+      seg('b2', { step: 'L1', beat: 2 }, 12, 19.8),
+      seg('b3', { step: 'L1', beat: 3 }, 20, 22.8),
+      seg('l2', { step: 'L2' }, 23, 30.8),
+      seg('outro', null, 31, 40),
+    ],
+  }))
+}
+
+/** Every editor closed but the journey panel. */
+async function closeAllButPanel(): Promise<void> {
+  const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => !(t.input instanceof vscode.TabInputWebview && /codeNotes\.journey/.test(t.input.viewType)))
+  if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
+}
+
+/** The editor groups' widths (px), side by side. */
+async function editorLayout(): Promise<number[]> {
+  const l = await vscode.commands.executeCommand<{ groups: { size?: number }[] }>('vscode.getEditorLayout')
+  return l.groups.map((g) => Math.round(g.size ?? 0))
+}
+
+/** The groups with a tab on a file named `name`. */
+const groupsShowing = (name: string) => vscode.window.tabGroups.all.filter((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputText && path.basename(t.input.uri.fsPath) === name))
+
+/** Journey `id`'s podcast in the panel, playing (a new panel needs one click in it first). */
+async function playIt(id: string): Promise<void> {
+  await vscode.commands.executeCommand('codeNotes.playPodcast', id)
+  await until('the panel shows it', () => tour().map === id && pod().mapVisible, 10000)
+  if (!(await until('playing on its own', () => pod().playing && pod().session === id, 3000).catch(() => false))) {
+    const f = await panelFrame()
+    await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
+    await f.click('.pod-b.play')
+  }
+  await until('playing', () => pod().playing && pod().session === id, 10000)
+}

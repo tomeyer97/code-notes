@@ -9,7 +9,7 @@ import { fileOf, journeyById, LoadedJourney, posKey } from '../journeys/steps'
 import { markJourneysSeen } from '../seen'
 import { INTRO_KEY, showIntro } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
-import { cardOnly, codeGetsMoreRoom, panelFits, roomForMap } from './panelLayout'
+import { cardOnly, codeGetsMoreRoom, keepWidthOnFocus, noteLayout, panelFits, roomForMap } from './panelLayout'
 import { pickJourney } from './pick'
 import { card, tourState, walk } from './instances'
 import { MAP_KEY, POS_KEY, TOUR_KEY } from './state'
@@ -22,7 +22,7 @@ export async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean
   // The journey you're in (its row, Open Journey… on it): its panel to the front, the walk and the podcast as they
   // are. Never closed or reopened, the layout untouched (F51, F129).
   if (!opts.fromStart && isHere(lj)) {
-    walk.showMap(lj, opts.keepFocus === 'sidebar')
+    if (!mapPanel.visible || opts.keepFocus !== 'sidebar') walk.showMap(lj, opts.keepFocus === 'sidebar')
     if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
     return
   }
@@ -141,6 +141,8 @@ export async function restoreTour(): Promise<void> {
  * ("OverlayWebview has been disposed").
  */
 export function restoreMapPanel(context: vscode.ExtensionContext): () => void {
+  mapPanel.layoutChanged = () => void noteLayout()
+  mapPanel.activated = () => void keepWidthOnFocus()
   let journeysLoaded!: () => void
   const journeysReady = new Promise<void>((r) => { journeysLoaded = r })
   context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(MAP_VIEW, {

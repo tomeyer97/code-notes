@@ -80,8 +80,9 @@ class Podcasts {
   private beatShown: number | undefined
   /** The segment whose view was applied last: while playing, the view changes only when the segment does. */
   private lastSeg = -1
-  /** A seek's move, waiting for another seek (SEEK_SETTLE_MS). */
+  /** A seek's move, waiting for another seek (SEEK_SETTLE_MS), and where the walk was when it was asked for. */
   private seekTimer: NodeJS.Timeout | undefined
+  private walkAtSeek: { key: string | undefined; step: number } | undefined
   /** Why the extension paused or stopped it last (the log says it, F121). */
   private reason: string | undefined
   /** The views a playing episode shows, per segment (model.ts calmViews), by journey as loaded. */
@@ -98,7 +99,7 @@ class Podcasts {
   private moves = 0
   /** What the podcast last asked the panel for, and when: until the panel says it did (a seek report; a report not
    *  playing), its older reports are stale. */
-  private asked: { kind: 'seek' | 'pause'; at: number } | undefined
+  private asked: { kind: 'seek' | 'pause'; at: number; key?: string } | undefined
   /** "Show why" asked (tests). */
   private whyShown = 0
 
@@ -339,7 +340,8 @@ class Podcasts {
     if (!l) return
     // A report from before the seek or pause just asked for (the walk would go back there for a moment): ignored.
     const asked = this.asked
-    if (asked && lj.key === this.session) {
+    // (Also once the session is over: a playing report from before an End Journey must not start it again.)
+    if (asked && (lj.key === this.session || lj.key === asked.key)) {
       const answers = asked.kind === 'seek' ? !!m.seek : !m.playing
       if (!answers && Date.now() - asked.at < STALE_MS) return
       this.asked = undefined
@@ -362,6 +364,7 @@ class Podcasts {
       this.lastSeg = v.seg
       this.want = this.withId(lj, view)
       clearTimeout(this.seekTimer)
+      this.walkAtSeek = { key: tourState.key, step: walk.touring() && tourState.key === lj.key ? tourState.step : 0 }
       this.seekTimer = setTimeout(() => {
         this.seekTimer = undefined
         this.mover.push({ lj, view, still: true })
@@ -470,10 +473,18 @@ class Podcasts {
    *  place is kept, and Play says where it goes on: F119). */
   private walkMoved(afterMove = false): void {
     const lj = this.sessionJourney()
-    // A seek's move is on its way (SEEK_SETTLE_MS): the walk is not where the podcast is yet, and that is not the reader.
-    if (!lj || this.applying || this.seekTimer || (this.mover.busy && !afterMove)) return
+    if (!lj || this.applying || (this.mover.busy && !afterMove)) return
     const l = this.eps.get(lj.key)!
     const step = walk.touring() && tourState.key === lj.key ? tourState.step : 0
+    // A seek's move is on its way (SEEK_SETTLE_MS): the walk is not where the podcast is yet, and that is not the
+    // reader; but the walk ended, or another journey, is, and the pending move is dropped.
+    if (this.seekTimer) {
+      const was = this.walkAtSeek
+      const unchanged = !!was && was.key === tourState.key && was.step === step
+      if (unchanged || (step && tourState.key === lj.key)) return
+      clearTimeout(this.seekTimer)
+      this.seekTimer = undefined
+    }
     const id = step ? lj.j.steps[step - 1]?.id : undefined
     // The same step, maybe under another number (the journey was edited: F105).
     if (this.want && (step === this.want.step || (id !== undefined && id === this.want.id))) {
@@ -596,6 +607,8 @@ class Podcasts {
     if (this.session !== lj.key) return
     log.info(`podcast ${lj.j.id}: stopped at ${clock(this.posOf(lj))} (${why}); ▶ goes on from there`)
     this.session = undefined
+    // Played again, the view at its time is applied afresh (not "the same segment, the same view").
+    this.lastSeg = -1
     this.playing = false
     this.renderItem()
     this.redrawCard(lj, true)
@@ -692,7 +705,7 @@ class Podcasts {
   // ---------- commands ----------
 
   private command(action: string, more: Record<string, unknown> = {}): void {
-    if (action === 'seek' || action === 'pause') this.asked = { kind: action, at: Date.now() }
+    if (action === 'seek' || action === 'pause') this.asked = { kind: action, at: Date.now(), key: this.session }
     mapPanel.send({ type: 'podcastCmd', action, ...more })
   }
 
@@ -713,6 +726,7 @@ class Podcasts {
       vscode.window.setStatusBarMessage(`$(play) ${lj.j.title}: on from ${clock(at!)}${v.step ? ` · step ${v.step}` : ''}`, 4000)
     }
     this.session = lj.key
+    if (fresh) this.lastSeg = -1
     // Where the walk is now (the walk telling of a move that isn't one pauses nothing).
     this.want = { step: walkStep }
     this.command('play', at === undefined || Math.abs(at - this.posOf(lj)) < 0.05 ? {} : { at })
@@ -802,7 +816,7 @@ class Podcasts {
       journeys: journeys.all().filter((x) => this.has(x)).map((x) => x.j.id),
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
       item: this.item?.text, itemShown: !!lj, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
-      why: this.whyShown,
+      why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor,
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
       notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
       links: Object.fromEntries([...this.eps].map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, brokenLinks(l.problems)])),

@@ -76,9 +76,53 @@ export async function codeGetsMoreRoom(): Promise<void> {
   await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
 }
 
+/** VS Code's minimum width of an editor group (px). A group activated while exactly this wide is expanded by VS Code
+ *  to an even share of the editor area (EditorPart doRestoreGroup): focusing a panel dragged or squeezed to its
+ *  minimum (Ctrl+3, a click in it, ‹ Journeys, a row of the Journeys view) flipped it from ~220 to ~580 px mid-episode
+ *  (F112, F127, F128). */
+const GROUP_MIN_PX = 220
+/** A panel grown by more than this (px) on being activated was grown by VS Code, not dragged. */
+const EXPANDED_PX = 100
+
+/** The groups' widths (px) as last seen settled (side by side only). */
+let known: number[] | undefined
+
+async function flatWidths(): Promise<{ sizes: number[]; total: number } | undefined> {
+  const read = await readEditorLayout()
+  if (!read || read.layout.orientation !== 0 || read.layout.groups.some((g) => (g as { groups?: unknown[] }).groups?.length)) return undefined
+  return { sizes: read.layout.groups.map((g) => g.size ?? 0), total: read.total }
+}
+
+/** The layout as it is now is the one to keep (the reader dragged, groups opened or closed, the extension set it). */
+export async function noteLayout(): Promise<void> {
+  known = (await flatWidths())?.sizes
+}
+
+/**
+ * The panel was activated (focused, clicked, revealed). If VS Code expanded it from its minimum width just now, the
+ * widths it had come back: the layout changes only when the reader changes it.
+ */
+export async function keepWidthOnFocus(): Promise<void> {
+  const mapCol = mapPanel.viewColumn
+  const before = known
+  const now = await flatWidths()
+  if (mapCol === undefined || !now) return
+  const i = mapCol - 1
+  const expanded = !!before && before.length === now.sizes.length && before[i] <= GROUP_MIN_PX + 0.5 && now.sizes[i] > before[i] + EXPANDED_PX
+  if (!expanded) { known = now.sizes; return }
+  layoutSetAt = Date.now()
+  log.info('journey panel: kept at its width (VS Code widened it when it was focused at its minimum)')
+  const total = before!.reduce((x, y) => x + y, 0)
+  // VS Code keeps an expanded group expanded through a new layout until the widths are evened: evened, then set.
+  await vscode.commands.executeCommand('workbench.action.evenEditorWidths').then(undefined, () => undefined)
+  await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: before!.map((w) => ({ size: w / total })) }).then(undefined, (e) => log.warn(`layout: ${e}`))
+}
+
 /** The panel was resized: by the reader (not just after we set it), so that width is kept for next time. */
 export async function rememberPanelWidth(): Promise<void> {
-  if (Date.now() - layoutSetAt < 1500) return
+  // Dragged, or set by the extension: the width to keep (an expansion by VS Code on focus is undone first).
+  if (Date.now() - layoutSetAt < 1500) { await noteLayout(); return }
+  await keepWidthOnFocus()
   const s = await sideBySide()
   if (!s) return
   const share = (s.layout.groups[s.panel].size ?? 0) / s.total
@@ -131,6 +175,7 @@ export async function roomForMap(): Promise<void> {
   layoutSetAt = Date.now()
   const layout = { orientation: 0, groups: sizes.map((w) => ({ size: w / read.total })) }
   await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
+  await noteLayout()
 }
 
 /** The walk goes on with the step card in the editor; the panel (if open) closes. Said once per walk. */

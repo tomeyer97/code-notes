@@ -132,6 +132,11 @@ export class MapPanel implements vscode.Disposable {
   /** The journey's podcast for the panel's bar (src/podcast/player.ts): undefined when it has none. `toUri`: a file
    *  as the webview loads it. */
   podcastFor: ((lj: LoadedJourney, toUri: (u: vscode.Uri) => string) => unknown) | undefined
+  /** The editor groups may have changed size (the panel drawn, groups opened or closed): tour/panelLayout.ts checks
+   *  notes the widths to keep (noteLayout). */
+  layoutChanged: (() => void) | undefined
+  /** The panel became the active editor: tour/panelLayout.ts undoes VS Code widening it (keepWidthOnFocus). */
+  activated: (() => void) | undefined
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
     private tourOf: (lj: LoadedJourney) => TourInfo, private state: vscode.Memento) {}
@@ -214,8 +219,9 @@ export class MapPanel implements vscode.Disposable {
     remember()
     this.subs.push(
       panel.webview.onDidReceiveMessage((m: MapMessage) => this.receive(panel, m)),
-      panel.onDidChangeViewState(remember),
+      panel.onDidChangeViewState((e) => { remember(); if (e.webviewPanel.active) this.activated?.() }),
       panel.onDidDispose(() => this.disposed()),
+      vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutChanged?.() }),
     )
     // A page set before we listened (a restored panel): its 'ready' may have gone already; it answers this with another.
     if (paged) void panel.webview.postMessage({ type: 'hello' })
@@ -259,6 +265,7 @@ export class MapPanel implements vscode.Disposable {
 
   private onReady(panel: vscode.WebviewPanel): void {
     this.ready = true
+    this.layoutChanged?.()
     this.lastTour = ''
     this.post(true)
     for (const q of this.queue.splice(0)) void panel.webview.postMessage(q)
