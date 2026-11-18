@@ -25,7 +25,9 @@ for c in json.load(sys.stdin):
     out.append(sorted(f"{p['level']}:{p['code']}" + (f"@{p['segment']}" if p['segment'] else '') for p in ps))
 print(json.dumps(out))
 `
-  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8' }))
+  // No __pycache__ beside the skill's script (it ships as is).
+  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
   cases.forEach((c, i) => assert.deepEqual(got[i], [...c.expect].sort(), c.name))
 })
 
