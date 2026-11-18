@@ -21,6 +21,21 @@
   note or an answer sent twice with a quick double Ctrl+Enter is saved once, and shows at once ("Checking…" for an
   answer). Links from a Claude Code chat are recognised on newer VS Code versions too. A code link's Back names its
   step and goes away once the walk moves on. Copied link text has no hidden zero-width spaces.
+- **Fixes.** The sidebar no longer logs "Failed to resolve tree node" (a reveal waits until the view holds the row,
+  and redraws are spaced so the window applies each). Undo of Mark All Read makes resolves and reopens unread again.
+  Notes queued for Claude no longer stay "Queued…" when the Claude Code CLI isn't found. A note on a file that shrank
+  no longer fails to place. A notes-folder setting like `notes\` or `./notes` works. Step text: a bare `file#L9` ref
+  links to its line, `#L` and range labels move with the code, a sentence ref is hidden only when every place it names
+  is on screen, a gone ref names where it was looked for, and a step link opens the journey of its own folder. The
+  CLI places notes exactly as the extension does, and reads a removed `-- comment` line as code, not a file header.
+  Commit & push sees an unsaved fix behind a `git:` diff view. The default branch is one rule everywhere: origin/HEAD
+  when known, else main or master, plus the compared-with branch. With reduced motion, journey scenes don't animate
+  at all. A question id with a quote no longer stops the Check view drawing; a status or screen named like
+  `constructor` no longer breaks a scene.
+- **Internals:** the extension's code is split into small modules by area (`src/ask`, `check`, `notes`, `tour`,
+  `journeys`, `sidebar`, `write`, `webview`); the CLI's source is modules under `cli/understanding/`, bundled into
+  `cli/understanding.mjs`; tests are one test per behaviour, in a file per module. Behaviour is unchanged apart from
+  the fixes above.
 
 ## 0.24.0
 
