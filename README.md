@@ -44,9 +44,11 @@ write one.
   the line of code that does it, and shows that line with a few around it under the caption.
 - **Steps follow the code** like notes do: moved code is followed, changed code is flagged. Your own edits to a
   step's lines (typing, an applied fix) are followed, not flagged.
-- **Podcasts:** a journey with an audio episode next to it (`<journey>.podcast.json`) has a ▶. The walk follows the
-  voice: each step's code opens, the animation moves beat by beat. The timeline is marked by step; click or drag
-  anywhere and the walk is exactly where it is at that time. The audio goes on while VS Code is in the background.
+- **Listen:** a journey with an audio episode next to it (`<journey>.podcast.json`) has ▶ Listen on its row. The walk
+  follows the voice: each step's code opens, the animation moves beat by beat, the caption shows the sentence being
+  said. The timeline is marked by step; click or drag anywhere and the walk is exactly where it is at that time. The
+  storyline becomes the chapter list (start times, ▶ for one step, a transcript per step). The audio plays in the
+  Listen view, so it goes on when the journey panel is closed or VS Code is in the background.
   [docs/podcast-format.md](docs/podcast-format.md) describes the format and its checks: problems show in the
   Problems view, and a podcast that can't play keeps a greyed ▶ that says why.
 
@@ -184,8 +186,9 @@ One chord: **Ctrl+'** (or **Ctrl+<** on ISO keyboards), then a letter.
 | **V** | The journey map |
 | **P** | The current step's animation, on or off |
 | **J** | Search journeys |
-| **Space** | The journey podcast: play or pause |
-| **←** / **→** | The journey podcast: back / forward 15 s |
+| **Space** | Listen: play or pause |
+| **←** / **→** | Listen: back / forward 15 s |
+| **Shift+←** / **Shift+→** | Listen: previous / next step |
 
 ## Requirements
 

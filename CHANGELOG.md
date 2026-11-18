@@ -19,6 +19,31 @@
   - A beat whose code is in another file opens that file directly; a part on the map closes the walk's code tab.
   - Space and K play and pause anywhere in the panel, also after clicking the animation's ‹ ›. An audio that can't
     play stays paused and says why.
+- **Listen: the podcast player, reworked.** Podcasts are called **Listen** now: ▶ Listen on the row, **Code Notes:
+  Listen to Journey**, **Listen: Play/Pause**, **Back 15 s**, **Forward 15 s**, **Previous Step**, **Next Step**
+  (new, Ctrl+' Shift+← →). The command ids and the `.podcast.json` format are unchanged.
+  - The audio lives in a new **Listen** view (Code Notes side bar): closing the journey panel, or a layout that hides
+    it, no longer stops the episode. The panel's player and the status bar are remotes; the status bar says
+    **Listening · 6:58** / **Paused · 6:58** (the glyph shows the state), its tooltip lists the actions with their
+    keys, and its click opens the journey's map, whose player shows where the audio is.
+  - The caption is the sentence being said, two lines at most and never cut (a long sentence in parts), with the
+    speaker's name when the voice changes. A segment may give its own sentence times (`sentences`, checked when
+    present); else they are estimated from the text.
+  - The timeline: the player's whole width, a mark per step with its number (at least 8 px to hit), the playhead
+    always shown, hover says the time and the step in full and goes when the pointer leaves, the part a cut-off audio
+    can't reach greyed. The ±15 s buttons are gone (the keys stay); a narrow panel keeps ▶ ⏮ ⏭ first. Speed is a menu
+    from 0.75× to 2× (< > too); mute (M) is new; both are remembered. K works by its place on the keyboard. A seek
+    after the end plays on; the end offers Replay, Walk it yourself and Next journey.
+  - The storyline is the chapter list: start times, ♪ on the step being said, "not narrated" on a skipped step, ▶ per
+    step (plays that step and stops), a transcript per step (current sentence marked, click to go there, found by
+    Ctrl+F when shut). While it plays the panel's header is one line ("Step 6 of 14 · …"), and the animation's own
+    sentence and the code snippet give way to the caption; the panel scrolls to a step the voice moves to.
+  - Rows mark journeys with a podcast ("♪ 12:47"; "♪ Listening", "♪ Paused at 3:38"), with ⏸ / Resume on the row and a
+    tooltip line; the journey being walked is listed once (not again under "In this file"); Open Journey… and the
+    panel's journey list mark podcasts too. The scene's beat shows as dots.
+  - Accessibility: the timeline is an ARIA slider (↑ ↓ Home End Page Up/Down) whose value text gives the time, the
+    total and the step; step changes are announced once; controls have names and keys. Media keys and the system's
+    "now playing" work (Media Session).
 - **Podcasts: broken files are explained.** One check of the podcast file, with errors (it can't be played) and
   warnings (a part is not what the file says: a step or beat the journey doesn't have, overlapping or out-of-order
   times, an end before its start or past the audio, a cut-off audio, written for another journey). Every problem is

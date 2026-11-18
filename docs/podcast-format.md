@@ -19,11 +19,12 @@ journeys/
 `audio` is a path relative to the podcast file. It must be inside the journeys folder (or a folder under it): the
 panel can only load files from there, so a path that leaves it (`../x.mp3`), an absolute path or a URL is refused
 ("audio must be in the journeys folder (got ../x.mp3)"). mp3 plays in VS Code (tested); so do ogg/opus and wav. The
-panel loads the file whole before it plays (it is held in memory while the panel is open), so seeking works wherever
-VS Code runs: in the browser and in remote windows the panel's files are served without HTTP Range requests, and a
+Listen view loads the file whole before it plays (it is held in memory while it is loaded), so seeking works wherever
+VS Code runs: in the browser and in remote windows a webview's files are served without HTTP Range requests, and a
 streamed file can't be sought in.
 
-A journey with a podcast has a ▶ on its row in the Journeys view, and its panel has the player at the bottom.
+A journey with a podcast has ▶ Listen on its row in the Journeys view (and its length, "♪ 12:47"), and its panel has
+the player at the bottom.
 
 ## The file
 
@@ -58,7 +59,7 @@ A segment:
 | `id` | Stable when segments are edited or removed |
 | `at` | Where it belongs: `null` (the whole journey: the map, no step open), `{ "step": "<step id>" }` (the step, without its animation), or `{ "step": "<step id>", "beat": n }` (the step's animation at beat `n`, 1-based, counted in the step's `scene.beats`) |
 | `cue` | How the change of place is shown: `map`, `open` or `beat`. The player shows what `at` says; `cue: "map"` on a step shows the step without its animation |
-| `speaker`, `text` | Who says what (the panel shows the text as a one-line caption) |
+| `speaker`, `text` | Who says what. The caption shows the sentence being said, two lines at most (a long sentence in parts), and the speaker's name when the voice changes (in an episode with more than one) |
 | `say` | Optional: the spoken form a generator sent to text-to-speech (numbers, names spelled out). The player ignores it |
 | `start`, `end` | Seconds in the audio. Gaps between segments belong to the segment before them |
 | `sentences` | Optional: when each sentence of `text` starts, `[{ "start": <seconds in the audio>, "text": "<the sentence>" }]` (e.g. a text-to-speech service's alignment); the caption shows the current one. Used only when every item has a number `start` and a `text`, the starts go up, and each is within the segment (its `start` to its `end`, or the next segment's start); otherwise it is a warning, and, as without it, the player estimates each sentence's time by its share of the text |
@@ -81,7 +82,7 @@ position.
   where the audio was.
 - **On a beat whose code is in another file**, that file opens directly (never the step's own file first). A segment
   on the map (`at: null`) ends the walk and closes the code tab the walk opened.
-- **Where it was is kept, per journey**: opening another journey, ending the walk, closing the panel or reloading the
+- **Where it was is kept, per journey**: opening another journey, ending the walk, closing the Listen view or reloading the
   window keeps the time, and ▶ goes on from there. When the walk is on another step than that time is about, ▶ starts
   at that step's first segment.
 - **The podcast file saved again** while it plays keeps its place: the same time, or, when the segment playing then has
@@ -93,21 +94,41 @@ position.
   without its animation; a step id that isn't in the journey keeps the view of the segment before it. Each is a
   warning (below), and the player counts them: "2 parts can't be shown".
 
-## Playing
+## Listening
 
-- **▶** on the journey's row, the command **Play Journey Podcast**, or the player's ▶ in the panel.
-- In the panel: Space or K play and pause (anywhere in the panel but a text field, also after clicking a button
-  such as the animation's ‹ ›; a button you reached with Tab still presses with Space), ← → go back and forward 15 s,
-  Shift+← → the previous and next step; on the timeline, Home and End, Page Up and Page Down. Hovering over the timeline names the step at that point; click or
-  drag to go there.
-- From anywhere: **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward 15 s. The status bar
-  shows where it is; click it to pause or play.
-- The audio plays in the journey panel and goes on while the panel is behind another tab or VS Code isn't focused.
-  Closing the panel stops it; where it was is kept for next time, per journey.
+- **▶ Listen** on the journey's row (⏸ while it plays, ▶ Resume when it is paused there), the ▶ on its row in
+  **Open Journey…**, the command **Code Notes: Listen to Journey**, or the player's ▶ in the panel.
+- **Where the audio lives**: in the **Listen** view (in the Code Notes side bar, under Journeys; shown once there is a
+  podcast). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused; the panel's
+  player and the status bar are its remotes. Closing the Listen view itself stops it (where it was is kept).
+- **The player** (in the panel and the Listen view): the caption, the timeline with a mark per step (click a mark: that
+  step's start; hover: the time and the step; the part a cut-off audio can't reach is greyed), ⏮ ▶ ⏭, the time and
+  the step, the speed (0.75× to 2×) and mute. In a narrow panel the step's name, then mute, the total time and the
+  speed give way; ▶ ⏮ ⏭ stay. At the end: **Replay**, **Walk it yourself**, **Next journey** (the next one with a
+  podcast). A seek after the end plays on.
+- **The storyline is the chapter list**: each step's start time, ♪ on the one being said, "not narrated" on a step the
+  podcast skips; ▶ on a row plays that step alone and stops at its end; ≡ opens its transcript (the sentence being
+  said marked, a click goes there; Ctrl+F finds words in shut transcripts too). The intro and the recap have rows.
+- **While it plays, one text channel**: the caption. The panel's header shrinks to one line ("Step 6 of 14 · …"), the
+  animation's own sentence and the code snippet under it hide; they come back on pause. When the voice moves to
+  another step, the panel scrolls to it (unless you just scrolled).
+- **Keys in the panel**: Space or K play and pause (K by its place on the keyboard: Caps Lock and other layouts too;
+  anywhere but a text field, also after clicking a button such as the animation's ‹ ›; a button you reached with Tab
+  still presses with Space), M mutes, < > change the speed, ← → go back and forward 15 s, Shift+← → the previous and
+  next step. On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up and Page Down a step.
+- **From anywhere** (the editor too): **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward
+  15 s, **Ctrl+' Shift+←** / **→** the previous and next step (commands **Listen: Play/Pause**, **Listen: Back 15 s**,
+  **Listen: Forward 15 s**, **Listen: Previous Step**, **Listen: Next Step**). The status bar says **Listening ·
+  6:58** or **Paused · 6:58**; its tooltip has these actions and keys; a click opens the journey's map. Headphone and
+  media keys work too (the system's "now playing" names the journey and the step).
+- The speed and muting are remembered (every journey).
 - If the audio can't play (a broken or cut file), ▶ stays paused and the player says why; it never shows "playing"
   with the clock standing still.
-- VS Code lets a panel play sound only after a click or a key in it: the first time a panel plays, its ▶ takes the
-  keyboard and says "Press Space to play". After that, the keys and commands play it directly.
+- VS Code lets a view play sound only after a click or a key in it: the first time the Listen view plays, it takes
+  the keyboard and says "Press Space to play" (the panel says to click ▶ there). After that, the keys and commands
+  play it directly.
+- For screen readers: the timeline is a slider whose value says the time, the total and the step (once a second);
+  a step change while playing is announced once, politely; every control has a name and its keys in its tooltip.
 
 ## Validation
 
