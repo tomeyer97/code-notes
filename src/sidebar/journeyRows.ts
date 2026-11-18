@@ -13,7 +13,7 @@ import { isUpdateRequest } from '../tour/askStep'
 import { provenance } from '../tour/provenance'
 import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
-import { journeysView } from './journeysTree'
+import { journeysTree, journeysView } from './journeysTree'
 import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
 import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode, order } from './nodes'
 import { matchesFilter } from './notesFilter'
@@ -191,7 +191,8 @@ export function badJourneyItem(node: Extract<Node, { kind: 'badJourney' }>): vsc
 /**
  * A reveal in the Journeys view goes only to a node the view holds now and keeps holding: a reveal of a node that a
  * redraw dropped meanwhile (the "In this file" group of the file before) logged "Failed to resolve tree node".
- * So: once things settle, against the model as it is then, and only for groups that don't come and go with the editor.
+ * So: once things settle, against the model as it is then, and only for groups that don't come and go with the editor
+ * (and the view waits until it holds the row: viewSync.ts).
  */
 let revealTimer: NodeJS.Timeout | undefined
 
@@ -199,11 +200,7 @@ function revealSettled(f: (m: ListModel) => Node | undefined, o: { select: boole
   clearTimeout(revealTimer)
   if (!journeysView?.visible) return
   const file = activeRel()
-  revealTimer = setTimeout(() => {
-    if (!journeysView.visible || activeRel() !== file) return
-    const n = f(listModel())
-    if (n) journeysView.reveal(n, { ...o, focus: false }).then(undefined, () => { /* gone meanwhile */ })
-  }, wait)
+  revealTimer = setTimeout(() => journeysTree.revealRow(() => (activeRel() === file ? f(listModel()) : undefined), o), wait)
 }
 
 /** The walk's row in Continue (where a walk is listed first): never deep in All, which scrolled the view away. */

@@ -10,6 +10,7 @@ import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
 import { followCursor, listModel, listSort, listState, SORT_KEY } from './listModel'
 import { itemOf } from './rowItems'
+import { ViewSync } from './viewSync'
 
 /** Where a row's parent is kept (set while the rows are made, read back by getParent): the same strings both ways. */
 const parentKey = {
@@ -22,13 +23,16 @@ const parentKey = {
 const nestsQuestions = (group: string | undefined) => group === 'all' || !!group?.startsWith('area:')
 
 class JourneysTree implements vscode.TreeDataProvider<Node> {
-  private readonly changed = new vscode.EventEmitter<Node | undefined>()
-  readonly onDidChangeTreeData = this.changed.event
   private parents = new Map<string, Node>()
   /** One redraw for a burst of changes (a step, the editor, the cursor): VS Code asked for the children of a group
-   *  from one drawing after the next had dropped it ("Failed to resolve tree node"). */
-  private timer: NodeJS.Timeout | undefined
-  refresh() { clearTimeout(this.timer); this.timer = setTimeout(() => this.changed.fire(undefined), 80) }
+   *  from one drawing after the next had dropped it ("Failed to resolve tree node"). Reveals: `revealRow`. */
+  readonly sync = new ViewSync<Node>(80)
+  refresh() { this.sync.refresh() }
+
+  /** Selects or expands the row `target()` names once the view holds it (viewSync.ts). */
+  revealRow(target: () => Node | undefined, o: { select: boolean; expand: boolean }): void {
+    this.sync.reveal(journeysView, this, target, { ...o, focus: false })
+  }
 
   /** The group a journey is listed under in "All" (for reveal). */
   groupOf(key: string): string | undefined {
@@ -137,7 +141,7 @@ export async function sortJourneys(): Promise<void> {
 /** The Journeys view; its "In this file" follows the editor (capped again), ranked by the cursor's function, and in view. */
 export function createJourneysView(context: vscode.ExtensionContext): void {
   journeysTree = new JourneysTree()
-  journeysView = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree, showCollapseAll: true })
+  journeysView = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree.sync.provider(journeysTree), showCollapseAll: true })
   const editorChanged = vscode.window.onDidChangeActiveTextEditor(() => {
     listState.hereAll = false
     followCursor(true, cursorMoved)
@@ -145,7 +149,7 @@ export function createJourneysView(context: vscode.ExtensionContext): void {
   const selectionChanged = vscode.window.onDidChangeTextEditorSelection((e) => {
     if (e.textEditor === vscode.window.activeTextEditor) followCursor(false, cursorMoved)
   })
-  context.subscriptions.push(journeysView, editorChanged, selectionChanged)
+  context.subscriptions.push(journeysView, editorChanged, selectionChanged, ...journeysTree.sync.watch(journeysView))
 }
 
 /** The file or the function under the cursor changed: the lists follow; another file shows its "In this file". */
