@@ -4,7 +4,7 @@
 // for rule, by the code-journey skill's `journey.py podcast` (the cases in test/fixtures/podcast/cases.json run
 // through both). No vscode here.
 
-import { clock, Episode, JourneyShape, LINK_CODES, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, WrittenSegment } from './model'
+import { clock, clockMs, Episode, JourneyShape, LINK_CODES, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
 
 /** What is known around the file: the journey next to it, its audio file (looked at or not), the audio's real length
  *  (once the panel has loaded it). */
@@ -176,6 +176,12 @@ function timingProblems(written: { s: WrittenSegment; i: number }[], duration: n
       out.push(segProblem(b.s, b.i, 'overlap', `starts at ${clockMs(b.start)}, before segment ${segmentName(a.s, a.i)} ends (${clockMs(a.end)}): the later one wins from its start`, ['start']))
     }
   }
+  // Sentence times, within the segment as the player times it (sentenceBound: the same end as resolveEpisode's).
+  sorted.forEach((x, k) => {
+    if (x.s.sentences === undefined) return
+    const bad = sentencesProblem(x.s.sentences, x.start, sentenceBound(x.s, x.start, sorted[k + 1]?.start, duration))
+    if (bad) out.push(segProblem(x.s, x.i, 'sentences', `${bad.what}; the caption is estimated from the text instead`, bad.sub))
+  })
   return out
 }
 
@@ -199,14 +205,6 @@ function audioLengthProblems(written: { s: WrittenSegment; i: number }[], durati
     if (end !== undefined && end > audioLen + slack) out.push(segProblem(s, i, 'past-audio', `ends at ${clockMs(end)}, after the audio's end (${clockMs(audioLen)})`, ['end']))
   }
   return out
-}
-
-/** m:ss.s: a time in a message, precise enough to find the segment. */
-function clockMs(t: number): string {
-  const tenths = Math.round(t * 10) / 10
-  const whole = Math.floor(tenths)
-  const frac = Math.round((tenths - whole) * 10)
-  return frac ? `${clock(whole)}.${frac}` : clock(whole)
 }
 
 // ---------- what the panel and the Journeys view say ----------

@@ -39,6 +39,26 @@ test('podcast file: found next to its journey, never read as a journey', () => {
   assert.ok(!isPodcastFile('scripted-tests.json'))
 })
 
+test('sentences: kept when usable, else left out (the player estimates them from the text)', () => {
+  const good = [{ start: 10, text: 'One.' }, { start: 12.5, text: 'Two.', extra: 1 }]
+  const ep = episode([
+    seg('ok', null, 10, 19, { sentences: good }),
+    seg('late', null, 20, 29, { sentences: [{ start: 20, text: 'One.' }, { start: 31, text: 'Two.' }] }),
+    seg('order', null, 30, 39, { sentences: [{ start: 33, text: 'One.' }, { start: 31, text: 'Two.' }] }),
+    seg('shape', null, 40, 49, { sentences: [{ start: 40 }] }),
+    seg('none', null, 50, 59),
+    // No end: the episode's duration (100) is its end.
+    { id: 'last', at: null, start: 60, text: 'x', sentences: [{ start: 60, text: 'One.' }, { start: 200, text: 'Two.' }] },
+  ])
+  assert.deepEqual(ep.segments[0].sentences, [{ start: 10, text: 'One.' }, { start: 12.5, text: 'Two.' }])
+  for (const k of [1, 2, 3, 4, 5]) assert.equal(ep.segments[k].sentences, undefined, ep.segments[k].id)
+  assert.deepEqual(ep.warnings, [])
+  // No end, no next segment, no duration: no limit after its start.
+  const p = parsePodcast(file([{ id: 'only', at: null, start: 0, text: 'x', sentences: [{ start: 0, text: 'One.' }, { start: 200, text: 'Two.' }] }], { duration: undefined }))
+  assert.ok(typeof p !== 'string')
+  assert.equal(resolveEpisode(p, journey).segments[0].sentences?.length, 2)
+})
+
 test('segments: each one\'s view; chapters are runs on one step, the first from 0', () => {
   const ep = sample()
   assert.deepEqual(ep.warnings, [])

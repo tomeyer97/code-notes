@@ -61,6 +61,7 @@ A segment:
 | `speaker`, `text` | Who says what (the panel shows the text as a one-line caption) |
 | `say` | Optional: the spoken form a generator sent to text-to-speech (numbers, names spelled out). The player ignores it |
 | `start`, `end` | Seconds in the audio. Gaps between segments belong to the segment before them |
+| `sentences` | Optional: when each sentence of `text` starts, `[{ "start": <seconds in the audio>, "text": "<the sentence>" }]` (e.g. a text-to-speech service's alignment); the caption shows the current one. Used only when every item has a number `start` and a `text`, the starts go up, and each is within the segment (its `start` to its `end`, or the next segment's start); otherwise it is a warning, and, as without it, the player estimates each sentence's time by its share of the text |
 
 Other fields, in the file or in a segment, are ignored: generators can keep their own data there.
 
@@ -130,6 +131,7 @@ runs them too when the podcast file exists).
 | Links | `at` missing or not `null` / `{ step, beat }`; a step id the journey doesn't have; a beat the step doesn't have |
 | Times | `start` missing or not a number (the segment is skipped); `end` not a number; `end` before `start`; a segment that starts before the one above it in the file (out of order), or before the one before it in time ends (overlap); an end past `duration` |
 | The audio's length | `duration` differs from it; a segment ends after it; the audio is much shorter than the episode, with parts after its end: one warning, "The audio is 0:13 long but the episode is 12:47: the file looks cut off" |
+| Sentences | `sentences` not a non-empty list of `{ start, text }`; a start before the one above it; a start outside the segment. One warning per segment; the caption is estimated from the text instead |
 | Others | `journey.id` is another journey's; a segment that isn't an object; a duplicate `id`; a `cue` other than `map`, `open`, `beat`; a `duration` that isn't a length |
 
 The audio's length is known once the panel has loaded the audio (for `journey.py podcast`: the argument, a WAV's

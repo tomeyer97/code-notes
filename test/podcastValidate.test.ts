@@ -35,6 +35,10 @@ test('podcast check: errors come first, the messages say what is wrong in plain 
   assert.ok(timing.includes('segment s3: starts at 0:30, before segment s4 above it (0:40): segments play in time order, not in file order'), timing.join('\n'))
   assert.match(get('written for another journey')[0].message, /written for journey "other", but it is next to "j"/)
   assert.match(get('end past the declared duration')[0].message, /segment s2: ends at 2:30, after the episode's "duration" \(1:40\)/)
+  assert.equal(get('sentences: out of order')[0].message, 'segment s1: sentences: item 3 starts at 0:04, before item 2 (0:04.4); the caption is estimated from the text instead')
+  assert.equal(get('sentences: a start outside the segment')[0].message, 'segment s1: sentences: item 2 starts at 0:06.5, outside the segment (0:03–0:05.8); the caption is estimated from the text instead')
+  assert.deepEqual(get('sentences: a start outside the segment')[0].path, ['segments', 0, 'sentences', 1, 'start'])
+  assert.equal(get('sentences: not a list')[0].message, 'segment s1: sentences is not a list of { start, text }; the caption is estimated from the text instead')
 })
 
 test('podcast check: audio paths', () => {

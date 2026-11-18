@@ -818,5 +818,115 @@
     }
    ]
   }
+ },
+ {
+  "name": "sentences: timed sentences are used, no problem",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 10,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"First one. Second one.\",\n      \"start\": 3,\n      \"end\": 5.8,\n      \"sentences\": [\n        {\n          \"start\": 3,\n          \"text\": \"First one.\"\n        },\n        {\n          \"start\": 4.4,\n          \"text\": \"Second one.\"\n        }\n      ]\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"Then this.\",\n      \"start\": 6,\n      \"end\": 9\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "sentences: not a list",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:sentences@s1"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 10,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"First one. Second one.\",\n      \"start\": 3,\n      \"end\": 5.8,\n      \"sentences\": {\n        \"start\": 3,\n        \"text\": \"First one.\"\n      }\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"Then this.\",\n      \"start\": 6,\n      \"end\": 9\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "sentences: out of order",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:sentences@s1"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 10,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"First one. Second one.\",\n      \"start\": 3,\n      \"end\": 5.8,\n      \"sentences\": [\n        {\n          \"start\": 3,\n          \"text\": \"First one.\"\n        },\n        {\n          \"start\": 4.4,\n          \"text\": \"Second one.\"\n        },\n        {\n          \"start\": 4.0,\n          \"text\": \"Third.\"\n        }\n      ]\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"Then this.\",\n      \"start\": 6,\n      \"end\": 9\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "sentences: a start outside the segment",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:sentences@s1"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 10,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"First one. Second one.\",\n      \"start\": 3,\n      \"end\": 5.8,\n      \"sentences\": [\n        {\n          \"start\": 3,\n          \"text\": \"First one.\"\n        },\n        {\n          \"start\": 6.5,\n          \"text\": \"Second one.\"\n        }\n      ]\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"Then this.\",\n      \"start\": 6,\n      \"end\": 9\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
  }
 ]

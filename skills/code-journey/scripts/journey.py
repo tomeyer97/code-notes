@@ -2872,6 +2872,28 @@ def podcast_audio_problem(audio):
     return None
 
 
+def _sentences_problem(v, start, end):
+    """What is wrong with a segment's `sentences` (None: usable): not a non-empty list of {start, text}, starts out of
+    order, or a start outside the segment (start to end; end None: from start on)."""
+    if not isinstance(v, list) or not v:
+        return 'sentences is empty' if isinstance(v, list) else 'sentences is not a list of { start, text }'
+    prev = None
+    for k, t in enumerate(v, 1):
+        if not isinstance(t, dict) or not isinstance(t.get('text'), str) or not t['text'].strip():
+            return f'sentences: item {k} is not {{ start, text }} with a text'
+        at = _pnum(t.get('start'))
+        if at is None:
+            return f'sentences: item {k} has no start time in seconds'
+        if prev is not None and at < prev - POD_SLACK:
+            return f'sentences: item {k} starts at {_clock_ms(at)}, before item {k - 1} ({_clock_ms(prev)})'
+        if at < start - POD_SLACK or (end is not None and at > end + POD_SLACK):
+            seg = (f'outside the segment ({_clock_ms(start)}–{_clock_ms(end)})' if end is not None
+                   else f'before the segment starts ({_clock_ms(start)})')
+            return f'sentences: item {k} starts at {_clock_ms(at)}, {seg}'
+        prev = at
+    return None
+
+
 def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
     """Every problem of a podcast file: dicts with level (error | warning), code, message, segment (or None).
     journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds."""
@@ -2966,6 +2988,14 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
         if ea is not None and sb < ea - POD_SLACK:
             warn('overlap', f'starts at {_clock_ms(sb)}, before segment {name(xa, ia)} ends ({_clock_ms(ea)}): the later '
                             f'one wins from its start', name(xb, ib))
+    # Sentence times, within the segment as the player times it (its end, else the next start, else the duration).
+    for k, (x, i, start, _) in enumerate(srt):
+        if 'sentences' in x:
+            nxt = srt[k + 1][2] if k + 1 < len(srt) else None
+            end = next((e for e in (_pnum(x.get('end')), nxt, duration) if e is not None), None)
+            bad = _sentences_problem(x['sentences'], start, None if end is None else max(end, start))
+            if bad:
+                warn('sentences', f'{bad}; the caption is estimated from the text instead', name(x, i))
     # Links: where each segment is shown (with a start time only, as the player).
     if journey:
         steps = {s['id']: s['beats'] for s in journey['steps']}

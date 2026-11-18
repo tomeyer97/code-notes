@@ -28,6 +28,8 @@ export interface WrittenSegment {
   text?: unknown
   start?: unknown
   end?: unknown
+  /** When each sentence of `text` starts in the audio (e.g. a text-to-speech service's alignment): [{ start, text }]. */
+  sentences?: unknown
 }
 
 /** The podcast file, checked for its shape only (parsePodcast). */
@@ -52,7 +54,13 @@ export interface Segment extends View {
   end: number
   text: string
   speaker: string
+  /** When each sentence starts, as written (only when they are all usable: sentencesProblem). Undefined: the player
+   *  estimates the sentence times from the text. */
+  sentences?: Sentence[]
 }
+
+/** A sentence of a segment's text and the second of the audio it starts at: the caption shown from then on. */
+export interface Sentence { start: number; text: string }
 
 /** A run of segments on the same step (or on the map): what the timeline marks. */
 export interface Chapter { start: number; end: number; step: number }
@@ -125,7 +133,13 @@ export function resolveEpisode(p: Podcast, journey: JourneyShape): Episode {
     prev = view
     const next = timed[k + 1]?.start
     const end = num(x.s.end) ?? next ?? num(p.duration) ?? x.start!
-    return { id, start: x.start!, end: Math.max(end, x.start!), text: typeof x.s.text === 'string' ? x.s.text : '', speaker: typeof x.s.speaker === 'string' ? x.s.speaker : '', ...view }
+    const seg: Segment = { id, start: x.start!, end: Math.max(end, x.start!), text: typeof x.s.text === 'string' ? x.s.text : '', speaker: typeof x.s.speaker === 'string' ? x.s.speaker : '', ...view }
+    // Sentence times are all or nothing: one bad item and the player estimates them all (validate.ts says why).
+    const known = sentenceBound(x.s, x.start!, next, p.duration)
+    if (x.s.sentences !== undefined && !sentencesProblem(x.s.sentences, x.start!, known)) {
+      seg.sentences = (x.s.sentences as Sentence[]).map((t) => ({ start: t.start, text: t.text }))
+    }
+    return seg
   })
   const last = segments[segments.length - 1]
   const duration = Math.max(num(p.duration) ?? 0, last ? last.end : 0)
@@ -139,6 +153,39 @@ export const segmentName = (s: WrittenSegment, i: number) => (typeof s.id === 's
 export function segProblem(s: WrittenSegment, i: number, code: string, what: string, sub: (string | number)[] = []): PodcastProblem {
   const name = segmentName(s, i)
   return { level: 'warning', code, message: `segment ${name}: ${what}`, path: ['segments', i, ...sub], segment: name }
+}
+
+/** Sentence times this close (s) to the segment's bounds or to each other count as in order (rounding in a generator). */
+const SENTENCE_SLACK_S = 0.05
+
+/** The latest a segment's sentence may start: its end as written, else the next segment's start, else the episode's
+ *  duration; undefined when none is known (the last segment of a file without "duration": no limit). */
+export function sentenceBound(s: WrittenSegment, start: number, next: number | undefined, duration: number | undefined): number | undefined {
+  const end = num(s.end) ?? next ?? num(duration)
+  return end === undefined ? undefined : Math.max(end, start)
+}
+
+/**
+ * What is wrong with a segment's `sentences` (undefined: they can be used): not a non-empty list of { start, text },
+ * starts not in order, or a start outside the segment (`start` to `end`; no end: from `start` on). `what`: the
+ * problem in words; `sub`: where it is within the segment.
+ */
+export function sentencesProblem(v: unknown, start: number, end: number | undefined): { what: string; sub: (string | number)[] } | undefined {
+  if (!Array.isArray(v) || !v.length) return { what: Array.isArray(v) ? 'sentences is empty' : 'sentences is not a list of { start, text }', sub: ['sentences'] }
+  let prev: number | undefined
+  for (let k = 0; k < v.length; k++) {
+    const t = v[k]
+    if (!isObj(t) || typeof t.text !== 'string' || !t.text.trim()) return { what: `sentences: item ${k + 1} is not { start, text } with a text`, sub: ['sentences', k] }
+    const at = num(t.start)
+    if (at === undefined) return { what: `sentences: item ${k + 1} has no start time in seconds`, sub: ['sentences', k, 'start'] }
+    if (prev !== undefined && at < prev - SENTENCE_SLACK_S) return { what: `sentences: item ${k + 1} starts at ${clockMs(at)}, before item ${k} (${clockMs(prev)})`, sub: ['sentences', k, 'start'] }
+    if (at < start - SENTENCE_SLACK_S || (end !== undefined && at > end + SENTENCE_SLACK_S)) {
+      const seg = end !== undefined ? `outside the segment (${clockMs(start)}–${clockMs(end)})` : `before the segment starts (${clockMs(start)})`
+      return { what: `sentences: item ${k + 1} starts at ${clockMs(at)}, ${seg}`, sub: ['sentences', k, 'start'] }
+    }
+    prev = at
+  }
+  return undefined
 }
 
 /** Codes of the problems that are a link the journey can't show (a part that can't be shown as written). */
@@ -260,6 +307,14 @@ export class LatestWins<T> {
     }
     this.running = false
   }
+}
+
+/** m:ss.s: a time in a message, precise enough to find the segment. */
+export function clockMs(t: number): string {
+  const tenths = Math.round(t * 10) / 10
+  const whole = Math.floor(tenths)
+  const frac = Math.round((tenths - whole) * 10)
+  return frac ? `${clock(whole)}.${frac}` : clock(whole)
 }
 
 /** m:ss (h:mm:ss past an hour). */
