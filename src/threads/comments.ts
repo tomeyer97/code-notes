@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import * as os from 'os'
-import { lineDiff } from '../anchor'
+import { lineDiff } from '../staleDiff'
 import { linkify } from '../answerLinks'
 import { byId, cmdLink, systemMarkdown, understanding } from '../app'
 import { askErrors, asking } from '../ask'

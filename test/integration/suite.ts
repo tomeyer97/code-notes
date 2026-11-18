@@ -10,7 +10,7 @@
 //   main/writeJourney.ts   the agent writes a journey              write/, writing.ts, claude.ts
 //   main/repoJourneys.ts   journeys in the repo, compact anchors   journeys/, compact.ts
 //   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
-//   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, beatLine.ts
+//   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts
 //   roundTrips.ts          calls into the window per action (remote performance)
 // The pure modules have unit tests next to this folder (test/<module>.test.ts).
 import * as vscode from 'vscode'

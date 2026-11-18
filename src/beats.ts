@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
 import { ownSelection } from './claudeLinks'
 import { JBeat } from './journeyModel'
-import { findLine, followLine, shiftLine } from './beatLine'
+import { findLine, followLine, shiftLine } from './lineFollow'
 import { EditFollower } from './followEdits'
 import { docLines } from './wfs'
 

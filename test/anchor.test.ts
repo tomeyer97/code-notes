@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { anchor, shift, lineDiff } from '../src/anchor'
+import { anchor } from '../src/anchor'
+import { shift } from '../src/lineFollow'
+import { lineDiff } from '../src/staleDiff'
 
 const file = ['a', 'function f() {', '  return 1', '}', 'b', 'c']
 

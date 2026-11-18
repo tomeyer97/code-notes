@@ -3,7 +3,7 @@ import { setDecorations } from './decorations'
 import { fileLines } from './wfs'
 import { ownSelection } from './claudeLinks'
 import type { StepLink } from './journeyModel'
-import { LineEdit, findLine, followLine, shiftLine } from './beatLine'
+import { LineEdit, findLine, followLine, shiftLine } from './lineFollow'
 import { EditFollower } from './followEdits'
 
 // Code links: a click on a linked phrase of the step's card lights that phrase's lines and brings them

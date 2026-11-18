@@ -1,7 +1,9 @@
 import * as vscode from 'vscode'
 import { fileLines, docLines } from '../wfs'
 import { JStep } from '../journeyModel'
-import { shift, swallows, Loc, LineEdit } from '../anchor'
+import { Loc } from '../anchor'
+import { LineEdit, shift, swallows } from '../lineFollow'
+import { lineEdits } from '../followEdits'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, toCompact } from '../compact'
 import { gitRenames } from '../gitRenames'
 import {
@@ -16,7 +18,11 @@ const RENAMED_KEY = 'codeNotes.journeyRenames'
 const FOLLOWED_KEY = 'codeNotes.journeyFollowed'
 /** How long git's renames are reused (one locate asks once per step). */
 const GIT_CACHE_MS = 3000
-/** How long after the last keystroke an edited document's steps are found again. */
+/**
+ * How long after the last keystroke an edited document's steps are found again. Not followEdits.ts REFIND_MS (150 ms,
+ * for an EditFollower's few remembered lines): this runs the anchor search for every step in the file, with a timer
+ * per journey and file (`onDocument`); the two delays are set separately.
+ */
 const EDIT_SETTLE_MS = 250
 
 /** A record kept in workspace state across reloads (no state, in tests: always empty). */
@@ -166,10 +172,8 @@ export class StepTracker implements vscode.Disposable {
    */
   onEdit(e: vscode.TextDocumentChangeEvent): void {
     if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) return
-    const changes: LineEdit[] = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start)).map((c) => ({
-      startLine: c.range.start.line, startChar: c.range.start.character, endLine: c.range.end.line, endChar: c.range.end.character,
-      newLines: (c.text.match(/\n/g) ?? []).length,
-    }))
+    const lastFirst = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start))
+    const changes = lineEdits(lastFirst)
     for (const lj of this.list.values()) {
       const rel = pathIn(lj.folder.uri, e.document.uri)
       if (rel === undefined) continue

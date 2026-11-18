@@ -1,6 +1,7 @@
 import type * as vscode from 'vscode'
 import type { Journey, JStep } from '../journeyModel'
-import { anchor, staleKind } from '../anchor'
+import { anchor } from '../anchor'
+import { staleKind } from '../staleDiff'
 import { AnyAnchor, compactOf, findCompact, isCompact, toCompact } from '../compact'
 
 // A loaded journey and where its steps' code is now. No vscode API at run time (unit-tested in test/journeySteps.test.ts):

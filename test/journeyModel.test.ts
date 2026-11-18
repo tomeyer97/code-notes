@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { staleKind } from '../src/anchor'
+import { staleKind } from '../src/staleDiff'
 import { isGeneric, Journey, parseJourney, readValues } from '../src/journeyModel'
-import { escapeTags, linkPaths } from '../src/journeys/textFormat'
+import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
 const j = parseJourney(fixture, 'place-order') as Journey
@@ -129,4 +129,11 @@ test('readValues: a step\'s usable value hints, each value and note on one line'
   const bad = [{ ...ok, name: ' ' }, { ...ok, value: 3 }, { ...ok, line: 0 }, { ...ok, line: 1.5 }, { ...ok, file: undefined }, null]
   assert.deepEqual(readValues(bad), [])
   assert.deepEqual(readValues([{ ...ok, text: 5, note: ' ' }]), [{ name: 'objs', value: '[Secret run-1, Pod run-1]', file: 'src/a.ts', line: 3, text: '' }])
+})
+
+test('capValue: about 40 characters, the note survives', () => {
+  assert.equal(capValue('short'), 'short')
+  const long = 'x'.repeat(60)
+  assert.equal(capValue(long).length, 40)
+  assert.ok(capValue(long).endsWith('…'))
 })

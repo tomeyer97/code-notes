@@ -1,5 +1,5 @@
 // How a journey's text is written out: the paths step text names, markdown for VS Code's renderer, and a value hint's
-// value on one row. No imports, no vscode API (unit-tested in test/journeyModel.test.ts and test/beatLine.test.ts).
+// value on one row. No imports, no vscode API (unit-tested in test/journeyModel.test.ts).
 // What a journey file holds is journeyModel.ts; a step card's text is put together in tour/stepText.ts.
 
 /** A file's name (`orders.go`) and the folders before it (`api/`): the pieces of every path in step text. */
