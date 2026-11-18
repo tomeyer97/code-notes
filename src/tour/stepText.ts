@@ -66,10 +66,11 @@ export function refsIn(t: string): Ref[] {
 
 /** A ref is a bare `path:line` (listed with ' · '), or an explained sentence holding such tokens. */
 export const isSentence = (r: string) => /\s/.test(r.trim())
-/** A bare ref, `path[:line][-end]`: it reads as the file's name and line. */
+/** A bare ref, `path[:line[-end]]` or `path#Lline`: it reads as the file's name and its lines as written. */
 export function parseBare(r: string): Ref {
-  const m = /^(.*?)(?::(\d+))?(?:[-–](\d+))?$/.exec(r)!
-  return { text: `${baseName(m[1])}${m[2] ? `:${m[2]}` : ''}`, file: m[1], line: Number(m[2]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
+  const m = /^(.*?)(?::(\d+)(?:[-–](\d+))?|#L(\d+))?$/.exec(r)!
+  const text = `${baseName(m[1])}${r.slice(m[1].length)}`
+  return { text, file: m[1], line: Number(m[2] ?? m[4]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
 }
 
 /** Every file a step's text names (its refs, lead and details), as written: the ones to check exist. */
@@ -109,19 +110,26 @@ export function relocate(ref: Ref, here: Here): Placed {
 
 // ---------- label: how a ref reads ----------
 
-/** `text` with its `:a-b` moved by `delta`. */
+/** `text` with its `:a-b` or `#La` moved by `delta`. */
 const shiftLines = (text: string, delta: number) =>
-  text.replace(/:(\d+)(?:([-–])(\d+))?$/, (_m, a: string, d?: string, b?: string) => `:${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
+  text.replace(/(:|#L)(\d+)(?:([-–])(\d+))?$/, (_m, at: string, a: string, d?: string, b?: string) =>
+    `${at}${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
+
+/** `ref` as it reads at `place`: its line moved with the step, a renamed file's new name. */
+function placedText(ref: Ref, place: Placed, delta: number): string {
+  const t = place.same && delta ? shiftLines(ref.text, delta) : ref.text
+  return place.file === ref.file ? t : t.replace(ref.file, place.file).replace(baseName(ref.file), baseName(place.file))
+}
 
 /**
  * How a ref reads: `env.go:405` (the file's name; the whole path is the link's hover), its line moved with the step,
- * "(moved)" after a renamed file. A gone one is struck out, as written, with why: not a dead link.
+ * "(moved)" after a renamed file. A gone one is struck out, with why: not a dead link. It reads as the place that was
+ * looked for (a renamed file's new name, the line moved with the step): that is what is gone.
  */
 export function label(ref: Ref, place: Placed, delta: number): string {
-  if (place.gone) return `~~${shortPaths(ref.text.replace(/[[\]]/g, ''))}~~ (${place.gone} gone)`
-  let t = place.same && delta ? shiftLines(ref.text, delta) : ref.text
-  if (place.file !== ref.file) t = `${t.replace(ref.file, place.file).replace(baseName(ref.file), baseName(place.file))} (moved)`
-  return shortPaths(t)
+  const t = shortPaths(placedText(ref, place, delta))
+  if (place.gone) return `~~${t.replace(/[[\]]/g, '')}~~ (${place.gone} gone)`
+  return place.file === ref.file ? t : `${t} (moved)`
 }
 
 // ---------- dedupe: what is on screen already ----------
@@ -198,8 +206,8 @@ function bareRefsLine(refs: string[], seen: (r: Ref) => boolean, say: (r: Ref) =
   return bare.filter((r) => !seen(r)).map(say).join(' · ')
 }
 
-/** The explained refs: each sentence as written, its places links; one naming a place on screen is left out. */
+/** The explained refs: each sentence as written, its places links; one whose every place is on screen is left out. */
 function sentenceRefs(refs: string[], seen: (r: Ref) => boolean, links: (t: string) => string): string[] {
-  const shownNone = (sentence: string) => !refsIn(sentence).some(seen)
-  return refs.filter(isSentence).filter(shownNone).map((r) => links(r.trim()))
+  const allShown = (sentence: string) => { const rs = refsIn(sentence); return rs.length > 0 && rs.every(seen) }
+  return refs.filter(isSentence).filter((r) => !allShown(r)).map((r) => links(r.trim()))
 }

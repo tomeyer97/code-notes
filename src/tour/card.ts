@@ -56,8 +56,6 @@ export class StepCard {
   thread: vscode.CommentThread | undefined
   deco!: { at: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
   refDeco: vscode.TextEditorDecorationType | undefined
-  /** Empty note boxes opened by "Ask about this step": what the note will say it is about. */
-  readonly asks = new Map<vscode.CommentThread, { about: string; link: { id: string; step: string; n: number } }>()
   /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
   readonly lensChanged = new vscode.EventEmitter<void>()
 
@@ -246,12 +244,16 @@ export class StepCard {
     const fresh = !this.isThreadAt(uri, line, label)
     if (fresh) {
       if (this.showOnceEditorSettles(lj, n, uri)) return
-      this.thread?.dispose()
-      this.thread = newThread(this.controller, uri, range, [cardComment(this.markdown(lj, n))])
     } else if (settling(this.thread!)) {
       // Made just now (see SETTLE_MS): this update follows once its first state is in the workbench.
       whenSettled(this.thread!, 'card', () => this.showIfStillOn(lj, n))
       return
+    }
+    // Made once per show: it also puts the step's code links and value hints on the code.
+    const body = this.markdown(lj, n)
+    if (fresh) {
+      this.thread?.dispose()
+      this.thread = newThread(this.controller, uri, range, [cardComment(body)])
     }
     const t = this.thread!
     setThread(t, 'canReply', false)
@@ -259,7 +261,6 @@ export class StepCard {
     // The card's first line is "3/14 · <title>": the position once, and the title, since the map may not be
     // in view from the code. A stale step says so in its text.
     setThread(t, 'label', label)
-    const body = this.markdown(lj, n)
     const shownBody = (t.comments[0]?.body as vscode.MarkdownString | undefined)?.value
     if (fresh || shownBody !== body.value) t.comments = [cardComment(body)]
     setThread(t, 'collapsibleState', vscode.CommentThreadCollapsibleState.Expanded)
@@ -315,8 +316,6 @@ export class StepCard {
     this.tour.refHere = undefined
     this.lensChanged.fire()
     for (const e of vscode.window.visibleTextEditors) if (this.refDeco) setDecorations(e, this.refDeco, [])
-    for (const t of this.asks.keys()) t.dispose()
-    this.asks.clear()
     if (!this.deco) return
     for (const e of vscode.window.visibleTextEditors) {
       setDecorations(e, this.deco.at, [])

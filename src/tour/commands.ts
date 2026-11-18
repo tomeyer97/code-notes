@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { beats, codeLinks, gstate, journeys, log, mapPanel, state, valueHints } from '../app'
 import { prefixUsed } from '../chords'
 import { MAP_VIEW } from '../journeys/mapPanel'
-import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
+import { fileOf, journeyById, LoadedJourney, posKey } from '../journeys/steps'
 import { markJourneysSeen } from '../seen'
 import { INTRO_KEY, showIntro } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
@@ -181,9 +181,13 @@ export async function startJourney(arg?: unknown): Promise<void> {
   if (lj) await walk.goToStep(lj, 1)
 }
 
-/** A note asked from a step, or a step lens: to that step (by id; by number when its id is gone). */
-export async function openStepLink(id: string, stepId: string, n: number): Promise<void> {
-  const lj = [...journeys.list.values()].find((x) => x.j.id === id)
+/**
+ * A note asked from a step, or a step lens: to that step (by id; by number when its id is gone). The journey is the
+ * one in `folder`, the workspace folder the link came from (else the active editor's): ids are unique per folder only.
+ */
+export async function openStepLink(id: string, stepId: string, n: number, folder?: string): Promise<void> {
+  const from = folder ?? activeFolder()
+  const lj = journeyById(journeys.list.values(), id, from)
   if (!lj) {
     vscode.window.setStatusBarMessage('$(info) That journey is gone', 3000)
     return
@@ -191,6 +195,12 @@ export async function openStepLink(id: string, stepId: string, n: number): Promi
   const i = lj.j.steps.findIndex((x) => x.id === stepId)
   await openMapIfRoom(lj)
   await walk.goToStep(lj, i >= 0 ? i + 1 : n)
+}
+
+/** The workspace folder of the active editor's file (its uri), if any. */
+function activeFolder(): string | undefined {
+  const uri = vscode.window.activeTextEditor?.document.uri
+  return uri && vscode.workspace.getWorkspaceFolder(uri)?.uri.toString()
 }
 
 /** From a reference's "← Back to step n": the step again (its file, card and lines). */

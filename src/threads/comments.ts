@@ -60,7 +60,7 @@ function withStepLink(n: Note, md: string): string {
   const i = lj && sl.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1
   const back = (title: string) => titledCmdLink(
     `↩ Step ${i >= 0 ? i + 1 : sl.n}${walking ? '' : ` · ${title}`}`, "Open this step on the journey's map",
-    'codeNotes.openStepLink', sl.id, sl.step ?? '', sl.n,
+    'codeNotes.openStepLink', sl.id, sl.step ?? '', sl.n, n.folder.uri.toString(),
   )
   return md.replace(ABOUT_STEP_BY_NUMBER, (_m, _n: string, title: string) => back(title)).replace(ABOUT_STEP_BY_ID, (_m, title: string) => back(title))
 }

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseJourney, Journey } from '../src/journeyModel'
 import { compactOf } from '../src/compact'
-import { LoadedJourney, StepAt, captureStepAnchor, carryPositions, fileOf, isEmptyAnchor, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
+import { LoadedJourney, StepAt, captureStepAnchor, carryPositions, fileOf, isEmptyAnchor, journeyById, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
 import { dirPath, pathIn } from '../src/paths'
 
 const code = ['import x', '', 'function f() {', '  a()', '  x()', '  y()', '  b()', '}', '', 'function g() {}']
@@ -69,4 +69,13 @@ test('placeStep: a step on blank lines stays put, never moves to look-alike blan
   const was: StepAt = { start: 9, end: 9, stale: false }
   assert.deepEqual(placeStep(code, blankStep, was, {}), { start: 9, end: 9, stale: false })
   assert.deepEqual(placeStep(['x', ...code], blankStep, was, {}), { ...was, stale: true }, 'found elsewhere: stale where it was')
+})
+
+test('journeyById: the journey with that id in the folder asked for, else the first with that id', () => {
+  const inFolder = (folder: string, id: string) => ({ folder: { uri: { toString: () => folder } }, j: { id } })
+  const a = inFolder('file:///a', 'demo'), b = inFolder('file:///b', 'demo'), c = inFolder('file:///b', 'other')
+  assert.equal(journeyById([a, b, c], 'demo', 'file:///b'), b)
+  assert.equal(journeyById([a, b, c], 'demo', 'file:///c'), a)
+  assert.equal(journeyById([a, b, c], 'demo'), a)
+  assert.equal(journeyById([a, b, c], 'gone', 'file:///a'), undefined)
 })
