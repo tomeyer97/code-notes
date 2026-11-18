@@ -4,6 +4,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { concernOf, settledConcern } from './concernState'
+import { unsavedIn } from './unsaved'
 import { CommitPlan } from './viewModel'
 import { gitOut } from '../git'
 import { PUSHED_MESSAGE_MS, REPO_FILES } from './constants'
@@ -65,9 +66,8 @@ export class Pusher {
     const changedInGit = async (f: string) => {
       return fs.existsSync(path.join(repo, f)) && !!(await gitOut(repo, ['status', '--porcelain', '--', f], true))
     }
-    // A fix applied and not saved yet counts too (Commit & push saves it first). Here the first open document of the
-    // file decides (unsavedDocument looks for an unsaved one among them).
-    const unsavedInEditor = (f: string) => !!vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(repo, f))?.isDirty
+    // A fix applied and not saved yet counts too (Commit & push saves it first).
+    const unsavedInEditor = (f: string) => !!unsavedDocument(repo, f)
     const files = [st.file]
     for (const f of REPO_FILES) if (await changedInGit(f)) files.push(f)
     const todos: string[] = []
@@ -202,7 +202,7 @@ export class Pusher {
   }
 }
 
-/** The open document of `repo`'s file `f` that has unsaved edits (an applied fix edited again), if any. */
+/** The open document of `repo`'s file `f` that has unsaved edits (an applied fix edited again), if any (unsavedIn). */
 export function unsavedDocument(repo: string, f: string): vscode.TextDocument | undefined {
-  return vscode.workspace.textDocuments.find((d) => d.uri.fsPath === path.join(repo, f) && d.isDirty)
+  return unsavedIn(vscode.workspace.textDocuments, repo, f)
 }
