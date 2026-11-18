@@ -1,13 +1,14 @@
 // The journey panel's home: every journey of the workspace, to find one and walk it (docs/journey-list.md). Search,
 // filter chips, sections, a preview of the selected journey (beside the list when wide, unfolded under its row when
 // narrow). The extension computes the list (src/journeyList.ts) with this home's search, filter and sort; we draw it.
-// Needs common.js. Made by journey-map.js, which draws it in place of the journey while it is in front:
-//   const home = JourneyHome({ app, post(m), render(), walk(key), walking() (a journey is open), busy() (the tutorial) })
+// Needs common.js; styles in journey-home.css. Made by journey-map.js, which draws it in place of the journey while it
+// is in front:
+//   const home = JourneyHome({ app, post(m), render(), walk(key), hasJourney(), isTutorialUp() })
 //   home.on  home.set(on)  home.open()  home.take(tourMessage)  home.preview(m)  home.beforeRender()  home.draw()
-// Out: { type: 'home', on } { type: 'list', query, kind, area, sort?, searchSort? } { type: 'preview', key }
-//      { type: 'refresh', key } { type: 'hereAll' } (and walk(key): journey-map.js posts { type: 'walk', key })
+// What it posts (home, list, preview, refresh, hereAll; walk(key) is journey-map.js's walk) is listed with the panel's
+// other messages: journey-map.js's header, and src/journeys/mapPanel.ts MapMessage, the extension's type.
 ;(function () {
-  const { el, button, runKey } = window.common
+  const { el, button, baseName, runKey, itemAt, rovingKeys } = window.common
 
   /** The orders the list can be sorted in (src/journeyList.ts sorts); `best` only while searching. */
   const SORTS = [
@@ -23,6 +24,22 @@
   const WIDE_HOME = 700
   /** At most this many area chips. */
   const AREA_CHIPS = 8
+  /** Typing in the search waits this long (ms) before the list is asked for (each key would ask again). */
+  const LIST_DEBOUNCE_MS = 90
+
+  /**
+   * Where the keyboard goes back to after a render: the `data-f` of an element (focusNext, beforeRender, draw): a
+   * row, a filter chip, a section's "Show n more", the search, the sort menu, the preview's Walk and Refresh.
+   */
+  const FOCUS = {
+    row: (key) => `row:${key}`,
+    chip: (id) => `chip:${id}`,
+    more: (sectionId) => `more:${sectionId}`,
+    search: 'search',
+    sort: 'sort',
+    walk: 'walk',
+    refresh: 'refresh',
+  }
 
   /** "⚠ Step 4 changed" for a row's tooltip. */
   const staleTip = (r) => {
@@ -51,6 +68,13 @@
     return x
   }
 
+  /** The preview's button: back to where the walk is, on from where it was left, or from the start. */
+  function walkLabel(r) {
+    if (r.walking) return `Back to step ${r.resume}`
+    if (r.resume > 1) return `Resume at ${r.resume}`
+    return 'Walk'
+  }
+
   window.JourneyHome = function (host) {
     const { app, post } = host
 
@@ -64,7 +88,7 @@
     /** The query and filter chip, sent to the extension, which answers with a new model. */
     const hq = { query: '', kind: 'all', area: '' }
     /** The selected row (previewed); the row unfolded in a narrow panel; journeys fetched for the preview (+ their
-     *  stale steps). */
+     *  stale steps: [{ n, when }]). */
     let sel = ''
     let unfolded = ''
     const previews = {}
@@ -72,20 +96,27 @@
     /** The search box: one, kept across renders (it keeps the caret). */
     let searchEl
     let listTimer = 0
-    /** The keyboard goes here after the next render (`data-f` of an element: "row:<key>", "chip:<id>", "search"). */
+    /** The keyboard goes here after the next render (a FOCUS name). */
     let focusNext = ''
     /** The list just came to the front: the keyboard into the search. */
     let focusSearch = false
     /** Where the keyboard was when the render began (beforeRender). */
     let was = { search: false, caret: 0, f: '' }
 
-    const sendList = (extra) => {
+    /** Asks the extension for the list with this query and filter (and `extra`, e.g. a sort): at once with `extra`,
+     *  else once typing pauses. */
+    function sendList(extra) {
       clearTimeout(listTimer)
-      listTimer = setTimeout(() => post({ type: 'list', ...hq, ...(extra || {}) }), extra ? 0 : 90)
+      const send = () => post({ type: 'list', ...hq, ...(extra || {}) })
+      listTimer = setTimeout(send, extra ? 0 : LIST_DEBOUNCE_MS)
     }
     /** Visible keys in order (the keyboard moves through these). */
     const keysShown = () => (model ? [...new Set(model.sections.flatMap((s) => s.keys))] : [])
-    const fetchPreview = (k) => { const r = model && model.rows[k]; if (r && !previews[k]) post({ type: 'preview', key: k }) }
+    /** Asks for journey `k` for its preview, unless it is here already (or not in the list). */
+    function fetchPreview(k) {
+      const r = model && model.rows[k]
+      if (r && !previews[k]) post({ type: 'preview', key: k })
+    }
 
     function set(v) {
       if (on === v) return
@@ -99,7 +130,7 @@
       sel = k
       if (unfold) unfolded = k
       fetchPreview(k)
-      if (focus) focusNext = `row:${k}`
+      if (focus) focusNext = FOCUS.row(k)
       host.render()
     }
 
@@ -115,13 +146,13 @@
         const pressed = hq.area === id
         const b = el('button', `chip${pressed ? ' on' : ''}`, label)
         b.setAttribute('aria-pressed', String(pressed))
-        b.dataset.f = `chip:${id}`
+        b.dataset.f = FOCUS.chip(id)
         if (title) b.title = title
-        b.onclick = () => { hq.area = pressed ? '' : id; focusNext = `chip:${id}`; sendList({}) }
+        b.onclick = () => { hq.area = pressed ? '' : id; focusNext = FOCUS.chip(id); sendList({}) }
         chips.push(b)
         bar.append(b)
       }
-      if (m.file) chip('here', `In ${m.file.split('/').pop()}`, m.file)
+      if (m.file) chip('here', `In ${baseName(m.file)}`, m.file)
       if (m.staleCount) chip('stale', `Stale ${m.staleCount}`, 'Journeys whose code changed since they were written')
       for (const a of m.areas.slice(0, AREA_CHIPS)) chip(a.name, a.name, `${a.count} in ${a.name}`)
       const tab = chips.find((b) => b.classList.contains('on')) || chips[0]
@@ -129,12 +160,12 @@
       bar.addEventListener('keydown', (e) => {
         const i = chips.indexOf(document.activeElement)
         if (i < 0) return
-        const to = (j) => () => {
-          const t = chips[Math.max(0, Math.min(chips.length - 1, j))]
+        // The chip moved to is the bar's one Tab stop.
+        const moveTo = (t) => {
           for (const b of chips) b.tabIndex = b === t ? 0 : -1
           t.focus()
         }
-        runKey(e, { ArrowRight: to(i + 1), ArrowLeft: to(i - 1), Home: to(0), End: to(chips.length - 1) }, true)
+        rovingKeys(e, chips, i, { prev: 'ArrowLeft', next: 'ArrowRight' }, moveTo, true)
       })
       bar.append(sortMenu(m))
       if (!chips.length) bar.removeAttribute('role')
@@ -145,7 +176,7 @@
     function sortMenu(m) {
       const menu = el('select', 'hsort')
       menu.setAttribute('aria-label', 'Sort')
-      menu.dataset.f = 'sort'
+      menu.dataset.f = FOCUS.sort
       const searching = !!m.query
       const current = searching ? m.searchSort || 'best' : m.sort
       for (const [id, label] of SORTS) {
@@ -156,7 +187,7 @@
         menu.append(o)
       }
       menu.onchange = () => {
-        focusNext = 'sort'
+        focusNext = FOCUS.sort
         if (searching) { hq.searchSort = menu.value; sendList({}) }
         else sendList({ sort: menu.value })
       }
@@ -170,7 +201,7 @@
         searchEl.type = 'search'
         searchEl.placeholder = 'Search journeys'
         searchEl.setAttribute('aria-label', 'Search journeys (/)')
-        searchEl.dataset.f = 'search'
+        searchEl.dataset.f = FOCUS.search
         searchEl.addEventListener('input', () => { hq.query = searchEl.value; sendList() })
       }
       if (searchEl.value !== hq.query) searchEl.value = hq.query
@@ -206,7 +237,7 @@
         listEl.append(ul)
         if (sec.more) {
           const more = button('link hmore', `Show ${sec.more} more`, () => post({ type: 'hereAll' }))
-          more.dataset.f = `more:${sec.id}`
+          more.dataset.f = FOCUS.more(sec.id)
           listEl.append(more)
         }
       }
@@ -221,7 +252,7 @@
     function homeRow(r, k, sec) {
       const b = el('button', `jrow${k === sel ? ' sel' : ''}${r.here ? ' here' : ''}`)
       b.dataset.key = k
-      b.dataset.f = `row:${k}`
+      b.dataset.f = FOCUS.row(k)
       b.tabIndex = k === sel ? 0 : -1
       b.setAttribute('aria-selected', String(k === sel))
       const t = el('span', 'jtop')
@@ -245,38 +276,56 @@
       return b
     }
 
+    /** Row `r`'s stale steps: step number → when its code changed ('' until the preview's journey says). */
+    function staleSteps(r) {
+      const when = new Map((staleOf[r.key] || []).map((s) => [s.n, s.when]))
+      return new Map((r.staleSteps || []).map((n) => [n, when.get(n) || '']))
+    }
+
     /** What a row holds: its question (wide), its steps with the stale ones marked, Walk / Resume, Refresh. */
     function previewEl(r, wide) {
       const p = el(wide ? 'aside' : 'div', wide ? 'hprev' : 'hunfold')
-      if (wide) { p.append(el('h2', 'pt', r.title)); if (r.question) p.append(el('p', 'pq', r.question)) }
-      const stale = new Set(r.staleSteps || [])
-      const when = {}
-      for (const s of staleOf[r.key] || []) when[s.n] = s.when
+      if (wide) {
+        p.append(el('h2', 'pt', r.title))
+        if (r.question) p.append(el('p', 'pq', r.question))
+      }
+      const stale = staleSteps(r)
       const max = wide ? PREVIEW_STEPS_WIDE : PREVIEW_STEPS_NARROW
       const ol = el('ol', 'psteps')
       r.stepTitles.forEach((t, i) => {
-        if (i >= max && !stale.has(i + 1)) return
-        const li = el('li', stale.has(i + 1) ? 'stale' : '', t)
-        li.value = i + 1
-        if (stale.has(i + 1)) li.append(el('span', 'pwhen', `⚠ changed${when[i + 1] ? ` · ${when[i + 1]}` : ''}`))
+        const n = i + 1
+        if (i >= max && !stale.has(n)) return
+        const li = el('li', stale.has(n) ? 'stale' : '', t)
+        li.value = n
+        if (stale.has(n)) {
+          const when = stale.get(n)
+          li.append(el('span', 'pwhen', `⚠ changed${when ? ` · ${when}` : ''}`))
+        }
         ol.append(li)
       })
       if (r.stepTitles.length > max) ol.append(el('li', 'more', `+${r.stepTitles.length - max} more`))
       p.append(ol)
-      if (stale.size && stale.size < r.steps) p.append(el('p', 'pnote', `The other ${r.steps - stale.size} still match the code.`))
+      if (stale.size && stale.size < r.steps) {
+        p.append(el('p', 'pnote', `The other ${r.steps - stale.size} still match the code.`))
+      }
+      p.append(previewActions(r, stale.size > 0))
+      return p
+    }
+
+    /** Walk (or Resume, Back to step n); Refresh when steps are stale. */
+    function previewActions(r, hasStale) {
       const acts = el('div', 'pacts')
-      const go = button('walkb', r.walking ? `Back to step ${r.resume}` : r.resume > 1 ? `Resume at ${r.resume}` : 'Walk', () => host.walk(r.key))
-      go.dataset.f = 'walk'
+      const go = button('walkb', walkLabel(r), () => host.walk(r.key))
+      go.dataset.f = FOCUS.walk
       acts.append(go)
-      if (stale.size) {
+      if (hasStale) {
         const rf = button('link refreshb', r.refreshing ? 'Refreshing…' : 'Refresh', () => post({ type: 'refresh', key: r.key }))
         rf.disabled = !!r.refreshing
         rf.title = 'The agent updates the stale steps of this journey (nothing else)'
-        rf.dataset.f = 'refresh'
+        rf.dataset.f = FOCUS.refresh
         acts.append(rf)
       }
-      p.append(acts)
-      return p
+      return acts
     }
 
     // ---------- the keyboard ----------
@@ -284,7 +333,7 @@
     // into them, ↑ from the first back to it); Home End on a row; → unfolds the selected row; Enter walks it.
 
     document.addEventListener('keydown', (e) => {
-      if (!on || host.busy()) return
+      if (!on || host.isTutorialUp()) return
       const t = e.target
       const inSearch = t === searchEl
       const onRow = !!(t && t.classList && t.classList.contains('jrow'))
@@ -295,7 +344,7 @@
       const move = (d) => () => {
         if (inSearch) { if (d > 0) select(sel || keys[0], true); return }
         if (d < 0 && i <= 0 && searchEl) { searchEl.focus(); return }
-        select(keys[Math.max(0, Math.min(keys.length - 1, i + d))], true)
+        select(itemAt(keys, i + d), true)
       }
       runKey(e, {
         '/': !inSearch && (() => { if (searchEl) searchEl.focus() }),
@@ -304,9 +353,9 @@
             hq.query = ''
             delete hq.searchSort
             if (searchEl) searchEl.value = ''
-            focusNext = 'search'
+            focusNext = FOCUS.search
             sendList({})
-          } else if (host.walking()) { set(false); host.render() }
+          } else if (host.hasJourney()) { set(false); host.render() }
         },
         ArrowDown: (inSearch || onRow || onPage) && move(1),
         ArrowUp: (inSearch || onRow || onPage) && move(-1),
@@ -317,7 +366,7 @@
           if (!sel) return
           unfolded = sel
           fetchPreview(sel)
-          focusNext = `row:${sel}`
+          focusNext = FOCUS.row(sel)
           host.render()
         }),
         // Enter on another button or the sort menu is its own.
@@ -359,12 +408,12 @@
       /** The home in the (emptied) panel; the keyboard back where it was: a row, a chip, the search (and its caret). */
       draw() {
         app.append(homeView())
-        const back = was.f && was.f !== 'search' && [...app.querySelectorAll('[data-f]')].find((x) => x.dataset.f === was.f)
+        const back = was.f && was.f !== FOCUS.search && [...app.querySelectorAll('[data-f]')].find((x) => x.dataset.f === was.f)
         if (back) {
           back.focus({ preventScroll: true })
           back.scrollIntoView({ block: 'nearest' })
           focusSearch = false
-        } else if (was.search || focusSearch || was.f === 'search') {
+        } else if (was.search || focusSearch || was.f === FOCUS.search) {
           searchEl.focus()
           if (was.search) searchEl.setSelectionRange(was.caret, was.caret)
           focusSearch = false

@@ -2,7 +2,7 @@
 // journey), far names when zoomed out, pan (drag, wheel), zoom (Ctrl+wheel, + − Fit, keys), and it follows the step:
 // the current step's box centred at a readable zoom, ringed. Function boxes carry their step numbers.
 // Needs common.js and journey-layout.js, loaded before it.
-// API: const g = JourneyGraph({ goStep(n), open(path), quiet (true: the tutorial is up, nothing moves), legend(hidden), rendered(boxes), view(node), error(message) })
+// API: const g = JourneyGraph({ goStep(n), open(path), isTutorialUp() (nothing moves, nothing opens), legend(hidden), rendered(boxes), view(node), error(message) })
 //      g.el (the viewport, re-appended on every render)  g.set(J, cur, legendHidden)  g.follow(animate)  g.resized
 ;(function () {
   const { el, svgEl, runKey } = window.common
@@ -75,7 +75,7 @@
         const t = titleEl(n)
         t.title = [n.label, plain(n.blurb || n.summary)].filter(Boolean).join('\n')
         d.append(t)
-        d.onclick = (e) => { if (e.target.closest('.gnum')) return; e.stopPropagation(); if (!host.quiet()) fitBox(n.id) }
+        d.onclick = (e) => { if (e.target.closest('.gnum')) return; e.stopPropagation(); if (!host.isTutorialUp()) fitBox(n.id) }
         world.append(d)
         nodeEls.set(n.id, d)
       }
@@ -99,7 +99,7 @@
         if (!target) d.classList.add('inert')
         d.onclick = (e) => {
           e.stopPropagation()
-          if (host.quiet()) return
+          if (host.isTutorialUp()) return
           const b = e.target.closest('.gnum')
           if (b) return host.goStep(Number(b.dataset.n))
           if (target) host.open(target)
@@ -134,7 +134,7 @@
             b.tabIndex = -1
             const st = J.steps[v - 1]
             if (st) b.title = `Step ${st.n}: ${st.title}`
-            b.onclick = (e) => { e.stopPropagation(); if (!host.quiet()) host.goStep(v) }
+            b.onclick = (e) => { e.stopPropagation(); if (!host.isTutorialUp()) host.goStep(v) }
             s.append(b)
           }
           t.append(s)
@@ -385,7 +385,7 @@
      * fits at READ or more; centred on the neighbourhood, the box itself always fully in view.
      */
     function follow(animate) {
-      if (!L || !J || host.quiet()) return
+      if (!L || !J || host.isTutorialUp()) return
       const node = cur ? J.steps[cur - 1]?.node : undefined
       followed = cur
       host.view(node && L.abs.get(node) ? node : '')
@@ -498,7 +498,7 @@
     /** How far an arrow key pans (px). */
     const PAN_STEP = 60
     view.addEventListener('keydown', (e) => {
-      if (host.quiet() || e.ctrlKey || e.altKey || e.metaKey) return
+      if (host.isTutorialUp() || e.ctrlKey || e.altKey || e.metaKey) return
       runKey(e, {
         '+': () => zoomBy(1.25),
         '=': () => zoomBy(1.25),

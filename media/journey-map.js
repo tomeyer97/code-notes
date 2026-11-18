@@ -1,5 +1,6 @@
 // The journey panel (a webview). Plain DOM + SVG. Needs common.js, journeyModel.js (as `exports`), ELK,
-// journey-layout.js, journey-graph.js, journey-scene.js and journey-home.js, loaded before it.
+// journey-layout.js, journey-graph.js, journey-scene.js, journey-home.js, journey-splitter.js and journey-tutorial.js,
+// loaded before it.
 // Layout (0.21): "‹ Journeys" (home: every journey, one click walks it), the question, one provenance line, then the
 // storyline with the map beside it (wide) or above it (narrow, collapsible under "Map"). The map is the whole journey
 // at once (journey-graph.js): pan, zoom, it follows the step; boxes open their code, step numbers walk to the step.
@@ -75,10 +76,8 @@
   let legendHidden = false
   /** Narrow panels: the map above the storyline, folded away under "Map" by hand (0.20: shown by default). */
   let mapShut = !!saved.mapShut
-  /** The map column's width when wide, dragged on the splitter (0.21.1); 0: the default. Kept here and by the extension. */
+  /** The map column's width when wide, dragged on the splitter; 0: the default. Kept here and by the extension. */
   let mapW = saved.mapW || 0
-  /** The splitter is being dragged (a tour message doesn't move it meanwhile). */
-  let dragging = false
   /** The next render starts at the top. */
   let toTop = false
   /** The scroll to restore once after a reload (the first render). */
@@ -97,26 +96,25 @@
   /** The next render puts the keyboard focus in the scene (it was started: ← → work at once). */
   let focusScene = false
 
-  // The tutorial.
-  /** The bar is offered ("New here?"); the card shown (0: none). */
-  let offer = false
-  let tcard = 0
-  /** The bar was dropped in this panel (skipped, or the walk got going): never offered again here. */
-  let offerGone = false
-  /** Steps walked since the bar was offered (at two it goes). */
-  let offerSteps = 0
-  /** The tutorial's elements on the page: the ring, the card, the dim. */
-  let spot, tc, dim
-
-  // Waiting (startup, at the end): the size last rendered and the frame a re-layout waits for; the scroll saved and
-  // the panel's width reported once things settle.
-  let renderedSize = ''
+  // Waiting (startup, at the end): the size last rendered ({ w, h }) and the frame a re-layout waits for; the scroll
+  // saved and the panel's width reported once things settle.
+  let renderedSize
   let relayoutFrame = 0
   let scrollTimer = 0
   let widthTimer = 0
+  /** The scroll is saved, and the panel's width reported, once it has not changed for this long (ms). */
+  const SCROLL_SAVE_MS = 300, WIDTH_REPORT_MS = 500
 
-  const saveState = () => vscode.setState({ id: J && J.id, q: J && J.question, cur, n: J ? J.steps.length : 0, scroll: window.scrollY, mapShut, mapW, animOn })
-  const sceneOf = (n) => { const s = J && J.steps[n - 1]; return s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length ? s.scene : undefined }
+  function saveState() {
+    const n = J ? J.steps.length : 0
+    vscode.setState({ id: J && J.id, q: J && J.question, cur, n, scroll: window.scrollY, mapShut, mapW, animOn })
+  }
+  /** Step `n`'s animation, when it has one with beats. */
+  function sceneOf(n) {
+    const s = J && J.steps[n - 1]
+    const ok = s && s.scene && Array.isArray(s.scene.beats) && s.scene.beats.length
+    return ok ? s.scene : undefined
+  }
 
   // ---------- markdown: the little a journey's text uses, as HTML (escaped first, then marked up) ----------
 
@@ -170,11 +168,11 @@
       render()
     },
     tour(m) { tour(m); render() },
-    home() { tcard = 0; setHome(true); render() },
+    home() { tutorial.close(); setHome(true); render() },
     hello() { post({ type: 'ready' }) },
     preview(m) { home.preview(m) },
-    deleted(m) { deleted = m.file || 'the file'; tcard = 0; offer = false; render() },
-    tutorial() { startTutorial() },
+    deleted(m) { deleted = m.file || 'the file'; tutorial.close(); tutorial.hideOffer(); render() },
+    tutorial() { tutorial.start() },
     // Ctrl+' P toggles the current step's animation; 'off' ends it.
     anim(m) {
       if (m.action === 'toggle') toggleAnim()
@@ -197,25 +195,22 @@
     const N = J ? J.steps.length : 0
     const was = cur
     cur = Math.min(m.current || 0, N)
+    const moved = !!cur && cur !== was
     // A step opened (D, a click in the code): the journey, not the list. The walk ended: back to the top.
-    if (cur && cur !== was) setHome(false)
+    if (moved) setHome(false)
     if (!cur && was) { toTop = true; scrolled = ''; beatAt = {}; animOn = false }
-    // The "New here?" bar goes once the walk is under way: two steps on, as if skipped.
-    if (cur && cur !== was && offer && ++offerSteps >= 2) dropOffer()
     T = tourOf(m, cur)
     legendHidden = !!m.legendHidden
-    if (!dragging) mapW = m.mapWidth || 0
+    if (!splitter.dragging) mapW = m.mapWidth || 0
     if (m.key) KEY = m.key
     home.take(m)
-    if (m.tutorial && !offer && !tcard && !offerGone) { offer = true; offerSteps = 0; post({ type: 'tutorial', action: 'bar' }) }
-    if (!m.tutorial) offer = false
+    // The "New here?" bar: offered, or gone once the walk is under way.
+    tutorial.onTour(!!m.tutorial, moved)
   }
 
   function goStep(n) {
-    // The tutorial is a sandbox: a step clicked on card 3 moves the tutorial on, not your place in the journey.
-    // Card 3 says "click one to see its code": it does, and the tutorial goes on.
-    // The tutorial is a sandbox: no tour starts under it.
-    if (tcard) return
+    // The tutorial is a sandbox: a step clicked under it moves the tutorial on, not your place in the journey.
+    if (tutorial.card) return
     if (!deleted && n >= 1 && n <= J.steps.length) post({ type: 'step', n })
   }
 
@@ -232,11 +227,15 @@
     h.append(hb)
     top.append(q, stepControls())
     h.append(top)
-    if (J.title && J.question && J.question.toLowerCase() !== J.title.toLowerCase()) { const sq = el('p', 'qsub', J.question); sq.title = J.question; h.append(sq) }
+    if (J.title && J.question && J.question.toLowerCase() !== J.title.toLowerCase()) {
+      const sq = el('p', 'qsub', J.question)
+      sq.title = J.question
+      h.append(sq)
+    }
     if (deleted) {
       // "Deleted · Restore": the tab closes like any tab, the picker is a command.
       const g = el('p', 'gone', 'Deleted')
-      const r = el('button', 'link restore', 'Restore'); r.onclick = () => post({ type: 'restore' })
+      const r = button('link restore', 'Restore', () => post({ type: 'restore' }))
       g.append(el('span', 'sep', ' · '), r)
       h.append(g)
       return h
@@ -248,15 +247,19 @@
       const p = el('p', 'prov', prov.text || '')
       if (prov.tip) p.title = prov.tip
       // "out of date", not "changed since" (since what?); the tooltip says what happened.
-      if (prov.changed) { const c = el('span', 'changed', `${prov.text ? ' · ' : ''}⚠ ${prov.changed} step${prov.changed === 1 ? '' : 's'} out of date`); c.title = 'The code changed after this journey was written'; p.append(c) }
+      if (prov.changed) {
+        const steps = `${prov.changed} step${prov.changed === 1 ? '' : 's'}`
+        const c = el('span', 'changed', `${prov.text ? ' · ' : ''}⚠ ${steps} out of date`)
+        c.title = 'The code changed after this journey was written'
+        p.append(c)
+      }
       h.append(p)
     }
     if (T.problems.length) h.append(problemLine())
     return h
   }
 
-  /** One short line when the journey can't be read or breaks the rules; the list on demand. */
-  /** Readers see only what affects reading: the file can't be read now. */
+  /** One short line when the journey can't be read (readers see only what affects reading); the list on hover. */
   function problemLine() {
     const d = el('div', 'problems')
     const b = el('span', 'plink', `⚠ ${T.problems[0]} `)
@@ -315,7 +318,7 @@
       li.append(b)
       // The animation's toggle, on the current row only and in words (a ▶ on every row read as "run the test");
       // while it plays the scene beside the row is the state, and its Map (or Esc) ends it.
-      if (scene && s.n === cur && sceneOf(s.n) && !(animOn && !tcard)) {
+      if (scene && s.n === cur && sceneOf(s.n) && !(animOn && !tutorial.card)) {
         const a = el('button', 'animbtn', 'Show animation')
         a.title = `Play this step as an animation (${KEY} P)`
         a.onclick = () => toggleAnim()
@@ -344,7 +347,7 @@
     b.title = `Question ${q.n}: ${q.text}`
     b.setAttribute('aria-label', `Question ${q.n}${st.answered ? ', answered' : ''}: ${q.text}`)
     if (q.cur) b.setAttribute('aria-current', 'step')
-    b.onclick = () => { if (!tcard && !deleted) post({ type: 'checkpoint', id: q.id }) }
+    b.onclick = () => { if (!tutorial.card && !deleted) post({ type: 'checkpoint', id: q.id }) }
     li.append(b)
     return li
   }
@@ -396,12 +399,12 @@
     return nav
   }
 
-  // ---------- the map (0.21): the whole journey at once, panned and zoomed (journey-graph.js) ----------
+  // ---------- the map: the whole journey at once, panned and zoomed (journey-graph.js) ----------
 
   const graph = window.JourneyGraph({
-    goStep: (n) => goStep(n),
+    goStep,
     open: (path) => post({ type: 'openPath', path }),
-    quiet: () => !!tcard,
+    isTutorialUp: () => !!tutorial.card,
     legend: (hidden) => { legendHidden = hidden; post({ type: 'legend', hidden }) },
     rendered: (boxes) => post({ type: 'rendered', boxes }),
     view: (node) => post({ type: 'view', node }),
@@ -417,9 +420,9 @@
   }) : undefined
   /** The current step's animation on or off: the row's toggle, the scene's Map and Esc, Ctrl+' P. */
   function toggleAnim() {
-    if (!scene || !J || !cur || !sceneOf(cur) || tcard || deleted || home.on) return
+    if (!scene || !J || !cur || !sceneOf(cur) || tutorial.card || deleted || home.on) return
     animOn = !animOn
-    if (animOn) { focusScene = true; dropOffer() }
+    if (animOn) { focusScene = true; tutorial.dropOffer() }
     render()
     // Off: the keyboard stays on the row's toggle, where it can start it again.
     if (!animOn) app.querySelector('.animbtn')?.focus({ preventScroll: true })
@@ -452,83 +455,27 @@
   const home = window.JourneyHome({
     app,
     post,
-    render: () => render(),
-    walk: (k) => walkKey(k),
-    walking: () => !!J,
-    busy: () => !!tcard,
+    render,
+    walk: walkKey,
+    hasJourney: () => !!J,
+    isTutorialUp: () => !!tutorial.card,
   })
   const setHome = (on) => home.set(on)
-  function goHome() { if (!tcard) home.open() }
+  function goHome() { if (!tutorial.card) home.open() }
   function walkKey(k) { if (!k) return; setHome(false); toTop = true; post({ type: 'walk', key: k }); render() }
 
-  // ---------- the splitter (0.21.1): the map column's width, dragged (wide panels only) ----------
+  // ---------- the tutorial: a few cards on the real panel (journey-tutorial.js) ----------
 
-  /** The map column and the storyline beside it are at least this wide (px); a panel narrower than MAPMIN shows no map. */
-  const MAPMIN = 240, STORYMIN = 280
-  /** While the animation plays its column is at least SCENEMIN wide (Q6a: its text ≥ 11 px), still beside the
-   *  storyline, which may narrow to STORYANIM. */
-  const SCENEMIN = 400, STORYANIM = 160
-  /** The splitter's column with the gaps beside it (13 + 2 × 4 px), and the panel's padding (16 px each side). */
-  const SPLITTER_W = 21, GUTTER = 32
-  /** The map goes beside the storyline from this panel width (no animation playing). */
-  const WIDE_MIN = 520
-  /** How far ← → move the splitter (px). */
-  const SPLITTER_STEP = 24
-  const animating = (body) => body.classList.contains('anim')
-  const minW = (body) => (animating(body) ? SCENEMIN : MAPMIN)
-  /** The widest the map may be in this body: the storyline keeps STORYMIN. */
-  const maxW = (body) => Math.max(minW(body), body.clientWidth - (animating(body) ? STORYANIM : STORYMIN) - SPLITTER_W)
-  /** Sets the map column to `w` px (0: the default), clamped; the map keeps its step in view. */
-  function widthTo(body, w) {
-    if (!w && animating(body)) w = Math.max(SCENEMIN, body.clientWidth * 0.54)
-    if (w) body.style.setProperty('--mapw', `${Math.round(Math.max(minW(body), Math.min(maxW(body), w)))}px`)
-    else body.style.removeProperty('--mapw')
-    const sp = body.querySelector('.splitter')
-    if (sp) sp.setAttribute('aria-valuenow', String(Math.round(app.querySelector('.mapwrap')?.offsetWidth || 0)))
-  }
-  const shownW = () => app.querySelector('.mapwrap')?.offsetWidth || 0
+  const tutorial = window.JourneyTutorial({ app, post, render, journey: () => J, isDeleted: () => !!deleted })
+
+  // ---------- the splitter: the map column's width (journey-splitter.js) ----------
+
+  const splitter = window.JourneySplitter(app, { onResize: () => graph.resized(), onKeep: keepWidth })
   /** The width chosen: remembered here and by the extension (every panel, every journey); 0 resets to the default. */
-  function keepW(w) { mapW = w; saveState(); post({ type: 'mapWidth', w }) }
-  function splitter(body) {
-    const s = el('div', 'splitter')
-    s.tabIndex = 0
-    s.setAttribute('role', 'separator')
-    s.setAttribute('aria-orientation', 'vertical')
-    s.setAttribute('aria-label', 'Map width')
-    s.title = 'Drag to resize the map (double-click: default)'
-    let x0 = 0, w0 = 0
-    s.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      dragging = true
-      x0 = e.clientX
-      w0 = shownW()
-      s.setPointerCapture(e.pointerId)
-      document.body.classList.add('resizing')
-    })
-    s.addEventListener('pointermove', (e) => {
-      if (!dragging) return
-      widthTo(body, w0 + (x0 - e.clientX))
-      graph.resized()
-    })
-    const release = () => {
-      if (!dragging) return
-      dragging = false
-      document.body.classList.remove('resizing')
-      keepW(shownW())
-    }
-    s.addEventListener('pointerup', release)
-    s.addEventListener('pointercancel', release)
-    s.addEventListener('dblclick', () => { widthTo(body, 0); graph.resized(); keepW(0) })
-    s.addEventListener('keydown', (e) => {
-      const by = (d) => () => {
-        widthTo(body, shownW() + d)
-        graph.resized()
-        keepW(shownW())
-      }
-      runKey(e, { ArrowLeft: by(SPLITTER_STEP), ArrowRight: by(-SPLITTER_STEP) })
-    })
-    return s
+  function keepWidth(w) {
+    mapW = w
+    saveState()
+    post({ type: 'mapWidth', w })
   }
 
   // ---------- render: the whole panel again from the state ----------
@@ -539,7 +486,7 @@
     app.textContent = ''
     app.classList.toggle('deleted', !!deleted)
     if (home.on) { home.draw(); saveState(); return }
-    if (offer && !tcard && !deleted) app.append(tutorialBar())
+    if (tutorial.offered && !tutorial.card && !deleted) app.append(tutorial.bar())
     const head = el('div', 'head')
     head.append(header())
     app.append(head)
@@ -555,9 +502,9 @@
     if (L.wide) {
       body.classList.add('wide')
       body.classList.toggle('anim', L.anim)
-      body.append(story, ...(m ? [splitter(body), m] : []))
+      body.append(story, ...(m ? [splitter.el(body), m] : []))
     } else {
-      if (L.hasMap && J.steps.length && !tcard && !L.anim) body.append(mapToggle(L.shown))
+      if (L.hasMap && J.steps.length && !tutorial.card && !L.anim) body.append(mapToggle(L.shown))
       body.append(...(m ? [m] : []), story)
     }
     app.append(body)
@@ -581,15 +528,16 @@
   /** What goes where at this panel's width: { wide: the map beside the storyline (else above it), hasMap: room for
    *  boxes, anim: the step's animation in place of the map, shown: the map (or the animation) is on screen }. */
   function chooseLayout() {
+    const tutorialUp = !!tutorial.card
     // The step's animation is on (and nothing else is in front).
-    const animOnStep = !!scene && animOn && !!cur && !!sceneOf(cur) && !tcard && !deleted
-    // Beside the storyline when both fit: the scene SCENEMIN wide, the storyline STORYANIM (Q6a); else above it.
-    const wide = app.clientWidth >= (animOnStep ? SCENEMIN + STORYANIM + SPLITTER_W + GUTTER : WIDE_MIN)
-    const tooNarrow = app.clientWidth < MAPMIN && !tcard
+    const animOnStep = !!scene && animOn && !!cur && !!sceneOf(cur) && !tutorialUp && !deleted
+    // Beside the storyline when both fit (journey-splitter.js has the widths); else above it.
+    const wide = window.JourneySplitter.besideFits(app.clientWidth, animOnStep)
+    const tooNarrow = !window.JourneySplitter.mapFits(app.clientWidth) && !tutorialUp
     const hasMap = !tooNarrow
     const anim = animOnStep && hasMap
     // Narrow: folded under "Map" by hand, but never while the tutorial points at it, with no steps, or animating.
-    const shown = hasMap && (wide || !mapShut || !!tcard || !J.steps.length || anim)
+    const shown = hasMap && (wide || !mapShut || tutorialUp || !J.steps.length || anim)
     return { wide, hasMap, anim, shown }
   }
 
@@ -605,7 +553,7 @@
   /** Once the panel is in the page: the map column's width, the header's height, the map (or the scene) placed, the
    *  scroll back, the current row in view, the reports, the tutorial. */
   function afterRender(body, head, m, L, keepY) {
-    if (L.wide && m) widthTo(body, mapW)
+    if (L.wide && m) splitter.widthTo(body, mapW)
     const headH = head.offsetHeight
     document.documentElement.style.setProperty('--headH', `${headH}px`)
     graph.set(J, cur, legendHidden)
@@ -616,7 +564,7 @@
     follow()
     reportStory()
     saveState()
-    placeTutorial()
+    tutorial.place()
   }
 
   /** What the storyline shows (for tests): its rows, the questions between them, anything cut or wider than the panel. */
@@ -648,222 +596,29 @@
 
   /** Once per step change: the current storyline row in view under the sticky header (the map follows on its own). */
   function follow() {
-    if (tcard) return
+    if (tutorial.card) return
     const at = T.stops.find((q) => q.cur)
     const k = `${cur}|${at ? at.id : ''}`
     if (!cur || k === scrolled) return
     scrolled = k
     const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--headH')) || 0
-    const into = (r) => { if (r.top < top + 4 || r.bottom > window.innerHeight - 4) window.scrollBy(0, r.top < top + 4 || r.height > window.innerHeight - top ? r.top - top - 12 : r.bottom - window.innerHeight + 16) }
     const row = app.querySelector('.story .st.cur, .story .cp.cur')
-    if (row) into(row.getBoundingClientRect())
+    if (row) scrollRowIntoView(row.getBoundingClientRect(), top)
   }
 
-  // ---------- the tutorial: two cards on the real map (the storyline with the keys, the map) ----------
-
-  function dropOffer() {
-    if (!offer) return
-    offer = false
-    offerGone = true
-    post({ type: 'tutorial', action: 'skip' })
+  /** A row closer than this (px) to the sticky header or the window's bottom is scrolled into view. */
+  const ROW_MARGIN = 4
+  /** Where a row scrolled into view lands: this far (px) under the header, or above the window's bottom. */
+  const ROW_TOP_GAP = 12, ROW_BOTTOM_GAP = 16
+  /** Scrolls the page so row rectangle `r` (viewport px) is in view under the header (its bottom at `top`): at the
+   *  top when it was above or is taller than the room, else just up from the bottom. */
+  function scrollRowIntoView(r, top) {
+    const H = window.innerHeight
+    const above = r.top < top + ROW_MARGIN
+    if (!above && r.bottom <= H - ROW_MARGIN) return
+    const atTop = above || r.height > H - top
+    window.scrollBy(0, atTop ? r.top - top - ROW_TOP_GAP : r.bottom - H + ROW_BOTTOM_GAP)
   }
-  function tutorialBar() {
-    const b = el('div', 'tbar')
-    b.append(el('span', 'tq', 'New here?'))
-    const go = el('button', 'link tstart', 'Show me how')
-    go.onclick = () => startTutorial()
-    const skip = el('button', 'link tskip', 'Skip')
-    skip.onclick = () => { dropOffer(); render() }
-    b.append(go, el('span', 'sep', '·'), skip)
-    return b
-  }
-
-  function startTutorial() {
-    if (!J || deleted) return
-    offer = false
-    tcard = 1
-    render()
-    // The first card that has something to point at.
-    if (cards()[0].skip) tutorialMove(1)
-    else post({ type: 'tutorial', action: 'card', card: 1, editor: cards()[0].editor || false })
-  }
-
-  /** The cards: what each one points at, and what it says. A card with nothing to point at is skipped. */
-  function cards() {
-    // One thing per card (the first card was far too wordy): the storyline, the card in the editor, its linked
-    // phrases and the animation (where the journey has them), the map. The two about the card are shown in the editor itself. Plain sentences. What only some journeys have (animations, tinted phrases) is said only there.
-    const anims = J.steps.some((x) => x.scene), tints = J.steps.some((x) => x.links && x.links.length)
-    const story = () => app.querySelector('.story')
-    // the storyline leads; the map beside it.
-    return [
-      { target: story, text: 'The steps, in the order things happen. Click one to see its code.', skip: !J.steps.length },
-      // The card is in the editor: the extension opens a step there and boxes its lines (`editor`); here, its row.
-      { target: () => app.querySelector('.story .st.cur') || story(), text: 'In the editor, the card above the code explains the step. Highlighted there now: Next, Ask and More.', skip: !J.steps.length, editor: 'card' },
-      { target: () => app.querySelector('.story .st.cur') || story(), text: 'The phrases highlighted in that card now are links. Click one to see the code that does it.', skip: !J.steps.length || !tints, editor: 'links' },
-      // The animation's button, under the step the editor card opened (no keys card).
-      { target: () => app.querySelector('.story .animbtn') || app.querySelector('.story .st.cur') || story(), text: '"Show animation" plays the step beat by beat in place of the map. Each beat shows the line of code that does it.', skip: !J.steps.length || !anims },
-      { target: () => app.querySelector('.mapwrap'), text: 'Where each step happens; the numbers are the steps, click one to go there. Drag to move, Ctrl+wheel to zoom.', skip: !app.querySelector('.mapwrap') },
-    ]
-  }
-
-  function tutorialMove(d) {
-    const cs = cards()
-    let n = tcard + d
-    while (n >= 1 && n <= cs.length && cs[n - 1].skip) n += d
-    if (n < 1) return
-    if (n > cs.length) return finishTutorial()
-    tcard = n
-    post({ type: 'tutorial', action: 'card', card: n, editor: cs[n - 1].editor || false })
-    render()
-  }
-  function leaveTutorial() { tcard = 0; post({ type: 'tutorial', action: 'skip' }); render() }
-  function finishTutorial() { tcard = 0; post({ type: 'tutorial', action: 'done' }); render() }
-
-  /** The space between the card and what it points at, around the screen's edges (GAP); the ring's padding (PAD). */
-  const GAP = 10, PAD = 4
-  /** The card's widest (px) and its margin from the panel's sides. */
-  const CARD_W = 320, EDGE = 12
-  /** In the scoring of the card's places: covering what it points at is never chosen if anything else fits, and
-   *  covering the map counts this many times its area (the rest once). */
-  const ON_TARGET = 1e9, MAP_WEIGHT = 1e4
-
-  /** The current card: the dim with a hole around what it points at, a ring in the hole, the card next to it. */
-  function placeTutorial() {
-    spot?.remove(); tc?.remove(); dim?.remove(); spot = tc = dim = undefined
-    if (!tcard) return
-    const cs = cards()
-    const c = cs[tcard - 1]
-    const target = c.target()
-    if (!target) return
-    // The card first (hidden), to know its size before choosing where things go.
-    const { card, next } = buildCard(cs, c)
-    tc = card
-    tc.style.visibility = 'hidden'
-    document.body.append(tc)
-    const W = document.documentElement.clientWidth, H = window.innerHeight
-    const cw = Math.min(CARD_W, W - 2 * EDGE)
-    tc.style.width = `${cw}px`
-    const ch = tc.offsetHeight
-    // What scrolls goes below the sticky header, never under it; the target and the card both in view.
-    const head = app.querySelector('.head')
-    const inHead = !!head && head.contains(target)
-    const top0 = inHead || !head ? 0 : head.getBoundingClientRect().bottom
-    const box = { W, H, cw, ch }
-    const R = scrollIntoRoom(target, inHead, top0, box)
-    const sx = window.scrollX, sy = window.scrollY
-    dimAround(R, sx, sy)
-    // Next to the element, never over it, never over the header, and over as little else as possible (R6).
-    const at = bestSpot(R, target, (inHead ? 0 : top0) + 4, box)
-    tc.style.left = `${at.x + sx}px`
-    tc.style.top = `${at.y + sy}px`
-    tc.style.visibility = ''
-    ;(next || target).focus({ preventScroll: true })
-  }
-
-  /** Card `c` of `cs`: its text, the dots (where you are), Skip / Back / Next (Done on the last). */
-  function buildCard(cs, c) {
-    const card = el('div', 'tcard')
-    card.setAttribute('role', 'dialog')
-    const live = cs.filter((x) => !x.skip)
-    card.setAttribute('aria-label', `Tutorial ${live.indexOf(c) + 1} of ${live.length}`)
-    if (c.node) { const p = el('div', 'ttext'); p.append(c.node); card.append(p) } else card.append(el('p', 'ttext', c.text))
-    const foot = el('div', 'tfoot')
-    // Dots only: where you are, no "1/6" beside them.
-    const dots = el('span', 'dots')
-    dots.setAttribute('aria-hidden', 'true')
-    dots.textContent = live.map((x) => (cs.indexOf(x) < tcard ? '●' : '○')).join(' ')
-    foot.append(dots)
-    const nav = el('span', 'tnav')
-    // The last card: no Skip (Esc leaves); Done finishes.
-    const last = live.indexOf(c) === live.length - 1
-    if (!last) {
-      const x = button('link tclose', 'Skip', leaveTutorial)
-      x.title = 'Leave the tutorial (Esc)'
-      nav.append(x)
-    }
-    if (live.indexOf(c) > 0) nav.append(button('link tback', 'Back', () => tutorialMove(-1)))
-    const next = button('btn tnext', last ? 'Done' : 'Next', () => tutorialMove(1))
-    nav.append(next)
-    foot.append(nav)
-    card.append(foot)
-    return { card, next }
-  }
-
-  /** Scrolls `target` into view with room for the card (ch high, cw wide; the panel W × H) below the header (its
-   *  bottom at top0), and returns its visible rectangle (viewport px): of a target taller than the room, its top part. */
-  function scrollIntoRoom(target, inHead, top0, { W, H, cw, ch }) {
-    let r = target.getBoundingClientRect()
-    // Room for the card below it, above it, or beside it.
-    const room = (q) => q.bottom + GAP + ch + GAP <= H || q.top - GAP - ch - GAP >= top0 || Math.max(W - q.right, q.left) >= cw + 2 * GAP
-    if (!inHead && (r.top < top0 + PAD || r.bottom > H - PAD || !room(r))) {
-      const free = H - top0
-      const want = r.height + GAP + ch + 2 * GAP <= free ? top0 + Math.max(GAP, (free - r.height - GAP - ch) / 2) : top0 + GAP
-      window.scrollBy(0, r.top - want)
-      r = target.getBoundingClientRect()
-    }
-    // A target taller than the room (the storyline on a short panel): its visible top part, the card under it.
-    const R = { left: r.left, right: r.right, top: Math.max(r.top, top0 + PAD), bottom: Math.min(r.bottom, H - PAD) }
-    if (!room(R)) R.bottom = Math.max(R.top + 40, H - 2 * GAP - ch - PAD)
-    return R
-  }
-
-  /** The dim over the whole page with a hole at R (viewport px), and the ring in the hole. One layer with a clip-path
-   *  (a huge box-shadow is not always painted everywhere). */
-  function dimAround(R, sx, sy) {
-    const de = document.documentElement
-    spot = el('div', 'spot')
-    Object.assign(spot.style, { left: `${R.left + sx - PAD}px`, top: `${R.top + sy - PAD}px`, width: `${R.right - R.left + 2 * PAD}px`, height: `${R.bottom - R.top + 2 * PAD}px` })
-    dim = el('div', 'tdim')
-    // The page's size, and the hole (page px).
-    const PW = Math.max(de.scrollWidth, de.clientWidth), PH = Math.max(de.scrollHeight, window.innerHeight)
-    const x1 = R.left + sx - PAD, y1 = R.top + sy - PAD, x2 = R.right + sx + PAD, y2 = R.bottom + sy + PAD
-    Object.assign(dim.style, { width: `${PW}px`, height: `${PH}px` })
-    dim.style.clipPath = `polygon(evenodd, 0 0, ${PW}px 0, ${PW}px ${PH}px, 0 ${PH}px, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`
-    document.body.insertBefore(dim, tc)
-    document.body.insertBefore(spot, tc)
-  }
-
-  /** Where the card goes (viewport px, its top left): of the places beside R that fit on screen (below minY), the one
-   *  that covers least of what matters (never R itself if anything else fits); none fits: under R, kept on screen. */
-  function bestSpot(R, target, minY, { W, H, cw, ch }) {
-    const clampX = (v) => Math.max(EDGE, Math.min(v, W - cw - EDGE))
-    const clampY = (v) => Math.max(minY, Math.min(v, H - ch - 8))
-    const below = R.bottom + GAP, above = R.top - GAP - ch
-    const candidates = [
-      { x: clampX(R.left), y: below }, // below, left-aligned
-      { x: clampX(R.right - cw), y: below }, // below, right-aligned
-      { x: clampX(R.left), y: above }, // above, left-aligned
-      { x: clampX(R.right - cw), y: above }, // above, right-aligned
-      { x: R.right + GAP, y: clampY(R.top) }, // to the right
-      { x: R.left - GAP - cw, y: clampY(R.top) }, // to the left
-      { x: clampX(W - cw - EDGE), y: below }, // below, at the right edge
-      { x: EDGE, y: below }, // below, at the left edge
-    ]
-    const fits = candidates.filter((o) => o.x >= EDGE && o.x + cw <= W - EDGE && o.y >= minY && o.y + ch <= H - 4)
-    if (!fits.length) return { x: clampX(R.left), y: clampY(R.bottom + GAP) }
-    // What the card should not cover (besides the target): the map most of all, the storyline, the title, the header.
-    const avoid = [...app.querySelectorAll('.mapwrap, .story, h1.q, .prov, .tour')]
-      .filter((e) => e !== target && !e.contains(target) && !target.contains(e))
-      .map((e) => {
-        const q = e.getBoundingClientRect()
-        return { left: q.left, right: q.right, top: q.top, bottom: q.bottom, w: e.classList.contains('mapwrap') ? MAP_WEIGHT : 1 }
-      })
-    const area = (o, q) => Math.max(0, Math.min(o.x + cw, q.right) - Math.max(o.x, q.left)) * Math.max(0, Math.min(o.y + ch, q.bottom) - Math.max(o.y, q.top))
-    const hitsTarget = (o) => area(o, { left: R.left - PAD, right: R.right + PAD, top: R.top - PAD, bottom: R.bottom + PAD }) > 0
-    const score = (o) => (hitsTarget(o) ? ON_TARGET : 0) + avoid.reduce((sum, q) => sum + area(o, q) * q.w, 0)
-    return fits.reduce((b, o) => (score(o) < score(b) ? o : b))
-  }
-
-  // While a card is up: Esc leaves, → (or Enter, but on a button or box: its own click) goes on, ← back.
-  document.addEventListener('keydown', (e) => {
-    if (!tcard) return
-    runKey(e, {
-      Escape: () => leaveTutorial(),
-      ArrowRight: () => tutorialMove(1),
-      Enter: !e.target.closest?.('button, .box') && (() => tutorialMove(1)),
-      ArrowLeft: () => tutorialMove(-1),
-    })
-  })
 
   // ---------- startup ----------
 
@@ -871,19 +626,20 @@
   const relayout = () => {
     cancelAnimationFrame(relayoutFrame)
     relayoutFrame = requestAnimationFrame(() => {
-      const s = `${app.clientWidth}x${window.innerHeight}`
-      if (J && s !== renderedSize) { renderedSize = s; render() }
+      const size = { w: app.clientWidth, h: window.innerHeight }
+      const same = !!renderedSize && renderedSize.w === size.w && renderedSize.h === size.h
+      if (J && !same) { renderedSize = size; render() }
     })
   }
   // The panel's width as the reader drags it: the extension keeps it for the next walk.
   const reportWidth = () => {
     clearTimeout(widthTimer)
-    widthTimer = setTimeout(() => post({ type: 'panelWidth', w: window.innerWidth }), 500)
+    widthTimer = setTimeout(() => post({ type: 'panelWidth', w: window.innerWidth }), WIDTH_REPORT_MS)
   }
   new ResizeObserver(relayout).observe(app)
   window.addEventListener('scroll', () => {
     clearTimeout(scrollTimer)
-    scrollTimer = setTimeout(() => { if (J) saveState() }, 300)
+    scrollTimer = setTimeout(() => { if (J) saveState() }, SCROLL_SAVE_MS)
   })
   window.addEventListener('resize', () => { relayout(); reportWidth() })
   post({ type: 'ready' })
