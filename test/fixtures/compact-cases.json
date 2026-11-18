@@ -1,0 +1,372 @@
+[
+ {
+  "name": "unchanged range ending in blank lines stays where it is",
+  "lines": [
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "3f7df2751016",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "fresh",
+   "start": 2,
+   "end": 7
+  }
+ },
+ {
+  "name": "moved range ending in blank lines keeps its blank lines",
+  "lines": [
+   "// header",
+   "// more",
+   "",
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "3f7df2751016",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "fresh",
+   "start": 5,
+   "end": 10
+  }
+ },
+ {
+  "name": "one trailing blank line removed: ends at its last code line",
+  "lines": [
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "3f7df2751016",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "fresh",
+   "start": 2,
+   "end": 5
+  }
+ },
+ {
+  "name": "unchanged range without blank lines",
+  "lines": [
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func b() {\n  z()\n}",
+   "tail": "  z()\n}",
+   "lines": 3,
+   "hash": "f6fb3f5bc7dd",
+   "before": "}",
+   "after": ""
+  },
+  "hint": 10,
+  "expected": {
+   "state": "fresh",
+   "start": 10,
+   "end": 12
+  }
+ },
+ {
+  "name": "code edited inside: changed",
+  "lines": [
+   "func c() {",
+   "  a()",
+   "  b()",
+   "  c(1)",
+   "  d()",
+   "  e()",
+   "}",
+   ""
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func c() {\n  a()\n  b()",
+   "tail": "  e()\n}",
+   "lines": 8,
+   "hash": "b6ad4e4b14cb",
+   "before": "",
+   "after": ""
+  },
+  "hint": 0,
+  "expected": {
+   "state": "changed",
+   "start": 0,
+   "end": 7
+  }
+ },
+ {
+  "name": "head gone: gone",
+  "lines": [
+   "package main",
+   "",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "3f7df2751016",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "gone"
+  }
+ },
+ {
+  "name": "hash over every line (blanks as empty) is fresh",
+  "lines": [
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "407f4338f350",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "fresh",
+   "start": 2,
+   "end": 7
+  }
+ },
+ {
+  "name": "no hash: fresh wherever head and tail are",
+  "lines": [
+   "x",
+   "package main",
+   "",
+   "func a() {",
+   "  x := 1",
+   "  y := 2",
+   "  return",
+   "",
+   "",
+   "}",
+   "",
+   "func b() {",
+   "  z()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func a() {\n  x := 1\n  y := 2",
+   "tail": "  y := 2\n  return",
+   "lines": 6,
+   "hash": "",
+   "before": "package main",
+   "after": "}"
+  },
+  "hint": 2,
+  "expected": {
+   "state": "fresh",
+   "start": 3,
+   "end": 8
+  }
+ },
+ {
+  "name": "two copies: the nearer one",
+  "lines": [
+   "func f() {",
+   "  go()",
+   "}",
+   "",
+   "func f() {",
+   "  go()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func f() {\n  go()\n}",
+   "tail": "  go()\n}",
+   "lines": 3,
+   "hash": "2bb26ef8bf13",
+   "before": "}",
+   "after": ""
+  },
+  "hint": 4,
+  "expected": {
+   "state": "fresh",
+   "start": 4,
+   "end": 6
+  }
+ },
+ {
+  "name": "two copies: the nearer one (other hint)",
+  "lines": [
+   "func f() {",
+   "  go()",
+   "}",
+   "",
+   "func f() {",
+   "  go()",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func f() {\n  go()\n}",
+   "tail": "  go()\n}",
+   "lines": 3,
+   "hash": "2bb26ef8bf13",
+   "before": "}",
+   "after": ""
+  },
+  "hint": 0,
+  "expected": {
+   "state": "fresh",
+   "start": 0,
+   "end": 2
+  }
+ },
+ {
+  "name": "two copies: the one with the stored context wins over nearness",
+  "lines": [
+   "// one",
+   "go()",
+   "done()",
+   "// two",
+   "go()",
+   "done()"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "go()\ndone()",
+   "tail": "go()\ndone()",
+   "lines": 2,
+   "hash": "32c67c4f366b",
+   "before": "// two",
+   "after": ""
+  },
+  "hint": 0,
+  "expected": {
+   "state": "fresh",
+   "start": 4,
+   "end": 5
+  }
+ },
+ {
+  "name": "grown: the closest length, changed",
+  "lines": [
+   "func c() {",
+   "  a()",
+   "  b()",
+   "  w()",
+   "  w()",
+   "  c()",
+   "  d()",
+   "  e()",
+   "}",
+   "",
+   "}"
+  ],
+  "anchor": {
+   "v": 3,
+   "head": "func c() {\n  a()\n  b()",
+   "tail": "  e()\n}",
+   "lines": 8,
+   "hash": "b6ad4e4b14cb",
+   "before": "",
+   "after": ""
+  },
+  "hint": 0,
+  "expected": {
+   "state": "changed",
+   "start": 0,
+   "end": 8
+  }
+ }
+]

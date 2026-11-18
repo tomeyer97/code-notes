@@ -2,8 +2,10 @@
 // validation, the grader's reply and prompt, the pass rule, code lines and sizes, concerns. No repository, no server.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import * as U from '../../cli/understanding.mjs'
-import { FAKE, repo } from './helpers.mjs'
+import { FAKE, repo, root } from './helpers.mjs'
 
 test('slugs, counted paths, thresholds', () => {
   assert.equal(U.slugOf('feat/Discount codes!'), 'feat-discount-codes')
@@ -178,3 +180,11 @@ test('size rules: documentation, a removal and a change of a few lines get 1 que
 test('hunksOf: each hunk\'s new-side lines (a deletion: the line it happened at); the extension asks it about a concern\'s lines', () => {
   assert.deepEqual(U.hunksOf('diff\n@@ -1,2 +3,4 @@ x\n+a\n@@ -9 +12 @@\n@@ -20,3 +19,0 @@'), [{ start: 3, end: 6 }, { start: 12, end: 12 }, { start: 19, end: 19 }])
 })
+
+// The extension's findCompact runs the same cases (test/compact.test.ts): both sides relocate alike.
+for (const c of JSON.parse(fs.readFileSync(path.join(root, 'test/fixtures/compact-cases.json'), 'utf8'))) {
+  test(`shared relocation case: ${c.name}`, () => {
+    const f = U.findAnchor(c.lines, c.anchor, c.hint)
+    assert.deepEqual(f ? { state: f.fresh ? 'fresh' : 'changed', start: f.start, end: f.end } : { state: 'gone' }, c.expected)
+  })
+}
