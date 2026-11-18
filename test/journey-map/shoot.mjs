@@ -243,9 +243,7 @@ const farCheck = async (what) => {
       if (!lit.some((b) => b.textContent === String(cur))) out.push(`far: step ${cur}'s number not shown lit`)
     }
     if (dark) {
-      const { over, ratio: contrastOf } = window.contrast
-      // Not contrast.rgba: this one reads a color(srgb …) value's 0-1 numbers as 0-255 (as this check always has).
-      const rgba = (s) => { const n = (s.match(/[\d.]+/g) || []).map(Number); return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1] }
+      const { rgba, over, ratio: contrastOf } = window.contrast
       const page = rgba(getComputedStyle(document.body).backgroundColor)
       const cover = document.querySelector('.gcover') ? over(rgba(getComputedStyle(document.querySelector('.gcover')).backgroundColor), page) : page
       for (const t of shown) for (const e of [t.querySelector('.gnt'), ...t.querySelectorAll('.gfn:not(.cur)')]) {

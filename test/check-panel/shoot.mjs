@@ -134,8 +134,29 @@ async function clampedQuestions(page, view, fail) {
   if (tall > 3.2) fail(`a question takes ${tall.toFixed(1)} lines (at most 3)`)
 }
 
+/** A redraw keeps the keyboard on the focused row, even when its question id has a quote or a backslash in it (ids come
+ *  from the check file). Runs once per page, on views with rows; it draws the view again afterwards. */
+async function oddIdRedraw(page, view, fail) {
+  if (!view.rows.length) return
+  const id = 'q"\\1]'
+  const odd = { ...view, answer: undefined, rows: view.rows.map((r, i) => (i ? r : { ...r, id })) }
+  await draw(page, odd)
+  await page.waitForTimeout(50)
+  await page.evaluate((v) => [...document.querySelectorAll('button.open')].find((b) => b.dataset.id === v)?.focus(), id)
+  const errors = []
+  const onError = (e) => errors.push(e.message)
+  page.on('pageerror', onError)
+  await draw(page, odd)
+  await page.waitForTimeout(50)
+  page.off('pageerror', onError)
+  const kept = await page.evaluate((v) => document.activeElement?.dataset?.id === v, id)
+  if (errors.length || !kept) fail(`a redraw lost the keyboard on a row whose id has a quote${errors.length ? ` (${errors.join('; ')})` : ''}`)
+  await draw(page, view)
+  await page.waitForTimeout(50)
+}
+
 /** In the order they run on each drawn view (each may click, so later ones see what earlier ones posted). */
-const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions]
+const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions, oddIdRedraw]
 
 // ---------- main ----------
 

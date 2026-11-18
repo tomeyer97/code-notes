@@ -48,7 +48,7 @@
       app.append(ol)
     }
     if (focused) {
-      const again = app.querySelector(`button.open[data-id="${focused}"]`)
+      const again = app.querySelector(`button.open[data-id="${CSS.escape(focused)}"]`)
       if (again) again.focus()
     }
     answer.after(keep)

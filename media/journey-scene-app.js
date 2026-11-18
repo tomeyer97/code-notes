@@ -26,11 +26,14 @@
   const APP_CHAT_ROWS = 2
 
   /** The tone status word `status` reads as (undefined: none). */
-  const toneOf = (status) => TONE_OF[String(status).toLowerCase()]
+  const toneOf = (status) => {
+    const s = String(status).toLowerCase()
+    return Object.hasOwn(TONE_OF, s) ? TONE_OF[s] : undefined
+  }
   /** `tone` when it is one of TONES, else 'neutral'. */
   const knownTone = (tone) => (TONES.includes(tone) ? tone : 'neutral')
   /** A screen's name, old ones as today's. */
-  const screenName = (name) => SCREEN_ALIAS[name] || name
+  const screenName = (name) => (Object.hasOwn(SCREEN_ALIAS, name) ? SCREEN_ALIAS[name] : name)
 
   // ---------- old data in today's names ----------
 

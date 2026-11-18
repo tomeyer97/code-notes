@@ -234,7 +234,7 @@ body.vscode-dark .tdim, body.vscode-high-contrast .tdim { background: #000000b3;
 .gsample { display: inline-block; width: 24px; height: 12px; border: 1px dashed var(--muted); border-radius: 3px; }
 .gsample.cur { border: 2px solid var(--accent); background: var(--accent-bg); }
 .glegend .gnum { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .gbox { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .gbox, .splitter::after { transition: none; } }
 
 /* ---------- the walk finished ---------- */
 .done { margin: 8px 0 12px; padding: 8px 10px; border-radius: 4px; background: var(--accent-bg); }

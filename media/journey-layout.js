@@ -116,7 +116,7 @@
 
   /** ELK's graph of the boxes, each measured (`ms`): { root, titleH: id → its title's height }. */
   function toElkGraph(kids, steps, ms) {
-    const titleH = {}
+    const titleH = Object.create(null)
     const box = (n, parentTitle) => {
       const ch = kids.get(n.id) || []
       if (ch.length) {

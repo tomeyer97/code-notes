@@ -377,6 +377,8 @@
     queue: { make: queueActor, size: () => [350, 132] },
     gauge: { make: gaugeActor, size: () => [350, 132] },
   }
+  /** Actor `a`'s type in ACTORS (undefined: none of them). */
+  const actorType = (a) => (Object.hasOwn(ACTORS, a.type) ? ACTORS[a.type] : undefined)
   /** How many rows of `list` a box has room for: at least `min`, at most the `max` it keeps in view. */
   function rowsShown(list, min, max) {
     return between(count(list), min, max)
@@ -397,16 +399,16 @@
   function layoutScene(scene) {
     const cols = []
     for (const a of scene.actors || []) {
-      if (!ACTORS[a.type]) continue
+      if (!actorType(a)) continue
       ;(cols[a.col || 0] = cols[a.col || 0] || []).push(a)
     }
-    const rects = {}
+    const rects = Object.create(null)
     let x = 0, H = 0
     for (const col of cols) {
       if (!col) continue
       let y = 0, w = 0
       for (const a of col) {
-        const [aw, ah] = ACTORS[a.type].size(a)
+        const [aw, ah] = actorType(a).size(a)
         rects[a.id] = { x, y, w: aw, h: ah }
         y += ah + ROW_GAP
         w = Math.max(w, aw)
@@ -427,7 +429,7 @@
 
   /** Every actor's state at beat `i`: every `set` up to it, merged. */
   function stateAt(scene, i) {
-    const st = {}
+    const st = Object.create(null)
     for (let k = 0; k <= i; k++) {
       const s = scene.beats[k].set || {}
       for (const id in s) st[id] = { ...(st[id] || {}), ...s[id] }
@@ -512,8 +514,8 @@
     /** The beat on screen (0-based). */
     let beat = 0
     /** The scene's actors by id ({ el, apply }) and their boxes (layoutScene). */
-    let actors = {}
-    let rects = {}
+    let actors = Object.create(null)
+    let rects = Object.create(null)
     /** The wires: { f, t, y, x1, x2, ln (its line) }. */
     let wires = []
     /** The pill that travels a wire. */
@@ -528,7 +530,7 @@
 
     function build() {
       world.textContent = ''
-      actors = {}
+      actors = Object.create(null)
       const L = layoutScene(scene)
       rects = L.rects
       const lines = svgEl('svg', { class: 'scn-wires', width: L.W, height: L.H })
@@ -541,7 +543,7 @@
       for (const a of scene.actors || []) {
         const r = rects[a.id]
         if (!r) continue
-        const act = ACTORS[a.type].make(a)
+        const act = actorType(a).make(a)
         Object.assign(act.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` })
         world.append(act.el)
         actors[a.id] = act
