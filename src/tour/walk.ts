@@ -19,6 +19,7 @@ import { MAP_KEY, POS_KEY, ShownAt, TOUR_KEY, TourState } from './state'
 import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
 import { cardLine, stepUri, wroteAt } from './stepPlace'
 import { baseName } from '../paths'
+import { stepFileUri } from '../journeys/codeGroup'
 
 type Pos = { step: number; id?: string; at: string }
 export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
@@ -223,14 +224,18 @@ export class Walk {
     void state.update(MAP_KEY, posKey(lj))
   }
 
-  /** Opens step n: the code in the code group as a preview tab (one tab, reused:), the step card above its lines. */
-  async goToStep(lj: LoadedJourney, n: number, opts: { focus?: boolean } = {}): Promise<void> {
+  /**
+   * Opens step n: the code in the code group as a preview tab (one tab, reused:), the step card above its lines.
+   * `beat`: the step opens on that beat of its animation (the podcast); when the beat's code is in another file, that
+   * file is the one opened (by the beat, beats.ts), never the step's own first.
+   */
+  async goToStep(lj: LoadedJourney, n: number, opts: { focus?: boolean; beat?: number } = {}): Promise<void> {
     this.tour.stepping++
     try { await this.openStep(lj, n, opts) } finally { this.tour.stepping-- }
   }
 
   /** Three phases, each ending early once a step opened since has taken over (`superseded`). */
-  private async openStep(lj: LoadedJourney, requested: number, opts: { focus?: boolean }): Promise<void> {
+  private async openStep(lj: LoadedJourney, requested: number, opts: { focus?: boolean; beat?: number }): Promise<void> {
     if (!lj.j.steps.length) return
     const gen = ++this.tour.stepGen
     const n = Math.max(1, Math.min(requested, lj.j.steps.length))
@@ -238,6 +243,10 @@ export class Walk {
     const superseded = () => gen !== this.tour.stepGen && !this.tour.isAt(lj, n)
     if (!(await this.enterStep(lj, n, superseded))) return
     const uri = stepUri(lj, n)
+    if (this.beatElsewhere(lj, n, uri, opts.beat)) {
+      this.onBeatElsewhere(lj, n)
+      return
+    }
     const editor = await this.openStepFile(lj, n, uri, opts, superseded)
     if (editor) await this.revealStep(lj, n, editor, uri)
   }
@@ -306,6 +315,25 @@ export class Walk {
     tour.shownAt = this.shownAt(lj, n, file)
     tour.refHere = undefined
     return editor
+  }
+
+  /** Beat `beat` of step n's animation shows code in another file than the step's (`uri`). */
+  private beatElsewhere(lj: LoadedJourney, n: number, uri: vscode.Uri, beat: number | undefined): boolean {
+    if (beat === undefined || lj.at[n - 1]?.removed) return false
+    const code = lj.j.steps[n - 1]?.scene?.beats?.[beat]?.code
+    if (!code || typeof code.file !== 'string') return false
+    return stepFileUri(lj.folder.uri, journeys.renames(lj), code.file).toString() !== uri.toString()
+  }
+
+  /** Step n opened on a beat in another file: the beat opens its file (showBeat); the step's card is made, unseen. */
+  private onBeatElsewhere(lj: LoadedJourney, n: number): void {
+    const { tour } = this
+    tour.fileGone = false
+    if (tour.cardNotice && tour.cardNotice.id !== tour.stepId) tour.cardNotice = undefined
+    tour.shownAt = this.shownAt(lj, n, fileOf(lj, n))
+    tour.refHere = undefined
+    this.card.show(lj, n)
+    revealJourneyRow(lj)
   }
 
   /** Where step n is shown now (to see that the agent moved it). */
