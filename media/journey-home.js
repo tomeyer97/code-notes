@@ -319,7 +319,8 @@
       go.dataset.f = FOCUS.walk
       acts.append(go)
       if (hasStale) {
-        const rf = button('link refreshb', r.refreshing ? 'Refreshing…' : 'Refresh', () => post({ type: 'refresh', key: r.key }))
+        const refresh = () => post({ type: 'refresh', key: r.key })
+        const rf = button('link refreshb', r.refreshing ? 'Refreshing…' : 'Refresh', refresh)
         rf.disabled = !!r.refreshing
         rf.title = 'The agent updates the stale steps of this journey (nothing else)'
         rf.dataset.f = FOCUS.refresh

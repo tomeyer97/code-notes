@@ -53,8 +53,13 @@
     view.append(leg)
     function showLegend(on) { legendHidden = !on; host.legend(legendHidden); paintLegend() }
     // The legend closes on Esc and on a click anywhere else.
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !legendHidden && view.isConnected) { e.preventDefault(); showLegend(false) } })
-    document.addEventListener('pointerdown', (e) => { if (!legendHidden && view.isConnected && !leg.contains(e.target) && !q.contains(e.target)) showLegend(false) }, true)
+    const legendUp = () => !legendHidden && view.isConnected
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && legendUp()) { e.preventDefault(); showLegend(false) }
+    })
+    document.addEventListener('pointerdown', (e) => {
+      if (legendUp() && !leg.contains(e.target) && !q.contains(e.target)) showLegend(false)
+    }, true)
 
     let J, cur = 0, legendHidden = true, sig = '', L, laying = false
     /** The journey's nodes by id. */
@@ -73,7 +78,9 @@
     /** How many boxes hold node `id`. */
     const depth = (id) => ancestors(byId, id).length
     /** Sets element `d`'s place and size to rectangle `p` (world px). */
-    const placeEl = (d, p) => Object.assign(d.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.w}px`, height: `${p.h}px` })
+    const placeEl = (d, p) => {
+      Object.assign(d.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.w}px`, height: `${p.h}px` })
+    }
 
     // ---------- drawing ----------
 
@@ -199,8 +206,8 @@
     function arrowHeads() {
       const defs = svgEl('defs', {})
       for (const [id, cls] of [['garrow', 'gah'], ['garrow-on', 'gah on']]) {
-        const shape = { viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }
-        const m = svgEl('marker', { id, ...shape })
+        const box = { viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 7, markerHeight: 7 }
+        const m = svgEl('marker', { id, ...box, orient: 'auto-start-reverse' })
         m.append(svgEl('path', { class: cls, d: ARROW_HEAD }))
         defs.append(m)
       }
@@ -282,7 +289,8 @@
       if (!p) { ring.style.display = 'none'; return undefined }
       const r = scr(p), m = 3, w = Math.max(10, r.w + 2 * m), h = Math.max(10, r.h + 2 * m)
       const rr = { x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h }
-      Object.assign(ring.style, { display: '', left: `${rr.x}px`, top: `${rr.y}px`, width: `${rr.w}px`, height: `${rr.h}px` })
+      ring.style.display = ''
+      placeEl(ring, rr)
       return rr
     }
 

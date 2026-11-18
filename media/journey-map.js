@@ -1,7 +1,7 @@
 // The journey panel (a webview). Plain DOM + SVG. Needs common.js, journeyModel.js (as `exports`), ELK,
 // journey-layout.js, journey-graph.js, journey-scene.js, journey-home.js, journey-splitter.js and journey-tutorial.js,
 // loaded before it.
-// Layout (0.21): "‹ Journeys" (home: every journey, one click walks it), the question, one provenance line, then the
+// Layout: "‹ Journeys" (home: every journey, one click walks it), the question, one provenance line, then the
 // storyline with the map beside it (wide) or above it (narrow, collapsible under "Map"). The map is the whole journey
 // at once (journey-graph.js): pan, zoom, it follows the step; boxes open their code, step numbers walk to the step.
 //
@@ -74,7 +74,7 @@
 
   // The panel.
   let legendHidden = false
-  /** Narrow panels: the map above the storyline, folded away under "Map" by hand (0.20: shown by default). */
+  /** Narrow panels: the map above the storyline, folded away under "Map" by hand (shown by default). */
   let mapShut = !!saved.mapShut
   /** The map column's width when wide, dragged on the splitter; 0: the default. Kept here and by the extension. */
   let mapW = saved.mapW || 0

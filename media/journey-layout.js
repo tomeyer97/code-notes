@@ -133,7 +133,8 @@
       // The only box in a module: at least as wide as the module's title (ELK can't be told a compound's minimum here).
       return { id: n.id, width: Math.max(s.w, parentTitle - 4), height: s.h }
     }
-    const root = { id: '#root', layoutOptions: { ...ELK_OPTIONS }, children: (kids.get('') || []).map((n) => box(n, 0)), edges: [] }
+    const top = (kids.get('') || []).map((n) => box(n, 0))
+    const root = { id: '#root', layoutOptions: { ...ELK_OPTIONS }, children: top, edges: [] }
     return { root, titleH }
   }
 

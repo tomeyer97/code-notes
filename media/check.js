@@ -17,7 +17,8 @@
 //   With checkAnswer.js's, these are src/check/view.ts CheckViewRequest and CheckViewReport: a name added here goes
 //   there too.
 ;(function () {
-  const { el, button, joinDots, baseName, connect, onMessages, rovingKeys, watched, WATCHED, overflowing, QSTATE } = window.common
+  const { el, button, joinDots, baseName, connect, onMessages, rovingKeys, watched, WATCHED, overflowing, QSTATE } =
+    window.common
   /** The answer box (checkAnswer.js): drawn under the selected row; keeps the keyboard across a render. */
   const answer = window.checkAnswer
   const { post } = connect()
@@ -126,7 +127,8 @@
   function describe(r) {
     const step = r.step ? ` · after step ${r.step} of the tour` : ''
     const also = r.also.length ? `\nAlso: ${r.also.join(', ')}` : ''
-    const metaParts = [r.kind, r.step ? `step ${r.step}` : '', fileName(r.where), ...r.also.map((a) => `+ ${fileName(a)}`), r.word]
+    const files = [fileName(r.where), ...r.also.map((a) => `+ ${fileName(a)}`)]
+    const metaParts = [r.kind, r.step ? `step ${r.step}` : '', ...files, r.word]
     const said = r.word || (r.state === 'pass' ? 'passed' : 'to answer')
     return {
       title: `${r.text}\n${r.kind}${step} · ${r.where}${also}`,

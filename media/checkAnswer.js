@@ -165,7 +165,8 @@
       const focused = document.activeElement
       const w = focused && focused.closest && focused.closest('.answer')
       if (!w) return undefined
-      return { id: w.dataset.id, inBox: focused.tagName === 'TEXTAREA', caret: [focused.selectionStart, focused.selectionEnd] }
+      const caret = [focused.selectionStart, focused.selectionEnd]
+      return { id: w.dataset.id, inBox: focused.tagName === 'TEXTAREA', caret }
     },
     /** After: the keyboard back where it was (the box gone after a pass: on "Next question ›"). */
     after(k) {

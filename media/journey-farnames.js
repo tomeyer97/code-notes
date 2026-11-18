@@ -11,6 +11,8 @@
   /** A step number's chip: at least NUM_MIN_W wide, its text and NUM_PAD of padding; NUM_GAP between two; the row
    *  NUMS_H high. */
   const NUM_MIN_W = 16, NUM_PAD = 10, NUM_GAP = 3, NUMS_H = 18
+  /** The name and its numbers on one line: at least this high (px). */
+  const NUMS_ROW_MIN_H = 16
   /** A name's width as measured is rounded up and given this much more (px): never cut by a pixel. */
   const TEXT_SLACK = 2
   /** A name cut after a word keeps at least this many characters (never just "The…"). */
@@ -46,9 +48,13 @@
       const two = twoLineVariants(words, v, tw)
       const cut = cutVariants(words, v, tw)
       // The name alone (its numbers left out) when the block is too small for both.
-      const bare = (vv) => (nh ? { text: vv.text, bare: true, w: tw(vv.text.split('\n')[0]) + CHIP_PAD, h: lineH + 2 } : undefined)
+      const bare = (vv) => {
+        if (!nh) return undefined
+        return { text: vv.text, bare: true, w: tw(vv.text.split('\n')[0]) + CHIP_PAD, h: lineH + 2 }
+      }
       // The name and its numbers on one line (a flat block).
-      const row = nh ? { text: label, row: true, w: tw(label) + 4 + nw + CHIP_PAD, h: Math.max(lineH, 16) + 2 } : undefined
+      const rowW = tw(label) + 4 + nw + CHIP_PAD
+      const row = nh ? { text: label, row: true, w: rowW, h: Math.max(lineH, NUMS_ROW_MIN_H) + 2 } : undefined
       out.set(t, {
         whole,
         two,

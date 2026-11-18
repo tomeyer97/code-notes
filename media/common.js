@@ -36,7 +36,12 @@
     return String(path || '').split('/').pop()
   }
 
-  // ---------- rectangles ----------
+  // ---------- numbers and rectangles ----------
+
+  /** `v`, kept between `lo` and `hi` (`hi` wins when they cross). */
+  function between(v, lo, hi) {
+    return Math.min(hi, Math.max(lo, v))
+  }
 
   /** The area two rectangles ({ left, top, right, bottom }) have in common; 0: they don't overlap. */
   function overlapArea(a, b) {
@@ -50,7 +55,7 @@
     return { left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h }
   }
 
-    // ---------- the extension: messages both ways ----------
+  // ---------- the extension: messages both ways ----------
 
   /**
    * The page's channel to the extension (call it once: VS Code hands out one API per page). Errors the page throws are
@@ -84,11 +89,6 @@
     if (stop) e.stopPropagation()
     f()
     return true
-  }
-
-  /** `v`, kept between `lo` and `hi` (`hi` wins when they cross). */
-  function between(v, lo, hi) {
-    return Math.min(hi, Math.max(lo, v))
   }
 
   /** `items[j]`, `j` kept inside the list: before the first, the first; past the last, the last. */
