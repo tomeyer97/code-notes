@@ -5,10 +5,14 @@
 // when that parent's children were given before (and so are not asked for again), or another fetch of them is under way,
 // or a redraw drops them meanwhile, it logs "Failed to resolve tree node" and the reveal fails. So a reveal goes ahead
 // only when VS Code holds the row, or holds its parents and won't ask for the parent's children itself (they were not
-// given yet and the parent is folded); and a redraw waits for a reveal under way.
+// given yet and the parent is folded); and a redraw waits for a reveal under way. VS Code applies a redraw that comes
+// within 200 ms of the one before only when that time is up (rows given meanwhile are then dropped): redraws are spaced
+// further apart than that, so each is applied as it is fired.
 
 import * as vscode from 'vscode'
 
+/** Redraws at least this far apart (VS Code's extension host debounces them by 200 ms). */
+const REDRAW_GAP_MS = 250
 /** A reveal under way holds a redraw back at most this long. */
 const REVEAL_HOLDS_MS = 1000
 /** A reveal that can't go ahead yet (a redraw due, its rows not drawn yet) is tried again this often, so many times. */
@@ -30,6 +34,7 @@ export class ViewSync<T extends object> {
   private retryTimer: NodeJS.Timeout | undefined
   private revealing: Promise<void> | undefined
   private redrawWaits = false
+  private lastRedraw = 0
 
   /** `wait`: one redraw for a burst of changes this long. */
   constructor(private readonly wait: number) {}
@@ -66,6 +71,9 @@ export class ViewSync<T extends object> {
 
   private redraw(): void {
     if (this.revealing) { this.redrawWaits = true; return }
+    const early = this.lastRedraw + REDRAW_GAP_MS - Date.now()
+    if (early > 0) { this.redrawTimer = setTimeout(() => { this.redrawTimer = undefined; this.redraw() }, early); return }
+    this.lastRedraw = Date.now()
     this.held.clear()
     this.opened.clear()
     this.changed.fire(undefined)
