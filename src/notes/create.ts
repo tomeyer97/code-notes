@@ -11,9 +11,9 @@ import { setSeen } from '../seen'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
 import { anchorAt, inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from './location'
-import { shape, shapeOf } from '../threads/threads'
 import { card } from '../tour/tour'
 import { diskLines, docLines, wfs } from '../wfs'
+import { shape, shapeOf } from './changedOnDisk'
 import { reveal } from './reveal'
 
 /** The note box's words. */

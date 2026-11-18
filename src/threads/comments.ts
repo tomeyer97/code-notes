@@ -17,7 +17,7 @@ import { plural, rangeLabel } from '../text'
 import { qDone, seeAlsoLink } from '../tour/checkTour'
 import { tour, walk } from '../tour/tour'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
-import { syncThread } from './threads'
+import { syncThread } from './sync'
 import { docLines } from '../wfs'
 
 export function threadRange(n: Note): vscode.Range {

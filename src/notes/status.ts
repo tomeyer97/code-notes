@@ -11,13 +11,17 @@ import { treeView } from '../sidebar/notesTree'
 import { NoteData, NoteEvent } from '../noteModel'
 import { folderName, Note } from '../store'
 import { describeNotes, noteTitle, plural } from '../text'
-import { noteOfThread, revealed, shape, shapeOf, syncThread } from '../threads/threads'
+import { noteOfThread, revealed, syncThread } from '../threads/sync'
+import { shape, shapeOf } from './changedOnDisk'
 import { notesFrom, target } from './target'
 
 /** Records a status change in the note's history. */
 export function addEvent(n: Note, type: NoteEvent['type'], by = me(), role: NoteEvent['role'] = 'human'): void {
   n.data.events = [...(n.data.events ?? []), { type, by, ...(role ? { role } : {}), at: now() }]
 }
+
+/** The history's word for a change to `status`. */
+export const statusEvent = (status: string): NoteEvent['type'] => (status === 'resolved' ? 'resolved' : 'reopened')
 
 /** The last undoable action: the toast's Undo, and "Code Notes: Undo" after the toast is gone. */
 let lastUndo: { what: string; run: () => Promise<void> } | undefined
@@ -44,7 +48,7 @@ export const snapshot = (n: Note): NoteData => structuredClone(n.data)
 async function setStatus(list: Note[], status: 'open' | 'resolved', record = true): Promise<void> {
   for (const n of list) {
     const before = snapshot(n)
-    if (record && n.data.status !== status) addEvent(n, status === 'resolved' ? 'resolved' : 'reopened')
+    if (record && n.data.status !== status) addEvent(n, statusEvent(status))
     n.data.status = status
     checked.delete(n.data.id)
     // Not saved (a file another user wrote): the note stays as the file says; the error says why.
@@ -103,7 +107,7 @@ export const addReply = async (n: Note, text: string, status?: 'open' | 'resolve
     const before = { messages: n.data.messages.length, status: n.data.status, events: n.data.events }
     if (text) n.data.messages.push({ author: me(), role: 'human', body: text, at: now() })
     const next = status ?? (n.data.status === 'resolved' && text ? 'open' : n.data.status)
-    if (next !== n.data.status) addEvent(n, next === 'resolved' ? 'resolved' : 'reopened')
+    if (next !== n.data.status) addEvent(n, statusEvent(next))
     n.data.status = next
     // In the thread at once, before it is saved (taken back if the save fails).
     syncThread(n)

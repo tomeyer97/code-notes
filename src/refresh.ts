@@ -8,7 +8,8 @@ import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter, ses
 import { tree, treeView } from './sidebar/notesTree'
 import { plural } from './text'
 import { notesAtLine } from './notes/location'
-import { refreshDecorations, syncThread, threads } from './threads/threads'
+import { refreshDecorations } from './notes/decorations'
+import { syncThread, threads } from './threads/sync'
 import { walk } from './tour/tour'
 
 export let statusItem: vscode.StatusBarItem

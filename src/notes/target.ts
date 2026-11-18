@@ -6,7 +6,7 @@ import { order } from '../sidebar/nodes'
 import { Note } from '../store'
 import { noteTitle, rangeLabel } from '../text'
 import { notesAtLine } from './location'
-import { noteOfThread, revealed } from '../threads/threads'
+import { noteOfThread, revealed } from '../threads/sync'
 
 /** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor. */
 export function notesFrom(arg: any, many?: any[]): Note[] {
