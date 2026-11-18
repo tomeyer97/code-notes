@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseJourney, Journey } from '../src/journeyModel'
 import { compactOf } from '../src/compact'
-import { LoadedJourney, StepAt, captureAnchor, carryPositions, dirPath, fileOf, isEmptyAnchor, pathIn, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
+import { LoadedJourney, StepAt, captureStepAnchor, carryPositions, fileOf, isEmptyAnchor, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
+import { dirPath, pathIn } from '../src/paths'
 
 const code = ['import x', '', 'function f() {', '  a()', '  x()', '  y()', '  b()', '}', '', 'function g() {}']
 const journey = (steps: object[]) => parseJourney(JSON.stringify({ version: 2, nodes: [{ id: 'n', label: 'N' }], steps }), 'j') as Journey
@@ -46,10 +47,10 @@ test('sameStepAt: what the reader sees, not the diff\'s old side', () => {
   for (const k of ['start', 'end', 'stale', 'removed', 'now', 'file'] as const) assert.ok(!sameStepAt(a, { ...a, [k]: 99 }), k)
 })
 
-test('captureAnchor: compact from the written range; a step on blank lines keeps its context', () => {
-  assert.deepEqual(captureAnchor(code, { start: 3, end: 8 }), compactOf(code, 2, 7))
-  assert.deepEqual(captureAnchor(code, { start: 9, end: 9 }), { text: '', before: '  b()\n}', after: 'function g() {}' })
-  assert.deepEqual(captureAnchor(code, { start: 40, end: 50 }), compactOf(code, 9, 9), 'past the end: the last line')
+test('captureStepAnchor: compact from the written range; a step on blank lines keeps its context', () => {
+  assert.deepEqual(captureStepAnchor(code, { start: 3, end: 8 }), compactOf(code, 2, 7))
+  assert.deepEqual(captureStepAnchor(code, { start: 9, end: 9 }), { text: '', before: '  b()\n}', after: 'function g() {}' })
+  assert.deepEqual(captureStepAnchor(code, { start: 40, end: 50 }), compactOf(code, 9, 9), 'past the end: the last line')
   assert.ok(isEmptyAnchor(undefined) && isEmptyAnchor({ text: '', before: '', after: '' }))
   assert.ok(!isEmptyAnchor({ text: '', before: 'x', after: '' }) && !isEmptyAnchor(compactOf(code, 0, 0)))
 })

@@ -2,7 +2,8 @@
 // journey steps follow their code.
 
 import * as vscode from 'vscode'
-import { Loc, shift, swallows } from './anchor'
+import { Loc } from './anchor'
+import { shift, swallows } from './lineFollow'
 import { journeys, mapPanel, notes, store } from './app'
 import { refreshBranch } from './checkout'
 import { authorChanged } from './identity'

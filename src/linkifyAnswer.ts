@@ -2,7 +2,7 @@
 // "(…)" and lists; absolute paths are shown repo-relative (never the home folder). No vscode API here (unit-tested in
 // test/answerLinks.test.ts).
 
-import { PATH } from './journeyModel'
+import { PATH } from './journeys/textFormat'
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode'
 import { fileLines } from './documents'
-import { LineEdit, capValue, findLine, followLine, shiftLine } from './beatLine'
-import { EditFollower } from './followEdits'
+import { findLine } from './lineFollow'
+import { capValue } from './journeys/textFormat'
+import { TrackedLine, TrackedLines } from './followEdits'
+import { stepFileUri } from './journeys/codeGroup'
 import type { ValueHint } from './journeyModel'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
@@ -9,72 +11,79 @@ import type { ValueHint } from './journeyModel'
 // written by the journey's author (not captured). One row each (a CodeLens is the only text an extension can put
 // above a line, and it is a single row): the value, then a few words on what it is. Nothing is highlighted.
 
+/** A hint shown: its file and 0-based line, its row's text (`title`) and its line's text (to find it again after an edit). */
+interface ShownHint extends TrackedLine { title: string }
+
 export class ValueHints implements vscode.Disposable {
   private key = ''
-  /** By file URI: 0-based line, the hint's text and its line's text (to find it again after an edit). */
-  private at = new Map<string, { line: number; title: string; text: string }[]>()
+  /** The hints shown; they follow edits to their files. */
+  private readonly hints = new TrackedLines<ShownHint>(() => this.changed.fire())
   private readonly changed = new vscode.EventEmitter<void>()
   private readonly subs: vscode.Disposable[]
   private seq = 0
 
   /** `back`: where the code link's way back is shown; no hint shares its row. */
   constructor(private log: vscode.LogOutputChannel, private back: () => { uri: string; line: number } | undefined, backChanged: vscode.Event<void>) {
-    this.subs = [this.changed, backChanged(() => this.changed.fire()), vscode.languages.registerCodeLensProvider({ scheme: 'file' }, {
-      onDidChangeCodeLenses: this.changed.event,
-      provideCodeLenses: (doc) => {
-        const u = doc.uri.toString(), b = this.back()
-        return (this.at.get(u) ?? []).filter((h) => h.line < doc.lineCount && !(b && b.uri === u && b.line === h.line))
-          .map((h) => new vscode.CodeLens(new vscode.Range(h.line, 0, h.line, 0), { title: h.title, command: '' }))
-      },
-    }),
-    // The hints follow edits to their file.
-    new EditFollower((uri) => this.at.has(uri), (edits, uri) => this.shift(uri, edits), (doc, lines) => this.refind(doc, lines))]
+    const provider = { onDidChangeCodeLenses: this.changed.event, provideCodeLenses: (doc: vscode.TextDocument) => this.lenses(doc) }
+    this.subs = [
+      this.changed,
+      backChanged(() => this.changed.fire()),
+      vscode.languages.registerCodeLensProvider({ scheme: 'file' }, provider),
+      this.hints,
+    ]
   }
 
-  private shift(uri: string, edits: LineEdit[]): void {
-    for (const h of this.at.get(uri) ?? []) h.line = shiftLine(h.line, edits)
-    this.changed.fire()
-  }
-
-  private refind(doc: vscode.TextDocument, lines: string[]): void {
-    const u = doc.uri.toString(), hs = this.at.get(u)
-    if (!hs) return
-    const found = hs.map((h) => ({ ...h, line: followLine(lines, h.line, h.text, []) }))
-    this.at.set(u, found.filter((h) => h.line >= 0))
-    this.changed.fire()
+  /** The rows above `doc`'s lines: each hint in it, except on the way back's row. */
+  private lenses(doc: vscode.TextDocument): vscode.CodeLens[] {
+    const u = doc.uri.toString()
+    const b = this.back()
+    const onBackRow = (h: ShownHint) => !!b && b.uri === u && b.line === h.line
+    return this.hints.items
+      .filter((h) => h.uri === u && h.line < doc.lineCount && !onBackRow(h))
+      .map((h) => new vscode.CodeLens(new vscode.Range(h.line, 0, h.line, 0), { title: h.title, command: '' }))
   }
 
   /** For tests: "file name:line: text". */
-  get state(): string[] { return [...this.at].flatMap(([u, hs]) => hs.map((h) => `${u.split('/').pop()}:${h.line}: ${h.title}`)).sort() }
+  get state(): string[] { return this.hints.items.map((h) => `${h.uri.split('/').pop()}:${h.line}: ${h.title}`).sort() }
 
   /** The step shown: its values appear above their lines. The same step again changes nothing. */
   present(key: string, folder: vscode.Uri, values: ValueHint[], renames: Map<string, string>): void {
     const k = `${key}|${JSON.stringify(values)}`
     if (k === this.key) return
     this.key = k
-    const mine = ++this.seq
-    void (async () => {
-      const at = new Map<string, { line: number; title: string; text: string }[]>()
-      // Read at once, without opening documents (each open is a round trip to the window).
-      const files = await Promise.all(values.map((v) => fileLines(vscode.Uri.joinPath(folder, renames.get(v.file) ?? v.file))))
-      for (const [k, v] of values.entries()) {
-        const uri = vscode.Uri.joinPath(folder, renames.get(v.file) ?? v.file)
-        const lines = files[k]
-        if (!lines) continue
-        const line = v.text.trim() ? findLine(lines, v.line, v.text) : Math.min(v.line, lines.length) - 1
-        if (line < 0) { this.log.info(`value hint ${v.name}: the line at ${v.file}:${v.line} changed; not shown`); continue }
-        const list = at.get(uri.toString()) ?? []
-        // The value cut to about 40 characters, so the note after it stays on screen.
-        list.push({ line, title: `${v.name} = ${capValue(v.value)}${v.note ? `  ·  ${v.note}` : ''}`, text: v.text })
-        at.set(uri.toString(), list)
-      }
-      if (mine !== this.seq) return
-      this.at = at
-      this.changed.fire()
-    })()
+    void this.place(++this.seq, folder, values, renames)
   }
 
-  clear(): void { if (!this.key && !this.at.size) return; this.seq++; this.key = ''; this.at = new Map(); this.changed.fire() }
+  /** Finds each value's line and shows the hints, unless a newer step was presented meanwhile (`mine`). */
+  private async place(mine: number, folder: vscode.Uri, values: ValueHint[], renames: Map<string, string>): Promise<void> {
+    const uris = values.map((v) => stepFileUri(folder, renames, v.file))
+    // Read at once, without opening documents (each open is a round trip to the window).
+    const files = await Promise.all(uris.map((u) => fileLines(u)))
+    const shown: ShownHint[] = []
+    for (const [k, v] of values.entries()) {
+      const lines = files[k]
+      if (!lines) continue
+      const line = v.text.trim() ? findLine(lines, v.line, v.text) : Math.min(v.line, lines.length) - 1
+      if (line < 0) {
+        this.log.info(`value hint ${v.name}: the line at ${v.file}:${v.line} changed; not shown`)
+        continue
+      }
+      // The value cut to about 40 characters, so the note after it stays on screen.
+      const title = `${v.name} = ${capValue(v.value)}${v.note ? `  ·  ${v.note}` : ''}`
+      shown.push({ uri: uris[k].toString(), line, title, text: v.text })
+    }
+    if (mine !== this.seq) return
+    this.hints.set(shown)
+    this.changed.fire()
+  }
+
+  clear(): void {
+    if (!this.key && !this.hints.items.length) return
+    this.seq++
+    this.key = ''
+    this.hints.set([])
+    this.changed.fire()
+  }
 
   dispose(): void { for (const s of this.subs) s.dispose() }
 }

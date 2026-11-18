@@ -1,7 +1,9 @@
 import type * as vscode from 'vscode'
 import type { Journey, JStep } from '../journeyModel'
-import { anchor, staleKind } from '../anchor'
+import { anchor } from '../anchor'
+import { staleKind } from '../staleDiff'
 import { AnyAnchor, compactOf, findCompact, isCompact, toCompact } from '../compact'
+import { captureAnchor } from '../noteModel'
 
 // A loaded journey and where its steps' code is now. No vscode API at run time (unit-tested in test/journeySteps.test.ts):
 // the tracker (tracker.ts) reads the files and keeps state; these say where a step is in the lines it got.
@@ -23,20 +25,16 @@ export interface StepAt {
  */
 export interface LoadedJourney { key: string; folder: vscode.WorkspaceFolder; uri: vscode.Uri; j: Journey; at: StepAt[]; readError?: string; check?: { branch: string } }
 
+/** Step `n` (1-based) as written. */
+export const stepOf = (lj: Pick<LoadedJourney, 'j'>, n: number) => lj.j.steps[n - 1]
+/** Where step `n` (1-based) is now. */
+export const atOf = (lj: Pick<LoadedJourney, 'at'>, n: number) => lj.at[n - 1]
+
 /** The file a step's code is in now. */
-export const fileOf = (lj: Pick<LoadedJourney, 'j' | 'at'>, n: number) => lj.at[n - 1]?.file ?? lj.j.steps[n - 1].file
+export const fileOf = (lj: Pick<LoadedJourney, 'j' | 'at'>, n: number) => atOf(lj, n)?.file ?? stepOf(lj, n).file
 
 /** A journey's identity across reloads and file renames within a folder: folder + id. */
 export const posKey = (lj: LoadedJourney) => `${lj.folder.uri.toString()}|${lj.j.id}`
-
-/** A folder's path with one trailing slash: what the paths of the files in it start with. */
-export const dirPath = (folder: { path: string }) => folder.path.replace(/\/?$/, '/')
-
-/** `uri`'s path relative to `folder`, or undefined when it is not inside it. */
-export function pathIn(folder: { path: string }, uri: { path: string }): string | undefined {
-  const base = dirPath(folder)
-  return uri.path.startsWith(base) ? uri.path.slice(base.length) : undefined
-}
 
 /** Steps start where their lines were written, nothing found yet. */
 export const writtenAt = (j: Journey): StepAt[] => j.steps.map((s) => ({ ...s.range, stale: false }))
@@ -58,24 +56,17 @@ export function sameStepAt(a: StepAt, b: StepAt): boolean {
   return a.start === b.start && a.end === b.end && a.stale === b.stale && a.removed === b.removed && a.now === b.now && a.file === b.file
 }
 
-/** Lines of context kept around a step on blank lines (it has nothing else to be found by). */
-export const CONTEXT_LINES = 2
-
 /** No anchor, or one with nothing in it: the step was written without one. */
 export const isEmptyAnchor = (a: AnyAnchor | undefined) => !a || (!isCompact(a) && !a.text && !a.before && !a.after)
 
 /**
  * An anchor taken from the code at the step's written range (for a step written without one): compact; a step on
- * blank lines keeps its text and the lines around it.
+ * blank lines keeps its text and the lines around it, as a note's anchor does (noteModel.ts captureAnchor).
  */
-export function captureAnchor(lines: string[], range: JStep['range']): AnyAnchor {
+export function captureStepAnchor(lines: string[], range: JStep['range']): AnyAnchor {
   const st = Math.max(0, Math.min(range.start, lines.length) - 1)
   const en = Math.max(st, Math.min(range.end, lines.length) - 1)
-  return compactOf(lines, st, en) ?? {
-    text: lines.slice(st, en + 1).join('\n'),
-    before: lines.slice(Math.max(0, st - CONTEXT_LINES), st).join('\n'),
-    after: lines.slice(en + 1, en + 1 + CONTEXT_LINES).join('\n'),
-  }
+  return compactOf(lines, st, en) ?? captureAnchor(lines, st, en)
 }
 
 /** Where anchor `a` finds a step's code in `lines`: fresh, changed (shown at its new place), or removed. */

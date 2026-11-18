@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchScore, queryWords, seeAlso, stem } from '../src/journeyList'
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, seeAlso } from '../src/journeyList'
+import { matchScore, queryWords, stem } from '../src/match'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { items, NOW } = require('../../test/journey-list/fixture.js')
 

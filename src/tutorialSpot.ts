@@ -7,8 +7,15 @@ import { setDecorations } from './decorations'
 
 export class TutorialSpot implements vscode.Disposable {
   private readonly color = new vscode.ThemeColor('focusBorder')
-  private readonly kinds = (['1px 1px 0 1px', '0 1px', '0 1px 1px 1px', '1px'] as const).map((borderWidth) =>
-    vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderStyle: 'solid', borderColor: this.color, borderWidth }))
+  private readonly box = (borderWidth: string) =>
+    vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderStyle: 'solid', borderColor: this.color, borderWidth })
+  /** The box's first line, its middle lines, its last line, and a box of one line. */
+  private readonly kinds = {
+    top: this.box('1px 1px 0 1px'),
+    mid: this.box('0 1px'),
+    bottom: this.box('0 1px 1px 1px'),
+    one: this.box('1px'),
+  }
   private at: { uri: string; start: number; end: number } | undefined
   private readonly sub = vscode.window.onDidChangeVisibleTextEditors(() => this.paint())
 
@@ -23,13 +30,14 @@ export class TutorialSpot implements vscode.Disposable {
     for (const e of vscode.window.visibleTextEditors) {
       const a = this.at && e.document.uri.toString() === this.at.uri ? this.at : undefined
       const line = (n: number) => [new vscode.Range(n, 0, n, 0)]
-      const [top, mid, bottom, one] = this.kinds
+      const { top, mid, bottom, one } = this.kinds
+      const several = !!a && a.end > a.start
       setDecorations(e, one, a && a.start === a.end ? line(a.start) : [])
-      setDecorations(e, top, a && a.end > a.start ? line(a.start) : [])
-      setDecorations(e, bottom, a && a.end > a.start ? line(a.end) : [])
+      setDecorations(e, top, several ? line(a.start) : [])
+      setDecorations(e, bottom, several ? line(a.end) : [])
       setDecorations(e, mid, a && a.end > a.start + 1 ? [new vscode.Range(a.start + 1, 0, a.end - 1, 0)] : [])
     }
   }
 
-  dispose(): void { this.sub.dispose(); for (const k of this.kinds) k.dispose() }
+  dispose(): void { this.sub.dispose(); for (const k of Object.values(this.kinds)) k.dispose() }
 }

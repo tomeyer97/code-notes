@@ -2,8 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { staleKind } from '../src/anchor'
-import { isGeneric, Journey, linkPaths, escapeTags, parseJourney, readValues, stepRanges } from '../src/journeyModel'
+import { staleKind } from '../src/staleDiff'
+import { isGeneric, Journey, parseJourney, readValues } from '../src/journeyModel'
+import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
 const j = parseJourney(fixture, 'place-order') as Journey
@@ -55,12 +56,6 @@ test('more than 7 children on a level: a problem for the author (the map still d
   const many = parseJourney(JSON.stringify({ version: 2, nodes: Array.from({ length: 9 }, (_, i) => ({ id: `s${i}`, kind: 'system' })), steps: [{ node: 's8', file: 'x', range: { start: 1 } }] }), 'm') as Journey
   assert.equal(many.nodes.length, 9)
   assert.ok(many.problems.some((p) => /top level: 9 boxes/.test(p)))
-})
-
-test('step ranges', () => {
-  assert.equal(stepRanges([3, 4, 5, 6, 7, 9, 10, 11, 12]), '3–7, 9–12')
-  assert.equal(stepRanges([1, 2, 13]), '1, 2, 13')
-  assert.equal(stepRanges([8]), '8')
 })
 
 test('blurb, path and edge detail are read, and optional', () => {
@@ -134,4 +129,11 @@ test('readValues: a step\'s usable value hints, each value and note on one line'
   const bad = [{ ...ok, name: ' ' }, { ...ok, value: 3 }, { ...ok, line: 0 }, { ...ok, line: 1.5 }, { ...ok, file: undefined }, null]
   assert.deepEqual(readValues(bad), [])
   assert.deepEqual(readValues([{ ...ok, text: 5, note: ' ' }]), [{ name: 'objs', value: '[Secret run-1, Pod run-1]', file: 'src/a.ts', line: 3, text: '' }])
+})
+
+test('capValue: about 40 characters, the note survives', () => {
+  assert.equal(capValue('short'), 'short')
+  const long = 'x'.repeat(60)
+  assert.equal(capValue(long).length, 40)
+  assert.ok(capValue(long).endsWith('…'))
 })

@@ -1,11 +1,15 @@
 import * as vscode from 'vscode'
 import { fileLines, docLines } from '../documents'
 import { JStep } from '../journeyModel'
-import { shift, swallows, Loc, LineEdit } from '../anchor'
+import { Loc } from '../anchor'
+import { LineEdit, shift, swallows } from '../lineFollow'
+import { lineEdits } from '../followEdits'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, toCompact } from '../compact'
-import { gitRenames } from '../gitRenames'
+import { GitRenameCache } from '../gitRenames'
+import { dirPath, pathIn } from '../paths'
+import { Kept } from '../memento'
 import {
-  LoadedJourney, StepAt, captureAnchor, dirPath, fileOf, isEmptyAnchor, pathIn, placeStep, sameStepAt,
+  LoadedJourney, StepAt, atOf, captureStepAnchor, fileOf, isEmptyAnchor, placeStep, sameStepAt, stepOf,
 } from './steps'
 
 // Where the steps of the loaded journeys are as the code changes: found again in memory (anchor.ts, compact.ts) after
@@ -14,46 +18,12 @@ import {
 
 const RENAMED_KEY = 'codeNotes.journeyRenames'
 const FOLLOWED_KEY = 'codeNotes.journeyFollowed'
-/** How long git's renames are reused (one locate asks once per step). */
-const GIT_CACHE_MS = 3000
-/** How long after the last keystroke an edited document's steps are found again. */
+/**
+ * How long after the last keystroke an edited document's steps are found again. Not followEdits.ts REFIND_MS (150 ms,
+ * for an EditFollower's few remembered lines): this runs the anchor search for every step in the file, with a timer
+ * per journey and file (`onDocument`); the two delays are set separately.
+ */
 const EDIT_SETTLE_MS = 250
-
-/** A record kept in workspace state across reloads (no state, in tests: always empty). */
-class Kept<T> {
-  constructor(private state: vscode.Memento | undefined, private key: string) {}
-  all(): Record<string, T> { return this.state?.get<Record<string, T>>(this.key) ?? {} }
-  get(k: string): T | undefined { return this.all()[k] }
-  /** `undefined` drops `k`. */
-  async set(k: string, v: T | undefined): Promise<void> {
-    const all = { ...this.all() }
-    if (v !== undefined) all[k] = v; else if (k in all) delete all[k]; else return
-    await this.state?.update(this.key, all)
-  }
-}
-
-/** Renames git knows (as `journey.py check` finds them: committed since a commit, staged, uncommitted), cached briefly. */
-class GitRenameCache {
-  private cache = new Map<string, { at: number; map: Promise<Map<string, string>> }>()
-
-  get(folder: vscode.WorkspaceFolder, since?: string): Promise<Map<string, string>> {
-    const k = `${folder.uri.toString()}|${since ?? ''}`
-    const c = this.cache.get(k)
-    if (c && Date.now() - c.at < GIT_CACHE_MS) return c.map
-    const map = gitRenames(folder.uri.fsPath, since)
-    this.cache.set(k, { at: Date.now(), map })
-    return map
-  }
-
-  /** Where git says `file` went since `since` (following a chain of renames); undefined: no rename known. */
-  async follow(folder: vscode.WorkspaceFolder, since: string | undefined, file: string): Promise<string | undefined> {
-    const m = await this.get(folder, since)
-    let f = file
-    const seen = new Set([f])
-    while (m.has(f)) { f = m.get(f)!; if (seen.has(f)) break; seen.add(f) }
-    return f !== file ? f : undefined
-  }
-}
 
 export class StepTracker implements vscode.Disposable {
   /** By journey file URI. */
@@ -79,9 +49,13 @@ export class StepTracker implements vscode.Disposable {
     this.renamed = new Kept(state, RENAMED_KEY)
   }
 
-  private stepKey(lj: LoadedJourney, n: number): string { const s = lj.j.steps[n - 1]; return `${lj.key}|${s.id}|${s.file}:${s.range.start}` }
+  private stepKey(lj: LoadedJourney, n: number): string {
+    const s = stepOf(lj, n)
+    return `${lj.key}|${s.id}|${s.file}:${s.range.start}`
+  }
+
   /** Per file, not per journey or step: every journey with a step in that file follows the same rename. */
-  private renameKey(lj: LoadedJourney, n: number): string { return `${lj.folder.uri.toString()}|${lj.j.steps[n - 1].file}` }
+  private renameKey(lj: LoadedJourney, n: number): string { return `${lj.folder.uri.toString()}|${stepOf(lj, n).file}` }
 
   gitRenames(folder: vscode.WorkspaceFolder, since?: string): Promise<Map<string, string>> { return this.git.get(folder, since) }
 
@@ -100,7 +74,7 @@ export class StepTracker implements vscode.Disposable {
     const cache = new Map<string, string[] | undefined>()
     for (const s of lj.j.steps) {
       if (only && !only(s.n)) continue
-      const was = lj.at[s.n - 1]
+      const was = atOf(lj, s.n)
       const file = was.file ?? s.file
       const { lines, gitFile } = await this.linesFor(lj, s.n, file, cache, given)
       const now = lines ? await this.placeIn(lj, s, was, lines, gitFile) : { ...was, stale: true }
@@ -133,7 +107,7 @@ export class StepTracker implements vscode.Disposable {
     const ck = this.stepKey(lj, s.n)
     let a = s.anchor ?? this.captured.get(ck)
     // Written without an anchor: taken from the code at its range, once, in memory.
-    if (isEmptyAnchor(a)) { a = captureAnchor(lines, s.range); this.captured.set(ck, a) }
+    if (isEmptyAnchor(a)) { a = captureStepAnchor(lines, s.range); this.captured.set(ck, a) }
     const nf = gitFile ?? was.file
     const fileField = nf && nf !== s.file ? { file: nf } : {}
     return this.keepReaderEdits(ck, placeStep(lines, a!, was, fileField), lines, was, fileField)
@@ -147,16 +121,22 @@ export class StepTracker implements vscode.Disposable {
     const mine = this.followed.get(ck)
     const ed = this.edited.get(ck)
     this.edited.delete(ck)
+    // The journey's own anchor matches: the reader's version is not needed any more.
     if (!now.stale) {
       if (mine) await this.followed.set(ck, undefined)
       return now
     }
-    if (mine) { const m = placeStep(lines, mine, was, fileField); if (!m.stale) now = m }
-    if (now.stale && ed && ed.end >= ed.start && ed.end < lines.length) {
-      const c = compactOf(lines, ed.start, ed.end)
-      if (c) { now = { start: ed.start + 1, end: ed.end + 1, stale: false, ...fileField }; await this.followed.set(ck, c) }
+    // The reader's version (from an earlier edit) still matches: the step is on it.
+    if (mine) {
+      const onMine = placeStep(lines, mine, was, fileField)
+      if (!onMine.stale) return onMine
     }
-    return now
+    // The reader's edit just now covers it: the edited lines are its code from now on.
+    const editedHere = ed && ed.end >= ed.start && ed.end < lines.length
+    const edited = editedHere ? compactOf(lines, ed.start, ed.end) : undefined
+    if (!edited) return now
+    await this.followed.set(ck, edited)
+    return { start: ed!.start + 1, end: ed!.end + 1, stale: false, ...fileField }
   }
 
   /**
@@ -166,10 +146,8 @@ export class StepTracker implements vscode.Disposable {
    */
   onEdit(e: vscode.TextDocumentChangeEvent): void {
     if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) return
-    const changes: LineEdit[] = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start)).map((c) => ({
-      startLine: c.range.start.line, startChar: c.range.start.character, endLine: c.range.end.line, endChar: c.range.end.character,
-      newLines: (c.text.match(/\n/g) ?? []).length,
-    }))
+    const lastFirst = [...e.contentChanges].sort((a, b) => b.range.start.compareTo(a.range.start))
+    const changes = lineEdits(lastFirst)
     for (const lj of this.list.values()) {
       const rel = pathIn(lj.folder.uri, e.document.uri)
       if (rel === undefined) continue
@@ -179,7 +157,7 @@ export class StepTracker implements vscode.Disposable {
 
   /** Step `n`'s lines through `changes` (last first); remembered when the edits touched them. */
   private followEdits(lj: LoadedJourney, n: number, changes: LineEdit[]): void {
-    const at = lj.at[n - 1]
+    const at = atOf(lj, n)
     const k = this.stepKey(lj, n)
     if (!at || (at.stale && !this.edited.has(k))) return
     let loc: Loc = this.edited.get(k) ?? { start: at.start - 1, end: at.end - 1 }
@@ -196,23 +174,24 @@ export class StepTracker implements vscode.Disposable {
 
   /** What the step's code looked like: from the journey file, or taken from the code when the file had none. */
   anchorOf(lj: LoadedJourney, n: number): AnyAnchor | undefined {
-    const s = lj.j.steps[n - 1]
-    return s.anchor ?? this.captured.get(this.stepKey(lj, n))
+    return stepOf(lj, n).anchor ?? this.captured.get(this.stepKey(lj, n))
   }
 
   /** Where step `n`'s code is in `lines` (another file's, e.g. one just created): fresh, changed or gone. */
   findIn(lj: LoadedJourney, n: number, lines: string[]): Found {
     const a = this.anchorOf(lj, n)
     const c = a && toCompact(a)
-    return c ? findCompact(lines, c, lj.at[n - 1].start - 1) : { state: 'gone' }
+    return c ? findCompact(lines, c, atOf(lj, n).start - 1) : { state: 'gone' }
   }
 
   /** The step's code is in another file now (renamed): follow it, in memory. */
   async moveStep(lj: LoadedJourney, n: number, file: string): Promise<void> {
-    lj.at[n - 1] = { ...lj.at[n - 1], file: file === lj.j.steps[n - 1].file ? undefined : file }
-    if (lj.at[n - 1].file === undefined) delete lj.at[n - 1].file
+    const back = file === stepOf(lj, n).file
+    const at: StepAt = { ...atOf(lj, n), file: back ? undefined : file }
+    if (at.file === undefined) delete at.file
+    lj.at[n - 1] = at
     this.log.info(`journey ${lj.j.id} step ${n}: its file moved to ${file}`)
-    await this.renamed.set(this.renameKey(lj, n), lj.at[n - 1].file ? file : undefined)
+    await this.renamed.set(this.renameKey(lj, n), at.file ? file : undefined)
     await this.locate(lj, (k) => k === n)
     this.moved.fire(lj)
   }
@@ -220,7 +199,10 @@ export class StepTracker implements vscode.Disposable {
   /** Renamed files (old -> new path) the journey's steps followed: refs to the old path say where it went. */
   renames(lj: LoadedJourney): Map<string, string> {
     const out = new Map<string, string>()
-    lj.j.steps.forEach((s, i) => { const f = lj.at[i].file; if (f) out.set(s.file, f) })
+    lj.j.steps.forEach((s, i) => {
+      const f = lj.at[i].file
+      if (f) out.set(s.file, f)
+    })
     return out
   }
 

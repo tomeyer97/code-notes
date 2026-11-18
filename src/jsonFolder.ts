@@ -1,8 +1,20 @@
 import * as vscode from 'vscode'
 import { wfs } from './workspaceFs'
 
-// Folders of JSON files the extension reads one file per item from (notes, journeys): watched for changes, and read
-// once at load.
+// Folders of JSON files the extension reads one file per item from (notes, journeys): watched for changes, read once
+// at load, and what a file's name says.
+
+const decoder = new TextDecoder()
+
+/** The last part of `uri`'s path: `20261111-153012-ab12.json`. */
+export const fileName = (uri: vscode.Uri) => uri.path.split('/').pop()!
+/** The file's name without `.json`: a note's id, a journey's fallback name. */
+export const jsonName = (uri: vscode.Uri) => fileName(uri).replace(/\.json$/, '')
+
+/** A file's text; undefined when it can't be read (gone, or not a file). */
+export async function readText(uri: vscode.Uri): Promise<string | undefined> {
+  try { return decoder.decode(await wfs.readFile(uri)) } catch { return undefined }
+}
 
 /** Watches `<folder>/<rel>/*.json`: a file created or changed goes to `onFile`, a deleted one to `onDelete`. */
 export function watchJsonFiles(folder: vscode.WorkspaceFolder, rel: string, onFile: (u: vscode.Uri) => unknown, onDelete: (u: vscode.Uri) => unknown): vscode.FileSystemWatcher {

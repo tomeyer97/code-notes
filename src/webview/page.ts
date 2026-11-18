@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type * as vscode from 'vscode'
 
-/** Text as HTML (for text and attribute values; markdown is escaped with escapeTags in journeyModel.ts). */
+/** Text as HTML (for text and attribute values; markdown is escaped with escapeTags in journeys/textFormat.ts). */
 export function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 }

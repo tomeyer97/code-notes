@@ -1,22 +1,26 @@
-// Code links: a phrase of a step's text that is a link to the lines doing what it says. Pure, unit-tested.
+// Code links: a phrase of a step's text that is a link to the lines doing what it says. Pure, unit-tested. What a link
+// is in the journey file (StepLink, readLinks) is journeyModel.ts.
+import type { StepLink } from './journeyModel'
 
-/** `phrase`: words of the step's lead or details, as written; `text`: the first of its lines (to find them again). */
-export interface StepLink { phrase: string; file: string; start: number; end: number; text: string }
-
-export function readLinks(v: unknown): StepLink[] {
-  if (!Array.isArray(v)) return []
-  const usable = (l: any) => l && typeof l.phrase === 'string' && l.phrase.trim() && typeof l.file === 'string' && Number.isInteger(l.start) && l.start >= 1
-  return v.filter(usable).map((l) => ({
-    phrase: l.phrase.trim(), file: l.file.trim(), start: l.start,
-    end: Math.max(l.start, Number.isInteger(l.end) ? l.end : l.start),
-    text: typeof l.text === 'string' ? l.text : '',
-  }))
-}
+/** A markdown link (`[text](target)`) or a code span: a phrase inside one is left alone. */
+const LINK_OR_CODE = /\[[^\]]*\]\([^)]*\)|`[^`]*`/g
 
 /** True where `i` is inside a markdown link or a code span of `text` (a phrase there is left alone). */
 function taken(text: string, i: number, len: number): boolean {
-  for (const m of text.matchAll(/\[[^\]]*\]\([^)]*\)|`[^`]*`/g)) if (i < m.index! + m[0].length && i + len > m.index!) return true
+  for (const m of text.matchAll(LINK_OR_CODE)) {
+    const start = m.index!
+    const end = start + m[0].length
+    if (i < end && i + len > start) return true
+  }
   return false
+}
+
+/** Where `phrase` first occurs in `text` at a place `free` allows; -1: nowhere. */
+function firstFree(text: string, phrase: string, free: (at: number, len: number) => boolean): number {
+  for (let at = text.indexOf(phrase); at >= 0; at = text.indexOf(phrase, at + 1)) {
+    if (free(at, phrase.length)) return at
+  }
+  return -1
 }
 
 /** Each phrase's first free occurrence in `text` becomes `make(i, phrase)`; phrases already `used` (by index) are skipped and found ones added. */
@@ -26,9 +30,10 @@ export function linkPhrases(text: string, links: StepLink[], used: Set<number>, 
   const free = (at: number, len: number) => !taken(text, at, len) && !cuts.some((c) => at < c.at + c.len && at + len > c.at)
   links.forEach((l, i) => {
     if (used.has(i)) return
-    let at = -1
-    for (let from = 0; (at = text.indexOf(l.phrase, from)) >= 0; from = at + 1) if (free(at, l.phrase.length)) break
-    if (at >= 0) { cuts.push({ at, len: l.phrase.length, i }); used.add(i) }
+    const at = firstFree(text, l.phrase, free)
+    if (at < 0) return
+    cuts.push({ at, len: l.phrase.length, i })
+    used.add(i)
   })
   cuts.sort((a, b) => b.at - a.at)
   for (const c of cuts) text = text.slice(0, c.at) + make(c.i, text.slice(c.at, c.at + c.len)) + text.slice(c.at + c.len)

@@ -1,17 +1,28 @@
 import * as vscode from 'vscode'
 import { wfs } from '../workspaceFs'
-import { parseJourney } from '../journeyModel'
-import { folderName, journeysFolderName } from '../store'
-import { jsonFilesIn, watchJsonFiles } from '../jsonFolder'
-import { LoadedJourney, carryPositions, pathIn, posKey, writtenAt } from './steps'
+import { isOldFormat, parseJourney } from '../journeyModel'
+import { folderName, folderSetting } from '../store'
+import { jsonFilesIn, jsonName, readText, watchJsonFiles } from '../jsonFolder'
+import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
+import { pathIn, slashPath } from '../paths'
 import { StepTracker } from './tracker'
 
 // Journeys (format v2, docs/journey-format.md): <repo>/journeys/<slug>.json (codeNotes.journeys.folder: committed,
 // shared) and, as before, <notes folder>/journeys/<slug>.json (personal); steps embedded. A step is not a note. This
 // loads and watches the files and holds the checks' tours; where the steps are as the code changes is tracker.ts.
 
-const decoder = new TextDecoder()
+/** Where journeys are committed (codeNotes.journeys.folder, default `journeys`), relative to the workspace folder. */
+export function journeysFolderName(): string {
+  return slashPath(folderSetting('journeys.folder', 'journeys')).replace(/^\.\//, '')
+}
 
+/** What the list says about a journey file in the old format. */
+const OLD_FORMAT_ROW = 'Old format (v1): migrate it with journey.py migrate.'
+
+/**
+ * Journey files of the workspace folders, and the checks' tours. The steps' places (`list`, `locate`, …) are kept by
+ * the base class, StepTracker (tracker.ts).
+ */
 export class Journeys extends StepTracker {
   private readonly changed = new vscode.EventEmitter<void>()
   readonly onDidChange = this.changed.event
@@ -66,31 +77,47 @@ export class Journeys extends StepTracker {
     for (const [k, lj] of this.tours) this.list.set(k, lj)
     for (const w of this.watchers) w.dispose()
     this.watchers = []
-    const old: string[] = []
+    const oldFormat: string[] = []
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      // The repo's journeys first: a personal copy with the same id (the old place) is not listed twice.
+      // The repo's journeys first: a personal copy with the same id (in the notes folder) is not listed twice.
       const dirs = [...new Set([journeysFolderName(), `${folderName()}/journeys`])]
       for (const rel of dirs) this.watch(folder, rel)
       for (const rel of dirs) {
         for (const uri of (await jsonFilesIn(vscode.Uri.joinPath(folder.uri, rel)))?.files ?? []) {
-          const v1 = await this.read(folder, uri)
-          if (v1) old.push(v1)
+          const name = await this.read(folder, uri)
+          if (name) oldFormat.push(name)
         }
       }
     }
-    this.logOld(old)
+    this.logOldFormat(oldFormat)
     this.changed.fire()
   }
 
   /** Watches the journey files in `rel`, and `rel` itself: moved or deleted as a whole, no event per file comes. */
   private watch(folder: vscode.WorkspaceFolder, rel: string): void {
-    const reread = (u: vscode.Uri) => this.read(folder, u).then((v1) => { if (v1) this.logOld([v1]); this.changed.fire() }, (e) => this.log.error(`journey ${u.fsPath}: ${e}`))
-    const gone = (u: vscode.Uri) => { const a = this.list.delete(u.toString()), b = this.invalid.delete(u.toString()); if (a || b) this.changed.fire() }
-    const files = watchJsonFiles(folder, rel, reread, gone)
+    const files = watchJsonFiles(folder, rel, (u) => this.reread(folder, u), (u) => this.gone(u))
+    // The folder and its parent: deleting either takes the files with it.
     const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
-    const dir = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, parent ? `{${parent},${rel}}` : rel), true, true, false)
+    const glob = parent ? `{${parent},${rel}}` : rel
+    const dir = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, glob), true, true, false)
     dir.onDidDelete(() => void this.prune())
     this.watchers.push(files, dir)
+  }
+
+  /** A journey file created or changed. */
+  private reread(folder: vscode.WorkspaceFolder, u: vscode.Uri): Promise<void> {
+    const done = (name: string | undefined) => {
+      if (name) this.logOldFormat([name])
+      this.changed.fire()
+    }
+    return this.read(folder, u).then(done, (e) => this.log.error(`journey ${u.fsPath}: ${e}`))
+  }
+
+  /** A journey file deleted. */
+  private gone(u: vscode.Uri): void {
+    const listed = this.list.delete(u.toString())
+    const invalid = this.invalid.delete(u.toString())
+    if (listed || invalid) this.changed.fire()
   }
 
   /** Drops journeys whose files are gone (moved away with their folder:). */
@@ -102,7 +129,7 @@ export class Journeys extends StepTracker {
     if (gone) this.changed.fire()
   }
 
-  private logOld(names: string[]): void {
+  private logOldFormat(names: string[]): void {
     if (names.length) this.log.info(`journeys in the old format (v1, steps as notes) not shown: ${names.join(', ')}; migrate them to v2`)
   }
 
@@ -118,9 +145,13 @@ export class Journeys extends StepTracker {
   /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). */
   private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<string | undefined> {
     const key = uri.toString()
-    let raw: string
-    try { raw = decoder.decode(await wfs.readFile(uri)) } catch { this.list.delete(key); this.invalid.delete(key); return undefined }
-    const name = uri.path.split('/').pop()!.replace(/\.json$/, '')
+    const raw = await readText(uri)
+    if (raw === undefined) {
+      this.list.delete(key)
+      this.invalid.delete(key)
+      return undefined
+    }
+    const name = jsonName(uri)
     const j = parseJourney(raw, name)
     if (typeof j === 'string') return this.unreadable(folder, uri, name, j)
     this.lastGood.set(key, raw)
@@ -139,10 +170,13 @@ export class Journeys extends StepTracker {
   private unreadable(folder: vscode.WorkspaceFolder, uri: vscode.Uri, name: string, why: string): string | undefined {
     const key = uri.toString()
     const prev = this.list.get(key)
-    const old = why.startsWith('format v')
+    const oldFormat = isOldFormat(why)
     // Never readable: one dimmed row in the list says so; the parser's words are its tooltip.
-    if (!prev) this.invalid.set(key, { folder, uri, why: old ? 'Old format (v1): migrate it with journey.py migrate.' : `Can't read it: ${why}.` })
-    if (old) { this.list.delete(key); return name }
+    if (!prev) this.invalid.set(key, { folder, uri, why: oldFormat ? OLD_FORMAT_ROW : `Can't read it: ${why}.` })
+    if (oldFormat) {
+      this.list.delete(key)
+      return name
+    }
     // Half-written, most likely: keep the last good version, and say so on the map.
     this.log.warn(`journey ${uri.fsPath}: skipped: ${why}`)
     // One plain line for readers; the parser's words are in the Output panel.
@@ -157,21 +191,22 @@ export class Journeys extends StepTracker {
   private hiddenByTwin(folder: vscode.WorkspaceFolder, uri: vscode.Uri, id: string): boolean {
     const twin = [...this.list.values()].find((x) => x.key !== uri.toString() && x.folder.uri.toString() === folder.uri.toString() && x.j.id === id)
     if (!twin) return false
-    const legacy = this.isLegacy(folder, uri)
-    if (legacy && !this.isLegacy(folder, twin.uri)) {
+    const inNotes = this.inNotesFolder(folder, uri)
+    const twinInNotes = this.inNotesFolder(folder, twin.uri)
+    if (inNotes && !twinInNotes) {
       this.log.info(`journey ${id}: ${uri.fsPath} not listed: ${twin.uri.fsPath} has the same id`)
       this.list.delete(uri.toString())
       return true
     }
-    if (!legacy && this.isLegacy(folder, twin.uri)) {
+    if (!inNotes && twinInNotes) {
       this.log.info(`journey ${id}: ${twin.uri.fsPath} not listed: ${uri.fsPath} has the same id`)
       this.list.delete(twin.key)
     }
     return false
   }
 
-  /** A journey file in the notes folder (the old place), not the repo's journeys folder. */
-  private isLegacy(folder: vscode.WorkspaceFolder, uri: vscode.Uri): boolean {
+  /** A journey file in the notes folder (where journeys used to be), not the repo's journeys folder. */
+  private inNotesFolder(folder: vscode.WorkspaceFolder, uri: vscode.Uri): boolean {
     return pathIn(vscode.Uri.joinPath(folder.uri, journeysFolderName()), uri) === undefined
   }
 

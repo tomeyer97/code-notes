@@ -3,8 +3,9 @@ import { wfs } from './workspaceFs'
 import * as fs from 'fs'
 import * as path from 'path'
 import { placeFile } from './paths'
-import { jsonFilesIn, watchJsonFiles } from './jsonFolder'
+import { fileName, jsonFilesIn, jsonName, readText, watchJsonFiles } from './jsonFolder'
 import { NoteData, agentReadme, folderProblem, merge, parseNote, serialize, titleOf } from './noteModel'
+import { SaveFailures } from './saveFailures'
 
 // One JSON file per note in <workspace folder>/<codeNotes.folder>/<name>.json. One file per note so an agent and
 // the extension never overwrite each other's notes. A note IS its file: the file name is its identity (an "id"
@@ -23,19 +24,18 @@ export interface Note {
   base?: NoteData
 }
 
+/** A folder setting (`codeNotes.<key>`), trimmed; `fallback` when it is empty or can't be used (folderProblem). */
+export function folderSetting(key: string, fallback: string): string {
+  const v = vscode.workspace.getConfiguration('codeNotes').get<string>(key) || fallback
+  return folderProblem(v) ? fallback : v.trim()
+}
+
+/** The notes folder (codeNotes.folder, default `.code-notes`), relative to the workspace folder. */
 export function folderName(): string {
-  const v = vscode.workspace.getConfiguration('codeNotes').get<string>('folder') || '.code-notes'
-  return folderProblem(v) ? '.code-notes' : v.trim().replace(/\/+$/, '')
+  return folderSetting('folder', '.code-notes').replace(/\/+$/, '')
 }
 
-const decoder = new TextDecoder()
 const encoder = new TextEncoder()
-
-/** Where journeys are committed (codeNotes.journeys.folder, default `journeys`), relative to the workspace folder. */
-export function journeysFolderName(): string {
-  const v = vscode.workspace.getConfiguration('codeNotes').get<string>('journeys.folder') || 'journeys'
-  return folderProblem(v) ? 'journeys' : v.trim().replace(/\\/g, '/').replace(/\/+$/, '').replace(/^\.\//, '')
-}
 
 export function notesDir(folder: vscode.WorkspaceFolder): vscode.Uri {
   return vscode.Uri.joinPath(folder.uri, folderName())
@@ -48,14 +48,24 @@ export function notesDir(folder: vscode.WorkspaceFolder): vscode.Uri {
 let tmpSeq = 0
 export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> {
   // One temp file per write: two saves of a note at once must not rename each other's file away.
-  const tmp = vscode.Uri.joinPath(uri, '..', `.${uri.path.split('/').pop()}.${process.pid}.${++tmpSeq}.tmp`)
+  const tmp = vscode.Uri.joinPath(uri, '..', `.${fileName(uri)}.${process.pid}.${++tmpSeq}.tmp`)
   await wfs.writeFile(tmp, encoder.encode(text))
   // Node's rename replaces the file in one step; VS Code's rename with overwrite deletes it first (a moment with no file).
   try { if (uri.scheme === 'file') await fs.promises.rename(tmp.fsPath, uri.fsPath); else await wfs.rename(tmp, uri, { overwrite: true }) }
   catch (e) { try { await wfs.delete(tmp) } catch { /* gone */ } throw e }
 }
 
-const baseName = (uri: vscode.Uri) => uri.path.split('/').pop()!.replace(/\.json$/, '')
+/** Where a note file of `folder` goes when it is deleted (restore brings it back). */
+const trashUri = (folder: vscode.WorkspaceFolder, uri: vscode.Uri) => vscode.Uri.joinPath(notesDir(folder), '.trash', fileName(uri))
+
+/** A note with a file but no range and no target: a folder note, when its file is a folder (folderNoteShorthand). */
+const isRangelessFileNote = (v: any) =>
+  !!v && typeof v === 'object' && v.range === undefined && v.target === undefined && typeof v.file === 'string'
+
+/** `uri` is a folder (false when it is missing). */
+async function isFolder(uri: vscode.Uri): Promise<boolean> {
+  try { return !!((await wfs.stat(uri)).type & vscode.FileType.Directory) } catch { return false }
+}
 
 export class Store implements vscode.Disposable {
   /** By note file URI. */
@@ -69,15 +79,13 @@ export class Store implements vscode.Disposable {
   /** A note file was deleted by someone else (an agent's rm): its last version was copied to.trash. */
   private readonly deletedOnDisk = new vscode.EventEmitter<Note>()
   readonly onDidDeleteOnDisk = this.deletedOnDisk.event
-  /** Files a save failed for (reported once until a save works again). */
-  private readonly failed = new Set<string>()
-  /** Failures not shown yet: one message for those of the next half second. */
-  private failNames: string[] = []
-  private failWhy = ""
-  private failTimer: ReturnType<typeof setTimeout> | undefined
   private watchers: vscode.Disposable[] = []
+  /** Saves that failed, said once each and together. */
+  private readonly saveFailures: SaveFailures
 
-  constructor(private log: vscode.LogOutputChannel, private person: () => string) {}
+  constructor(private log: vscode.LogOutputChannel, private person: () => string) {
+    this.saveFailures = new SaveFailures(log, folderName)
+  }
 
   get(id: string): Note | undefined {
     for (const n of this.notes.values()) if (n.data.id === id) return n
@@ -112,7 +120,7 @@ export class Store implements vscode.Disposable {
     if (!this.forget(u)) return
     // Not our own delete (trash forgets the note first): keep its last version in.trash so it can be restored.
     if (n?.raw && u.path.startsWith(notesDir(n.folder).path + '/')) {
-      try { await wfs.writeFile(vscode.Uri.joinPath(notesDir(n.folder), '.trash', u.path.split('/').pop()!), encoder.encode(n.raw)) } catch { /* best effort */ }
+      try { await wfs.writeFile(trashUri(n.folder, u), encoder.encode(n.raw)) } catch { /* best effort */ }
       this.log.appendLine(`${u.fsPath}: deleted on disk; the last version is in ${folderName()}/.trash`)
       this.deletedOnDisk.fire(n)
     }
@@ -122,16 +130,16 @@ export class Store implements vscode.Disposable {
   /** Reads one note file; true if anything changed. */
   private async readFile(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<boolean> {
     // Dot files are not notes (`.request.json`: a script's request for the extension).
-    if (baseName(uri).startsWith('.')) return false
-    let raw: string
-    try { raw = decoder.decode(await wfs.readFile(uri)) } catch { return this.forget(uri) }
+    if (jsonName(uri).startsWith('.')) return false
+    const raw = await readText(uri)
+    if (raw === undefined) return this.forget(uri)
     const key = uri.toString()
     const existing = this.notes.get(key)
     // A file that parses again (an agent finished its write, or it was restored) is no longer broken.
     const wasBroken = this.broken.delete(key)
     if (wasBroken) this.log.appendLine(`${uri.fsPath}: readable again`)
     if (existing && existing.raw === raw) return wasBroken
-    const parsed = parseNote(await this.folderNoteShorthand(folder, raw), baseName(uri))
+    const parsed = parseNote(await this.folderNoteShorthand(folder, raw), jsonName(uri))
     if (typeof parsed === 'string') return this.markBroken(uri, raw, parsed)
     const placed = placeFile(folder.uri.fsPath, parsed.file)
     if (typeof placed !== 'string') return this.markBroken(uri, raw, placed.error)
@@ -158,10 +166,10 @@ export class Store implements vscode.Disposable {
   private async folderNoteShorthand(folder: vscode.WorkspaceFolder, raw: string): Promise<string> {
     let v: any
     try { v = JSON.parse(raw) } catch { return raw }
-    if (!v || typeof v !== 'object' || v.range !== undefined || v.target !== undefined || typeof v.file !== 'string') return raw
+    if (!isRangelessFileNote(v)) return raw
     const placed = placeFile(folder.uri.fsPath, v.file)
     if (typeof placed !== 'string') return raw
-    try { if (!((await wfs.stat(vscode.Uri.joinPath(folder.uri, placed))).type & vscode.FileType.Directory)) return raw } catch { return raw }
+    if (!(await isFolder(vscode.Uri.joinPath(folder.uri, placed)))) return raw
     return JSON.stringify({ ...v, target: 'folder' })
   }
 
@@ -202,8 +210,8 @@ export class Store implements vscode.Disposable {
     if (serialize(n.data) === n.raw) return true
     let merged = false
     if (n.raw !== undefined) {
-      let disk: string | undefined
-      try { disk = decoder.decode(await wfs.readFile(n.uri)) } catch { /* deleted: write ours */ }
+      // Undefined: deleted, write ours.
+      const disk = await readText(n.uri)
       if (disk !== undefined && disk !== n.raw) {
         const theirs = parseNote(disk, n.data.id)
         if (typeof theirs === 'string') { this.log.appendLine(`${n.uri.fsPath}: not saved, the file is being written (${theirs})`); return false }
@@ -218,10 +226,10 @@ export class Store implements vscode.Disposable {
       await this.ensureFolder(n.folder)
       await writeAtomic(n.uri, raw)
     } catch (e) {
-      this.reportSaveFailure(n.uri, e as Error)
+      this.saveFailures.report(n.uri, e as Error)
       return false
     }
-    this.failed.delete(key)
+    this.saveFailures.saved(n.uri)
     n.raw = raw
     n.base = structuredClone(n.data)
     this.notes.set(key, n)
@@ -230,48 +238,22 @@ export class Store implements vscode.Disposable {
     return true
   }
 
-  /**
-   * Not writable (an agent running as root wrote it, a read-only mount): said once per file, never silently. Several
-   * at once (a folder written by another user): one message, not a stack of toasts.
-   */
-  private reportSaveFailure(uri: vscode.Uri, e: Error): void {
-    this.log.error(`${uri.fsPath}: couldn't save: ${e.message}`)
-    if (this.failed.has(uri.toString())) return
-    this.failed.add(uri.toString())
-    this.failNames.push(uri.path.split('/').pop()!)
-    this.failWhy = e.message
-    this.failTimer ??= setTimeout(() => this.showSaveFailures(), 500)
-  }
-
-  private showSaveFailures(): void {
-    const names = this.failNames.splice(0)
-    this.failTimer = undefined
-    const why = /EACCES|EPERM|permission/i.test(this.failWhy) ? 'permission denied (written by another user?)' : this.failWhy
-    const text = names.length === 1 ? `Code Notes: couldn't save ${folderName()}/${names[0]}: ${why}`
-      : `Code Notes: couldn't save ${names.length} notes in ${folderName()}/: ${why}`
-    this.log.error(text.replace(/^Code Notes: /, '')) // every error shown is in the Output channel too
-    vscode.window.showErrorMessage(text)
-  }
-
   /** Moves the note's file to <folder>/.trash/ (restore brings it back). */
   async trash(n: Note): Promise<void> {
     this.notes.delete(n.uri.toString())
     this.broken.delete(n.uri.toString())
-    const dest = vscode.Uri.joinPath(notesDir(n.folder), '.trash', n.uri.path.split('/').pop()!)
-    try { await wfs.rename(n.uri, dest, { overwrite: true }) } catch { /* already gone */ }
+    try { await wfs.rename(n.uri, trashUri(n.folder, n.uri), { overwrite: true }) } catch { /* already gone */ }
   }
 
   async restore(n: Note): Promise<void> {
-    const from = vscode.Uri.joinPath(notesDir(n.folder), '.trash', n.uri.path.split('/').pop()!)
-    try { await wfs.rename(from, n.uri, { overwrite: false }) } catch { await this.save({ ...n, raw: undefined }) }
+    try { await wfs.rename(trashUri(n.folder, n.uri), n.uri, { overwrite: false }) } catch { await this.save({ ...n, raw: undefined }) }
     this.notes.set(n.uri.toString(), n)
   }
 
   async writeReadme(folder: vscode.WorkspaceFolder): Promise<void> {
     const u = vscode.Uri.joinPath(notesDir(folder), 'README.md')
     const want = agentReadme(this.person(), folderName())
-    let have = ''
-    try { have = decoder.decode(await wfs.readFile(u)) } catch { /* none yet */ }
+    const have = (await readText(u)) ?? '' // none yet: ''
     if (have !== want) await wfs.writeFile(u, encoder.encode(want))
   }
 
