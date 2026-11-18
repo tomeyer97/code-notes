@@ -4,7 +4,8 @@
 // for rule, by the code-journey skill's `journey.py podcast` (the cases in test/fixtures/podcast/cases.json run
 // through both). No vscode here.
 
-import { clock, clockMs, Episode, findMark, JourneyShape, LINK_CODES, MARK_REFIND_LINES, marksProblems, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
+import { codeMarkOf, markCodeProblem } from '../marks/model'
+import { clock, clockMs, Episode, JourneyShape, LINK_CODES, marksProblems, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
 
 /** What is known around the file: the journey next to it, its audio file (looked at or not), the audio's real length
  *  (once the panel has loaded it). */
@@ -235,18 +236,9 @@ function markCodeProblems(written: { s: WrittenSegment; i: number }[], journey: 
       const file = typeof m.file === 'string' ? m.file : own
       if (!file) return
       const lines = doc(file)
-      const say = (what: string, sub: string) => out.push(segProblem(x.s, x.i, 'mark', `mark ${n + 1}: ${what}`, ['marks', n, sub]))
       if (lines === undefined) return
-      if (lines === null) { say(`${file} isn't in the repository; nothing is lit`, typeof m.file === 'string' ? 'file' : 'lines'); return }
-      const [a, b] = m.lines as number[]
-      const where = `${a === b ? `line ${a}` : `lines ${a}–${b}`} of ${file}`
-      if (b > lines.length) { say(`${where} ${a > lines.length ? (a === b ? 'is' : 'are') : 'go'} past its end (${lines.length} lines)${a > lines.length ? '; nothing is lit' : ''}`, 'lines'); return }
-      if (typeof m.match !== 'string') return
-      const f = findMark(lines, { lines: [a, b], match: m.match, nth: typeof m.nth === 'number' ? m.nth : undefined })
-      if (!f || f.moved === 0 && f.found) return
-      const what = `${JSON.stringify(m.match)}${typeof m.nth === 'number' && m.nth > 1 ? ` (occurrence ${m.nth})` : ''} isn't in ${where}`
-      if (f.found) say(`${what}; found ${Math.abs(f.moved)} ${Math.abs(f.moved) === 1 ? 'line' : 'lines'} ${f.moved < 0 ? 'up' : 'down'}, lit there`, 'match')
-      else say(`${what}, nor within ${MARK_REFIND_LINES} lines: the whole lines light`, 'match')
+      const p = markCodeProblem(lines, file, codeMarkOf(m), 'lines')
+      if (p) out.push(segProblem(x.s, x.i, 'mark', `mark ${n + 1}: ${p.what}`, ['marks', n, p.sub]))
     })
   })
   return out

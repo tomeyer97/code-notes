@@ -189,6 +189,9 @@ the line that rejects it.
 ]
 ```
 
+A journey's steps and beats have marks of the same shape, without `phrase` and `at` (docs/journey-format.md,
+"Marks"); both are read and found by the same code (`src/marks/`).
+
 | Field | |
 |---|---|
 | `phrase` | The words in `text` the mark goes with (the first occurrence after the mark before's phrase). Marks with the same phrase one after the other light together (two places at once) |

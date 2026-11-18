@@ -36,6 +36,8 @@ export interface JStep {
   links?: StepLink[]
   /** Value hints (valueHints.ts): what a variable holds in the example run, shown faintly above its line while the step is open. */
   values?: ValueHint[]
+  /** Marks (marks/model.ts, as written: read when the step is walked): the parts of its lines the step is about. */
+  marks?: unknown
 }
 /** A code link: `phrase`: words of the step's lead or details, as written; `text`: the first of its lines (to find them again). */
 export interface StepLink { phrase: string; file: string; start: number; end: number; text: string }
@@ -44,8 +46,9 @@ export interface StepLink { phrase: string; file: string; start: number; end: nu
  * find it again); `note`: a few words on what the value is, after it on the same row.
  */
 export interface ValueHint { name: string; value: string; note?: string; file: string; line: number; text: string }
-/** `code`: the line that does what the beat shows; `example`: an example of the value in play there (written by the author, not captured). */
-export interface JBeat { focus: string; caption: string; muted?: string; code?: { file: string; line: number; text: string }; [k: string]: unknown }
+/** `code`: the line that does what the beat shows; `example`: an example of the value in play there (written by the author, not captured);
+ *  `marks`: as a step's, lit while the beat is (their file defaults to the beat's code file). */
+export interface JBeat { focus: string; caption: string; muted?: string; code?: { file: string; line: number; text: string }; marks?: unknown; [k: string]: unknown }
 export interface JScene { actors: unknown[]; wires?: unknown[]; beats: JBeat[] }
 export interface Journey {
   id: string; question: string; title: string; summary: string; model?: string; commit?: string; createdAt?: string
@@ -174,6 +177,7 @@ function readStep(s: any, n: number, stepIds: Set<string>, problems: string[]): 
     ...opt(a, 'anchor', a!), lead: str(s.lead).trim(), ...optTrimmed('details', s.details), refs: refs.slice(0, MAX_REFS),
     ...opt(Array.isArray(s.links) && s.links.length, 'links', s.links),
     ...opt(Array.isArray(s.values) && s.values.length, 'values', s.values),
+    ...opt(s.marks !== undefined, 'marks', s.marks as unknown),
     ...opt(scene, 'scene', s.scene as JScene),
   }
 }

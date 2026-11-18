@@ -43,7 +43,7 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   // The list over the walk: the walk keeps its place, card and status item.
   home: () => undefined,
   beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); void showBeat(lj, m.n, m.i) },
-  closed: () => { beats.clear(); podcasts.onClosed() },
+  closed: () => { beats.clear(); card.refreshDecorations(); podcasts.onClosed() },
   // The panel's player as the audio's host, or unlocked (src/podcast/player.ts).
   podcastTime: (_lj, m) => podcasts.fromPanel(m),
   podcastState: (_lj, m) => podcasts.fromPanel(m),
@@ -129,7 +129,10 @@ export async function showBeat(lj: LoadedJourney, n: number, i: number): Promise
   const was = beats.lit
   // The caret goes to the lit line: arriving is not reading a note there.
   tourState.cursorUntil = Date.now() + 1500
+  beats.index = i >= 0 ? i : undefined
   const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), walk.codeColumn)
+  // The beat's marks, and the step's dimmed (stepMarks.ts).
+  if (shown !== 'superseded') card.refreshDecorations()
   // The panel shows those lines itself, under the caption, when it has the room.
   if (shown !== 'superseded' && i >= 0) mapPanel.send({ type: 'code', n, i, code: shown === 'lit' ? beats.preview : undefined })
   const givenBack = shown === 'none' && was && !tourState.stepping && walk.touring() && tourState.key === lj.key && tourState.step

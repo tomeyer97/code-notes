@@ -98,6 +98,10 @@ function tourSnapshot() {
     mapFocus: mapPanel.focus,
     beat: beats.lit,
     beatCode: beats.preview,
+    /** The step's marks and its beat's as lit (tour/stepMarks.ts). */
+    marks: card.marks?.lit() ?? [],
+    stepLook: card.look,
+    beatBoxed: beats.boxed,
     codeLinks: codeLinks.state,
     values: valueHints.state,
     mapColumn: mapPanel.viewColumn,

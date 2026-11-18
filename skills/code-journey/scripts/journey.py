@@ -45,7 +45,7 @@ code). Rules: ../SKILL.md. The folder: <repo>/journeys/, or <repo>/.code-notes/j
   journey.py migrate-anchors <repo> <slug>|--all   rewrites full-text (v2) anchors as compact v3 anchors, from the
                    text they stored (so `check` still tells whether the code moved or changed since)
 
-Links, values, scenes (once the steps are written; N = the step's number; the script reads every line's text):
+Links, values, marks, scenes (once the steps are written; N = the step's number; the script reads every line's text):
   journey.py link  <repo> <slug> N "<phrase>" <file> <start> [<end>]
                    the phrase (exact words of the lead or details, outside backticks and Markdown links) becomes a
                    link to the 1-8 lines that do what it says; the same phrase again replaces it
@@ -56,9 +56,16 @@ Links, values, scenes (once the steps are written; N = the step's number; the sc
   journey.py scene <repo> <slug> N   < scene JSON  {"actors": [...], "wires": [[a, b]], "beats": [...]}
                    replaces the step's animation; a beat's code is {"file", "line"} (the script adds "text").
                    Actors and what a beat's "set" changes: SKILL.md, media/journey-scene.js of the extension
+  journey.py mark  <repo> <slug> N|N.B <file> <line>[-<end>] ["<match>"] [<nth>]
+                   highlights ONLY "<match>" (exact characters, its nth occurrence) within those lines while step N
+                   (or beat B of step N) is open; no match: the whole lines. Use it when the text names one call,
+                   argument, condition or field; <= 3 per step or beat. The same lines and match again replace it.
+                   In a scene's JSON a beat may carry "marks" itself: [{"lines": [a, b], "match": "…"}]
+  journey.py marks <repo> <slug> [N]  prints every mark with ^^^ under the characters it lights, and its problems
   journey.py rmlink <repo> <slug> N "<phrase>"
   journey.py rmvalue <repo> <slug> N <name> [<line>]
   journey.py rmscene <repo> <slug> N
+  journey.py rmmark <repo> <slug> N|N.B <i>|all
 
 Fixing things:
   journey.py restep  <repo> <slug> N [<file> <start> <end>] ["<title>"]  < text    (empty stdin keeps the text)
@@ -136,6 +143,11 @@ Rules (`journey.py help <command>` shows the ones for that command):
   not exist, and text longer than its box holds (the message says the limit); it refuses (`check`: WARNING) more than 4 actors, fewer than 3 beats, keys the engine ignores and set
   indexes past what the actor has. WARNING: 7 beats, a caption over 70 chars (or with muted over 110), two code-less
   beats in a row, a beat lighting a signature, a comment or a lone brace.
+- `mark` refuses (`check`: PROBLEM) a match that isn't on its lines (nor within 20 lines: the extension then lights
+  nothing), an nth past the occurrences, lines past the end of the file. WARNING (`mark`/`check`/`marks`): more than
+  3 marks on a step or beat, a step mark outside the step's lines, a match the step's text (a beat: its caption)
+  names none of the words of, a match that is the whole line, a whole-line mark on the step's whole range; a match
+  found a few lines off (`check fix` moves its lines).
 - `check` finds every link, value and beat line again by its stored text the way the extension does (same trimmed
   line, nearest within 400 lines): moved = WARNING (`check fix` repoints it, apart from the step's range); not found
   = PROBLEM. A journey with none of them gets one WARNING; a step without links, when others have some, too.
@@ -162,9 +174,12 @@ SUMMARY = [
     ('link', 'links a phrase of a step to the lines doing it'),
     ('value', 'adds a value hint above a line'),
     ('scene', "sets a step's animation"),
+    ('mark', 'highlights the part of a line a step or beat is about'),
+    ('marks', "previews a journey's marks"),
     ('rmlink', 'removes a code link'),
     ('rmvalue', 'removes a value hint'),
     ('rmscene', "removes a step's animation"),
+    ('rmmark', 'removes a mark'),
     ('reset', 'deletes a journey'),
     ('restore', 'puts back the last good copy'),
     ('migrate', 'converts an old (v1) journey'),
@@ -1933,7 +1948,7 @@ SET_KEYS = {'app': {'screen', 'status', 'tone', 'findings', 'cards', 'events', '
             'cluster': {'mark', 'made', 'gone', 'inner', 'innerMade', 'innerMark', 'innerGone'},
             'browser': {'click', 'mark', 'lock'}, 'terminal': {'show', 'hi'}, 'file': {'show', 'hi', 'text'},
             'chat': {'show', 'hi'}, 'queue': {'fill', 'drop', 'note'}, 'gauge': {'used', 'want', 'note'}}
-BEAT_KEYS = {'focus', 'caption', 'muted', 'set', 'packet', 'click', 'flash', 'code', 'example', 'hold'}
+BEAT_KEYS = {'focus', 'caption', 'muted', 'set', 'packet', 'click', 'flash', 'code', 'example', 'hold', 'marks'}
 SCREENS = ('dialog', 'detail', 'signin')             # and the names of the actor's own `pages`
 SCREEN_ALIAS = {'run-dialog': 'dialog', 'run-page': 'detail', 'login': 'signin'}     # older journeys' screen names
 PANES = ('picture', 'chat', 'desktop')               # desktop: the older name of picture
@@ -2609,7 +2624,9 @@ def say_issues(issues, write):
 def extras_line(s):
     """`, 5 links, 3 values, scene 5 beats` for the storyline row."""
     sc = s.get('scene') if isinstance(s.get('scene'), dict) else None
+    nm = sum(len(ms) for _, ms, _, _, _ in marks_groups(s) if isinstance(ms, list))
     return (f', {len(s.get("links", []))} links, {len(s.get("values", []))} values'
+            + (f', {nm} marks' if nm else '')
             + (f', scene {len(sc.get("beats") or [])} beats' if sc else ''))
 
 
@@ -2817,12 +2834,304 @@ def check_extras(repo, since, j, fix, P, warnings, fixed):
                         if why:
                             warnings.append(f'step {k} scene: beat {i} lights {why} ({c.get("file")}:{c.get("line")}): '
                                             f'light the line that DOES what the caption says')
+        for lv, m in marks_issues(repo, since, k, s, fix, fixed):
+            (P if lv == 'P' else warnings.append)(m)
         if some_links and not links:
             warnings.append(f'step {k}: no code links (aim for 3-6: the phrases of the lead and details that name '
                             f'what a few lines do; link {k} "<phrase>" <file> <start> <end>)')
     if not any_extra and j['steps']:
         warnings.append('no step has code links, value hints or an animation: add them once the steps are written '
-                        '(link, value, scene: SKILL.md "Links, values, scenes")')
+                        '(link, value, scene: SKILL.md "Links, values, marks, scenes")')
+
+
+# ---------- marks: the part of a line a step or beat is about (docs/journey-format.md "Marks"; a podcast segment's
+# marks have the same shape plus phrase and at). The extension's src/marks/model.ts, rule for rule. ----------
+
+MAX_MARKS = 3             # per step or beat: more, and nothing stands out
+
+
+def mark_shape_problem(m):
+    """What is wrong with a mark's code fields (lines, file, match, nth), the first found: (message, field) or None.
+    As model.ts markShapeProblem."""
+    ln = m.get('lines')
+    if not (isinstance(ln, list) and len(ln) == 2 and all(_is_int(x) and x >= 1 for x in ln) and ln[1] >= ln[0]):
+        return (f'lines must be [first, last] (1-based, first <= last), got {_js(ln) if "lines" in m else "undefined"}', 'lines')
+    if 'file' in m and (not isinstance(m['file'], str) or not m['file'].strip()):
+        return ('file is not a path', 'file')
+    if 'match' in m and (not isinstance(m['match'], str) or not m['match']):
+        return ('match is not a text', 'match')
+    if 'nth' in m and not (_is_int(m['nth']) and m['nth'] >= 1):
+        return (f'nth must be 1 or more, got {_js(m["nth"])}', 'nth')
+    return None
+
+
+def mark_code_problem(doc, f, m, missing):
+    """What is wrong with mark m against its file's lines `doc` (None: the file isn't there): (message, moved) or
+    None when it is in place. moved: the shift it was found at, None when it lights nothing. `missing`: what a match
+    not found lights: 'lines' (a podcast) or 'drop' (a journey: nothing). As model.ts markCodeProblem."""
+    if doc is None:
+        return (f"{f} isn't in the repository; nothing is lit", None)
+    a, b = int(m['lines'][0]), int(m['lines'][1])
+    where = (f'line {a}' if a == b else f'lines {a}–{b}') + f' of {f}'
+    if b > len(doc):
+        past = a > len(doc)
+        return (f"{where} {('is' if a == b else 'are') if past else 'go'} past its end ({len(doc)} lines){'; nothing is lit' if past else ''}", None)
+    if not isinstance(m.get('match'), str):
+        return None
+    nth = int(m['nth']) if _is_int(m.get('nth')) else 1
+    moved = mark_moved(doc, [a, b], m['match'], nth)
+    if moved == 0:
+        return None
+    what = f"{_js(m['match'])}{f' (occurrence {nth})' if nth > 1 else ''} isn't in {where}"
+    if moved is not None:
+        d = abs(moved)
+        return (f"{what}; found {d} {'line' if d == 1 else 'lines'} {'up' if moved < 0 else 'down'}, lit there", moved)
+    return (f"{what}, nor within {MARK_REFIND} lines: {'the whole lines light' if missing == 'lines' else 'nothing is lit'}", None)
+
+
+def mark_spot(doc, m):
+    """Where mark m lights in `doc` (its lines, 1-based in m): (line, col, end_line, end_col), 0-based, the end
+    exclusive; None: nothing. As model.ts findMark (a journey's: a match not found lights nothing)."""
+    a, b = int(m['lines'][0]) - 1, min(int(m['lines'][1]) - 1, len(doc) - 1)
+    if a < 0 or a >= len(doc):
+        return None
+    if not isinstance(m.get('match'), str):
+        return (a, len(doc[a]) - len(doc[a].lstrip()), b, len(doc[b]))
+    nth = int(m['nth']) if _is_int(m.get('nth')) else 1
+    moved = mark_moved(doc, [a + 1, b + 1], m['match'], nth)
+    if moved is None:
+        return None
+    lo, hi = max(0, a + moved), min(len(doc) - 1, b + moved)
+    text = '\n'.join(doc[lo:hi + 1])
+    i = -len(m['match'])
+    for _ in range(nth):
+        i = text.find(m['match'], i + len(m['match']))
+    def pos(off):
+        ln = lo
+        while off > len(doc[ln]):
+            off -= len(doc[ln]) + 1
+            ln += 1
+        return ln, off
+    (l1, c1), (l2, c2) = pos(i), pos(i + len(m['match']))
+    return (l1, c1, l2, c2)
+
+
+def mark_preview(doc, m, indent='      '):
+    """The lines a mark lights, each with a ^ line under the characters it lights."""
+    sp = mark_spot(doc, m)
+    if not sp:
+        return [f'{indent}(nothing lit)']
+    l1, c1, l2, c2 = sp
+    out = []
+    for ln in range(l1, l2 + 1):
+        text = doc[ln].rstrip('\n')
+        a = c1 if ln == l1 else len(text) - len(text.lstrip())
+        b = c2 if ln == l2 else len(text)
+        lead = len(text) - len(text.lstrip())
+        shown = text[lead:]
+        out.append(f'{indent}L{ln + 1}: {shown[:110]}')
+        if b > a and a - lead < 110:
+            out.append(f'{indent}{" " * len(f"L{ln + 1}: ")}{" " * (a - lead)}{"^" * max(1, min(b, lead + 110) - a)}')
+    return out
+
+
+def mark_text_words(match):
+    """The words of a match a step's text could name: identifiers and numbers, split at camelCase and _."""
+    out = set()
+    for w in re.findall(r'[A-Za-z]+|\d+', re.sub(r'([a-z])([A-Z])', r'\1 \2', match)):
+        if len(w) >= 3 or w.isdigit():
+            out.add(w.lower())
+    return out
+
+
+def mark_file_lines(repo, since, f):
+    """A mark's file's lines now (followed through a git rename), and its path; (None, f) when it is gone."""
+    cur = f
+    if not os.path.isfile(os.path.join(repo, f)):
+        cur = renamed(repo, since, f) if since else f
+        if not os.path.isfile(os.path.join(repo, cur)):
+            return None, f
+    return lines_of(repo, cur), cur
+
+
+def marks_groups(s):
+    """A step's marks and its beats': [(where, marks as written, default file, the text that should name them, beat)]."""
+    out = []
+    if 'marks' in s:
+        text = ' '.join(str(s.get(x, '')) for x in ('title', 'lead', 'details'))
+        out.append(('', s['marks'], s.get('file'), text, None))
+    sc = s.get('scene') if isinstance(s.get('scene'), dict) else None
+    for i, b in enumerate((sc or {}).get('beats') or [], 1):
+        if isinstance(b, dict) and 'marks' in b:
+            c = b.get('code') if isinstance(b.get('code'), dict) else {}
+            out.append((f' beat {i}', b['marks'], c.get('file') or s.get('file'), f'{b.get("caption", "")} {b.get("muted", "")}', b))
+    return out
+
+
+def marks_issues(repo, since, k, s, fix=False, fixed=None):
+    """(level, text) for a step's marks and its beats' (P: lights nothing or can't be read; W: moved, too many, not on
+    the step's lines, not named by the text, the step's whole range). `fix`: a moved match's lines are rewritten."""
+    out = []
+    r = s.get('range') or {}
+    for where, ms, own, text, beat in marks_groups(s):
+        name = f'step {k}{where}'
+        if not isinstance(ms, list):
+            out.append(('P', f'{name}: marks is not a list of {{ lines, match? }}'))
+            continue
+        if len(ms) > MAX_MARKS:
+            out.append(('W', f'{name}: {len(ms)} marks (aim for <= {MAX_MARKS}: only what the text names, so it stands out)'))
+        named_words = {stem(w) for w in re.findall(r'[a-z]+|\d+', re.sub(r'([a-z])([A-Z])', r'\1 \2', text).lower())}
+        for n, m in enumerate(ms, 1):
+            label = f'{name}: mark {n}'
+            if not isinstance(m, dict):
+                out.append(('P', f'{label}: not an object {{ lines, match? }}'))
+                continue
+            shape = mark_shape_problem(m)
+            if shape:
+                out.append(('P', f'{label}: {shape[0]}'))
+                continue
+            f = m.get('file') or own
+            if not isinstance(f, str) or not f:
+                out.append(('P', f'{label}: no file (give "file")'))
+                continue
+            doc, cur = mark_file_lines(repo, since, f)
+            got = mark_code_problem(doc, f, m, 'drop')
+            if got:
+                msg, moved = got
+                if moved:
+                    if fix and fixed is not None:
+                        m['lines'] = [m['lines'][0] + moved, m['lines'][1] + moved]
+                        fixed.append(f'{label}: lines moved {moved:+d} to {m["lines"][0]}-{m["lines"][1]}')
+                    else:
+                        out.append(('W', f'{label}: {msg} (run check fix)'))
+                else:
+                    out.append(('P', f'{label}: {msg}; mark the characters as they are now (mark {k}{"." + where.split()[-1] if where else ""} …)'))
+                continue
+            a, b = m['lines']
+            if beat is None and f == s.get('file') and (b < r.get('start', a) or a > r.get('end', b)):
+                out.append(('W', f'{label}: {f}:{a}-{b} is outside the step\'s lines ({r.get("start")}-{r.get("end")}): a step marks its own code'))
+            if 'match' not in m:
+                if f == s.get('file') and beat is None and (a, b) == (r.get('start'), r.get('end')):
+                    out.append(('W', f'{label}: lights the step\'s whole range: mark the part the text names (a "match")'))
+            else:
+                ws = {stem(w) for w in mark_text_words(m['match'])}
+                if ws and not any(w == t or min(len(w), len(t)) >= 4 and (w.startswith(t) or t.startswith(w)) for w in ws for t in named_words):
+                    out.append(('W', f'{label}: {_js(m["match"])}: the {"caption" if beat is not None else "step\'s text"} '
+                                     f'names none of it; mark only what the text talks about'))
+                elif doc and m['match'].strip() == '\n'.join(x.strip() for x in doc[a - 1:b]).strip():
+                    out.append(('W', f'{label}: {_js(m["match"])} is the whole line: leave "match" out, or mark the part that matters'))
+    return out
+
+
+def parse_mark_target(j, target):
+    """`N` (step N) or `N.B` (beat B of step N): (k, step, beat dict or None)."""
+    mt = re.match(r'^(\d+)(?:\.(\d+))?$', str(target))
+    if not mt:
+        refuse(f'{target!r}: give the step as N, or a beat as N.B (beat B of step N)')
+    k = step_at(j, mt.group(1)) + 1
+    s = j['steps'][k - 1]
+    if not mt.group(2):
+        return k, s, None
+    beats = ((s.get('scene') or {}).get('beats') or []) if isinstance(s.get('scene'), dict) else []
+    bi = int(mt.group(2))
+    if not 1 <= bi <= len(beats):
+        refuse(f'step {k} has {len(beats)} beats; there is no beat {bi}')
+    return k, s, beats[bi - 1]
+
+
+def cmd_mark(repo, slug, target, rel, lines, match='', nth=''):
+    """Adds a mark to step N (or beat N.B): `lines` a or a-b, `match` the characters within them (none: whole lines)."""
+    j = load(repo, slug)
+    k, s, beat = parse_mark_target(j, target)
+    ml = re.match(r'^(\d+)(?:-(\d+))?$', lines)
+    if not ml:
+        refuse(f'lines {lines!r}: give a line or a range (12 or 12-14)')
+    a, b = int(ml.group(1)), int(ml.group(2) or ml.group(1))
+    if b < a:
+        refuse(f'lines {a}-{b}: the end is before the start')
+    if nth and not nth.isdigit():
+        refuse(f'nth {nth!r} is not a number (1 = the first occurrence)')
+    holder = beat if beat is not None else s
+    own = ((beat.get('code') or {}).get('file') if beat is not None else None) or s.get('file')
+    m = {'lines': [a, b], **({'match': match} if match else {}), **({'nth': int(nth)} if nth and int(nth) > 1 else {})}
+    if rel != own:
+        m = {'file': rel, **m}
+    doc, _ = mark_file_lines(repo, None, rel)
+    got = mark_code_problem(doc, rel, m, 'drop')
+    if got:
+        refuse(f'mark: {got[0]}' if got[1] is None else f'mark: {_js(match)} isn\'t on {rel}:{a}-{b} (it is {abs(got[1])} line{"" if abs(got[1]) == 1 else "s"} {"up" if got[1] < 0 else "down"}): give the lines it is on')
+    ms = list(holder.get('marks', []))
+    same = next((i for i, o in enumerate(ms) if isinstance(o, dict) and o.get('lines') == m['lines'] and o.get('match') == m.get('match') and o.get('file', own) == rel), None)
+    if same is None:
+        ms.append(m)
+    else:
+        ms[same] = m
+    holder['marks'] = ms
+    issues = [x for x in marks_issues(repo, None, k, s) if (f'step {k}{f" beat {target.split(".")[1]}" if beat is not None else ""}: ' in x[1])]
+    if any(lv == 'P' for lv, _ in issues):
+        refuse(next(t for lv, t in issues if lv == 'P'))
+    save(repo, slug, j)
+    where = f'step {k}' + (f' beat {target.split(".")[1]}' if beat is not None else '')
+    print(f'{where} mark {ms.index(m) + 1}{" (replaced)" if same is not None else ""}: {rel}:{a}{"-" + str(b) if b > a else ""}'
+          f'{" " + _js(match) if match else " (whole lines)"}  ({len(ms)} mark{"" if len(ms) == 1 else "s"})')
+    print('\n'.join(mark_preview(doc, m, '  ')))
+    for lv, t in issues:
+        print('WARNING: ' + t)
+
+
+def cmd_rmmark(repo, slug, target, which):
+    """Removes mark `which` (1-based, or "all") of step N (or beat N.B)."""
+    j = load(repo, slug)
+    k, s, beat = parse_mark_target(j, target)
+    holder = beat if beat is not None else s
+    ms = holder.get('marks', [])
+    where = f'step {k}' + (f' beat {target.split(".")[1]}' if beat is not None else '')
+    if which == 'all':
+        gone = len(ms)
+        holder.pop('marks', None)
+    else:
+        if not which.isdigit() or not 1 <= int(which) <= len(ms):
+            sys.exit(f'{where} has {len(ms)} marks; give 1-{len(ms)} or "all"')
+        gone = 1
+        holder['marks'] = [m for i, m in enumerate(ms, 1) if i != int(which)]
+        if not holder['marks']:
+            holder.pop('marks')
+    save(repo, slug, j)
+    print(f'removed {gone} mark{"s" if gone != 1 else ""} of {where}')
+
+
+def cmd_marks(repo, slug, n=''):
+    """Prints every mark (of step n) with the characters it lights, and what check says about them."""
+    j = load(repo, slug)
+    ks = [step_at(j, n) + 1] if n else range(1, len(j['steps']) + 1)
+    total, issues = 0, []
+    for k in ks:
+        s = j['steps'][k - 1]
+        groups = marks_groups(s)
+        if not groups:
+            if n:
+                print(f'step {k} has no marks')
+            continue
+        r = s.get('range') or {}
+        print(f'step {k} {s.get("title", "")}   @ {s.get("file")}:{r.get("start")}-{r.get("end")}')
+        for where, ms, own, text, beat in groups:
+            if beat is not None:
+                print(f'  {where.strip()}: {str(beat.get("caption", ""))[:90]}')
+            for i, m in enumerate(ms if isinstance(ms, list) else [], 1):
+                if not isinstance(m, dict) or mark_shape_problem(m):
+                    continue
+                total += 1
+                f = m.get('file') or own
+                doc, cur = mark_file_lines(repo, None, f)
+                head = f'    mark {i}: {f}:{m["lines"][0]}{"-" + str(m["lines"][1]) if m["lines"][1] > m["lines"][0] else ""}'
+                print(head + (f' {_js(m["match"])}' if 'match' in m else ' (whole lines)') + (f' #{m["nth"]}' if 'nth' in m else ''))
+                print('\n'.join(mark_preview(doc, m)) if doc else '      (file not found)')
+        issues += marks_issues(repo, None, k, s)
+    for lv, t in issues:
+        print(('PROBLEM: ' if lv == 'P' else 'WARNING: ') + t)
+    np = sum(1 for lv, _ in issues if lv == 'P')
+    print(f'{total} mark{"s" if total != 1 else ""}, {np} problem{"s" if np != 1 else ""}, {len(issues) - np} warning{"s" if len(issues) - np != 1 else ""}')
+    sys.exit(1 if any(lv == 'P' for lv, _ in issues) else 0)
 
 
 # ---------- podcasts: <slug>.podcast.json (the Code Notes extension's src/podcast/validate.ts, rule for rule; the
@@ -2944,21 +3253,12 @@ def _marks_problems(v, text, start, end, on_map):
         if at < -MARK_SLACK or at > length + MARK_SLACK:
             bad(f'at {_clock_ms(start + at)} ({_r2(at)} s) is outside the segment ({_clock_ms(start)}–{_clock_ms(end)})')
             continue
-        ln = m.get('lines')
-        if not (isinstance(ln, list) and len(ln) == 2 and all(_is_int(x) and x >= 1 for x in ln) and ln[1] >= ln[0]):
-            bad(f'lines must be [first, last] (1-based, first <= last), got {_js(ln) if "lines" in m else "undefined"}')
-            continue
-        if 'file' in m and (not isinstance(m['file'], str) or not m['file'].strip()):
-            bad('file is not a path')
+        shape = mark_shape_problem(m)
+        if shape:
+            bad(shape[0])
             continue
         if 'file' not in m and on_map:
             bad('a mark in a segment on the map ("at": null) needs its own "file"')
-            continue
-        if 'match' in m and (not isinstance(m['match'], str) or not m['match']):
-            bad('match is not a text')
-            continue
-        if 'nth' in m and not (_is_int(m['nth']) and m['nth'] >= 1):
-            bad(f'nth must be 1 or more, got {_js(m["nth"])}')
             continue
         if prev_at is not None and at < prev_at - MARK_SLACK:
             out.append((k, f'mark {k + 1} lights at {_r2(at)} s, before mark {k} ({_r2(prev_at)} s): marks light in the order they are said', False))
@@ -3043,27 +3343,9 @@ def _mark_code_problems(x, k_drop, steps_by_id, files, docs, bad_beat=False):
         lines = docs[f]
         if lines is ...:
             continue
-        if lines is None:
-            out.append((n, f"mark {n + 1}: {f} isn't in the repository; nothing is lit"))
-            continue
-        a, b = int(m['lines'][0]), int(m['lines'][1])
-        where = (f'line {a}' if a == b else f'lines {a}–{b}') + f' of {f}'
-        if b > len(lines):
-            past = a > len(lines)
-            out.append((n, f"mark {n + 1}: {where} {('is' if a == b else 'are') if past else 'go'} past its end ({len(lines)} lines){'; nothing is lit' if past else ''}"))
-            continue
-        if not isinstance(m.get('match'), str):
-            continue
-        nth = int(m['nth']) if _is_int(m.get('nth')) else 1
-        moved = mark_moved(lines, [a, b], m['match'], nth)
-        if moved == 0:
-            continue
-        what = f"{_js(m['match'])}{f' (occurrence {nth})' if nth > 1 else ''} isn't in {where}"
-        if moved is not None:
-            d = abs(moved)
-            out.append((n, f"mark {n + 1}: {what}; found {d} {'line' if d == 1 else 'lines'} {'up' if moved < 0 else 'down'}, lit there"))
-        else:
-            out.append((n, f'mark {n + 1}: {what}, nor within {MARK_REFIND} lines: the whole lines light'))
+        got = mark_code_problem(lines, f, m, 'lines')
+        if got:
+            out.append((n, f'mark {n + 1}: {got[0]}'))
     return out
 
 
@@ -3741,7 +4023,8 @@ if __name__ == '__main__':
             'rmedge': cmd_rmedge, 'setedge': cmd_setedge, 'reset': cmd_reset, 'migrate': cmd_migrate,
             'meta': cmd_meta, 'range': cmd_range, 'restore': cmd_restore, 'mvstep': cmd_mvstep,
             'migrate-anchors': cmd_migrate_anchors, 'link': cmd_link, 'rmlink': cmd_rmlink, 'value': cmd_value,
-            'rmvalue': cmd_rmvalue, 'scene': cmd_scene, 'rmscene': cmd_rmscene, 'podcast': cmd_podcast}
+            'rmvalue': cmd_rmvalue, 'scene': cmd_scene, 'rmscene': cmd_rmscene, 'podcast': cmd_podcast,
+            'mark': cmd_mark, 'rmmark': cmd_rmmark, 'marks': cmd_marks}
     def usage(cmd, why):
         """A usage error is exit 2 (a failed validation is exit 1), with the command's own usage line."""
         lines = [l.strip() for l in __doc__.split('\n') if l.strip().startswith(f'journey.py {cmd} ')]

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calmViews, findMark, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
+import { calmViews, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
 
 // The podcast's pure parts (src/podcast/model.ts): reading the file, where the journey is at a time, seeking.
 
@@ -250,22 +250,3 @@ test('marks: a mark in another file opens it only after the view hold, else it i
   assert.equal(VIEW_HOLD_S, 8)
 })
 
-test('marks: found by match within the lines (its nth), re-found within 20 lines when the code moved, else the whole lines', () => {
-  const doc = ['package a', '', '\tif n := NeedsModel(steps); g == nil && n > 0 {', '\t\treturn reject(400)', '\t}', '\treturn reject(400)']
-  assert.deepEqual(findMark(doc, { lines: [3, 3], match: 'NeedsModel(steps)' }), { spot: { line: 2, col: 9, endLine: 2, endCol: 26 }, moved: 0, found: true })
-  // nth counts within the lines; a match may span them.
-  assert.deepEqual(findMark(doc, { lines: [4, 6], match: 'reject(400)', nth: 2 })!.spot, { line: 5, col: 8, endLine: 5, endCol: 19 })
-  assert.deepEqual(findMark(doc, { lines: [4, 5], match: '400)\n\t}' })!.spot, { line: 3, col: 16, endLine: 4, endCol: 2 })
-  // The code moved down 3 lines: the nearest shift that has it.
-  const moved = ['//', '//', '//', ...doc]
-  assert.deepEqual(findMark(moved, { lines: [3, 3], match: 'g == nil' }), { spot: { line: 5, col: 28, endLine: 5, endCol: 36 }, moved: 3, found: true })
-  // Up before down at the same distance; nearer first.
-  const both = ['x', 'hit', 'y', 'hit']
-  assert.equal(findMark(both, { lines: [3, 3], match: 'hit' })!.moved, -1)
-  assert.equal(findMark(Array.from({ length: 30 }, (_, i) => (i === 25 ? 'far' : '-')), { lines: [1, 1], match: 'far' })!.found, false, 'more than 20 lines away: not found')
-  // Not there: the whole lines, from the first line's text; no match: the same, found.
-  assert.deepEqual(findMark(doc, { lines: [3, 4], match: 'nothing' }), { spot: { line: 2, col: 1, endLine: 3, endCol: 20 }, moved: 0, found: false })
-  assert.deepEqual(findMark(doc, { lines: [4, 4] }), { spot: { line: 3, col: 2, endLine: 3, endCol: 20 }, moved: 0, found: true })
-  assert.equal(findMark(doc, { lines: [7, 8] }), undefined, 'past the end: nothing')
-  assert.deepEqual(findMark(doc, { lines: [6, 9] })!.spot, { line: 5, col: 1, endLine: 5, endCol: 19 }, 'partly past the end: what is there')
-})

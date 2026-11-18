@@ -10,12 +10,14 @@ import { fileOf, LoadedJourney } from '../journeys/steps'
 import { Asked, askedOf, askedText } from '../sidebar/journeyRows'
 import { refreshDecorations as refreshNoteDecorations } from '../notes/decorations'
 import { linesOfUri } from '../notes/location'
+import { MarkPainter } from '../marks/lights'
 import { blocksOf } from '../symbolBlocks'
 import { labelSafe } from '../text'
 import { afterEditorSettles, newThread, setThread, settling, whenSettled } from '../threads/settle'
 import { nextStop, seeAlsoLink } from './checkTour'
 import { TourState } from './state'
 import { cardLine, stepUri } from './stepPlace'
+import { paintStepMarks, stepMarks } from './stepMarks'
 import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
 import { walk } from './instances'
 import { tutorialMark } from './tutorial'
@@ -63,6 +65,10 @@ export class StepCard {
   thread: vscode.CommentThread | undefined
   deco!: { at: vscode.TextEditorDecorationType; quiet: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
   refDeco: vscode.TextEditorDecorationType | undefined
+  /** The step's marks and its beats' (stepMarks.ts), drawn as a podcast's are. */
+  marks: MarkPainter | undefined
+  /** How the step's lines were drawn last (tests): the bar and tint, the thin grey bar, or nothing. */
+  look: 'tint' | 'quiet' | undefined
   /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
   readonly lensChanged = new vscode.EventEmitter<void>()
 
@@ -402,6 +408,7 @@ export class StepCard {
     this.tour.refHere = undefined
     this.lensChanged.fire()
     for (const e of vscode.window.visibleTextEditors) if (this.refDeco) setDecorations(e, this.refDeco, [])
+    if (this.marks && !this.marks.empty) this.marks.show(new Map())
     if (!this.deco) return
     for (const e of vscode.window.visibleTextEditors) {
       setDecorations(e, this.deco.at, [])
@@ -410,8 +417,8 @@ export class StepCard {
     }
   }
 
-  /** The running step's lines: a bar and a faint tint (while the voice tells it: a thin grey bar; a stale step's:
-   *  none); the ref opened from the card, lit. */
+  /** The running step's lines: a bar and a faint tint (while the voice tells it, or while the step has marks: a thin
+   *  grey bar; a stale step's: none); its marks and its beat's (stepMarks.ts); the ref opened from the card, lit. */
   refreshDecorations(): void {
     const tour = this.tour
     const lj = walk.touring() ? walk.tourJourney() : undefined
@@ -419,17 +426,21 @@ export class StepCard {
     const stepFile = lj && s ? vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tour.step)).toString() : undefined
     const ref = tour.refHere
     tour.marked = []
+    this.look = undefined
+    // While the voice tells it, the podcast's own marks are the ones on the code.
+    const marks = lj && s && this.marks && !this.narrating() ? stepMarks(lj, tour.step, beats.index, (k, line) => this.marks!.once(k, line)) : []
+    if (this.marks) paintStepMarks(this.marks, marks)
     for (const e of vscode.window.visibleTextEditors) {
       const uri = e.document.uri.toString()
       const at = stepFile !== undefined && uri === stepFile ? lj!.at[tour.step - 1] : undefined
       // A stale step highlights nothing: what is there now is other code; the card says so.
       const lit = at && !at.stale
       const lines = lit ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : []
-      // While the voice tells it: a thin neutral bar only, the marks are the colour on the code.
-      const quiet = this.narrates(e)
+      // While the voice tells it, or the step has marks: a thin neutral bar only, the marks are the colour on the code.
+      const quiet = this.narrates(e) || marks.length > 0
       setDecorations(e, this.deco.at, quiet ? [] : lines)
       setDecorations(e, this.deco.quiet, quiet ? lines : [])
-      if (lit) tour.marked.push(e.document.uri.path)
+      if (lit) { tour.marked.push(e.document.uri.path); this.look = quiet ? 'quiet' : 'tint' }
       setDecorations(e, this.deco.stale, [])
       const refLit = ref && lj && ref.uri === uri ? [new vscode.Range(ref.start, 0, ref.end, 0)] : []
       if (this.refDeco) setDecorations(e, this.refDeco, refLit)
