@@ -21,7 +21,7 @@ export async function openHarness(browser, url, { width, height, theme, warnings
   const ctx = await browser.newContext({ viewport: { width, height }, ...context })
   const page = await ctx.newPage()
   // The page owns its context (as browser.newPage's does): closing it closes both.
-  page.on('close', () => { void ctx.close() })
+  page.on('close', () => { ctx.close().catch(() => { /* the browser closed first: already gone */ }) })
   if (timeout) page.setDefaultTimeout(timeout)
   for (const f of initScripts) await page.addInitScript({ path: f })
   const errors = []
