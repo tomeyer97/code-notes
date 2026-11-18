@@ -87,6 +87,9 @@ function nonBlank(lines: string[], i: number, step: -1 | 1): number {
   return k
 }
 
+/** Where a candidate may end, and the first non-blank line after it (for the context after). */
+type CandidateEnd = { end: number; afterLine: number }
+
 /** Line `k` (if it exists) is `want` (normalized; '' never matches). */
 const lineIs = (lines: string[], k: number, want: string) => !!want && k >= 0 && k < lines.length && norm(lines[k]) === want
 
@@ -95,8 +98,10 @@ const lineIs = (lines: string[], k: number, want: string) => !!want && k >= 0 &&
  * with a length in [minLen, maxLen]. A range stored with blank lines at its end is tried at its stored length too
  * (as journey.py does), so trailing blank lines don't make a fresh anchor look moved.
  */
-function candidateEnds(lines: string[], start: number, headEnd: number, tail: string[], storedLen: number, minLen: number, maxLen: number): { end: number; afterLine: number }[] {
-  const out: { end: number; afterLine: number }[] = []
+function candidateEnds(
+  lines: string[], start: number, headEnd: number, tail: string[], storedLen: number, minLen: number, maxLen: number,
+): CandidateEnd[] {
+  const out: CandidateEnd[] = []
   const first = Math.max(headEnd, start + minLen - 1)
   const last = Math.min(lines.length - 1, start + maxLen - 1)
   for (let e = first; e <= last; e++) {

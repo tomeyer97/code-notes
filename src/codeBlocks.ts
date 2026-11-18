@@ -72,6 +72,8 @@ export function blockAt(line: number, blocks: Block[]): Block | undefined {
 
 /** Steps in a lens group, and the line the lens is on. */
 type StepGroup<T> = { line: number; steps: T[] }
+/** A step outside every function, and the line it is grouped by. */
+type Loose<T> = { at: number; step: T }
 
 /** One lens per group: steps whose lines start in (or lead into) the same function; the rest by nearby lines. */
 export function groupSteps<T extends { line: number; end?: number }>(hits: T[], blocks: Block[], nearLines = 10): StepGroup<T>[] {
@@ -84,9 +86,9 @@ export function groupSteps<T extends { line: number; end?: number }>(hits: T[], 
  * Steps in a function (or starting just above one: its comment, the line before it, and running into it), one group
  * per function; the rest are `loose`, each with the line it is grouped by.
  */
-function groupByFunction<T extends { line: number; end?: number }>(hits: T[], blocks: Block[]): { byFunction: StepGroup<T>[]; loose: { at: number; step: T }[] } {
+function groupByFunction<T extends { line: number; end?: number }>(hits: T[], blocks: Block[]): { byFunction: StepGroup<T>[]; loose: Loose<T>[] } {
   const groups = new Map<number, StepGroup<T>>()
-  const loose: { at: number; step: T }[] = []
+  const loose: Loose<T>[] = []
   for (const h of hits) {
     const runsInto = (x: Block) => x.kind === 'fn' && x.start > h.line && x.start <= (h.end ?? h.line) + 2
     const b = blockAt(h.line, blocks) ?? blocks.find(runsInto)
@@ -107,7 +109,7 @@ function groupByFunction<T extends { line: number; end?: number }>(hits: T[], bl
  * Steps outside every function (a file's top-level consts): one lens for steps at most `nearLines` apart in the same
  * gap between functions.
  */
-function groupLoose<T extends { line: number }>(loose: { at: number; step: T }[], blocks: Block[], nearLines: number): StepGroup<T>[] {
+function groupLoose<T extends { line: number }>(loose: Loose<T>[], blocks: Block[], nearLines: number): StepGroup<T>[] {
   /** Which gap between functions (and classes) a line is in: how many end above it. */
   const gapOf = (line: number) => blocks.filter((b) => b.kind !== 'var' && b.end < line).length
   const out: StepGroup<T>[] = []

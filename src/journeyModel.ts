@@ -223,10 +223,16 @@ export const MAX_NODE_LABEL = 30
 /** The map's promises the journey must keep: short box labels, at most 7 boxes on a level. */
 function rules(nodes: JNode[]): string[] {
   const out: string[] = []
-  for (const n of nodes) if (n.label.length > MAX_NODE_LABEL) out.push(`box "${n.label.slice(0, 24)}…": label longer than ${MAX_NODE_LABEL} characters`)
+  for (const n of nodes) {
+    if (n.label.length > MAX_NODE_LABEL) out.push(`box "${n.label.slice(0, 24)}…": label longer than ${MAX_NODE_LABEL} characters`)
+  }
   const count = new Map<string, number>()
   for (const n of nodes) count.set(n.parent ?? '', (count.get(n.parent ?? '') ?? 0) + 1)
-  for (const [p, c] of count) if (c > MAX_BOXES) out.push(`${p ? `inside "${nodes.find((n) => n.id === p)?.label ?? p}"` : 'the top level'}: ${c} boxes (at most ${MAX_BOXES} keep the map readable)`)
+  for (const [p, c] of count) {
+    if (c <= MAX_BOXES) continue
+    const level = p ? `inside "${nodes.find((n) => n.id === p)?.label ?? p}"` : 'the top level'
+    out.push(`${level}: ${c} boxes (at most ${MAX_BOXES} keep the map readable)`)
+  }
   return out
 }
 
