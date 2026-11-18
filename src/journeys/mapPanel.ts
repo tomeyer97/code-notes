@@ -4,6 +4,8 @@ import type { StepCard } from '../tour/card'
 import { escapeHtml, webviewPage } from '../webview/page'
 import { fileName } from '../jsonFolder'
 import { LoadedJourney } from './steps'
+import { journeysFolderName } from './journeys'
+import { folderName } from '../store'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
 // messages between it and media/journey-map.js.
@@ -34,7 +36,10 @@ export type MapMessage =
   | { type: 'openFile' }
   | { type: 'ref'; i: number }
   | { type: 'details'; open: boolean }
-  | { type: 'beat'; n: number; i: number }
+  | { type: 'beat'; n: number; i: number; user?: boolean }
+  // The podcast's bar (media/journey-podcast.js): where the audio is, and what went wrong.
+  | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean }
+  | { type: 'podcastError'; message: string }
   | { type: 'ask'; update?: boolean }
   | { type: 'restore' }
   | { type: 'authors' }
@@ -121,6 +126,9 @@ export class MapPanel implements vscode.Disposable {
   focus = ''
   private ready = false
   private queue: unknown[] = []
+  /** The journey's podcast for the panel's bar (src/podcast/player.ts): undefined when it has none. `toUri`: a file
+   *  as the webview loads it. */
+  podcastFor: ((lj: LoadedJourney, toUri: (u: vscode.Uri) => string) => unknown) | undefined
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
     private tourOf: (lj: LoadedJourney) => TourInfo, private state: vscode.Memento) {}
@@ -169,6 +177,10 @@ export class MapPanel implements vscode.Disposable {
 
   private options(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
     const roots = [vscode.Uri.joinPath(this.extensionUri, 'media'), vscode.Uri.joinPath(this.extensionUri, 'out', 'src'), vscode.Uri.joinPath(this.extensionUri, 'out', 'vendor')]
+    // A podcast's audio: next to its journey, in the journeys folders (and below them).
+    for (const f of vscode.workspace.workspaceFolders ?? []) {
+      for (const rel of new Set([journeysFolderName(), `${folderName()}/journeys`])) roots.push(vscode.Uri.joinPath(f.uri, rel))
+    }
     // Ctrl+F finds words in the map and the storyline.
     return { enableScripts: true, enableFindWidget: true, localResourceRoots: roots, retainContextWhenHidden: true }
   }
@@ -306,12 +318,21 @@ export class MapPanel implements vscode.Disposable {
     if (!all && sig === this.lastTour) return
     this.lastTour = sig
     void this.panel.webview.postMessage(all ? { type: 'journey', journey: this.shown.j, ...t } : { type: 'tour', ...t })
+    if (all) this.sendPodcast()
+  }
+
+  /** The shown journey's podcast to the bar (none: the bar goes). */
+  sendPodcast(): void {
+    const panel = this.panel
+    if (!panel || !this.shown || !this.ready) return
+    const episode = this.podcastFor?.(this.shown, (u) => panel.webview.asWebviewUri(u).toString())
+    void panel.webview.postMessage({ type: 'podcast', episode })
   }
 
   private html(w: vscode.Webview, loading?: string): string {
     const file = (...p: string[]) => vscode.Uri.joinPath(this.extensionUri, ...p)
     return webviewPage(w, {
-      css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-home.css'), file('media', 'journey-scene.css')],
+      css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-home.css'), file('media', 'journey-scene.css'), file('media', 'journey-podcast.css')],
       body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
       // journeyModel.js is a CommonJS module loaded as a plain script: it fills `exports`, which the page reads as
       // JourneyModel.
@@ -321,9 +342,10 @@ export class MapPanel implements vscode.Disposable {
         file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
         ...[
           'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'code-paint', 'journey-scene', 'journey-scene-app',
-          'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-map',
+          'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-podcast', 'journey-map',
         ].map((name) => file('media', `${name}.js`)),
       ],
+      allow: { media: true },
     })
   }
 

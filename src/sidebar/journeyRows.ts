@@ -18,6 +18,7 @@ import { activeRel, listModel, listState, staleCount, staleLine } from './listMo
 import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode, order } from './nodes'
 import { matchesFilter } from './notesFilter'
 import { fileName } from '../jsonFolder'
+import { podcasts } from '../podcast/player'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
@@ -113,7 +114,7 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   item.tooltip = journeyTooltip(lj, s)
   // The name read is the title and its state; the question is only the tooltip.
   item.accessibilityInformation = { label: journeyLabel(lj, s) }
-  item.contextValue = staleCount(lj) ? 'journey;stale' : 'journey'
+  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + (podcasts.has(lj) ? ';podcast' : '')
   item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
   return item
 }

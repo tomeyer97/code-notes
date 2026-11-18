@@ -18,14 +18,16 @@ export function nonce(): string {
   return Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('')
 }
 
-/** What a page lets in beyond its own files: images (its source, https:, data:), and style attributes in its markup. */
-export interface PageAllows { images?: boolean; inlineStyles?: boolean }
+/** What a page lets in beyond its own files: images (its source, https:, data:), audio (`media`), and style attributes in its markup. */
+export interface PageAllows { images?: boolean; inlineStyles?: boolean; media?: boolean }
 
 /** The page's policy: nothing by default; the extension's (`source`) styles and fonts; scripts with the nonce; no forms. */
 export function contentSecurityPolicy(source: string, n: string, allow: PageAllows = {}): string {
   return [
     "default-src 'none'",
     ...(allow.images ? [`img-src ${source} https: data:`] : []),
+    // Audio and video from the extension's own roots (the journey panel's podcast).
+    ...(allow.media ? [`media-src ${source}`] : []),
     `style-src ${source}${allow.inlineStyles ? " 'unsafe-inline'" : ''}`,
     `font-src ${source}`,
     `script-src 'nonce-${n}'`,

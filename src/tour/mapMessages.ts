@@ -22,6 +22,7 @@ import { provenance } from './provenance'
 import { openRef } from './refs'
 import { card, tourState, walk } from './instances'
 import { onTutorial, TUTORIAL_KEY } from './tutorial'
+import { podcasts } from '../podcast/player'
 
 /** The map column's width in wide panels, as last dragged (0.21.1): every panel, every journey. */
 const MAP_WIDTH_KEY = 'codeNotes.mapWidth'
@@ -41,8 +42,10 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   openPath: (lj, m) => void openBoxPath(lj, m.path),
   // The list over the walk: the walk keeps its place, card and status item.
   home: () => undefined,
-  beat: (lj, m) => void showBeat(lj, m.n, m.i),
-  closed: () => beats.clear(),
+  beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); void showBeat(lj, m.n, m.i) },
+  closed: () => { beats.clear(); podcasts.onClosed() },
+  podcastTime: (lj, m) => podcasts.onTime(lj, m),
+  podcastError: (_lj, m) => podcasts.onError(String(m.message)),
   panelWidth: () => void rememberPanelWidth(),
   mapWidth: (_lj, m) => void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined),
   list: (_lj, m) => homeQueryChanged(m),

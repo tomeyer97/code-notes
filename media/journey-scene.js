@@ -503,7 +503,8 @@
   /** play(): a beat is held READ_MS, and READ_MS_PER_CHAR for each character of its caption (videos). */
   const READ_MS = 1600, READ_MS_PER_CHAR = 55
 
-  /** opts: { onBeat(i), onClose(), onNextStep?(), height? }. `onNextStep`: at the last beat › becomes "Next step ›". */
+  /** opts: { onBeat(i, how), onClose(), onNextStep?(), height? }. `how`: 'go' when the beat was moved to (‹ ›, the keys,
+   *  go()), else it came with the scene shown. `onNextStep`: at the last beat › becomes "Next step ›". */
   function create(opts) {
     opts = opts || {}
     const { root, prev, next, pos, file, close, view, world, cap, codeEl } = playerEl()
@@ -625,14 +626,15 @@
       next.disabled = false
     }
 
-    function go(i, quiet) {
+    /** To beat i; `quiet`: drawn again even when it is the beat shown; `still`: without the beat's flight (a jump). */
+    function go(i, quiet, still) {
       if (!scene) return
       const n = Math.max(0, Math.min(scene.beats.length - 1, i))
-      const fwd = n === beat + 1
+      const fwd = !still && n === beat + 1
       if (n === beat && !quiet) return
       beat = n
       apply(fwd)
-      if (opts.onBeat) opts.onBeat(beat)
+      if (opts.onBeat) opts.onBeat(beat, 'go')
     }
 
     prev.onclick = () => go(beat - 1)
@@ -659,7 +661,8 @@
       code(c) { showCode(codeEl, c) },
       get count() { return scene ? scene.beats.length : 0 },
       /** Shows a scene; the same key again keeps the beat (a re-render), another starts at `o.beat` (or its first).
-       *  o: { file: the step's file (a beat in another file names it), next: there is a next step, beat }. */
+       *  o: { file: the step's file (a beat in another file names it), next: there is a next step, beat, still: shown
+       *  without its flight }. */
       show(s, k, o) {
         o = o || {}
         const same = k === key && !!scene
@@ -672,7 +675,7 @@
         showCode(codeEl, undefined)
         beat = Math.max(0, Math.min(s.beats.length - 1, o.beat || 0))
         build()
-        apply(true)
+        apply(!o.still)
         if (opts.onBeat) opts.onBeat(beat)
       },
       go,

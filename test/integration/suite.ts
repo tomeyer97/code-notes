@@ -12,6 +12,7 @@
 //   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
 //   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts
 //   main/roundTrips.ts     calls into the window per action (remote performance), on the journey animation.ts leaves
+//   main/podcast.ts        a journey's podcast: the walk follows the audio, seeks, the audio while hidden   podcast/
 // The pure modules have unit tests next to this folder, named after the module: src/<module>.ts in
 // test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
 // journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
@@ -32,6 +33,7 @@ import { repoJourneysTests } from './main/repoJourneys'
 import { requestsTests } from './main/requests'
 import { animationTests } from './main/animation'
 import { roundTripsTests } from './main/roundTrips'
+import { podcastTests } from './main/podcast'
 
 /** The entry point run.ts starts VS Code with (extensionTestsPath). */
 export async function run(): Promise<void> {
@@ -51,6 +53,7 @@ export async function run(): Promise<void> {
     ...requestsTests,
     ...animationTests,
     ...roundTripsTests,
+    ...podcastTests,
   ])
   console.log('all passed')
 }

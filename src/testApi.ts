@@ -24,6 +24,7 @@ import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
+import { podcasts } from './podcast/player'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
@@ -148,6 +149,8 @@ export function testApi() {
     mementos: () => [state, gstate],
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),
+    /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
+    podcast: () => podcasts.snapshot(),
     resetTutorial,
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {

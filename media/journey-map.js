@@ -19,6 +19,9 @@
 //   { type: 'code', n, i, code }            the lines of beat i of step n's animation
 //   { type: 'hello' }                       answered with ready (the extension lost it)
 //   { type: 'test', click?: selector, key?: key } (integration tests drive the real handlers)
+//   { type: 'podcast', episode? }  { type: 'podcastCmd', … }  the podcast bar's (journey-podcast.js)
+//   { type: 'podcastBeat', n, i, still? }  the podcast is on step n's beat i (-1: the step without its animation): the
+//                                          animation shows it (still: no flight, it was a jump)
 // Out:
 //   { type: 'ready' }  { type: 'error', message }
 //   { type: 'step', n }  { type: 'end' }  { type: 'finish' }  { type: 'nextStop' } (a check's tour: Next)
@@ -30,7 +33,8 @@
 //   { type: 'tutorial', action: 'bar' | 'card' | 'skip' | 'done', card?, editor? }
 //   { type: 'ref', i } (a link in the step card)  { type: 'ask', update? }  { type: 'details', open }
 //   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
-//   { type: 'beat', n, i } (the animation's beat on step n; i = -1: the scene is gone)
+//   { type: 'beat', n, i, user? } (the animation's beat on step n; i = -1: the scene is gone; user: the reader moved it)
+//   { type: 'podcastTime', t, playing, rate, seek? }  { type: 'podcastError', message } (journey-podcast.js)
 //   These are src/journeys/mapPanel.ts MapMessage (the extension's list, with `close` and `pick`, which it handles but
 //   nothing here posts, and its own `closed`): a name added here goes there too.
 ;(function () {
@@ -95,6 +99,8 @@
   let beatAt = {}
   /** The next render puts the keyboard focus in the scene (it was started: ← → work at once). */
   let focusScene = false
+  /** Scenes ("journey|step") the podcast jumped to: shown at their beat without its flight. */
+  const stillAt = {}
 
   // Waiting (startup, at the end): the size last rendered ({ w, h }) and the frame a re-layout waits for; the scroll
   // saved and the panel's width reported once things settle.
@@ -180,6 +186,9 @@
     },
     // The current beat's line and the lines around it, once the extension found them.
     code(m) { if (scene && animOn && m.n === cur && m.i === scene.beat) scene.code(m.code) },
+    podcast(m) { if (podcast) podcast.set(m.episode) },
+    podcastCmd(m) { if (podcast) podcast.cmd(m) },
+    podcastBeat(m) { podcastBeat(m) },
     test(m) {
       if (m.click) {
         const t = document.querySelector(m.click)
@@ -413,7 +422,8 @@
 
   /** The animation player: one, kept across renders (its beat and its transitions survive them). */
   const scene = window.JourneyScene ? window.JourneyScene.create({
-    onBeat: (i) => { if (sceneKey) beatAt[sceneKey] = i; post({ type: 'beat', n: cur, i }) },
+    // `user`: moved by the reader (‹ ›, the keys), not shown with the step nor set by the podcast.
+    onBeat: (i, how) => { if (sceneKey) beatAt[sceneKey] = i; post({ type: 'beat', n: cur, i, ...(how === 'go' && !podcastGoing ? { user: true } : {}) }) },
     onClose: () => toggleAnim(),
     // At the last beat › walks on, the animation still on.
     onNextStep: () => { focusScene = true; goStep(cur + 1) },
@@ -438,9 +448,46 @@
     const fresh = k !== sceneKey
     sceneKey = k
     scene.layout()
-    scene.show(sceneOf(cur), k, { file: J.steps[cur - 1].file, next: cur < J.steps.length, beat: beatAt[k] || 0 })
-    if (fresh || focusScene) scene.focus()
+    const still = !!stillAt[k]
+    delete stillAt[k]
+    scene.show(sceneOf(cur), k, { file: J.steps[cur - 1].file, next: cur < J.steps.length, beat: beatAt[k] || 0, still })
+    // The podcast moved it: the keyboard stays where it was (Space keeps pausing).
+    if ((fresh || focusScene) && !podcastMoved) scene.focus()
     focusScene = false
+    podcastMoved = false
+  }
+
+  // ---------- the podcast (journey-podcast.js): its bar, and the animation following it ----------
+
+  const podcast = window.JourneyPodcast ? window.JourneyPodcast({ post, stepTitle: (n) => (J && J.steps[n - 1] ? J.steps[n - 1].title : '') }) : undefined
+  /** The next scene shown was put there by the podcast, not by a click; the beat being set is the podcast's. */
+  let podcastMoved = false
+  let podcastGoing = false
+  /**
+   * The podcast is on step n, beat i (-1: the step without its animation). Sent before the step opens, so the step
+   * comes up on that beat (never its first beat, then a jump); `still`: a seek, the beat is shown without its flight.
+   */
+  function podcastBeat(m) {
+    if (!J || !scene) return
+    const k = `${J.id}|${m.n}`
+    const on = m.i >= 0 && !!sceneOf(m.n)
+    if (on) {
+      beatAt[k] = m.i
+      if (m.still) stillAt[k] = true
+    }
+    const was = animOn
+    animOn = on
+    podcastMoved = true
+    if (m.n !== cur) return // the tour message that follows draws it
+    if (on && was && sceneKey === k) {
+      podcastGoing = true
+      try { scene.go(m.i, false, !!m.still) } finally { podcastGoing = false }
+      delete stillAt[k]
+      podcastMoved = false
+      return
+    }
+    if (on !== was) render()
+    else podcastMoved = false
   }
 
   function mapEl() {
@@ -613,7 +660,8 @@
   /** Scrolls the page so row rectangle `r` (viewport px) is in view under the header (its bottom at `top`): at the
    *  top when it was above or is taller than the room, else just up from the bottom. */
   function scrollRowIntoView(r, top) {
-    const H = window.innerHeight
+    // The podcast bar covers the bottom of the window.
+    const H = window.innerHeight - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--podH')) || 0)
     const above = r.top < top + ROW_MARGIN
     if (!above && r.bottom <= H - ROW_MARGIN) return
     const atTop = above || r.height > H - top

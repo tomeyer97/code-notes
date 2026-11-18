@@ -49,6 +49,7 @@ import { backToStep, endJourney, openJourney, openStepLink, restoreMapPanel, res
 import { pickJourneyStep } from './tour/lenses'
 import { registerRefPages } from './tour/refs'
 import { createCard, createTourItems, stepDetails, walk } from './tour/instances'
+import { podcasts } from './podcast/player'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tutorialSpot'
 import { ValueHints } from './valueHints'
@@ -127,6 +128,7 @@ function createTourUi(context: vscode.ExtensionContext): () => void {
   setCtx('codeNotes.showResolved', false)
   rememberMe()
   context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
+  podcasts.init(context)
   return journeysLoaded
 }
 
@@ -246,6 +248,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.openStepLink': openStepLink,
       'codeNotes.toggleAuthorMode': toggleAuthorMode,
       'codeNotes.toggleAnimation': chord(toggleAnimation),
+      'codeNotes.playPodcast': (arg?: unknown) => podcasts.play(arg),
+      'codeNotes.podcastToggle': chord(() => podcasts.toggle()),
+      'codeNotes.podcastBack': chord(() => podcasts.back()),
+      'codeNotes.podcastForward': chord(() => podcasts.forward()),
       'codeNotes.askQuestion': askQuestion,
       'codeNotes.backToStep': backToStep,
       'codeNotes.askStep': (text?: string) => askStep(text),

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Journey podcasts (prototype).** A journey with an audio episode next to it (`<journey>.podcast.json` and its
+  audio, [docs/podcast-format.md](docs/podcast-format.md)) gets a ▶ on its row and a player at the bottom of the
+  journey panel: play and pause, back and forward 15 s, previous and next step, speed (1×, 1.25×, 1.5×), and a
+  timeline marked by step (hover names the step; click or drag to go there). The walk follows the voice: steps open
+  and animations move beat by beat, exactly as when you walk them; any seek puts the walk where it is at that time,
+  backwards too. Next, Previous, a step or a beat you pick moves the audio to its part. The audio goes on while the
+  panel is behind another tab or VS Code is in the background. Ctrl+' Space plays and pauses from anywhere, Ctrl+' ← →
+  skip; the status bar shows where it is.
 - **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
   (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
   its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the

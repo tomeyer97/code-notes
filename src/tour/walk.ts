@@ -26,6 +26,9 @@ export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem;
 export class Walk {
   constructor(private readonly tour: TourState, private readonly card: StepCard) {}
 
+  /** Called once the walk has moved, or the journeys changed (updateTour): the podcast follows a reader's move. */
+  onMoved: (() => void) | undefined
+
   tourJourney(): LoadedJourney | undefined { return this.tour.key ? journeys.list.get(this.tour.key) : undefined }
   /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
   touring(): boolean { return !!this.tourJourney() && this.tour.step > 0 }
@@ -143,6 +146,7 @@ export class Walk {
     setCtx('codeNotes.hasJourneys', journeys.all().length > 0)
     mapPanel.update()
     this.renderStatusItem(lj)
+    this.onMoved?.()
   }
 
   /** A code link's way back is to the step it was clicked on: the walk moved on or ended, the link (and its Back) goes. */

@@ -6,6 +6,7 @@ import { jsonFilesIn, jsonName, readText, watchJsonFiles } from '../jsonFolder'
 import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
 import { pathIn, settingFolder } from '../paths'
 import { StepTracker } from './tracker'
+import { isPodcastFile } from '../podcast/model'
 
 // Journeys (format v2, docs/journey-format.md): <repo>/journeys/<slug>.json (codeNotes.journeys.folder: committed,
 // shared) and, as before, <notes folder>/journeys/<slug>.json (personal); steps embedded. A step is not a note. This
@@ -116,6 +117,7 @@ export class Journeys extends StepTracker {
 
   /** A journey file deleted. */
   private gone(u: vscode.Uri): void {
+    if (isPodcastFile(u.path)) { this.changed.fire(); return }
     const listed = this.list.delete(u.toString())
     const invalid = this.invalid.delete(u.toString())
     if (listed || invalid) this.changed.fire()
@@ -145,6 +147,8 @@ export class Journeys extends StepTracker {
 
   /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). */
   private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<string | undefined> {
+    // A journey's podcast (src/podcast/) is next to it, not a journey; a change to it still fires onDidChange.
+    if (isPodcastFile(uri.path)) return undefined
     const key = uri.toString()
     const raw = await readText(uri)
     if (raw === undefined) {

@@ -1,0 +1,54 @@
+/* The podcast bar (journey-podcast.js): fixed at the panel's bottom; the timeline is one bar per step. Colours: the
+   tokens in common.css. */
+.pod {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+  background: var(--raised); border-top: 1px solid var(--border);
+  padding: 6px 16px 6px; display: grid; gap: 2px;
+}
+.pod[hidden] { display: none; }
+body.has-pod #app { padding-bottom: calc(20px + var(--podH, 0px)); }
+body.has-pod .body.wide .mapwrap { height: calc(100vh - var(--headH, 0px) - var(--podH, 0px) - 16px); }
+
+/* The timeline: tall enough to hit (18px), the bars thin until hovered. */
+.pod-tl { position: relative; height: 18px; cursor: pointer; touch-action: none; outline: none; border-radius: 3px; }
+.pod-tl:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pod-track { position: absolute; left: 0; right: 0; top: 7px; height: 4px; }
+.pod-bar { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 22%, transparent); overflow: hidden; }
+/* A gap between parts: where a step starts. */
+.pod-bar + .pod-bar { border-left: 2px solid var(--raised); }
+.pod-bar.map { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.pod-fill { height: 100%; width: 0; background: var(--accent); }
+.pod-tl:hover .pod-track, .pod.dragging .pod-track { top: 6px; height: 6px; }
+.pod-thumb {
+  position: absolute; top: 4px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
+  background: var(--accent); opacity: 0; pointer-events: none;
+}
+.pod-tl:hover .pod-thumb, .pod-tl:focus-visible .pod-thumb, .pod.dragging .pod-thumb { opacity: 1; }
+.pod-tip {
+  position: absolute; bottom: 20px; left: 0; max-width: min(360px, 100%); padding: 3px 7px; border-radius: 3px;
+  background: var(--vscode-editorHoverWidget-background, var(--raised)); color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
+  font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.pod-tip b { font-weight: 600; margin-right: 8px; }
+.pod-tip span { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.pod-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pod-ctl { display: flex; align-items: center; gap: 2px; flex: none; }
+.pod-b { width: 28px; height: 28px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg); }
+.pod-b:hover { background: var(--hover); }
+.pod-b.play { width: 32px; height: 32px; border-radius: 50%; background: var(--vscode-button-background, var(--accent)); color: var(--vscode-button-foreground, #fff); }
+.pod-b.play:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background, var(--accent))); }
+.pod-time { color: var(--muted); font-size: 0.9em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pod-err { color: var(--warn); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pod-rate { margin-left: auto; font-size: 0.9em; padding: 2px 6px; border-radius: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pod-rate:hover { background: var(--hover); color: var(--fg); }
+/* What is being said: one muted line (the whole of it on hover). */
+.pod-cap { color: var(--muted); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
+
+/* Narrow: no part buttons (the timeline and ‹15 15› do it). */
+@media (max-width: 360px) {
+  .pod { padding: 6px 10px; }
+  .pod-b.prev, .pod-b.next { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .pod-track, .pod-thumb { transition: none; } }

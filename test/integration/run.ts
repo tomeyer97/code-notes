@@ -63,10 +63,13 @@ async function main() {
   const appTs = ['import { readToken, use } from "./lib"', 'export function main() {', '  const token = readToken()', '  use(token)', '  return 0', '}', '']
   fs.writeFileSync(path.join(ws, 'src', 'app.ts'), appTs.join('\n'))
   const userData = roomyEditor(profileDir('main', ws))
+  // The DevTools port: the podcast's first Play needs a real click in the journey panel (main/podcast.ts).
+  const port = 9300 + Math.floor(Math.random() * 500)
   await runTests({
     extensionDevelopmentPath: ROOT,
     extensionTestsPath: path.join(__dirname, 'suite.js'),
-    launchArgs: [...baseLaunchArgs(ws, userData), '--disable-workspace-trust'],
+    launchArgs: [...baseLaunchArgs(ws, userData), '--disable-workspace-trust', `--remote-debugging-port=${port}`],
+    extensionTestsEnv: { CODE_NOTES_CDP: String(port) },
   })
   const tree = treeErrors(userData)
   if (tree.length) throw new Error(`tree view errors in the extension host log:\n${tree.join('\n')}`)

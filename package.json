@@ -450,6 +450,27 @@
         "category": "Code Notes"
       },
       {
+        "command": "codeNotes.playPodcast",
+        "title": "Play Journey Podcast",
+        "category": "Code Notes",
+        "icon": "$(play)"
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "title": "Play or Pause the Journey Podcast",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "title": "Journey Podcast: Back 15 Seconds",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "title": "Journey Podcast: Forward 15 Seconds",
+        "category": "Code Notes"
+      },
+      {
         "command": "codeNotes.checkUnderstanding",
         "title": "Check my understanding",
         "category": "Code Notes",
@@ -599,6 +620,48 @@
         }
       },
       {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+[IntlBackslash] ctrl+space",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+[IntlBackslash] space",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+[IntlBackslash] ctrl+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+[IntlBackslash] left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+[IntlBackslash] ctrl+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+[IntlBackslash] right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
         "command": "codeNotes.add",
         "key": "ctrl+' ctrl+c",
         "args": {
@@ -692,6 +755,48 @@
       {
         "command": "codeNotes.searchJourneys",
         "key": "ctrl+' j",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+' ctrl+space",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+' space",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+' ctrl+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+' left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+' ctrl+right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+' right",
         "args": {
           "prefix": "'"
         }
@@ -955,6 +1060,11 @@
           "command": "codeNotes.refreshJourney",
           "group": "inline@1",
           "when": "view == codeNotes.journeys && viewItem =~ /^journey;stale/"
+        },
+        {
+          "command": "codeNotes.playPodcast",
+          "group": "inline@0",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast/"
         }
       ],
       "commandPalette": [
@@ -1425,6 +1535,7 @@
     "test:checkpanel": "node test/check-panel/shoot.mjs",
     "test:checktour": "node test/check-tour/shoot.mjs",
     "test:journeylist": "node test/journey-list/shoot.mjs",
+    "test:podcast": "node test/journey-podcast/shoot.mjs",
     "test:grader": "node test/grader/eval.mjs"
   },
   "devDependencies": {
