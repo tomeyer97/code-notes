@@ -93,6 +93,10 @@
   counts from when the audio said its time, not from when the message arrived, so a busy extension never puts its
   caption behind the voice; a run of time reports that piled up is applied once, its newest. Captions of a long
   sentence change part when its words are said (the marks' phrases are word-timed) instead of by character count.
+- **Listen: a quieter editor while it plays.** The step card is its header line ("3/14 · title", and Follow along
+  while you read on your own) above the function the step is in; the full card comes back on pause. The newest mark
+  is the one colour on the code (its own theme colour, `codeNotes.markBackground`; no bar, no scrollbar ticks); the
+  step's lines keep a thin grey bar, and the beat's box, value hints and note bars wait for the pause.
 - **Listen: the follow lock sees the reader.** A slow scroll in small steps now counts (measured from where the
   extension left the code), and the step card growing or shrinking on pause and play no longer counts as the reader
   scrolling. A mark brought on screen keeps column 1 in view; the code scrolls right only when the mark starts past
