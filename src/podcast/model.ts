@@ -51,6 +51,8 @@ export interface View { step: number; beat?: number }
 /** A segment as the player uses it: its time, its text, and the view it shows. */
 export interface Segment extends View {
   id: string
+  /** The id of its step (a journey edited under the podcast keeps the step, not its number). */
+  stepId?: string
   start: number
   end: number
   text: string
@@ -128,7 +130,8 @@ export function resolveEpisode(p: Podcast, journey: JourneyShape): Episode {
     prev = view
     const next = timed[k + 1]?.start
     const end = num(x.s.end) ?? next ?? num(p.duration) ?? x.start!
-    return { id, start: x.start!, end: Math.max(end, x.start!), text: typeof x.s.text === 'string' ? x.s.text : '', speaker: typeof x.s.speaker === 'string' ? x.s.speaker : '', ...view }
+    const stepId = view.step ? journey.steps[view.step - 1]?.id : undefined
+    return { id, start: x.start!, end: Math.max(end, x.start!), text: typeof x.s.text === 'string' ? x.s.text : '', speaker: typeof x.s.speaker === 'string' ? x.s.speaker : '', ...view, ...(stepId ? { stepId } : {}) }
   })
   const last = segments[segments.length - 1]
   const duration = Math.max(num(p.duration) ?? 0, last ? last.end : 0)
@@ -219,16 +222,43 @@ export function timeOf(ep: Episode, step: number, beat?: number): number | undef
   return s?.start
 }
 
-/** Within this many seconds of a chapter's start, "previous" goes to the chapter before (as a music player's ⏮). */
-export const RESTART_GRACE_S = 3
-
-/** The start of the chapter before (dir -1: this chapter's start, unless just past it) or after (dir 1) second `t`. */
+/**
+ * The start of the chapter before (dir -1) or after (dir 1) second `t`. ⏮ always goes to the part before, as the step
+ * card's ‹ Previous goes to the step before: one meaning for "previous" (F73); the first part's ⏮ is its start.
+ */
 export function chapterJump(ep: Episode, t: number, dir: 1 | -1): number {
   const cs = ep.chapters
   if (!cs.length) return dir > 0 ? ep.duration : 0
   const i = Math.max(0, cs.findIndex((c, k) => t >= c.start && (t < c.end || k === cs.length - 1)))
   if (dir > 0) return i + 1 < cs.length ? cs[i + 1].start : ep.duration
-  return t - cs[i].start > RESTART_GRACE_S || i === 0 ? cs[i].start : cs[i - 1].start
+  return i === 0 ? cs[0].start : cs[i - 1].start
+}
+
+/** While playing, a view is held at least this long (s): a shorter part that would open another file doesn't (F79). */
+export const VIEW_HOLD_S = 8
+
+/**
+ * The view each segment shows while the episode plays (by index): its own, except in a run of segments on one file
+ * that lasts less than `hold` seconds (gaps included) and would switch the file shown: that run keeps the view before it
+ * (it is coalesced into its neighbour), so the editor doesn't swap files for a three-second mention. Beats in the same
+ * file move as written. The first run always shows. A seek shows the exact view at its time (viewAt), not this.
+ * `fileOf`: the file a view shows ('' for the map).
+ */
+export function calmViews(ep: Episode, fileOf: (v: View) => string, hold = VIEW_HOLD_S): View[] {
+  const segs = ep.segments
+  const own = (s: Segment): View => (s.beat === undefined ? { step: s.step } : { step: s.step, beat: s.beat })
+  const out: View[] = []
+  for (let k = 0; k < segs.length;) {
+    const f = fileOf(own(segs[k]))
+    let e = k
+    while (e + 1 < segs.length && fileOf(own(segs[e + 1])) === f) e++
+    const until = e + 1 < segs.length ? segs[e + 1].start : Math.max(segs[e].end, ep.duration)
+    // Short, and another file than the one on screen: held (the same file just moves the highlight).
+    const held = k > 0 && fileOf(out[k - 1]) !== f && until - segs[k].start < hold
+    for (let x = k; x <= e; x++) out.push(held ? out[k - 1] : own(segs[x]))
+    k = e + 1
+  }
+  return out
 }
 
 /**
