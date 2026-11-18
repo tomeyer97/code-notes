@@ -36,7 +36,7 @@ export function testApi() {
       me: me(),
       journeys: journeys.all().map((x) => ({ id: x.j.id, steps: x.j.steps.length, at: x.at, resume: walk.resumeAt(x) })),
       tour: {
-        journey: walk.tourJourney()?.j.id, step: tour.step, touring: walk.touring(), cp: tour.cp, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
+        journey: walk.tourJourney()?.j.id, step: tour.step, touring: walk.touring(), cp: tour.checkpointId, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
         beat: beats.lit, beatCode: beats.preview, codeLinks: codeLinks.state, values: valueHints.state, mapColumn: mapPanel.viewColumn, codeColumn: tour.doc?.column, status: tourItems.pos.text, statusShown: !!tourItems.pos.text && walk.touring(),
         tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark }, key: KEY, lastLeft: tour.lastLeft, fileGone: tour.fileGone,
         panelCard: walk.touring() && card.inMap(walk.tourJourney()!, tour.step) ? card.panelCard(walk.tourJourney()!, tour.step) : undefined, ref: tour.refHere, peek: tour.lastPeek, marked: tour.marked,

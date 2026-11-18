@@ -245,7 +245,7 @@ export class Walk {
     // Another step: the last one's beat is no longer lit (its scene sends the new step's beats).
     if (!tour.isAt(lj, n)) beats.clear()
     // A step opened: the walk is on the step, not at a question after it (openCheckpoint sets that after).
-    tour.cp = undefined
+    tour.checkpointId = undefined
     // One journey at a time, ended cleanly.
     if (tour.key && tour.key !== lj.key && tour.step) {
       await this.leaveJourney()

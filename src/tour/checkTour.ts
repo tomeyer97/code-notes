@@ -21,14 +21,14 @@ export function stopsOf(lj: LoadedJourney): Stop[] {
   const out: Stop[] = []
   for (const s of lj.j.steps) {
     out.push({ step: s.n })
-    for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tour.cp && tour.step === s.n && tour.key === lj.key))) out.push({ step: s.n, q: q.id })
+    for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tour.checkpointId && tour.step === s.n && tour.key === lj.key))) out.push({ step: s.n, q: q.id })
   }
   return out
 }
 
 /** Where the walk is among the stops: at its question, else on its step (-1: neither). */
 function stopIndex(stops: Stop[]): number {
-  const atQuestion = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
+  const atQuestion = stops.findIndex((x) => x.step === tour.step && x.q === tour.checkpointId)
   return atQuestion >= 0 ? atQuestion : stops.findIndex((x) => x.step === tour.step && !x.q)
 }
 
@@ -52,7 +52,7 @@ export async function openCheckpoint(lj: LoadedJourney, id: string): Promise<boo
   // The panel follows only when it is open: a question never opens it (the code keeps its room).
   if (mapPanel.journey && mapPanel.journey.key !== lj.key) walk.showMap(lj, true)
   if (!(tour.key === lj.key && tour.step === q.step)) await walk.goToStep(lj, q.step, { focus: false })
-  tour.cp = id
+  tour.checkpointId = id
   card.show(lj, tour.step)
   mapPanel.update()
   await understanding!.open(id)

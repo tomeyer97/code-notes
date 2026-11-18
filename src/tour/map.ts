@@ -147,7 +147,7 @@ export function mapState(lj: LoadedJourney): ReturnType<ConstructorParameters<ty
     problems: lj.readError ? [lj.readError] : [], authors: cfg().get<boolean>('journeys.authorMode') ? lj.j.problems.length : 0, moved: Object.fromEntries(journeys.renames(lj)),
     ...(lj.key === tour.key && tour.step && card.inMap(lj, tour.step) ? { card: card.panelCard(lj, tour.step) } : {}),
     asked: askedOf(lj), prov: provenance(lj),
-    ...(lj.check ? { stops: (understanding?.tourStops() ?? []).map((q) => ({ ...q, ...(lj.key === tour.key && tour.cp === q.id && tour.step === q.step ? { cur: true } : {}) })) } : {}),
+    ...(lj.check ? { stops: (understanding?.tourStops() ?? []).map((q) => ({ ...q, ...(lj.key === tour.key && tour.checkpointId === q.id && tour.step === q.step ? { cur: true } : {}) })) } : {}),
     list: journeyOrder().map((x) => ({ key: x.key, title: x.j.title, question: x.j.question, steps: x.j.steps.length, resume: walk.resumeAt(x), ...(x.key === lj.key ? { here: true } : {}), ...(x.j.start ? { start: true } : {}) })),
     home: listModel(listState.homeQuery),
     ...(tour.finishedKey === lj.key && !(lj.key === tour.key && tour.step) ? { done: true } : {}),

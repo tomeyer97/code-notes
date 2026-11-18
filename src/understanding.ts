@@ -61,7 +61,7 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     tourChanged,
     walkTour: async () => { const lj = currentTour(); if (!lj || !lj.j.steps.length) return false; await walkJourney(lj); return true },
     openInTour: async (id) => { const lj = currentTour(); return lj ? openCheckpoint(lj, id) : false },
-    tourNext: async (id) => { const lj = walk.tourJourney(); if (!lj?.check || !walk.touring() || tour.cp !== id) return false; await walk.stepBy(1); return true },
+    tourNext: async (id) => { const lj = walk.tourJourney(); if (!lj?.check || !walk.touring() || tour.checkpointId !== id) return false; await walk.stepBy(1); return true },
   }) })
   context.subscriptions.push(understanding!)
 }
