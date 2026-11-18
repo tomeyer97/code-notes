@@ -79,6 +79,12 @@ test('refs already on screen are not listed: inside a code link\'s lines, or ins
   assert.equal(t.refs, '[b.ts:7](lib/b.ts:7-7) · [a.ts:30](src/a.ts:30-30)\n\nIn [b.ts:7](lib/b.ts:7-7) too.\n\nIn [f.ts:3](lib/f.ts:3-3) too.')
 })
 
+test('a sentence ref is left out only when every place it names is on screen', () => {
+  // lib/c.ts:12 is inside the code link's lines; lib/f.ts:3 is not.
+  const t = text(one({ ...deduped, refs: ['Both lib/c.ts:12 and lib/f.ts:3 here.', 'Only lib/c.ts:12 here.'] }))
+  assert.equal(t.refs, 'Both [c.ts:12](lib/c.ts:12-12) and [f.ts:3](lib/f.ts:3-3) here.')
+})
+
 test('with the details open, refs they already link are not listed again', () => {
   const t = text(one(deduped), { detailsOpen: true })
   assert.equal(t.details, 'Then [b.ts:7](lib/b.ts:7-7) does more.')

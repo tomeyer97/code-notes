@@ -200,8 +200,8 @@ function bareRefsLine(refs: string[], seen: (r: Ref) => boolean, say: (r: Ref) =
   return bare.filter((r) => !seen(r)).map(say).join(' · ')
 }
 
-/** The explained refs: each sentence as written, its places links; one naming a place on screen is left out. */
+/** The explained refs: each sentence as written, its places links; one whose every place is on screen is left out. */
 function sentenceRefs(refs: string[], seen: (r: Ref) => boolean, links: (t: string) => string): string[] {
-  const shownNone = (sentence: string) => !refsIn(sentence).some(seen)
-  return refs.filter(isSentence).filter(shownNone).map((r) => links(r.trim()))
+  const allShown = (sentence: string) => { const rs = refsIn(sentence); return rs.length > 0 && rs.every(seen) }
+  return refs.filter(isSentence).filter((r) => !allShown(r)).map((r) => links(r.trim()))
 }
