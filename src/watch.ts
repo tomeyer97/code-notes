@@ -6,7 +6,7 @@ import { Loc, shift, swallows } from './anchor'
 import { journeys, mapPanel, notes, store } from './app'
 import { authorChanged, refreshBranch } from './identity'
 import { fileOf } from './journeys/steps'
-import { applyIgnoreInGit, changeFolder } from './notes/folder'
+import { applyIgnoreInGit, changeFolder, rewriteReadmes } from './notes/folder'
 import { refreshAll, updateCursorContext } from './refresh'
 import { markRead, unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
@@ -171,7 +171,7 @@ async function settingsChanged(e: vscode.ConfigurationChangeEvent): Promise<void
   if (e.affectsConfiguration('codeNotes.ignoreInGit')) await applyIgnoreInGit()
   else if (e.affectsConfiguration('codeNotes.author')) {
     await authorChanged()
-    for (const f of vscode.workspace.workspaceFolders ?? []) if (notes().some((n) => n.folder === f)) await store.writeReadme(f)
+    await rewriteReadmes()
     refreshAll()
   } else if (e.affectsConfiguration('codeNotes')) { card.lensChanged.fire(); refreshAll() }
 }

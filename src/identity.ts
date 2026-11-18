@@ -35,6 +35,12 @@ export const evMine = (e: NoteEvent) => isMyName(e.by)
 /** An agent's message: marked as such, or (unmarked) not yours. */
 export const isAgent = (m: Message) => m.role === 'agent' || (!m.role && !mine(m))
 
+/** Waiting for an agent: open, and the last word is yours. */
+export function waitingForAgent(n: Note): boolean {
+  const last = n.data.messages[n.data.messages.length - 1]
+  return n.data.status === 'open' && !!last && mine(last)
+}
+
 /** Identity and branch reads are quick: a git that hangs longer than this is given up. */
 const IDENTITY_GIT_TIMEOUT_MS = 3000
 
