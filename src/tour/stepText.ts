@@ -110,9 +110,10 @@ export function relocate(ref: Ref, here: Here): Placed {
 
 // ---------- label: how a ref reads ----------
 
-/** `text` with its `:a-b` moved by `delta`. */
+/** `text` with its `:a-b` or `#La` moved by `delta`. */
 const shiftLines = (text: string, delta: number) =>
-  text.replace(/:(\d+)(?:([-–])(\d+))?$/, (_m, a: string, d?: string, b?: string) => `:${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
+  text.replace(/(:|#L)(\d+)(?:([-–])(\d+))?$/, (_m, at: string, a: string, d?: string, b?: string) =>
+    `${at}${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
 
 /**
  * How a ref reads: `env.go:405` (the file's name; the whole path is the link's hover), its line moved with the step,

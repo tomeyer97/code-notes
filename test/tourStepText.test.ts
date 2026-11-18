@@ -26,7 +26,8 @@ test('a ref into the step\'s own file moves with the step (delta); one into anot
 test('paths in the lead and in sentence refs become links reading the file name; shifted the same way', () => {
   const t = text(one({ lead: 'See src/a.ts:30 and `lib/b.ts:3`.', refs: ['Done in src/a.ts:40-42.', 'Also lib/b.ts#L7 here.', 'Hash src/a.ts#L40 here.'] }, { start: 15, end: 25 }))
   assert.equal(t.lead, 'See [a.ts:35](src/a.ts:35-35) and [b.ts:3](lib/b.ts:3-3).')
-  assert.equal(t.refs, 'Done in [a.ts:45-47](src/a.ts:45-47).\n\nAlso [b.ts#L7](lib/b.ts:7-7) here.\n\nHash [a.ts#L40](src/a.ts:45-45) here.')
+  assert.equal(t.refs, 'Done in [a.ts:45-47](src/a.ts:45-47).\n\nAlso [b.ts#L7](lib/b.ts:7-7) here.\n\nHash [a.ts#L45](src/a.ts:45-45) here.')
+  assert.equal(text(one({ refs: ['src/a.ts#L40'] }, { start: 15, end: 25 })).refs, '[a.ts#L45](src/a.ts:45-45)')
 })
 
 test('a renamed file: the link follows it and says "(moved)"', () => {
