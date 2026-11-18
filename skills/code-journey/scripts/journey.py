@@ -1900,7 +1900,7 @@ def repeat_warning(k, s):
 # animation (`scene`), its code links (`links`: phrases of the lead/details that open the lines doing that part) and
 # its value hints (`values`: what a variable holds in the example run, above its line). Every line is read from the
 # source by the commands below; the author never types a line's text.
-FIND_NEAR = 400        # beatLine.ts findLine: how far the same trimmed text is still taken for a line that moved
+FIND_NEAR = 400        # lineFollow.ts findLine (SAME_TEXT_RADIUS): how far the same trimmed text is still taken for a line that moved
 MIN_BEATS, SOFT_BEATS, MAX_BEATS = 3, 6, 7
 MAX_ACTORS = 4
 SOFT_LINK_LINES = 15
