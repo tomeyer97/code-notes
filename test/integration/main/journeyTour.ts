@@ -7,32 +7,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import { appendMessage, now, quiet, settle, test, windowShot } from '../helpers'
-import { StepFixture, journey, step, writeLines } from '../fixtures'
-import { at, bodyOf, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
+import { journey, step, writeLines } from '../fixtures'
+import { at, bodyOf, codeLenses, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
+import { demoPath, demoStep, demoSteps, writeDemo } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/** A step of the demo journey: its lead is "<title>: the lead.". */
-const demoStep = (id: string, title: string, node: string, file: string, line: number, extra: object = {}) =>
-  step(file, line, line, { id, title, node, lead: `${title}: the lead.`, ...extra })
-
-/** a() calls b() in src/flow.ts, then c in src/flow2.ts. Step 1's details and refs are what the card's tests read. */
-export const demoSteps: StepFixture[] = [
-  demoStep('s-a', 'a calls b', 'fa', 'src/flow.ts', 2, { details: 'More about **a**: see src/flow.ts:5 (and src/flow.ts:6-7). Charges card <name>.', refs: ['src/flow.ts:5', 'src/gone.ts:3', 'Recipients builds the list of addresses a receipt goes to in lib/mail/address.go:31-54.'] }),
-  demoStep('s-b', 'b returns', 'fb', 'src/flow.ts', 6),
-  demoStep('s-c', 'Then c', 'fc', 'src/flow2.ts', 2),
-]
-
-/** The demo journey: five boxes (App > flow > a, b, c), `steps` (the three demo steps by default). */
-export const demoJourney = (steps: StepFixture[] = demoSteps) => journey('demo', steps, {
-  question: 'How does a get to c?', title: 'Demo', summary: 'a, b, then c.',
-  nodes: [{ id: 'app', kind: 'system', label: 'App', summary: '' }, { id: 'm', kind: 'module', label: 'flow', summary: '', parent: 'app' },
-    { id: 'fa', kind: 'function', label: 'a', summary: '', parent: 'm' }, { id: 'fb', kind: 'function', label: 'b', summary: '', parent: 'm' },
-    { id: 'fc', kind: 'function', label: 'c', summary: '', parent: 'm' }],
-  edges: [{ from: 'fa', to: 'fb', label: 'calls' }, { from: 'fb', to: 'fc', label: 'later', async: true }],
-})
-export const demoPath = () => path.join(journeysDir(), 'demo.json')
-export const writeDemo = (steps?: StepFixture[]) => fs.writeFileSync(demoPath(), JSON.stringify(demoJourney(steps), null, 2))
+/** The editor groups' sizes, left to right. */
+const editorLayout = () => vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
 
 /** The demo journey's three steps after one inserted before them (step 3 is then "b returns"). */
 const withStepBefore = () => [demoStep('s-0', 'Before a', 'fa', 'src/flow.ts', 3), ...demoSteps]
@@ -88,7 +70,7 @@ export const journeyTourTests = [
     assert.deepEqual(rows.slice(-2), ['badJourney: · ⚠ half-written.json', 'badJourney: · ⚠ old-v1.json'], `never-valid files are dimmed rows:\n${rows.join('\n')}`)
   }),
 
-  test('Open Journey → Next: one preview tab beside the map, a read-only step card above the lines; details fold; refs link', async () => {
+  test('Open Journey: the map and step 1\'s code, the panel at most 40 %; a read-only step card above the lines, details folded', async () => {
     // The tour opens each step's code as one preview tab in the group beside the map, with a read-only step card above
     // the lines.
     await vscode.commands.executeCommand('codeNotes.openJourney', 'demo')
@@ -97,11 +79,13 @@ export const journeyTourTests = [
     await until('opened: no longer new', () => !journeysTree().some((l: string) => /· new/.test(l)))
     assert.equal(tour().touring, true, 'walking')
     // The panel beside the code: at most 40 % (the code keeps ~80 characters).
-    const layout = await vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
-    console.log(`  (editor layout: ${JSON.stringify(layout)})`)
+    console.log(`  (editor layout: ${JSON.stringify(await editorLayout())})`)
     await settle(500, 'the panel group taking its size')
-    const settled = await vscode.commands.executeCommand<{ groups: { size: number }[] }>('vscode.getEditorLayout')
-    if (settled.groups.length === 2) { const total = settled.groups[0].size + settled.groups[1].size; assert.ok(settled.groups[1].size / total <= 0.41, `the panel takes ${JSON.stringify(settled)}`) }
+    const settled = await editorLayout()
+    if (settled.groups.length === 2) {
+      const panelShare = settled.groups[1].size / (settled.groups[0].size + settled.groups[1].size)
+      assert.ok(panelShare <= 0.41, `the panel takes ${JSON.stringify(settled)}`)
+    }
     mapColumn = tour().mapColumn
     const card1 = tour().card!
     const cardBody = card1.body ?? ''
@@ -118,7 +102,9 @@ export const journeyTourTests = [
     assert.equal(snap().notes.length, notesBefore, 'touring creates no notes')
     assert.equal(tour().statusShown, true)
     assert.equal(tour().status, '$(map) 1/3', 'the position only')
-    // More: the details and the refs.
+  }),
+
+  test('More: the details and the refs (a missing file says so, a sentence keeps its link, a ref is listed once)', async () => {
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
     await until('details open', () => tour().card?.body?.includes('More about'))
     const body = () => tour().card!.body as string
@@ -134,7 +120,9 @@ export const journeyTourTests = [
     const next = '[Next ›](command:codeNotes.nextStep)'
     assert.ok(body1.indexOf('a calls b: the lead') < body1.indexOf(next) && body1.indexOf(next) < body1.indexOf('More about'), `the lead, then ‹ › Ask, then what More opened: ${body1}`)
     assert.equal(body().split('[flow.ts:5]').length, 2, `a ref the details already link is not listed again: ${body()}`)
-    // A ref opens as a peek; the step's tab, its code and the card stay.
+  }),
+
+  test('a ref opens as a peek under the card, of a read-only copy for the step\'s own file; the step\'s tab, code and card stay', async () => {
     const folderUri = ctx.folder.uri.toString()
     await vscode.commands.executeCommand('codeNotes.openAt', folderUri, 'src/flow2.ts', 2, 2, 1)
     await until('ref peeked', () => /flow2\.ts$/.test(tour().peek?.uri ?? ''))
@@ -158,12 +146,17 @@ export const journeyTourTests = [
     await windowShot('inline-ref-peek-same-file-closed')
     await vscode.commands.executeCommand('codeNotes.backToStep')
     await until('back at step 1', () => at() === 'src/flow.ts:2')
-    // The step's tab replaced by another file, then Go Back: the card and the marker are back.
+  }),
+
+  test('the step\'s tab replaced by another file, then Go Back: the card and the marker are back', async () => {
     await vscode.window.showTextDocument(vscode.Uri.file(wsPath('src', 'flow2.ts')), { preview: true, viewColumn: tour().codeColumn })
     await until('away from the step', () => /flow2\.ts$/.test(vscode.window.activeTextEditor?.document.uri.path ?? ''))
     await settle(300, 'VS Code\'s editor history taking the step\'s place')
     await vscode.commands.executeCommand('workbench.action.navigateBack')
     await until('Go Back: on the step, card and marker shown', () => at() === 'src/flow.ts:2' && /\/flow\.ts$/.test(tour().card?.file ?? '') && tour().card?.expanded && (tour().marked as string[]).some((x) => /\/flow\.ts$/.test(x)), 8000)
+  }),
+
+  test('Next to steps 2 and 3: the card above each step, one reused preview tab, the map keeps its group; the last step offers Finish', async () => {
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('step 2', () => tour().step === 2 && at() === 'src/flow.ts:6' && tour().card?.label === '2/3 · b returns')
     assert.equal(tour().card!.line, 4, 'step 2: the card right above its first line')
@@ -177,6 +170,9 @@ export const journeyTourTests = [
     assert.equal(tour().mapColumn, mapColumn, 'the map kept its group')
     assert.match(tour().card!.body!, /\[Finish\]\(command:codeNotes\.nextStep/, 'the last step offers Finish')
     assert.ok(!/How does a get to c/.test(tour().card!.body!), 'no recap on the last step')
+  }),
+
+  test('Finish closes the step tab the walk opened; Next right after finishing is not step 1', async () => {
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('Next on the last step finishes', () => !tour().touring && tour().map === 'demo' && snap().journeys[0].resume === 0)
     await until('Finish closes the step tab the walk opened', () => !tabOpen(/\/flow2?\.ts$/))
@@ -293,7 +289,7 @@ export const journeyTourTests = [
     await setting('journeys.codeLens', false)
     await until('the setting turns them off', async () => !(await stepLenses(flowUri)).length)
     await setting('journeys.codeLens', undefined)
-    const step3Lens = ((await vscode.commands.executeCommand('vscode.executeCodeLensProvider', flowUri)) as vscode.CodeLens[]).find((l) => l.command?.title === '◇ Step 3 of Demo')!
+    const step3Lens = (await codeLenses(flowUri)).find((l) => l.command?.title === '◇ Step 3 of Demo')!
     await vscode.commands.executeCommand(step3Lens.command!.command, ...(step3Lens.command!.arguments ?? []))
     await until('the lens opened that step', () => tour().touring && tour().step === 3)
     assert.ok(!(await stepLenses(flowUri)).length, 'no step lenses while walking')

@@ -7,17 +7,17 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
-import { EXT_ID, claudeRuns, fakeCalls, flag, quiet, readJson, readJsonOr, test, untilEqual } from '../helpers'
+import { EXT_ID, claudeRuns, fakeCalls, flag, quiet, readJson, test, untilEqual } from '../helpers'
+import { readResult, requestFile, writeRequest } from '../fixtures'
 import { closeAllEditors, ctx, noteById, setting, snap, until } from './context'
-import { repoJourneysDir, savingJourney } from './repoJourneys'
+import { repoJourneysDir, savingJourney } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const requestFile = () => path.join(ctx.notesDir, '.request.json')
-const resultFile = () => path.join(ctx.notesDir, '.result.json')
+const requestPath = () => requestFile(ctx.notesDir)
 /** Writes a request, stamped now. */
-const request = (o: object) => fs.writeFileSync(requestFile(), JSON.stringify({ at: new Date().toISOString(), ...o }))
+const request = (o: object) => writeRequest(ctx.notesDir, o)
 /** What the script reads back. */
-const result = () => readJsonOr(resultFile())
+const result = () => readResult(ctx.notesDir)
 /** Every request and link handled so far: { action, question, via, outcome }. */
 const outcomes = (): { action: string; question: string; via: string; outcome: string }[] => ctx.api.explainLog()
 /** The link `code --open-url` delivers. */
@@ -35,7 +35,7 @@ export const requestsTests = [
     await until('result for the script', () => result()?.id === 'req-1')
     assert.deepEqual(result(), { id: 'req-1', outcome: 'opened', title: 'Saving a note' }, 'the result names the journey that opened')
     await until('its map is open', () => snap().tour.map === 'saving')
-    await until('request file deleted', () => !fs.existsSync(requestFile()))
+    await until('request file deleted', () => !fs.existsSync(requestPath()))
     assert.equal(snap().notes.filter((n: any) => n.path.endsWith('.request.json')).length, 0, 'the request file is not a note')
     assert.equal(snap().broken, 0, 'nor a broken one')
   }),
@@ -51,8 +51,8 @@ export const requestsTests = [
   test('a request older than 2 minutes is ignored', async () => {
     // And deleted.
     const seen = outcomes().length
-    fs.writeFileSync(requestFile(), JSON.stringify({ action: 'ask', question: 'saving a note', at: new Date(Date.now() - 5 * 60_000).toISOString() }))
-    await until('stale request deleted', () => !fs.existsSync(requestFile()))
+    writeRequest(ctx.notesDir, { action: 'ask', question: 'saving a note' }, new Date(Date.now() - 5 * 60_000))
+    await until('stale request deleted', () => !fs.existsSync(requestPath()))
     await quiet(500, 'the old request handled after all')
     assert.equal(outcomes().length, seen, 'an old request does nothing')
   }),
@@ -63,8 +63,8 @@ export const requestsTests = [
     request({ action: 'ask', question: 'How does saving a note work?', id: 'req-new', needs: '99.0.0' })
     await until('too new', () => outcomes().slice(seen).some((x) => x.outcome === 'too-new'))
     await quiet(500, 'the request deleted or answered')
-    assert.ok(fs.existsSync(requestFile()) && result()?.id !== 'req-new', 'left alone, no result')
-    fs.unlinkSync(requestFile())
+    assert.ok(fs.existsSync(requestPath()) && result()?.id !== 'req-new', 'left alone, no result')
+    fs.unlinkSync(requestPath())
   }),
 
   test('no match asks first, closest journeys first; Cancel starts nothing', async () => {
@@ -183,7 +183,7 @@ export const requestsTests = [
     await quiet(800, 'the same request handled a second time')
     const handled = outcomes().slice(seen)
     assert.equal(handled.filter((x) => x.outcome.startsWith('opened')).length, 1, `handled once: ${JSON.stringify(handled)}`)
-    assert.ok(!fs.existsSync(requestFile()), 'request file consumed')
+    assert.ok(!fs.existsSync(requestPath()), 'request file consumed')
     // A link for another repository: left to the window that has it.
     const before = outcomes().length
     await vscode.env.openExternal(explainLink('loadNote parses', path.join(ctx.ws, '..', 'not-this-repo')))

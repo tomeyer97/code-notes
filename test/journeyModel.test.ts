@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
 import { staleKind } from '../src/anchor'
-import { isGeneric, Journey, linkPaths, escapeTags, parseJourney, readValues, stepRanges } from '../src/journeyModel'
+import { Journey, linkPaths, escapeTags, parseJourney, readValues, stepRanges } from '../src/journeyModel'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
 const j = parseJourney(fixture, 'place-order') as Journey

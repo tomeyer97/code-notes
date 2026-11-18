@@ -1,12 +1,15 @@
 // Runs inside a real VS Code in Restricted Mode (see run.ts, untrusted()): Claude never runs, reading stays available.
 import * as vscode from 'vscode'
-import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import type { TestApi } from '../../src/testApi'
-import { activate, claudeRuns, quiet, readJsonOr, runTests, test, until } from './helpers'
+import { activate, claudeRuns, quiet, runTests, test, waiter } from './helpers'
+import { readResult, writeRequest } from './fixtures'
 
 const ws = vscode.workspace.workspaceFolders![0].uri.fsPath
+const notesDir = path.join(ws, '.code-notes')
+/** This suite's wait: 6 s by default, nothing printed on a timeout. */
+const until = waiter()
 let api: TestApi
 
 const tests = [
@@ -32,17 +35,16 @@ const tests = [
     assert.equal(await api.writeJourney('How is a note saved?'), undefined)
     assert.equal(claudeRuns().length, 0, 'no claude run for a journey')
     // The script's request: "untrusted" back, nothing runs.
-    const request = path.join(ws, '.code-notes', '.request.json')
-    fs.writeFileSync(request, JSON.stringify({ action: 'ask', question: 'How are widgets frobnicated?', at: new Date().toISOString(), id: 'u-1' }))
-    const resultFile = path.join(ws, '.code-notes', '.result.json')
-    await until('result', () => readJsonOr(resultFile)?.id === 'u-1', 8000)
-    assert.equal(readJsonOr(resultFile).outcome, 'untrusted')
+    writeRequest(notesDir, { action: 'ask', question: 'How are widgets frobnicated?', id: 'u-1' })
+    await until('result', () => readResult(notesDir)?.id === 'u-1', 8000)
+    assert.equal(readResult(notesDir).outcome, 'untrusted')
     await quiet(1000, 'Claude starting for the request')
     assert.equal(claudeRuns().length, 0, 'no claude run for a request')
     assert.ok(api.explainLog().some((x: any) => x.outcome === 'untrusted'))
   }),
 ]
 
+/** The entry point run.ts starts VS Code with (extensionTestsPath). */
 export async function run(): Promise<void> {
   console.log('code-notes integration test (Restricted Mode)')
   api = await activate()

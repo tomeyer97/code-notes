@@ -8,7 +8,7 @@ import assert from 'assert'
 import { appendMessage, now, quiet, readJson, settle, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
 import { at, bodyOf, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
-import { UNREAD_FINDING } from './keysAndMap'
+import { UNREAD_FINDING } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const SECOND_UNREAD = '20261111-200001-unr2'

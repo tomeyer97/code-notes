@@ -1,5 +1,19 @@
-// What every integration entry point (suite.ts, check.ts, untrusted.ts, roundTrips.ts) shares: the waits, the test
-// runner, the extension's id, the fake Claude's log and the screenshots.
+// What the integration suites (suite.ts with main/, check/, untrusted.ts) share: the waits, the test runner, the
+// extension's id, the fake Claude's log, the window's calls and the screenshots.
+//
+// The environment variables the integration tests read (run.ts passes them on to VS Code):
+//   CODE_NOTES_TIMEOUT_SCALE=n   every wait n times longer (CI=1 alone gives 3)
+//   CODE_NOTES_SHOTS=<dir>       pictures of the window at named moments (`windowShot`, devtools.ts `pageShot`)
+//   CODE_NOTES_ANIM_SHOTS=<dir>  pictures of the animation tests' states (main/animation.ts)
+//   CODE_NOTES_RTT_MS=<ms>       each call into the window waits that long, as over a slow remote link (`callCounter`)
+//   CODE_NOTES_PROFILE=<dir>     keep VS Code's profiles (user data) there instead of in temp folders (run.ts)
+//   CODE_NOTES_CONSOLE_ALL=1     print every workbench console message, not only the errors (run.ts, check run)
+//   ONLY_MAIN / ONLY_UNTRUSTED / ONLY_CHECK=1   run that suite alone (run.ts; with none set, all three)
+// Set by run.ts or the tests themselves, not by hand:
+//   CODE_NOTES_CDP               the workbench's DevTools port (check run: devtools.ts)
+//   CODE_NOTES_CONSOLE           the file the workbench console errors are collected in (check run)
+//   CODE_NOTES_SLOW_GIT          a folder with a slow `git` (check run: check/refresh.ts)
+//   FAKE_CLAUDE_LOG              the fake claude CLI's log of its runs (`useFakeClaude`, `fakeCalls`)
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -14,7 +28,8 @@ export const SCALE = Number(process.env.CODE_NOTES_TIMEOUT_SCALE) || (process.en
 
 export type Until = <T>(what: string, fn: () => T | undefined | false | Promise<T | undefined | false>, ms?: number) => Promise<T>
 
-/** How long a wait waits by default (× SCALE): `waiter()`'s and `untilEqual`'s. */
+/** How long a wait waits by default (× SCALE): `waiter()`'s and `untilEqual`'s. Each suite makes its own `until`
+ *  with `waiter` (main/context.ts, check/context.ts, untrusted.ts). */
 export const WAIT_MS = 6000
 
 /**
@@ -36,9 +51,6 @@ export function waiter(defaults: { ms?: number; dump?: () => unknown } = {}): Un
     }
   }
 }
-
-/** The main suite's wait: 6 s by default. */
-export const until = waiter()
 
 /**
  * Waits until `get()` deep-equals `want`; on a timeout the failure shows both (where `until` with several clauses
@@ -171,4 +183,68 @@ export async function windowShot(name: string, { dirVar = 'CODE_NOTES_SHOTS', wa
   if (!d) return
   await sleep(wait)
   execFileSync('import', ['-window', 'root', path.join(d, `${name}.png`)])
+}
+
+// ---------- calls into the window ----------
+
+/** The calls as one list: each one, or (more than 12) "n× <kind> <target>" per kind. */
+function callList(calls: string[]): string {
+  if (calls.length <= 12) return calls.join(', ')
+  const perKind: Record<string, number> = {}
+  for (const call of calls) {
+    const kind = call.split(' ').slice(0, 2).join(' ')
+    perKind[kind] = (perKind[kind] ?? 0) + 1
+  }
+  return Object.entries(perKind).map(([kind, n]) => `${n}× ${kind}`).join(', ')
+}
+
+/**
+ * Counts (and with CODE_NOTES_RTT_MS set, delays) the calls into the window the extension makes while `measure` runs
+ * an action. Over Remote-SSH each awaited call into the window is one network round trip (main/roundTrips.ts).
+ */
+export function callCounter(api: { mementos?: () => vscode.Memento[] }) {
+  const rtt = Number(process.env.CODE_NOTES_RTT_MS) || 0
+  let calls: string[] = []
+  let on = false
+  const undo: (() => void)[] = []
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const wrap = (obj: any, name: string, label: (...a: any[]) => string | undefined) => {
+    const orig = obj[name]
+    obj[name] = function (this: unknown, ...a: any[]) {
+      const l = on ? label(...a) : undefined
+      if (!l) return orig.apply(this, a)
+      calls.push(l)
+      const r = orig.apply(this, a)
+      return rtt ? Promise.resolve(r).then(async (v: unknown) => { await sleep(rtt); return v }) : r
+    }
+    undo.push(() => { obj[name] = orig })
+  }
+  const known = (u: vscode.Uri) => vscode.workspace.textDocuments.some((d) => d.uri.toString() === u.toString())
+  wrap(vscode.window, 'showTextDocument', (u: any) => `show ${path.basename((u?.uri ?? u)?.path ?? '')}`)
+  // Already open: the extension host has it, nothing goes to the window.
+  wrap(vscode.workspace, 'openTextDocument', (u: any) => (u instanceof vscode.Uri && !known(u) ? `open ${path.basename(u.path)}` : undefined))
+  // Commands the extension registered itself run in the extension host; the window's own ones (setContext, focus, …) don't.
+  wrap(vscode.commands, 'executeCommand', (id: string, ...a: any[]) => (id.startsWith('codeNotes.') && !id.endsWith('.focus') ? undefined : `command ${id}${id === 'setContext' ? ` ${a[0]}` : ''}`))
+  for (const m of api.mementos?.() ?? []) wrap(m, 'update', (k: string) => `store ${k}`)
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return {
+    rtt,
+    /** Runs `run`, then waits (25 ms polls, 5 s at most) until `settled`; prints and returns the calls it made. */
+    async measure(what: string, run: () => PromiseLike<unknown>, settled: () => boolean | Promise<boolean>): Promise<{ calls: string[]; ms: number }> {
+      calls = []
+      on = true
+      const t0 = Date.now()
+      try {
+        await run()
+        for (let i = 0; i < 200 && !(await settled()); i++) await sleep(25)
+      } finally { on = false }
+      const ms = Date.now() - t0
+      const count = `${calls.length} call${calls.length === 1 ? '' : 's'} into the window`
+      const slowLink = rtt ? ` with ${rtt} ms per round trip` : ''
+      const list = calls.length ? ` (${callList(calls)})` : ''
+      console.log(`    ${what}: ${count}, ${ms} ms${slowLink}${list}`)
+      return { calls: [...calls], ms }
+    },
+    dispose() { for (const u of undo.splice(0)) u() },
+  }
 }

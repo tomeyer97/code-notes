@@ -9,8 +9,8 @@ import assert from 'assert'
 import { execFileSync } from 'child_process'
 import { settle, test, untilEqual } from '../helpers'
 import { agentNote, journey, step, writeJourney, writeLines, writeNote } from '../fixtures'
-import { at, closeAllEditors, ctx, journeyById, journeysDir, noteById, notePath, snap, tour, until, wsPath } from './context'
-import { demoPath, writeDemo } from './journeyTour'
+import { at, closeAllEditors, ctx, journeyById, journeysDir, lenses, noteById, notePath, snap, tour, until, wsPath } from './context'
+import { demoPath, writeDemo } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Where step 1 of journey `id` is now ({ file, start, end, stale, removed }). */
@@ -21,6 +21,8 @@ const git = (...args: string[]) => execFileSync('git', ['-C', ctx.ws, '-c', 'use
 
 /** An unread agent note on the long journey's second step. */
 const ON_STEP = '20261111-200300-onstep'
+/** The journey "long" (src/long.ts), from its first test until the last one of this file removes it. */
+let longPath = ''
 
 export const journeyFilesTests = [
   test('a journey deleted mid-tour ends the tour', async () => {
@@ -104,11 +106,11 @@ export const journeyFilesTests = [
     await until('disk gone', () => !snap().journeys.some((x: any) => x.id === 'disk'))
   }),
 
-  test('one inline card, the map follows the step, ref lit with Back, card in view after jumps, no read on arrival, leave toast, gone file in the map', async () => {
+  test('a long file: one inline card and no marker lens; a ref into the step\'s own file peeks under the card', async () => {
     // A 220-line file, three steps low in it (20, 150, 190), each three lines long.
     writeLines(wsPath('src', 'long.ts'), Array.from({ length: 220 }, (_, i) => `export const v${i} = ${i} // line ${i + 1} of a long file`))
     const longStep = (id: string, node: string, line: number, over: object = {}) => step('src/long.ts', line, line + 2, { id, title: `At line ${line}`, node, lead: `Line ${line}.`, ...over })
-    const longPath = writeJourney(journeysDir(), journey('long', [longStep('l1', 'f1', 20, { refs: ['src/long.ts:100-104'] }), longStep('l2', 'f2', 150), longStep('l3', 'f3', 190)], {
+    longPath = writeJourney(journeysDir(), journey('long', [longStep('l1', 'f1', 20, { refs: ['src/long.ts:100-104'] }), longStep('l2', 'f2', 150), longStep('l3', 'f3', 190)], {
       question: 'How long is it?', title: 'Long', summary: 'Long.',
       nodes: [{ id: 'A', kind: 'system', label: 'A' }, { id: 'B', kind: 'system', label: 'B' }, { id: 'f1', kind: 'function', label: 'f1', parent: 'A' }, { id: 'f2', kind: 'function', label: 'f2', parent: 'A' }, { id: 'f3', kind: 'function', label: 'f3', parent: 'A' }],
       edges: [{ from: 'A', to: 'B', label: 'uses' }],
@@ -119,8 +121,7 @@ export const journeyFilesTests = [
     await vscode.commands.executeCommand('codeNotes.startJourney', 'long')
     await until('inline card for step 1', () => tour().step === 1 && tour().card?.title === 'At line 20' && !tour().panelCard, 8000)
     const longUri = vscode.Uri.file(wsPath('src', 'long.ts'))
-    const lensTitles = async () => ((await vscode.commands.executeCommand('vscode.executeCodeLensProvider', longUri)) as vscode.CodeLens[]).map((l) => l.command?.title ?? '')
-    assert.ok(!(await lensTitles()).some((t) => /Step 1\/3/.test(t)), 'no marker line above the step (it was the panel mode\'s)')
+    assert.ok(!(await lenses(longUri)).some((t) => /Step 1\/3/.test(t)), 'no marker line above the step (it was the panel mode\'s)')
     // A ref from the card (inside More) into the step's own file: a peek of a read-only copy under the card,
     // the step's editor stays.
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
@@ -129,13 +130,18 @@ export const journeyFilesTests = [
     await until('ref peeked', () => /^code-notes-ref:.*long\.ts/.test(tour().peek?.uri ?? '') && tour().peek!.start === 99 && tour().peek!.end === 103 && !tour().ref)
     await vscode.commands.executeCommand('closeReferenceSearch').then(undefined, () => undefined)
     await until('still at the step', () => /^src\/long\.ts:/.test(at()) && tour().card?.title === 'At line 20')
-    // The map follows the step (0.21: the whole map, centred on the step's box).
+  }),
+
+  test('the map follows the step, there and back (0.21: the whole map, centred on the step\'s box)', async () => {
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('step 2, the map on f2', () => tour().step === 2 && tour().mapFocus === 'f2')
     await vscode.commands.executeCommand('codeNotes.previousStep')
     await until('step 1', () => tour().step === 1)
     await until('the map followed the step back to f1', () => tour().mapFocus === 'f1' && tour().mapBoxes === 5)
     await until('the card is back on step 1', () => tour().card?.title === 'At line 20')
+  }),
+
+  test('a jump lower in the file (Next, a storyline row) shows the card and the step; arriving at a step reads no note there', async () => {
     // An unread reply on the next step's lines stays unread when the journey arrives there.
     writeNote(ctx.notesDir, ON_STEP, agentNote('src/long.ts', 150, 'Reply on a step'))
     await until('unread on the step', () => noteById(ON_STEP)?.unread === 1)
@@ -152,11 +158,15 @@ export const journeyFilesTests = [
     await settle(700, 'the step\'s delayed reveals')
     const shown3 = vscode.window.activeTextEditor!.visibleRanges[0]
     assert.ok(shown3.start.line <= 188 && shown3.end.line >= 191, `storyline jump: card line 188 and the step in view: ${shown3.start.line}-${shown3.end.line}`)
-    // Another journey mid-way: the first one is left with a way back.
+  }),
+
+  test('another journey started mid-way: the first one is left with a way back', async () => {
     await vscode.commands.executeCommand('codeNotes.startJourney', 'demo')
     await until('left long', () => tour().journey === 'demo' && tour().lastLeft?.title === 'Long' && tour().lastLeft?.at === '3/3')
     await vscode.commands.executeCommand('codeNotes.endJourney')
-    // A step whose file is gone: no stand-in tab; the card (in the map) says so.
+  }),
+
+  test('a step whose file is gone: no stand-in tab; the card (in the map) says so', async () => {
     const gonePath = writeJourney(journeysDir(), journey('gonefile', [step('src/nope_gone.ts', 3, 4, { id: 'g', title: 'Here', node: 'x', lead: 'Was here.' })],
       { question: 'Where?', title: 'Gone file', nodes: [{ id: 'x', kind: 'function', label: 'x' }] }))
     await until('gonefile loaded', () => snap().journeys.some((x: any) => x.id === 'gonefile'))
