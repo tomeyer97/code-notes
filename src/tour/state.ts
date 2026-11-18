@@ -3,6 +3,12 @@
 import type * as vscode from 'vscode'
 import type { StepRef } from './stepText'
 
+/** Stored in the workspace: the running tour's posKey (restored after a reload), where each journey was left
+ *  (posKey -> { step, id, at }), and the journey last shown on the map. */
+export const TOUR_KEY = 'codeNotes.tour'
+export const POS_KEY = 'codeNotes.journeyPos'
+export const MAP_KEY = 'codeNotes.mapJourney'
+
 export class TourState {
   /** The journey whose map is open (its file URI), and the step shown (1-based; 0: browsing the map, no tour running). */
   key: string | undefined

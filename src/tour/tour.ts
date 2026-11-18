@@ -1,46 +1,24 @@
 // The running tour, its step card and its walk: one of each for the window.
+//
+// Only this file imports card.ts and walk.ts (helpers they used to export are in stepPlace.ts and state.ts): their
+// modules import the rest of the extension, which imports this one back, so they must have loaded before the two
+// objects are made here.
 
 import * as vscode from 'vscode'
-import { beats, cmdLink, codeLinks, journeys, log, mapPanel, notes, now, provide, setCtx, state, store, tourItems, valueHints } from '../app'
-import { checkLinkNote } from '../notes/reveal'
-import { Asked, askedOf, askedText, revealJourneyRow, stepLinkOf } from '../sidebar/journeyRows'
-import { tree } from '../sidebar/notesTree'
-import { linesOfUri, notesFor } from '../threads/anchoring'
-import { editorSettling, newThread, setCollapse, setThread, settleLater, settling, whenSettled } from '../threads/settle'
-import { refreshDecorations, syncThread, threads } from '../threads/threads'
+import { provide, tourItems } from '../app'
 import { StepCard } from './card'
-import { nextStop, openCheckpoint, seeAlsoLink, stopsOf } from './checkTour'
-import { panelFits } from './layout'
-import { endTour, finishTour } from './open'
-import { pickJourney } from './pick'
-import { STEP_SCHEME, stepLenses } from './refs'
+import { stepLenses, STEP_SCHEME } from './refs'
 import { TourState } from './state'
-import { tutorialMark } from './tutorial'
 import { Walk } from './walk'
 
 /** The running tour: journey, step, the step card's state (tour/state.ts). */
 export const tour = new TourState()
 
-/** The step card (tour/card.ts): what it uses from here, read when it is used. */
-export const card: StepCard = new StepCard(tour, {
-  get journeys() { return journeys }, get mapPanel() { return mapPanel }, get codeLinks() { return codeLinks }, get valueHints() { return valueHints },
-  touring: () => walk.touring(), tourJourney: () => walk.tourJourney(), askedOf: (lj) => askedOf(lj), askedText: (a) => askedText(a as Asked), nextStop: (lj) => nextStop(lj),
-  seeAlsoLink: (files) => seeAlsoLink(files), tutorialMark: () => tutorialMark, cmdLink: (...a) => cmdLink(...a), linesOfUri: (uri) => linesOfUri(uri),
-  editorSettling: (uri) => editorSettling(uri), settling: (t) => settling(t), whenSettled: (t, k, fn) => whenSettled(t, k, fn), get settleLater() { return settleLater },
-  newThread: (c, uri, range, comments) => newThread(c, uri, range, comments), setThread: (t, k, v) => setThread(t, k, v),
-})
+/** The step card (tour/card.ts). */
+export const card = new StepCard(tour)
 
 /** The walk (tour/walk.ts): opening steps, moving on, the status bar item, where each journey was left. */
-export const walk: Walk = new Walk(tour, card, {
-  get journeys() { return journeys }, get mapPanel() { return mapPanel }, get state() { return state }, get log() { return log }, get beats() { return beats },
-  get codeLinks() { return codeLinks }, get tourItems() { return tourItems },
-  now: () => now(), refreshTree: () => tree.refresh(), syncStepNotes: () => { if (store) for (const n of notes()) if (stepLinkOf(n)) syncThread(n) },
-  setCtx: (k, v) => setCtx(k, v), checkLinkNote: (key) => checkLinkNote(key), endTour: () => endTour(), finishTour: () => finishTour(),
-  revealJourneyRow: (lj) => revealJourneyRow(lj), editorSettling: (uri) => editorSettling(uri),
-  foldNotes: (uri, at) => { for (const nt of notesFor(uri)) if (nt.data.range.start <= at.end && nt.data.range.end >= at.start) { const th = threads.get(nt.data.id); if (th) setCollapse(th, vscode.CommentThreadCollapsibleState.Collapsed, nt.data.id) } },
-  refreshDecorations: () => refreshDecorations(), stopsOf: (lj) => stopsOf(lj), openCheckpoint: (lj, id) => openCheckpoint(lj, id),
-  pickJourney: () => pickJourney(), panelFits: () => panelFits(),
-})
+export const walk = new Walk(tour, card)
 
 /** The walk's status bar items: ‹ step › ×. */
 export function createTourItems(): void {

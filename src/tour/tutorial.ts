@@ -7,7 +7,7 @@ import { fileOf, LoadedJourney } from '../journeys/steps'
 import { openMap } from './open'
 import { pickJourney } from './pick'
 import { card, tour, walk } from './tour'
-import { MAP_KEY } from './walk'
+import { MAP_KEY } from './state'
 
 export const TUTORIAL_KEY = 'codeNotes.tutorialSeen'
 

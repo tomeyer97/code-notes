@@ -4,7 +4,7 @@
 import { codeLinks } from './app'
 import { backToQuestion, checkLinkNote } from './notes/reveal'
 import { docUri } from './threads/anchoring'
-import { cardLine, stepUri } from './tour/card'
+import { cardLine, stepUri } from './tour/stepPlace'
 import { card, tour, walk } from './tour/tour'
 
 /** codeNotes.codeLink: link `i` of the card or thread `key`; a second click on the lit phrase turns it off. */

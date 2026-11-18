@@ -1,63 +1,35 @@
 // The walk through a journey: which step is open, opening a step (its file, its card, the map beside), moving on,
 // the status bar item, and where each journey was left.
 import * as vscode from 'vscode'
-import { wfs } from '../wfs'
-import { Beats } from '../beats'
-import { CodeLinks } from '../codeLinks'
+import { beats, codeLinks, journeys, log, mapPanel, now, setCtx, state, tourItems } from '../app'
 import { ownSelection } from '../claudeLinks'
-import { Journeys } from '../journeys/journeys'
-import { MapPanel } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
-import { TourState } from './state'
-import { StepCard, cardLine, wroteAt } from './card'
-
-export const TOUR_KEY = 'codeNotes.tour' // posKey of the running tour (restored after a reload)
-export const POS_KEY = 'codeNotes.journeyPos' // posKey -> where each journey was left { step, at }
-export const MAP_KEY = 'codeNotes.mapJourney' // posKey of the journey last shown on the map
+import { checkLinkNote } from '../notes/reveal'
+import { revealJourneyRow } from '../sidebar/journeyRows'
+import { tree } from '../sidebar/notesTree'
+import { editorSettling } from '../threads/settle'
+import { refreshDecorations } from '../threads/threads'
+import { wfs } from '../wfs'
+import type { StepCard } from './card'
+import { openCheckpoint, stopsOf } from './checkTour'
+import { panelFits } from './layout'
+import { endTour, finishTour } from './open'
+import { pickJourney } from './pick'
+import { MAP_KEY, POS_KEY, TOUR_KEY, TourState } from './state'
+import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
+import { cardLine, wroteAt } from './stepPlace'
 
 type Pos = { step: number; id?: string; at: string }
 export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
 
-/** What the walk uses from the rest of the extension. */
-export interface WalkHost {
-  readonly journeys: Journeys
-  readonly mapPanel: MapPanel
-  readonly state: vscode.Memento
-  readonly log: vscode.LogOutputChannel
-  readonly beats: Beats
-  readonly codeLinks: CodeLinks
-  readonly tourItems: TourItems
-  now(): string
-  /** The Notes view. */
-  refreshTree(): void
-  /** A step question's back-link says less while you walk its journey: its thread is drawn again. */
-  syncStepNotes(): void
-  setCtx(k: string, v: unknown): Thenable<unknown>
-  /** The note a code link of a check thread belongs to, if it is one. */
-  checkLinkNote(key: string): unknown
-  endTour(): Promise<void>
-  finishTour(): Promise<void>
-  revealJourneyRow(lj: LoadedJourney): void
-  /** Milliseconds until a thread may be made on this file (0: now). */
-  editorSettling(uri: vscode.Uri): number
-  /** Notes on lines `at` of `uri` fold, so the step comes first. */
-  foldNotes(uri: vscode.Uri, at: { start: number; end: number }): void
-  refreshDecorations(): void
-  /** A check's tour: its steps and the open questions between them. */
-  stopsOf(lj: LoadedJourney): { step: number; q?: string }[]
-  openCheckpoint(lj: LoadedJourney, id: string): Promise<boolean>
-  pickJourney(): Promise<LoadedJourney | undefined>
-  panelFits(): Promise<boolean>
-}
-
 export class Walk {
-  constructor(private readonly tour: TourState, private readonly card: StepCard, private readonly host: WalkHost) {}
+  constructor(private readonly tour: TourState, private readonly card: StepCard) {}
 
-  tourJourney(): LoadedJourney | undefined { return this.tour.key ? this.host.journeys.list.get(this.tour.key) : undefined }
+  tourJourney(): LoadedJourney | undefined { return this.tour.key ? journeys.list.get(this.tour.key) : undefined }
   /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
   touring(): boolean { return !!this.tourJourney() && this.tour.step > 0 }
 
-  positions(): Record<string, Pos> { return this.host.state.get<Record<string, Pos>>(POS_KEY) ?? {} }
+  positions(): Record<string, Pos> { return state.get<Record<string, Pos>>(POS_KEY) ?? {} }
   /** Where this journey was left (0: never started): the same step by id when it still exists, else the same number. */
   resumeAt(lj: LoadedJourney): number {
     const p = this.positions()[posKey(lj)]
@@ -66,18 +38,18 @@ export class Walk {
     return i >= 0 ? i + 1 : Math.min(p.step, lj.j.steps.length)
   }
   async savePos(lj: LoadedJourney, step: number): Promise<void> {
-    await this.host.state.update(POS_KEY, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: this.host.now() } })
+    await state.update(POS_KEY, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: now() } })
   }
 
   /** The journey file changed during a tour: stay on the same step (by id); if it was removed, its neighbour. */
   followStep(): void {
-    const { tour, card, host } = this
+    const { tour, card } = this
     const lj = this.tourJourney()
     if (!lj || !tour.step) return
     const i = lj.j.steps.findIndex((s) => s.id === tour.stepId)
     if (i >= 0) { if (tour.step !== i + 1) vscode.window.setStatusBarMessage(`$(info) Journey updated: this step is now ${i + 1}/${lj.j.steps.length}`, 5000); tour.step = i + 1 }
     else {
-      if (!lj.j.steps.length) { void host.endTour(); return }
+      if (!lj.j.steps.length) { void endTour(); return }
       tour.step = Math.min(tour.step, lj.j.steps.length)
       tour.stepId = lj.j.steps[tour.step - 1].id
       // Said on the card, where the eyes are, and the editor goes with it.
@@ -89,7 +61,7 @@ export class Walk {
     // The agent re-anchored this step (other file or lines): the editor follows the card, with one line saying so.
     const s = lj.j.steps[i], was = tour.shownAt
     if (was && was.key === lj.key && was.id === s.id) {
-      void host.journeys.locate(lj, (k) => k === i + 1).then(() => {
+      void journeys.locate(lj, (k) => k === i + 1).then(() => {
         const at = lj.at[i], f = fileOf(lj, i + 1)
         if (tour.step !== i + 1 || this.tourJourney() !== lj) return
         // Only a change in the journey file is "updated": code that moved or came back is just shown, no notice.
@@ -102,12 +74,12 @@ export class Walk {
         } else if (elsewhere) void this.goToStep(lj, i + 1, { focus: false })
         else { card.show(lj, tour.step); this.updateTour() }
       })
-      host.refreshTree()
+      tree.refresh()
       return
     }
     card.show(lj, tour.step)
     this.updateTour()
-    host.refreshTree()
+    tree.refresh()
   }
 
   /** Step number -> 'stale' (its code can't be found), for the map. */
@@ -126,23 +98,22 @@ export class Walk {
   }
 
   updateTour(): void {
-    const { tour, card, host } = this
-    const { mapPanel, codeLinks, tourItems } = host
+    const { tour, card } = this
     const lj = this.tourJourney()
     // A code link's way back is to the step it was clicked on: the walk moved on or ended, the link (and its Back) goes.
-    if (tour.linkBack && (tour.linkBack.journey !== tour.key || tour.linkBack.step !== tour.step)) { tour.linkBack = undefined; if (!host.checkLinkNote(codeLinks.state.key ?? '')) codeLinks.unlight() }
+    if (tour.linkBack && (tour.linkBack.journey !== tour.key || tour.linkBack.step !== tour.step)) { tour.linkBack = undefined; if (!checkLinkNote(codeLinks.state.key ?? '')) codeLinks.unlight() }
     if (tour.key && !lj) {
       // The journey file was deleted: the tour ends with one notice; the map says so.
       if (tour.step) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
       mapPanel.markDeleted(tour.key)
-      tour.key = undefined; tour.step = 0; tour.doc = undefined; card.clear(); void host.state.update(TOUR_KEY, undefined)
+      tour.key = undefined; tour.step = 0; tour.doc = undefined; card.clear(); void state.update(TOUR_KEY, undefined)
     }
     if (lj && tour.step > lj.j.steps.length) tour.step = lj.j.steps.length
     // A step question's back-link says less while you walk its journey.
-    host.syncStepNotes()
-    host.setCtx('codeNotes.journeyActive', this.touring())
+    syncStepNotes()
+    setCtx('codeNotes.journeyActive', this.touring())
     card.lensChanged.fire() // the step lenses show only outside a walk
-    host.setCtx('codeNotes.hasJourneys', host.journeys.all().length > 0)
+    setCtx('codeNotes.hasJourneys', journeys.all().length > 0)
     mapPanel.update()
     if (!lj || !tour.step) { for (const i of Object.values(tourItems)) i.hide(); return }
     // Only while a tour runs, and one item: "3/13", click = the map; ‹ › × live on the map and the card.
@@ -158,7 +129,7 @@ export class Walk {
   /** The code group: never the map's. The one the tour used, else another visible editor's, else the other side. */
   readonly codeColumn = (): vscode.ViewColumn | undefined => {
     const tour = this.tour
-    const mapCol = this.host.mapPanel.viewColumn
+    const mapCol = mapPanel.viewColumn
     if (mapCol === undefined) return tour.doc?.column ?? vscode.window.activeTextEditor?.viewColumn
     if (tour.doc && tour.doc.column !== mapCol && vscode.window.tabGroups.all.some((g) => g.viewColumn === tour.doc!.column)) return tour.doc.column
     return vscode.window.visibleTextEditors.find((e) => e.viewColumn !== undefined && e.viewColumn !== mapCol)?.viewColumn
@@ -172,13 +143,13 @@ export class Walk {
    * stack size exceeded"; the card or thread then stays collapsed). See SETTLE_MS.
    */
   columnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
-    const mapCol = this.host.mapPanel.viewColumn
+    const mapCol = mapPanel.viewColumn
     return vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri.toString() && e.viewColumn !== undefined && e.viewColumn !== mapCol)?.viewColumn ?? this.codeColumn()
   }
 
   showMap(lj: LoadedJourney, preserveFocus = false): void {
-    this.host.mapPanel.show(lj, preserveFocus, this.tour.doc?.column)
-    void this.host.state.update(MAP_KEY, posKey(lj))
+    mapPanel.show(lj, preserveFocus, this.tour.doc?.column)
+    void state.update(MAP_KEY, posKey(lj))
   }
 
   /** Opens step n: the code in the code group as a preview tab (one tab, reused:), the step card above its lines. */
@@ -188,8 +159,7 @@ export class Walk {
   }
 
   private async openStep(lj: LoadedJourney, n: number, opts: { focus?: boolean }): Promise<void> {
-    const { tour, card, host } = this
-    const { mapPanel, beats, journeys } = host
+    const { tour, card } = this
     if (!lj.j.steps.length) return
     const gen = ++tour.stepGen
     // Superseded by a step opened since, elsewhere (the same step opened again, e.g. once its file moved: both go on).
@@ -209,12 +179,12 @@ export class Walk {
     // The map shows the journey being walked: another journey's map (a look) gives way when a step moves.
     if (mapPanel.journey && mapPanel.journey.key !== lj.key) this.showMap(lj, true)
     // Stored, not waited for (each a round trip to the window; what is read back is in memory already).
-    void host.state.update(TOUR_KEY, posKey(lj)).then(undefined, (e) => host.log.error(`tour: ${e}`))
-    void this.savePos(lj, n).then(undefined, (e) => host.log.error(`tour: ${e}`))
+    void state.update(TOUR_KEY, posKey(lj)).then(undefined, (e) => log.error(`tour: ${e}`))
+    void this.savePos(lj, n).then(undefined, (e) => log.error(`tour: ${e}`))
     await journeys.locate(lj, (k) => k === n)
     if (stale()) return
     this.updateTour()
-    host.refreshTree()
+    tree.refresh()
     const file = fileOf(lj, n)
     const uri = vscode.Uri.joinPath(lj.folder.uri, file)
     // A file that is gone: no stand-in tab; the card, in the map, says so.
@@ -228,7 +198,7 @@ export class Walk {
       tour.refHere = undefined
       card.show(lj, n)
       this.showMap(lj, true)
-      host.revealJourneyRow(lj)
+      revealJourneyRow(lj)
       return
     }
     const column = this.columnFor(uri)
@@ -243,7 +213,7 @@ export class Walk {
     tour.shownAt = { key: lj.key, id: tour.stepId!, file, start: at.start, end: at.end, removed: !!at.removed, wrote: wroteAt(lj, n) }
     tour.refHere = undefined
     // The editor just opened on this file: the card is made once it has settled (see editorSettling).
-    const settle = host.editorSettling(uri)
+    const settle = editorSettling(uri)
     if (settle) { await new Promise((r) => setTimeout(r, settle)); if (stale() || tour.key !== lj.key || tour.step !== n) return }
     card.show(lj, n)
     // The card lives in the map ("panel"): the map is open beside the code.
@@ -252,7 +222,7 @@ export class Walk {
     tour.cursorUntil = Date.now() + 600
     editor.selection = new vscode.Selection(first, 0, first, 0)
     // A note on the step's lines folds, so the step comes first; it stays unread.
-    host.foldNotes(uri, at)
+    foldNotesOverlapping(uri, at)
     // The card (or the marker line) sits above the step's lines: bring it to the top, so card and code are both on
     // screen. Again once the card is drawn: a jump from the map otherwise left the card above the view.
     // While the step's animation lights a beat, the beat's line is what is on screen: brought back once,
@@ -264,8 +234,8 @@ export class Walk {
     top()
     setTimeout(top, 120)
     setTimeout(top, 400)
-    host.refreshDecorations()
-    host.revealJourneyRow(lj)
+    refreshDecorations()
+    revealJourneyRow(lj)
   }
 
   /**
@@ -275,34 +245,34 @@ export class Walk {
   async leaveJourney(): Promise<void> {
     const lj = this.tourJourney()
     const n = this.tour.step
-    await this.host.endTour()
+    await endTour()
     if (lj && n) this.tour.lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
   }
 
   async stepBy(dir: 1 | -1): Promise<void> {
-    const { tour, host } = this
+    const { tour } = this
     if (this.touring() && this.tourJourney()!.check) {
       // A check's tour: its open questions are stops between the steps.
       const lj = this.tourJourney()!
-      const stops = host.stopsOf(lj)
+      const stops = stopsOf(lj)
       let i = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
       if (i < 0) i = stops.findIndex((x) => x.step === tour.step && !x.q)
       const to = stops[i + dir]
-      if (!to) { if (dir > 0) return host.finishTour(); vscode.window.setStatusBarMessage('$(info) First step', 2000); return }
-      if (to.q) { await host.openCheckpoint(lj, to.q); return }
+      if (!to) { if (dir > 0) return finishTour(); vscode.window.setStatusBarMessage('$(info) First step', 2000); return }
+      if (to.q) { await openCheckpoint(lj, to.q); return }
       return this.goToStep(lj, to.step)
     }
     if (this.touring()) {
       const lj = this.tourJourney()!
       const n = tour.step + dir
-      if (n > lj.j.steps.length) return host.finishTour()
+      if (n > lj.j.steps.length) return finishTour()
       if (n < 1) { vscode.window.setStatusBarMessage('$(info) First step', 2000); return }
       return this.goToStep(lj, n)
     }
     // No tour: start (or resume) the journey whose map is open, else pick one.
-    const lj = this.tourJourney() ?? (await host.pickJourney())
+    const lj = this.tourJourney() ?? (await pickJourney())
     // Just finished: next is not step 1 again; the panel says Done.
-    if (lj && tour.finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); if (host.mapPanel.journey || (await host.panelFits())) this.showMap(lj); return }
+    if (lj && tour.finishedKey === lj.key) { vscode.window.setStatusBarMessage('$(check) Journey finished', 2500); if (mapPanel.journey || (await panelFits())) this.showMap(lj); return }
     if (lj) await this.goToStep(lj, this.resumeAt(lj) || 1)
   }
 }

@@ -11,7 +11,7 @@ import { tree } from '../sidebar/notesTree'
 import { cardOnly, codeGetsMoreRoom, panelFits } from './layout'
 import { pickJourney } from './pick'
 import { card, tour, walk } from './tour'
-import { MAP_KEY, POS_KEY, TOUR_KEY } from './walk'
+import { MAP_KEY, POS_KEY, TOUR_KEY } from './state'
 
 /**
  * Opening a journey walks it (no separate Start): its map, and the code with its card at step 1,
