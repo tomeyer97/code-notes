@@ -1,9 +1,9 @@
 // Picking a journey: words of its title, question or steps, best match first; nothing matches: write one.
 
 import * as vscode from 'vscode'
+import { journeys } from '../app'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { pickOne } from '../quickPick'
-import { journeyOrder } from '../sidebar/journeyRows'
 import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
@@ -14,7 +14,7 @@ type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJour
 
 /** The journey `arg` names (a key, an id, a posKey, a sidebar row), else the one picked. */
 export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
-  const all = journeyOrder()
+  const all = journeys.all()
   if (typeof arg === 'string') return all.find((x) => x.key === arg || x.j.id === arg || posKey(x) === arg)
   if (arg && typeof arg === 'object' && (arg as Node).kind === 'journey') return (arg as { lj: LoadedJourney }).lj
   // Always a picker (the "…" promises one): the question once, and how far each one got.

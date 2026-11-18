@@ -8,7 +8,7 @@ import { ageOf } from '../journeyList'
 import { MapMessage, TourInfo } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { reveal } from '../notes/reveal'
-import { askedOf, journeyOrder } from '../sidebar/journeyRows'
+import { askedOf } from '../sidebar/journeyRows'
 import { journeysTree } from '../sidebar/journeysTree'
 import { listModel, listState, SORT_KEY } from '../sidebar/listModel'
 import { relPath } from '../threads/anchoring'
@@ -198,7 +198,7 @@ export function mapState(lj: LoadedJourney): TourInfo {
     asked: askedOf(lj),
     prov: provenance(lj),
     ...(lj.check ? { stops: checkStops(lj) } : {}),
-    list: journeyOrder().map((x) => listRow(x, lj)),
+    list: journeys.all().map((x) => listRow(x, lj)),
     home: listModel(listState.homeQuery),
     ...(done ? { done: true } : {}),
   }

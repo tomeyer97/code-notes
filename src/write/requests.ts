@@ -5,7 +5,6 @@ import { claudeLinks, extVersion, journeys, log, mapPanel, showError, state } fr
 import { claudeAllowed, trusted } from '../ask'
 import { linkTarget } from '../answerLinks'
 import { posKey } from '../journeys/steps'
-import { journeyOrder } from '../sidebar/journeyRows'
 import { walkJourney } from '../tour/commands'
 import { walk } from '../tour/tour'
 import { MAP_KEY } from '../tour/state'
@@ -158,7 +157,7 @@ async function confirmAndWrite(q: string, model: string | undefined, outcome: Ou
 
 /** The journey panel with its Journeys list in front: over the journey being walked or last shown, else the first one. */
 async function showJourneysHome(): Promise<void> {
-  const all = journeyOrder()
+  const all = journeys.all()
   const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? all.find((x) => x.j.start) ?? all[0]
   if (!lj) { void vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'); return }
   // The walk is not ended here (a new card right after an ended walk's made VS Code's comment widgets loop on their

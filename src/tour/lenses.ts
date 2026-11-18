@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { cfg, journeys, understanding } from '../app'
 import { Block, blockAt, groupSteps } from '../codeBlocks'
 import { fileOf } from '../journeys/steps'
-import { blocksOf } from '../sidebar/listModel'
+import { blocksOf } from '../symbolBlocks'
 import { inNotesFolder, notesFor, relPath } from '../threads/anchoring'
 import { card, tour, walk } from './tour'
 

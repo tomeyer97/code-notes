@@ -9,7 +9,6 @@ import { claudeAllowed } from '../ask'
 import { AskResult } from '../claude'
 import { LoadedJourney } from '../journeys/steps'
 import { pickOne } from '../quickPick'
-import { journeyOrder } from '../sidebar/journeyRows'
 import { journeysTree } from '../sidebar/journeysTree'
 import { staleCount, staleLine, staleSteps } from '../sidebar/listModel'
 import { shortQ } from '../text'
@@ -83,7 +82,7 @@ function journeyKeyOf(arg: unknown): string | undefined {
 /** Which stale journey to refresh: the one in front (the walk, the panel's) preselected, else none (Enter never
  *  refreshes a journey by chance). Undefined: none is stale (said), or Esc. */
 async function pickStaleJourney(): Promise<LoadedJourney | undefined> {
-  const stale = journeyOrder().filter((x) => staleCount(x))
+  const stale = journeys.all().filter((x) => staleCount(x))
   if (!stale.length) {
     vscode.window.setStatusBarMessage('$(check) Every journey matches the code', 3000)
     return undefined
