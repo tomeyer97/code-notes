@@ -181,8 +181,8 @@ export const podcastTests = [
   }),
 
   test('podcast: the audio keeps playing, and the walk following it, while the panel is a background tab', async () => {
-    await seek(13)
-    await until('step 2', at(2, 'pod.ts', 5), 8000)
+    await seek(19)
+    await until('step 3', at(3, 'pod2.ts', 0), 8000)
     // Another editor in the panel's group, in front of it.
     const panelGroup = vscode.window.tabGroups.all.find((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputWebview && /codeNotes\.journey/.test(t.input.viewType)))!
     console.log(`    (panel in group ${panelGroup.viewColumn}, tour().mapColumn ${tour().mapColumn})`)
@@ -195,7 +195,8 @@ export const podcastTests = [
     const t0 = pod().t
     await sleep(2500)
     assert.ok(pod().t > t0 + 1.8, `the time moved on while hidden: ${t0} → ${pod().t}`)
-    await until('crossing 15 s while hidden: step 3 opened', () => tour().step === 3 && codeFile() === 'pod2.ts', 8000)
+    // (Step 3's 6 s in pod2.ts are held from step 2 while playing, VIEW_HOLD_S: the recap, 19 s, is not.)
+    await until('crossing 21 s while hidden: the recap, the walk ended', () => tour().step === 0 && pod().t > 21, 8000)
     const groups = () => vscode.window.tabGroups.all.map((g) => `${g.viewColumn}:${g.tabs.map((t) => `${t.label}${t.isActive ? '*' : ''}`).join(',')}`).join(' | ')
     assert.ok(!pod().mapVisible, `the panel was not brought back to front: ${groups()}`)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
@@ -233,6 +234,13 @@ export const podcastTests = [
     await until('playing podgap', () => pod().playing && pod().session === 'podgap', 10000)
     await seek(4)
     await until('step 1', () => tour().step === 1 && pod().t >= 4, 8000)
+    // Playing, Next is the player's ⏭ (one transport): the next part, step 3. Paused, it is the walk's Next.
+    await vscode.commands.executeCommand('codeNotes.nextStep')
+    await until('playing: Next is ⏭, step 3 at 9 s', () => tour().step === 3 && pod().t >= 9 && pod().playing, 8000)
+    await vscode.commands.executeCommand('codeNotes.previousStep')
+    await until('⏮: step 1 again', () => tour().step === 1 && pod().t < 9, 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('Next: step 2, the audio paused', () => tour().step === 2 && !pod().playing, 5000)
     await sleep(1200)

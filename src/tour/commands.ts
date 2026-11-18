@@ -131,6 +131,7 @@ export async function restoreTour(): Promise<void> {
   const n = walk.resumeAt(lj) || 1
   if (!mapPanel.journey) { tourState.key = lj.key }
   await walk.goToStep(lj, n, { focus: false })
+  walk.onRestored?.(lj)
 }
 
 /**

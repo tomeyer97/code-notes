@@ -118,7 +118,7 @@ function showRuleBreaks(lj: LoadedJourney): void {
  * A beat of the step's animation (i < 0: the scene is gone). Its line is lit; when the scene stops driving the editor
  * (Map, ■, Esc, a beat without code) the editor is given back to the step: its lines and its card.
  */
-async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
+export async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
   // A beat of a step left just now (the map learns of the move after its scene drew): nothing.
   if (i >= 0 && (lj.key !== tourState.key || n !== tourState.step)) return
   const was = beats.lit

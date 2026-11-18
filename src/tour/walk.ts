@@ -40,6 +40,8 @@ export class Walk {
   transport: ((dir: 1 | -1) => boolean) | undefined
   /** A podcast is playing or paused on this journey (its row, Open Journey… on it: focus, never reopen). */
   podcastOn: ((lj: LoadedJourney) => boolean) | undefined
+  /** The walk was restored after a reload (commands.ts restoreTour): the podcast lights the beat it was at. */
+  onRestored: ((lj: LoadedJourney) => void) | undefined
 
   /** The editor follows the walk (scrolls to what it shows); false while the reader looks around on their own during
    *  a podcast (the follow lock, podcast/follow.ts): it only highlights. */
