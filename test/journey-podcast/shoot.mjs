@@ -4,11 +4,16 @@
 // nothing outside the window, one bar per step), play advances the audio, a click anywhere on the timeline shows
 // exactly the step and beat of that time (forwards and backwards, no step in between shown), a drag moves the
 // journey once (where it ended), the hover tip names the step, keys skip, a step clicked moves the audio, a beat the
-// step does not have shows the step only, no console errors. Exits 1 on any failure.
+// step does not have shows the step only, no console errors. The audio is served over HTTP by a server that ignores
+// Range (as VS Code for the web serves a webview's files): the bar loads it whole (a blob) so seeks get there. Then:
+// Space and K after a beat's ‹ › clicked, a pause "not in the podcast" with ▶ going on after it, a fetch that fails
+// (the plain URL, no Range: a seek reports where the audio really is, never the time asked), an audio that can't
+// play (▶ stays paused, says why). Exits 1 on any failure.
 //
 // Usage (after `npm run build`): node test/journey-podcast/shoot.mjs [screenshot-dir]
 // PLAYWRIGHT / CHROME: as test/harness/page.mjs.
 import fs from 'node:fs'
+import http from 'node:http'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -26,8 +31,21 @@ const journey = { ...raw, steps: raw.steps.map((s, i) => ({ ...s, n: i + 1 })), 
 const podcastFile = path.join(ROOT, 'test/fixtures/podcast/sample.podcast.json')
 const p = parsePodcast(fs.readFileSync(podcastFile, 'utf8'))
 const ep = resolveEpisode(p, { steps: journey.steps.map((s) => ({ id: s.id, beats: s.scene?.beats?.length ?? 0 })) })
-const src = pathToFileURL(path.join(path.dirname(podcastFile), p.audio)).href
-const episode = { src, title: ep.title, duration: ep.duration, at: 0, rate: 1, chapters: ep.chapters, segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step })) }
+// The audio over HTTP, never in ranges (200, the whole file, every time). `/nofetch/…`: a fetch() of it fails (only the
+// audio element gets it); `/missing/…`: 404.
+const audioFile = path.join(path.dirname(podcastFile), p.audio)
+const server = http.createServer((req, res) => {
+  const cors = { 'Access-Control-Allow-Origin': '*' }
+  if (req.url.startsWith('/missing/')) { res.writeHead(404, cors); res.end(); return }
+  if (req.url.startsWith('/nofetch/') && req.headers['sec-fetch-dest'] === 'empty') { res.writeHead(500, cors); res.end(); return }
+  const body = fs.readFileSync(audioFile)
+  res.writeHead(200, { ...cors, 'Content-Type': 'audio/mpeg', 'Content-Length': body.length })
+  res.end(body)
+})
+await new Promise((r) => server.listen(0, '127.0.0.1', r))
+const base = `http://127.0.0.1:${server.address().port}`
+const src = `${base}/${p.audio}`
+const episode = { key: 'place-order', src, title: ep.title, duration: ep.duration, at: 0, rate: 1, chapters: ep.chapters, segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step })) }
 
 const failures = []
 let tag = ''
@@ -89,7 +107,8 @@ const shown = (page) => page.evaluate(() => {
     cap: document.querySelector('.pod-cap')?.textContent,
   }
 })
-const audioState = (page) => page.evaluate(() => { const a = document.querySelector('.pod audio'); return { t: a.currentTime, paused: a.paused, ready: a.readyState, dur: a.duration, err: a.error && a.error.code } })
+const audioState = (page) => page.evaluate(() => { const a = document.querySelector('.pod audio'); return { t: a.currentTime, paused: a.paused, ready: a.readyState, dur: a.duration, err: a.error && a.error.code, blob: a.src.startsWith('blob:') } })
+const barNote = (page) => page.evaluate(() => { const e = document.querySelector('.pod-err'); return e.hidden ? '' : e.textContent })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function until(what, f, ms = 4000) {
   const end = Date.now() + ms
@@ -155,6 +174,7 @@ async function run(b, w) {
   const canMp3 = await page.evaluate(() => document.createElement('audio').canPlayType('audio/mpeg'))
   ok(!!canMp3, `this Chromium plays mp3 (canPlayType: "${canMp3}")`)
   await until('the audio\'s length is known', async () => (await audioState(page)).ready >= 1)
+  ok((await audioState(page)).blob, 'served without Range, the audio is loaded whole (a blob: URL)')
   await layout(page, w)
   if (OUT) await page.screenshot({ path: path.join(OUT, `podcast-${w}-start.png`) })
 
@@ -163,6 +183,14 @@ async function run(b, w) {
   await until('playing, time advancing', async () => (await audioState(page)).t > 0.4)
   ok(fx.st.playing, 'the panel says it is playing')
   ok((await shown(page)).step === 0, 'the intro: no step yet')
+  // One clock: what the extension was last told is the second the bar shows.
+  for (let k = 0; k < 6; k++) {
+    await sleep(170)
+    const said = Math.floor(fx.st.lastT)
+    const showing = await page.evaluate(() => document.querySelector('.pod-time').textContent.split(' / ')[0])
+    const [m, sec] = showing.split(':').map(Number)
+    ok(Math.abs(m * 60 + sec - said) <= (k ? 0 : 1) || said === m * 60 + sec, `one clock: the bar shows ${showing}, the extension was told ${fx.st.lastT.toFixed(2)}`)
+  }
   await page.click('.pod-b.play')
   await until('paused', async () => (await audioState(page)).paused)
 
@@ -238,6 +266,34 @@ async function run(b, w) {
     await until('K pauses', async () => (await audioState(page)).paused)
   }
 
+  // Space and K after a beat's › clicked with the mouse: the podcast plays and pauses (the button doesn't keep Space).
+  {
+    const { x, y } = await xAt(page, 4)
+    await page.mouse.click(x, y)
+    await until('step 1 with its animation', async () => { const s = await shown(page); return s.step === 1 && s.anim })
+    const before = (await shown(page)).beat
+    await page.click('#app .scn-next')
+    await until('› went a beat on', async () => (await shown(page)).beat === before + 1)
+    const beat = (await shown(page)).beat
+    await page.keyboard.press(' ')
+
+    await until('Space after ›: plays', async () => !(await audioState(page)).paused)
+    ok((await shown(page)).beat >= beat, 'Space did not step the animation back')
+    await page.keyboard.press('k')
+    await until('K after ›: pauses', async () => (await audioState(page)).paused)
+  }
+
+  // A step the podcast skips (the extension pauses it with a note): ▶ goes on after it, not where it was.
+  {
+    await fx.send({ type: 'podcastCmd', action: 'pause', note: "Step 2 isn't in the podcast", resumeAt: 15 })
+    await until('the bar says so', async () => /isn't in the podcast/.test(await barNote(page)))
+    await page.click('.pod-b.play')
+    await until('▶: on from 15 s, playing', async () => { const a = await audioState(page); return !a.paused && a.t >= 15 && a.t < 16.5 })
+    ok(!(await barNote(page)), 'the note goes once it plays on')
+    await page.click('.pod-b.play')
+    await until('paused', async () => (await audioState(page)).paused)
+  }
+
   // Journey → audio: a step clicked in the storyline moves the audio to its first part.
   {
     await page.click('.story .st[data-n="4"]')
@@ -271,8 +327,71 @@ async function run(b, w) {
   console.log(`${tag}: done`)
 }
 
+/** An episode at another URL in a fresh page: the page, the fake extension, the console's errors. */
+async function withEpisode(b, url, name) {
+  tag = name
+  const context = await b.newContext({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 1, reducedMotion: 'reduce' })
+  const page = await context.newPage()
+  const errors = []
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  const fx = fakeExtension(page)
+  const told = []
+  await page.exposeFunction('__onPost', (m) => { if (m.type === 'podcastError') told.push(m.message); return fx.on(m) })
+  await page.goto(`${HARNESS}?theme=light`)
+  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  await fx.send({ type: 'journey', journey, ...tour(0) })
+  await fx.send({ type: 'podcast', episode: { ...episode, src: url } })
+  await page.waitForSelector('.pod:not([hidden])')
+  return { context, page, fx, told, errors }
+}
+
+/** The fetch fails: the audio plays from its URL, whose server ignores Range. A seek reports where the audio is. */
+async function streamed(b) {
+  const { context, page, fx, told } = await withEpisode(b, `${base}/nofetch/${p.audio}`, 'streamed, no Range')
+  await until('the audio\'s length is known', async () => (await audioState(page)).ready >= 1)
+  ok(!(await audioState(page)).blob, 'the fetch failed: its own URL')
+  ok(told.some((m) => /could not be loaded whole/.test(m)), `the extension is told (${JSON.stringify(told)})`)
+  for (const t of [20, 7, 31]) {
+    const seeks = fx.st.seeks
+    const { x, y } = await xAt(page, t)
+    await page.mouse.click(x, y)
+    await until(`seek to ${t}: said once done`, async () => fx.st.seeks > seeks, 6000)
+    await sleep(300)
+    const a = await audioState(page)
+    ok(Math.abs(fx.st.lastT - a.t) < 0.6, `seek to ${t}: the extension is told where the audio is (${fx.st.lastT.toFixed(2)}), the audio says ${a.t.toFixed(2)}`)
+    const s = await shown(page)
+    ok(s.step === viewAt(ep, a.t).step, `seek to ${t}: the walk shows step ${s.step}, where the audio is (${viewAt(ep, a.t).step})`)
+    if (Math.abs(a.t - t) > 0.75) {
+      ok(/Can't go to/.test(await barNote(page)), `a seek that did not get there says so in the bar ("${await barNote(page)}")`)
+      ok(told.some((m) => /seek to .* ended at/.test(m)), 'and the extension is told (its log)')
+    }
+  }
+  console.log(`  (the extension was told: ${told.join(' / ')})`)
+  if (OUT) await page.screenshot({ path: path.join(OUT, 'podcast-streamed.png') })
+  await context.close()
+  console.log(`${tag}: done`)
+}
+
+/** An audio that can't be played: ▶ stays paused and says why; the extension never hears "playing". */
+async function unplayable(b) {
+  const { context, page, fx, told } = await withEpisode(b, `${base}/missing/${p.audio}`, 'unplayable')
+  await until('the bar says the audio can\'t play', async () => /Can't play/.test(await barNote(page)), 6000)
+  await page.click('.pod-b.play')
+  await sleep(800)
+  const a = await audioState(page)
+  ok(a.paused, '▶ on an audio that can\'t play: paused')
+  ok(!fx.st.playing, 'the extension is never told it plays')
+  ok(/Can't play/.test(await barNote(page)), `the bar says why ("${await barNote(page)}")`)
+  ok(told.length > 0, `the extension is told (${JSON.stringify(told)})`)
+  await context.close()
+  console.log(`${tag}: done`)
+}
+
 const b = await launch()
 for (const w of [340, 700, 1200]) await run(b, w)
+await streamed(b)
+await unplayable(b)
 await b.close()
+server.close()
 console.log(failures.length ? `${failures.length} problems` : 'all checks passed')
 process.exit(failures.length ? 1 : 0)

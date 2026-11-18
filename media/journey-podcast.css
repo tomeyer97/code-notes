@@ -41,6 +41,8 @@ body.has-pod .body.wide .mapwrap { height: calc(100vh - var(--headH, 0px) - var(
 .pod-b.play:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background, var(--accent))); }
 .pod-time { color: var(--muted); font-size: 0.9em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pod-err { color: var(--warn); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* A note, not an error ("Step 12 isn't in the podcast"). */
+.pod-err.note { color: var(--muted); }
 .pod-rate { margin-left: auto; font-size: 0.9em; padding: 2px 6px; border-radius: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .pod-rate:hover { background: var(--hover); color: var(--fg); }
 /* What is being said: one muted line (the whole of it on hover). */
