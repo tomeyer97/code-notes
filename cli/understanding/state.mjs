@@ -51,9 +51,29 @@ export const ruleText = (s) => `Answer all ${s.total} · ${s.needed} must pass`
 
 /** Where the branch stands: what changed, the check file, whether it is still valid, where it stands (checkState). */
 export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.env } = {}) {
+  const st = branchStatus(repo, { base, cfg, env })
+  const withState = (x) => {
+    const state = checkState(x, cfg)
+    return { ...x, state, next: stateWords(state, x).line }
+  }
+  const read = st.exists ? readOrExplain(repo, st.file) : notInTree(repo, st.file)
+  if (!read.check) return withState({ ...st, ...read })
+  const check = read.check
+  relocate(repo, check) // today's line numbers (in memory: the file is rewritten only when it is saved anyway)
+  const drift = driftOf(repo, check, 'HEAD', st.change, cfg.exempt, st.base)
+  // With uncommitted edits too: the drift CI will see once they are pushed.
+  const pending = driftOf(repo, check, undefined, st.change, cfg.exempt, st.base)
+  const porcelain = gitOk(repo, ['status', '--porcelain', '--', st.file]) ?? ''
+  const dirty = !!porcelain
+  // A new file: `git commit -a` leaves it out (the reason a finished check never reached CI).
+  const untracked = porcelain.startsWith('??')
+  return withState({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty, ...(untracked ? { untracked } : {}) })
+}
+
+/** The branch, its check file's name, the change: from the merge base with `base`, or a stack's parent's check. */
+function branchStatus(repo, { base, cfg, env }) {
   const branch = currentBranch(repo, env)
   const rel = fileFor(branch)
-  const abs = path.join(repo, rel)
   const baseRef = base ?? defaultBase(repo)
   const head = gitOk(repo, ['rev-parse', 'HEAD'])
   const mb0 = baseRef && head ? mergeBase(repo, baseRef, head) : undefined
@@ -62,26 +82,36 @@ export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.
   const mb = stack?.base ?? mb0
   // Code lines, committed and uncommitted.
   const change = mb ? codeStat(repo, mb, undefined, cfg.exempt) : { files: 0, added: 0, removed: 0, exempt: [], exemptOnly: false }
-  const st = { branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(abs), ...(stack ? { stackedOn: stack.branch } : {}), ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}) }
-  const done = (x) => { const state = checkState(x, cfg); return { ...x, state, next: stateWords(state, x).line } }
-  // Not in the tree, but in a git stash (`git stash -u`): said, never "Start" (a new check would clash with the pop).
-  if (!st.exists) { const stash = stashedIn(repo, rel); return done(stash ? { ...st, stashed: stash } : st) }
-  // Git conflict markers (a merge, two people answering on one branch): said so, with where, and whether both sides merge.
+  return {
+    branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(path.join(repo, rel)),
+    ...(stack ? { stackedOn: stack.branch } : {}),
+    ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}),
+  }
+}
+
+/** No check file in the tree: `{ stashed }` when a git stash holds it (`git stash -u`; said, never "Start": a new check would clash with the pop). */
+function notInTree(repo, rel) {
+  const stash = stashedIn(repo, rel)
+  return stash ? { stashed: stash } : {}
+}
+
+/**
+ * The check file, `{ check }`, or why it can't be used, as the status says it: `{ errors, conflict }` for git conflict
+ * markers (a merge, two people answering on one branch: where, and whether both sides merge), `{ errors }` when it
+ * isn't JSON or isn't valid.
+ */
+function readOrExplain(repo, rel) {
+  const abs = path.join(repo, rel)
   const conflict = conflictOf(fs.readFileSync(abs, 'utf8'))
-  if (conflict) return done({ ...st, errors: [`${rel} has a merge conflict`], conflict: { line: conflict.line, mergeable: !!conflict.merged } })
+  if (conflict) return { errors: [`${rel} has a merge conflict`], conflict: { line: conflict.line, mergeable: !!conflict.merged } }
   let check
-  try { check = readCheck(abs) } catch (e) { return done({ ...st, errors: [`${rel} is not valid JSON (${e.message})`] }) }
+  try {
+    check = readCheck(abs)
+  } catch (e) {
+    return { errors: [`${rel} is not valid JSON (${e.message})`] }
+  }
   const errors = validateCheck(check, { repo })
-  if (errors.length) return done({ ...st, errors: [`${rel}: ${errors[0]}`] })
-  relocate(repo, check) // today's line numbers (in memory: the file is rewritten only when it is saved anyway)
-  const drift = driftOf(repo, check, 'HEAD', change, cfg.exempt, mb)
-  // With uncommitted edits too: the drift CI will see once they are pushed.
-  const pending = driftOf(repo, check, undefined, change, cfg.exempt, mb)
-  const porcelain = gitOk(repo, ['status', '--porcelain', '--', rel]) ?? ''
-  const dirty = !!porcelain
-  // A new file: `git commit -a` leaves it out (the reason a finished check never reached CI).
-  const untracked = porcelain.startsWith('??')
-  return done({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty, ...(untracked ? { untracked } : {}) })
+  return errors.length ? { errors: [`${rel}: ${errors[0]}`] } : { check }
 }
 
 /**
@@ -115,24 +145,80 @@ export function checkState(st, cfg = DEFAULTS) {
  */
 export function stateWords(state, st = {}) {
   const rule = state.total ? ruleText(state) : ''
-  const branch = st.branch ?? 'this branch'
-  switch (state.phase) {
+  const words = Object.hasOwn(WORDS, state.phase) ? WORDS[state.phase](state, st, st.branch ?? 'this branch', rule) : { tone: 'todo', bar: '', title: '', line: '' }
+  return { ...words, rule }
+}
+
+/** stateWords by phase: `(state, st, branch, rule)` → `{ tone, bar, title, line }`. */
+const WORDS = {
+  nothing: (state, st, branch) => (st.onBase
     // The default branch: one line, no change to speak of.
-    case 'nothing': if (st.onBase) return { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '', rule }
-      return { tone: 'ok', bar: '', title: 'No check needed', line: st.stackedOn ? `Covered by ${st.stackedOn}'s check.` : state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.', rule }
-    case 'stashed': return { tone: 'warn', bar: 'Understanding: in a stash', title: 'Your check is in a git stash', line: `Run git stash pop (${state.stash}).`, rule }
-    case 'none': return { tone: 'todo', bar: 'Understanding: start', title: `No check yet for ${branch}`, line: `${!state.changed && st.change?.renamed?.length ? `Renamed, 0 lines changed (${st.change.renamed.map((r) => r.to.split('/').pop()).join(', ')})` : `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'} ${state.removal ? 'removed' : 'changed'}${state.docs ? ' (docs)' : ''}${st.stackedOn ? ` since ${st.stackedOn}'s check` : ''}`}${state.want ? ` · ${sizeText(state.want)}` : ''}.`, rule }
-    case 'invalid': return state.conflict
-      ? { tone: 'warn', bar: 'Understanding: merge conflict', title: 'The check file has a merge conflict', line: state.conflict.mergeable ? 'Both sides of the conflict can be kept.' : 'Open it at the conflict.', rule }
-      : { tone: 'warn', bar: 'Understanding: fix the file', title: 'The check file is not valid', line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, '')}.`, rule }
-    case 'drift': return { tone: 'warn', bar: `Needs top-up: +${state.grew} lines`, title: `Needs top-up: +${state.grew} lines`,
-      line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.', rule }
-    case 'answering': return { tone: 'todo', bar: `Understanding ${state.done}/${state.total}`, title: `${state.done} of ${state.total} done`, line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`, rule }
-    case 'short': return { tone: 'warn', bar: `Understanding ${state.passed}/${state.needed} passed`, title: `${state.passed} passed, ${state.needed} must pass`,
-      line: 'Say an explained answer back in your own words.', rule }
-    case 'done': return { tone: 'ok', bar: '✓ Understanding', title: '✓ Done', line: st.untracked ? 'A new file: not committed yet.' : st.dirty ? 'Not committed yet.' : 'Committed.', rule }
-    default: return { tone: 'todo', bar: '', title: '', line: '', rule }
-  }
+    ? { tone: 'ok', bar: '', title: `${branch}: no check here`, line: '' }
+    : { tone: 'ok', bar: '', title: 'No check needed', line: nothingLine(state, st) }),
+  stashed: (state) => ({
+    tone: 'warn',
+    bar: 'Understanding: in a stash',
+    title: 'Your check is in a git stash',
+    line: `Run git stash pop (${state.stash}).`,
+  }),
+  none: (state, st, branch) => ({
+    tone: 'todo',
+    bar: 'Understanding: start',
+    title: `No check yet for ${branch}`,
+    line: `${noneSize(state, st)}${state.want ? ` · ${sizeText(state.want)}` : ''}.`,
+  }),
+  invalid: (state) => (state.conflict
+    ? {
+      tone: 'warn',
+      bar: 'Understanding: merge conflict',
+      title: 'The check file has a merge conflict',
+      line: state.conflict.mergeable ? 'Both sides of the conflict can be kept.' : 'Open it at the conflict.',
+    }
+    : {
+      tone: 'warn',
+      bar: 'Understanding: fix the file',
+      title: 'The check file is not valid',
+      line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, '')}.`,
+    }),
+  drift: (state) => ({
+    tone: 'warn',
+    bar: `Needs top-up: +${state.grew} lines`,
+    title: `Needs top-up: +${state.grew} lines`,
+    line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.',
+  }),
+  answering: (state, _st, _branch, rule) => ({
+    tone: 'todo',
+    bar: `Understanding ${state.done}/${state.total}`,
+    title: `${state.done} of ${state.total} done`,
+    line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`,
+  }),
+  short: (state) => ({
+    tone: 'warn',
+    bar: `Understanding ${state.passed}/${state.needed} passed`,
+    title: `${state.passed} passed, ${state.needed} must pass`,
+    line: 'Say an explained answer back in your own words.',
+  }),
+  done: (state, st) => ({
+    tone: 'ok',
+    bar: '✓ Understanding',
+    title: '✓ Done',
+    line: st.untracked ? 'A new file: not committed yet.' : st.dirty ? 'Not committed yet.' : 'Committed.',
+  }),
+}
+
+/** Why no check is needed, in a line: a stack's parent covers it, only exempt files, or no code lines. */
+function nothingLine(state, st) {
+  if (st.stackedOn) return `Covered by ${st.stackedOn}'s check.`
+  return state.exemptOnly ? 'Only exempt files changed.' : 'No code lines changed.'
+}
+
+/** What changed, for "No check yet": "12 code lines changed", "3 lines removed (docs)", "Renamed, 0 lines changed (a.js)". */
+function noneSize(state, st) {
+  const renamed = st.change?.renamed ?? []
+  if (!state.changed && renamed.length) return `Renamed, 0 lines changed (${renamed.map((r) => r.to.split('/').pop()).join(', ')})`
+  const lines = `${state.changed} ${state.docs ? 'line' : 'code line'}${state.changed === 1 ? '' : 's'}`
+  const since = st.stackedOn ? ` since ${st.stackedOn}'s check` : ''
+  return `${lines} ${state.removal ? 'removed' : 'changed'}${state.docs ? ' (docs)' : ''}${since}`
 }
 
 /**

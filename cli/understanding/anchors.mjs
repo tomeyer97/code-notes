@@ -43,8 +43,9 @@ function backward(lines, e, want, floor) {
 }
 /**
  * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
- * it was. The same rules as the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
- * first, then the closest length, then the context lines, then the nearest place.
+ * it was. The rules of the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
+ * first, then the closest length, then the context lines, then the nearest place. Not (yet) its rule for a range stored
+ * with blank lines at its end (tried at its stored length too): there the two can end a range a line apart.
  */
 export function findAnchor(lines, a, hint = 0) {
   const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
@@ -55,7 +56,8 @@ export function findAnchor(lines, a, hint = 0) {
   const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
   const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
   const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
-  const better = (c, b) => (c.fresh !== b.fresh ? c.fresh : c.dLen !== b.dLen ? c.dLen < b.dLen : c.ctx !== b.ctx ? c.ctx > b.ctx : c.dist < b.dist)
+  // A candidate's rank, compared in order (lower is better): fresh, closest length, more context, nearest.
+  const rank = (c) => [c.fresh ? 0 : 1, c.dLen, -c.ctx, c.dist]
   let best
   for (let i = 0; i < lines.length; i++) {
     if (norm(lines[i]) !== head[0]) continue
@@ -68,12 +70,25 @@ export function findAnchor(lines, a, hint = 0) {
       if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
       let f = e + 1
       while (f < lines.length && blank(lines[f])) f++
-      const c = { start: i, end: e, fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash, dLen: Math.abs(e - i + 1 - L),
-        ctx: ctxBefore + (after && f < lines.length && norm(lines[f]) === after ? 1 : 0), dist: Math.abs(i - hint) }
-      if (!best || better(c, best)) best = c
+      const ctxAfter = after && f < lines.length && norm(lines[f]) === after ? 1 : 0
+      const c = {
+        start: i,
+        end: e,
+        fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash,
+        dLen: Math.abs(e - i + 1 - L),
+        ctx: ctxBefore + ctxAfter,
+        dist: Math.abs(i - hint),
+      }
+      if (!best || lessThan(rank(c), rank(best))) best = c
     }
   }
   return best && { start: best.start, end: best.end, fresh: best.fresh }
+}
+
+/** `a` comes before `b` (lists of numbers compared element by element). */
+function lessThan(a, b) {
+  const k = a.findIndex((x, i) => x !== b[i])
+  return k >= 0 && a[k] < b[k]
 }
 
 /**

@@ -18,8 +18,8 @@ export const BUILT = path.join(here, 'understanding.mjs')
  * before it, and main.mjs, which runs the command line when the file is run, comes last.
  */
 export const ORDER = [
-  'constants', 'git', 'changeFiles', 'comments', 'diff', 'size', 'checkFile', 'validate', 'state', 'anchors', 'grading',
-  'graderBackends', 'push', 'platform', 'mrComment', 'ci', 'threads', 'init', 'main',
+  'constants', 'git', 'changeFiles', 'comments', 'diff', 'size', 'checkFile', 'validate', 'state', 'anchors',
+  'graderPrompt', 'grading', 'graderBackends', 'push', 'platform', 'mrComment', 'ci', 'threads', 'init', 'main',
 ]
 
 const HEADER = `#!/usr/bin/env node

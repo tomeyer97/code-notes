@@ -1,30 +1,74 @@
-// Unified diffs: the change's code lines and size, the lines added or changed, where code was removed, and the line
-// numbers a merge request's diff pairs.
+// Unified diffs: one walker (walkDiff) and what is read from it: the change's code lines and size, the lines
+// added or changed, where code was removed, and the line numbers a merge request's diff pairs.
 import { git, hasCommit } from './git.mjs'
 import { counted, isDoc, own } from './changeFiles.mjs'
 import { isCode } from './comments.mjs'
+
+/** The paths to diff for these files: a renamed file's old name too, so git pairs them (a pure move changes no line). */
+const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
+
+/** A hunk header: "@@ -a,b +c,d @@" (a: the old side's first line; c, d: the new side's first line and count). */
+export const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+
+/**
+ * Each line of a unified diff, as what it is (`kind`) and where it is. `line`: the line as it is.
+ *   section    "diff --git …": a file's part starts
+ *   old, new   "--- a/x", "+++ b/x": `path`, without its a/ or b/ ("/dev/null": the file is added or deleted)
+ *   hunk       "@@ -o,… +n,c @@": `start` and `count` on the new side (`count` 1 when not given)
+ *   +, -, ' '  a line added, removed, unchanged: `text` without its sign; `n` and `o`: the line it is on the new and the
+ *              old side (a removed line: the new side's line it comes before; an added one: the old side's)
+ *   other      anything else ("index …", "\\ No newline at end of file", "new file mode …")
+ * The counters go on from line to line and start again at each hunk; `shift`: old minus new after the line.
+ */
+export function* walkDiff(diff) {
+  let n = 0, o = 0
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git')) { yield { kind: 'section', line }; continue }
+    if (line.startsWith('--- ')) { yield { kind: 'old', line, path: line.slice(4).replace(/^a\//, '') }; continue }
+    if (line.startsWith('+++ ')) { yield { kind: 'new', line, path: line.slice(4).replace(/^b\//, '') }; continue }
+    const h = HUNK_HEADER.exec(line)
+    if (h) {
+      o = Number(h[1])
+      n = Number(h[2])
+      yield { kind: 'hunk', line, start: n, count: Number(h[3] ?? 1) }
+      continue
+    }
+    const kind = '+- '.includes(line[0] ?? 'x') ? line[0] : 'other'
+    const at = { kind, line, text: line.slice(1), n, o }
+    if (kind === '+' || kind === ' ') n++
+    if (kind === '-' || kind === ' ') o++
+    yield { ...at, shift: o - n }
+  }
+}
+
+/** The new side's lines of each hunk of a unified diff (a deletion: the line it happened at). */
+export function hunksOf(diff) {
+  const out = []
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'hunk') out.push({ start: d.start, end: d.start + Math.max(0, d.count - 1) })
+  }
+  return out
+}
 
 /**
  * The code lines of a change between two commits (or a commit and the working tree when `to` is undefined): counted
  * files only, blank and comment-only lines left out. `[{ file, sign: '+' | '-', text (trimmed), line (new side, for +) }]`.
  */
-/** The paths to diff for these files: a renamed file's old name too, so git pairs them (a pure move changes no line). */
-const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
-
 export function codeLines(repo, from, to, exempt = [], all = numstat(repo, from, to)) {
   const list = pathsOf(all.filter((f) => counted(f.file, exempt) && !f.binary))
   if (!list.length) return []
+  const diff = git(repo, ['diff', '--no-color', '--no-ext-diff', '-U0', '-M', from, ...(to ? [to] : []), '--', ...list])
   const out = []
-  let file, n = 0, plus = {}, minus = {}
-  for (const l of git(repo, ['diff', '--no-color', '--no-ext-diff', '-U0', '-M', from, ...(to ? [to] : []), '--', ...list]).split('\n')) {
-    if (l.startsWith('diff --git')) { file = undefined; continue }
-    if (l.startsWith('+++ ')) { const f = l.slice(4).replace(/^b\//, ''); if (f !== '/dev/null') file = f; continue }
-    if (l.startsWith('--- ')) { const f = l.slice(4).replace(/^a\//, ''); if (f !== '/dev/null') file = f; continue }
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { n = Number(h[1]); plus = {}; minus = {}; continue }
-    if (!file) continue
-    if (l[0] === '+') { if (isCode(l.slice(1), file, plus)) out.push({ file, sign: '+', text: l.slice(1).trim(), line: n }); n++ }
-    else if (l[0] === '-' && isCode(l.slice(1), file, minus)) out.push({ file, sign: '-', text: l.slice(1).trim() })
+  // The file: the last path named that isn't /dev/null (a deleted file's lines are its old name's).
+  let file
+  // An open block comment, on each side (isCode).
+  let plus = {}, minus = {}
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'section') file = undefined
+    else if (d.kind === 'old' || d.kind === 'new') file = d.path === '/dev/null' ? file : d.path
+    else if (d.kind === 'hunk') { plus = {}; minus = {} }
+    else if (file && d.kind === '+' && isCode(d.text, file, plus)) out.push({ file, sign: '+', text: d.text.trim(), line: d.n })
+    else if (file && d.kind === '-' && isCode(d.text, file, minus)) out.push({ file, sign: '-', text: d.text.trim() })
   }
   return out
 }
@@ -110,15 +154,11 @@ export function diffText(repo, from, to, files, exempt = []) {
 /** A diff with the new file's line numbers in front: what a question's lines refer to. */
 export function numberDiff(diff) {
   const out = []
-  let n = 0
-  for (const l of diff.split('\n')) {
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { n = Number(h[1]); out.push(l); continue }
-    if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/.test(l)) { if (l.startsWith('diff --git')) out.push(''); out.push(l); continue }
-    if (l.startsWith('+')) out.push(`${String(n++).padStart(5)} ${l}`)
-    else if (l.startsWith('-')) out.push(`      ${l}`)
-    else if (l.startsWith(' ')) out.push(`${String(n++).padStart(5)} ${l}`)
-    else if (l) out.push(l)
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'section') out.push('')
+    if (d.kind === '+' || d.kind === ' ') out.push(`${String(d.n).padStart(5)} ${d.line}`)
+    else if (d.kind === '-') out.push(`      ${d.line}`)
+    else if (d.line) out.push(d.line)
   }
   return out.join('\n').trim()
 }
@@ -126,20 +166,21 @@ export function numberDiff(diff) {
 /** file -> new-side line ranges that were added or changed: [[start, end], …]. `codeOnly`: blank and comment lines left out. */
 export function changedRanges(diff, { codeOnly = false } = {}) {
   const map = new Map()
-  let file, n = 0, run, cs = {}
-  const close = () => { if (run && file) { if (!map.has(file)) map.set(file, []); map.get(file).push(run) } run = undefined }
-  for (const l of diff.split('\n')) {
-    if (l.startsWith('+++ ')) { close(); file = l.slice(4).replace(/^b\//, ''); if (file === '/dev/null') file = undefined; continue }
-    if (l.startsWith('--- ') || l.startsWith('diff --git')) { close(); continue }
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { close(); n = Number(h[1]); cs = {}; continue }
-    if (l.startsWith('+')) {
-      if (codeOnly && !isCode(l.slice(1), file, cs)) { close(); n++; continue }
-      if (run && run[1] === n - 1) run[1] = n; else { close(); run = [n, n] }
-      n++
-    }
-    else if (l.startsWith('-')) { if (!run && !codeOnly) run = [n, n] } // a deletion marks the line after it
-    else if (l.startsWith(' ')) { close(); n++ }
+  // The file (the new side's; none for a deleted one), the run of changed lines, an open block comment (isCode).
+  let file, run, cs = {}
+  const close = () => {
+    if (run && file) map.set(file, [...(map.get(file) ?? []), run])
+    run = undefined
+  }
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'section' || d.kind === 'old' || d.kind === ' ') close()
+    else if (d.kind === 'new') { close(); file = d.path === '/dev/null' ? undefined : d.path }
+    else if (d.kind === 'hunk') { close(); cs = {} }
+    else if (d.kind === '+' && codeOnly && !isCode(d.text, file, cs)) close()
+    else if (d.kind === '+' && run && run[1] === d.n - 1) run[1] = d.n
+    else if (d.kind === '+') { close(); run = [d.n, d.n] }
+    // A deletion marks the line after it.
+    else if (d.kind === '-' && !run && !codeOnly) run = [d.n, d.n]
   }
   close()
   return map
@@ -151,15 +192,20 @@ export function changedRanges(diff, { codeOnly = false } = {}) {
  */
 export function removalPoints(diff) {
   const map = new Map()
-  let file, old, n = 0, cs = {}
-  for (const l of diff.split('\n')) {
-    if (l.startsWith('--- ')) { old = l.slice(4).replace(/^a\//, ''); continue }
-    if (l.startsWith('+++ ')) { file = l.slice(4).replace(/^b\//, ''); if (file === '/dev/null') file = undefined; continue }
-    if (l.startsWith('diff --git')) { file = undefined; continue }
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { n = Number(h[1]); cs = {}; continue }
-    if (l.startsWith('-')) { if (file && isCode(l.slice(1), old ?? file, cs)) { const at = Math.max(1, n); const rs = map.get(file) ?? []; if (!rs.some(([a, b]) => at >= a && at <= b + 1)) rs.push([at, at]); map.set(file, rs) } }
-    else if (l.startsWith('+') || l.startsWith(' ')) n++
+  // The file on the new side (none for a deleted one); its old name (whose language says what a comment is).
+  let file, old, cs = {}
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'old') old = d.path
+    else if (d.kind === 'new') file = d.path === '/dev/null' ? undefined : d.path
+    else if (d.kind === 'section') file = undefined
+    else if (d.kind === 'hunk') cs = {}
+    else if (d.kind === '-' && file && isCode(d.text, old ?? file, cs)) {
+      const at = Math.max(1, d.n)
+      const rs = map.get(file) ?? []
+      // Next to a removal already marked: the same place.
+      if (!rs.some(([a, b]) => at >= a && at <= b + 1)) rs.push([at, at])
+      map.set(file, rs)
+    }
   }
   return map
 }
@@ -169,19 +215,21 @@ export function removalPoints(diff) {
  * `sha1(path)_old_new`; an added line carries the old counter where it was added). Undefined when the file is not in it.
  */
 export function oldLineOf(diff, file, n) {
-  let inFile = false, seen = false, o = 0, w = 0, offset = 0
-  for (const l of diff.split('\n')) {
-    if (l.startsWith('diff --git')) { if (inFile) return n + offset; inFile = false; continue }
-    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; seen ||= inFile; continue }
-    if (!inFile || l.startsWith('--- ')) continue
-    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { o = Number(h[1]); w = Number(h[2]); if (n < w) return n + offset; continue }
-    if (l.startsWith('+')) { if (w === n) return o; w++ }
-    else if (l.startsWith('-')) o++
-    else if (l.startsWith(' ')) { if (w === n) return o; w++; o++ }
-    offset = o - w
+  // In the file's part of the diff; seen it; old minus new as of the last line read (lines outside hunks keep it).
+  let inFile = false, seen = false, shift = 0
+  for (const d of walkDiff(diff)) {
+    if (d.kind === 'section' && inFile) return n + shift
+    if (d.kind === 'section') continue
+    if (d.kind === 'new') { inFile = d.path === file; seen ||= inFile; continue }
+    if (!inFile || d.kind === 'old') continue
+    if (d.kind === 'hunk') {
+      if (n < d.start) return n + shift
+      continue
+    }
+    if ((d.kind === '+' || d.kind === ' ') && d.n === n) return d.o
+    shift = d.shift
   }
-  return seen ? n + offset : undefined
+  return seen ? n + shift : undefined
 }
 
 /**
@@ -191,18 +239,16 @@ export function oldLineOf(diff, file, n) {
  */
 export function nearestChanged(diff, file, line) {
   const added = [], hunks = []
-  let inFile = false, n = 0
-  for (const l of String(diff ?? '').split('\n')) {
-    if (l.startsWith('diff --git')) { inFile = false; continue }
-    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; continue }
-    if (!inFile || l.startsWith('--- ')) continue
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l)
-    if (h) { n = Number(h[1]); hunks.push([n, n + Number(h[2] ?? 1) - 1]); continue }
-    if (l.startsWith('+')) added.push(n++)
-    else if (l.startsWith(' ')) n++
+  let inFile = false
+  for (const d of walkDiff(String(diff ?? ''))) {
+    if (d.kind === 'section') inFile = false
+    else if (d.kind === 'new') inFile = d.path === file
+    else if (inFile && d.kind === 'hunk') hunks.push([d.start, d.start + d.count - 1])
+    else if (inFile && d.kind === '+') added.push(d.n)
   }
   if (added.includes(line)) return line
   const near = (xs) => xs.reduce((a, b) => (a === undefined || Math.abs(b - line) < Math.abs(a - line) ? b : a), undefined)
   const hunk = hunks.find(([x, y]) => line >= x && line <= y)
-  return near(hunk ? added.filter((x) => x >= hunk[0] && x <= hunk[1]) : []) ?? near(added.filter((x) => Math.abs(x - line) <= 20))
+  const inHunk = hunk ? added.filter((x) => x >= hunk[0] && x <= hunk[1]) : []
+  return near(inHunk) ?? near(added.filter((x) => Math.abs(x - line) <= 20))
 }
