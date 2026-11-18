@@ -205,9 +205,6 @@ export const podcastTests = [
     await playPod()
     const good = fs.readFileSync(podFile(), 'utf8')
     // An agent or editor caught mid-write: the file cut off.
-    // Settled first: a new panel's first play, started by a click, can pause once right after it.
-    await sleep(1500)
-    assert.ok(pod().playing, 'playing')
     fs.writeFileSync(podFile(), good.slice(0, 120))
     await until('the panel says the file has errors', () => /last good version/.test(pod().notices.pod ?? ''), 8000)
     const t0 = pod().t
@@ -327,13 +324,12 @@ async function panelVisible(sel: string): Promise<boolean> {
 async function playPod(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
   await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
-  await until('playing, or asking for a click', () => pod().playing || pod().error === 'NotAllowedError', 10000)
-  // As the first test: once ▶ has the keyboard, a click on it (the click the webview needs before it plays).
-  for (let i = 0; i < 3 && !pod().playing; i++) {
+  // A new panel may need one click on ▶ (the webview plays only after one); `error` may be a stale NotAllowedError, so
+  // playing on its own is waited for first. One click only: a second would pause it.
+  if (!(await until('playing on its own', () => pod().playing, 3000).catch(() => false))) {
     const f = await panelFrame()
-    await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000).catch(() => undefined)
+    await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
     await f.click('.pod-b.play')
-    await until('playing after the click', () => pod().playing, 3000).catch(() => undefined)
   }
   await until('playing', () => pod().playing && pod().session === 'pod', 10000)
 }
