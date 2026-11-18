@@ -4,7 +4,7 @@
 // Four small steps, each its own function: parse the places the text names (once, into `Ref`s), relocate each to
 // where it is now (`relocate`), drop the refs already on screen (`onScreen`), and say each as a link or a struck-out
 // name (`label`). `stepText` composes them.
-import type { LoadedJourney } from '../journeys/steps'
+import { fileOf, LoadedJourney } from '../journeys/steps'
 import type { JStep } from '../journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeyModel'
 import { readLinks } from '../codeLinkText'
@@ -15,22 +15,24 @@ export interface StepRef { label: string; file: string; line: number; end: numbe
 /** A step card's text: the lead, the details (More), the references listed under them, and whether it is stale. */
 export interface StepText { lead: string; details: string; refs: string; stale: boolean }
 
-/** What a step's text depends on besides the journey: renamed files, files/lines found gone, the details shown. */
-export interface StepTextInput {
+/** What is known about the files a step's text names: renamed, gone, or how long. */
+export interface RefFacts {
   /** Renamed files (old path -> new path) the journey's steps followed. */
   renames: Map<string, string>
   /** Referenced files that don't exist (`<folder uri>|<path>`). */
   refGone: Set<string>
   /** Line counts of referenced files that do (`<folder uri>|<path>` -> lines). */
   refLines: Map<string, number>
+}
+
+/** What a step's text depends on besides the journey: the facts about its files, and whether the details show. */
+export interface StepTextInput extends RefFacts {
   /** The card's details ("More") are open: what they link is not listed again under them. */
   detailsOpen: boolean
 }
 
 /** The journey as far as its text needs it. */
 export type TextJourney = Pick<LoadedJourney, 'j' | 'at'> & { folder: { uri: { toString(): string } } }
-
-const fileOf = (lj: TextJourney, n: number) => lj.at[n - 1]?.file ?? lj.j.steps[n - 1].file
 
 // ---------- parse: the places a step's text names ----------
 
@@ -79,17 +81,14 @@ export function refFiles(s: Pick<JStep, 'refs' | 'lead' | 'details'>): Set<strin
 
 // ---------- relocate: where a ref is now ----------
 
-/** Where the step is now, against where it was written. */
-export interface Here {
+/** Where the step is now, against where it was written, and the facts about the files its text names. */
+export interface Here extends RefFacts {
   /** The folder the journey is in (the key prefix of `refGone` / `refLines`). */
   folder: string
   /** The step's file now (renamed or not). */
   stepFile: string
   /** How far the step's lines moved (0 when stale: its lost lines move nothing). */
   delta: number
-  renames: Map<string, string>
-  refGone: Set<string>
-  refLines: Map<string, number>
 }
 
 /** A ref where it is now: its file (renamed), its lines (moved with the step in the step's own file), or why it is gone. */
@@ -179,7 +178,7 @@ export function stepText(lj: TextJourney, n: number, link: (r: StepRef) => strin
   const s = lj.j.steps[n - 1], at = lj.at[n - 1]
   // A stale step's refs are judged on their own: its lost lines move nothing.
   const delta = at.stale ? 0 : at.start - s.range.start
-  const here: Here = { folder: `${lj.folder.uri}`, stepFile: fileOf(lj, n), delta, renames: input.renames, refGone: input.refGone, refLines: input.refLines }
+  const here: Here = { ...input, folder: `${lj.folder.uri}`, stepFile: fileOf(lj, n), delta }
   // One stale marker per step, the card's banner: no ⚠ on its links.
   const say = (r: Ref) => {
     const p = relocate(r, here)
@@ -190,9 +189,24 @@ export function stepText(lj: TextJourney, n: number, link: (r: StepRef) => strin
   const details = dropAsides(s.details ?? '')
   const shown = shownBy(lj, n, details, input, delta)
   const seen = (r: Ref) => onScreen(r, shown, input.renames)
-  const bare = s.refs.filter((r) => !isSentence(r)).map(parseBare).filter((r) => !seen(r)).map(say).join(' · ')
-  // A sentence is shown as written, its tokens links; one naming a place on screen is left out.
-  const sentences = s.refs.filter(isSentence).filter((r) => !refsIn(r).some(seen)).map((r) => links(r.trim()))
+  const refs = [bareRefsLine(s.refs, seen, say), ...sentenceRefs(s.refs, seen, links)]
   // No recap on the last step: the map's header has the question.
-  return { lead: s.lead ? links(s.lead) : '', details: details ? links(details) : '', refs: [bare, ...sentences].filter(Boolean).join('\n\n'), stale: at.stale }
+  return {
+    lead: s.lead ? links(s.lead) : '',
+    details: details ? links(details) : '',
+    refs: refs.filter(Boolean).join('\n\n'),
+    stale: at.stale,
+  }
+}
+
+/** The bare refs (`path:line`) not on screen, said on one line, ' · ' between them. */
+function bareRefsLine(refs: string[], seen: (r: Ref) => boolean, say: (r: Ref) => string): string {
+  const bare = refs.filter((r) => !isSentence(r)).map(parseBare)
+  return bare.filter((r) => !seen(r)).map(say).join(' · ')
+}
+
+/** The explained refs: each sentence as written, its places links; one naming a place on screen is left out. */
+function sentenceRefs(refs: string[], seen: (r: Ref) => boolean, links: (t: string) => string): string[] {
+  const shownNone = (sentence: string) => !refsIn(sentence).some(seen)
+  return refs.filter(isSentence).filter(shownNone).map((r) => links(r.trim()))
 }
