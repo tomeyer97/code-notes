@@ -80,6 +80,13 @@ Fixing things:
   journey.py reset   <repo> <slug>                  deletes the journey file (nothing else)
   journey.py restore <repo> <slug>                  puts back the last good copy (journeys/.bak/<slug>.json,
                                                     kept on every write and every load of a valid file)
+  journey.py podcast <repo> <slug> [<audio seconds>]   checks the journey's podcast, <slug>.podcast.json next to it
+                   (format: docs/podcast-format.md in the Code Notes repository), the way the extension does: PROBLEM =
+                   the extension won't play it (invalid JSON, version, no segments, audio missing or outside the
+                   journeys folder); WARNING = it plays, but a part is not what the file says (a step or beat the
+                   journey doesn't have, overlapping or out-of-order times, an end before its start or past the
+                   audio, written for another journey). The audio's length: <audio seconds>, else read from a .wav,
+                   else from ffprobe when it is installed. `check` runs it too when the podcast file exists.
 
 Rules (`journey.py help <command>` shows the ones for that command):
 - Every step has a stable short "id" (made by `step`/`migrate`, kept by every other command): the extension follows
@@ -162,6 +169,7 @@ SUMMARY = [
     ('restore', 'puts back the last good copy'),
     ('migrate', 'converts an old (v1) journey'),
     ('migrate-anchors', 'rewrites old anchors in the compact form'),
+    ('podcast', "checks the journey's podcast file"),
 ]
 
 
@@ -2817,6 +2825,253 @@ def check_extras(repo, since, j, fix, P, warnings, fixed):
                         '(link, value, scene: SKILL.md "Links, values, scenes")')
 
 
+# ---------- podcasts: <slug>.podcast.json (the Code Notes extension's src/podcast/validate.ts, rule for rule; the
+# cases in its test/fixtures/podcast/cases.json run through both) ----------
+
+POD_CUES = ('map', 'open', 'beat')
+POD_SLACK = 0.05          # s: times this close are the same time
+POD_DUR_SLACK = 1         # s, or 1 % of the audio: the declared duration may differ this much from the audio
+
+
+def _pnum(v):
+    """A finite number (never a bool), else None."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return v if v == v and v not in (float('inf'), float('-inf')) else None
+
+
+def _clock(t):
+    s = max(0, int(t // 1)) if t == t else 0
+    h, m, r = s // 3600, (s % 3600) // 60, s % 60
+    return (f'{h}:{m:02d}' if h else f'{m}') + f':{r:02d}'
+
+
+def _clock_ms(t):
+    tenths = round(t * 10) / 10
+    whole = int(tenths // 1)
+    frac = round((tenths - whole) * 10)
+    return f'{_clock(whole)}.{frac}' if frac else _clock(whole)
+
+
+def podcast_audio_problem(audio):
+    """`audio` as written, when it can't be used: a URL, an absolute path, a path out of the podcast's folder."""
+    a = audio.replace('\\', '/')
+    drive = re.match(r'^[a-z]:/', a, re.I)
+    if re.match(r'^[a-z][a-z0-9+.-]*:', a, re.I) and not drive:
+        return f'audio must be a file in the journeys folder, not a URL (got {audio})'
+    if a.startswith('/') or drive:
+        return f'audio must be in the journeys folder, as a path relative to the podcast file (got {audio})'
+    depth = 0
+    for part in a.split('/'):
+        if part == '..':
+            depth -= 1
+        elif part and part != '.':
+            depth += 1
+        if depth < 0:
+            return f'audio must be in the journeys folder (got {audio})'
+    return None
+
+
+def podcast_problems(raw, journey=None, audio=None, audio_duration=None):
+    """Every problem of a podcast file: dicts with level (error | warning), code, message, segment (or None).
+    journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds."""
+    out, errors = [], []
+
+    def err(code, msg):
+        errors.append({'level': 'error', 'code': code, 'message': msg, 'segment': None})
+
+    def warn(code, msg, seg=None):
+        out.append({'level': 'warning', 'code': code, 'message': (f'segment {seg}: ' if seg else '') + msg, 'segment': seg})
+
+    try:
+        d = json.loads(raw)
+    except ValueError as e:
+        if not raw.strip():
+            err('json', 'the file is empty')
+        else:
+            err('json', f'not valid JSON: line {e.lineno}, column {e.colno}: {e.msg}')
+        return errors
+    if not isinstance(d, dict):
+        err('object', 'not a podcast: the file is not a JSON object')
+        return errors
+    v = d.get('version')
+    if _pnum(v) != 1:
+        err('version', 'no "version" (this player reads version 1)' if 'version' not in d else
+            f'version {json.dumps(v)}: this player reads version 1')
+        return errors
+    a = d['audio'].strip() if isinstance(d.get('audio'), str) else ''
+    if not a:
+        err('audio', 'no "audio": the audio file, relative to this file' if 'audio' not in d else '"audio" is not a file name')
+    else:
+        where = podcast_audio_problem(a)
+        if where:
+            err('audio-outside', where)
+        elif audio is not None and not audio.get('exists'):
+            err('audio-missing', f"the audio file {a} isn't there")
+        elif audio is not None and audio.get('size') == 0:
+            err('audio-empty', f'the audio file {a} is empty')
+    segs = d.get('segments')
+    if 'segments' not in d:
+        err('segments', 'no "segments": the parts of the episode')
+    elif not isinstance(segs, list):
+        err('segments', '"segments" is not a list')
+    elif not segs:
+        err('segments', '"segments" is empty: the episode has no parts')
+    segs = segs if isinstance(segs, list) else []
+    written = []
+    for i, x in enumerate(segs):
+        if isinstance(x, dict):
+            written.append((x, i))
+        else:
+            warn('segment', f'segment #{i + 1} is not an object; skipped')
+    name = lambda x, i: x['id'] if isinstance(x.get('id'), str) and x['id'] else f'#{i + 1}'
+    j = d.get('journey') if isinstance(d.get('journey'), dict) else {}
+    jid = j.get('id') if isinstance(j.get('id'), str) else ''
+    if jid and journey and jid != journey['id']:
+        warn('journey', f'written for journey "{jid}", but it is next to "{journey["id"]}": it plays with the journey next to it')
+    duration = _pnum(d.get('duration'))
+    if 'duration' in d and not (duration is not None and duration > 0):
+        warn('duration', f'"duration" {json.dumps(d.get("duration"))} is not a length in seconds; ignored')
+    # Times (start, end, order, overlaps).
+    ids, prev, timed = {}, None, []
+    for x, i in written:
+        n = name(x, i)
+        if isinstance(x.get('id'), str) and x['id']:
+            if x['id'] in ids:
+                warn('id', f'the id "{x["id"]}" is used by segment #{ids[x["id"]] + 1} too', n)
+            else:
+                ids[x['id']] = i
+        if 'cue' in x and x['cue'] not in POD_CUES:
+            warn('cue', f'cue {json.dumps(x["cue"])} is not map, open or beat; ignored', n)
+        start = _pnum(x.get('start'))
+        if start is None or start < 0:
+            warn('start', ('no start time' if 'start' not in x else f'start {json.dumps(x.get("start"))} is not a time in seconds') + '; skipped', n)
+            continue
+        end = _pnum(x.get('end'))
+        if 'end' in x and end is None:
+            warn('end', f'end {json.dumps(x.get("end"))} is not a time in seconds; it ends where the next one starts', n)
+        if end is not None and end < start - POD_SLACK:
+            warn('end-before-start', f'ends at {_clock_ms(end)}, before it starts ({_clock_ms(start)})', n)
+            end = None
+        if prev and start < prev[1] - POD_SLACK:
+            warn('order', f'starts at {_clock_ms(start)}, before segment {prev[0]} above it ({_clock_ms(prev[1])}): '
+                          f'segments play in time order, not in file order', n)
+        if duration is not None and duration > 0 and (end if end is not None else start) > duration + POD_SLACK:
+            what = f'ends at {_clock_ms(end)}' if end is not None else f'starts at {_clock_ms(start)}'
+            warn('past-duration', f'{what}, after the episode\'s "duration" ({_clock_ms(duration)})', n)
+        prev = (n, start)
+        timed.append((x, i, start, end))
+    srt = sorted(timed, key=lambda t: (t[2], t[1]))
+    for (xa, ia, sa, ea), (xb, ib, sb, eb) in zip(srt, srt[1:]):
+        if ea is not None and sb < ea - POD_SLACK:
+            warn('overlap', f'starts at {_clock_ms(sb)}, before segment {name(xa, ia)} ends ({_clock_ms(ea)}): the later '
+                            f'one wins from its start', name(xb, ib))
+    # Links: where each segment is shown (with a start time only, as the player).
+    if journey:
+        steps = {s['id']: s['beats'] for s in journey['steps']}
+        for x, i, _, _ in srt:
+            n, at = name(x, i), x.get('at', ...)
+            if at is None:
+                continue
+            if not isinstance(at, dict) or not isinstance(at.get('step'), str):
+                warn('at', '"at" is ' + ('missing' if at is ... else 'not null or { step, beat }') + '; it keeps the view before it', n)
+                continue
+            if at['step'] not in steps:
+                warn('step', f'no step "{at["step"]}" in the journey; it keeps the view before it', n)
+                continue
+            if 'beat' not in at or x.get('cue') == 'map':
+                continue
+            b, beats = at['beat'], steps[at['step']]
+            ok = _pnum(b) is not None and float(b).is_integer() and 1 <= b <= beats
+            if not ok:
+                warn('beat', f'step "{at["step"]}" has no beat {json.dumps(b)} (it has {beats}); the step only', n)
+    # The audio's real length.
+    if audio_duration and audio_duration > 0:
+        L = audio_duration
+        ends = [e for e in ((_pnum(x.get('end')) if _pnum(x.get('end')) is not None else _pnum(x.get('start'))) for x, _ in written) if e is not None]
+        episode = max([duration or 0, 0] + ends)
+        slack = max(POD_DUR_SLACK, L * 0.01)
+        past = [x for x, _ in written if (_pnum(x.get('start')) if _pnum(x.get('start')) is not None else -1) >= L]
+        if episode > L + max(2, slack) and past:
+            warn('audio-short', f'The audio is {_clock(L)} long but the episode is {_clock(episode)}: the file looks cut off '
+                                f'({len(past)} {"part starts" if len(past) == 1 else "parts start"} after its end)')
+        else:
+            if duration is not None and abs(duration - L) > slack:
+                warn('duration', f'"duration" says {_clock_ms(duration)} but the audio is {_clock_ms(L)} long')
+            for x, i in written:
+                e = _pnum(x.get('end'))
+                if e is not None and e > L + slack:
+                    warn('past-audio', f"ends at {_clock_ms(e)}, after the audio's end ({_clock_ms(L)})", name(x, i))
+    if written and not any(_pnum(x.get('start')) is not None and _pnum(x.get('start')) >= 0 for x, _ in written):
+        err('segments', 'no segment has a start time: nothing to play')
+    return errors + out
+
+
+def audio_seconds(path):
+    """The audio file's length in seconds: a .wav by its header, anything else with ffprobe (None: unknown)."""
+    if path.lower().endswith('.wav'):
+        try:
+            import wave
+            with wave.open(path) as w:
+                return w.getnframes() / float(w.getframerate())
+        except Exception:
+            return None
+    try:
+        r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
+                           capture_output=True, text=True, timeout=30)
+        return float(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def podcast_report(repo, slug, j, seconds=None):
+    """(problems, warnings, summary) for <slug>.podcast.json next to the journey; None when there is none."""
+    pf = os.path.join(jdir(repo), slug + '.podcast.json')
+    if not os.path.exists(pf):
+        return None
+    try:
+        raw = open(pf, encoding='utf-8').read()
+    except (OSError, UnicodeDecodeError) as e:
+        return [f'{pf}: can\'t be read ({e})'], [], ''
+    journey = {'id': j.get('id') or slug, 'steps': [{'id': s.get('id'), 'beats': len(((s.get('scene') or {}).get('beats')) or [])} for s in j.get('steps', [])]}
+    audio, length = None, None
+    try:
+        name = json.loads(raw).get('audio')
+    except (ValueError, AttributeError):
+        name = None
+    if isinstance(name, str) and name.strip() and not podcast_audio_problem(name.strip()):
+        ap = os.path.normpath(os.path.join(os.path.dirname(pf), name.strip()))
+        audio = {'exists': os.path.isfile(ap), 'size': os.path.getsize(ap) if os.path.isfile(ap) else 0}
+        length = float(seconds) if seconds else (audio_seconds(ap) if audio['exists'] else None)
+    found = podcast_problems(raw, journey, audio, length)
+    problems = [f'podcast: {p["message"]}' for p in found if p['level'] == 'error']
+    warnings = [f'podcast: {p["message"]}' for p in found if p['level'] == 'warning']
+    summary = '' if length else ' (audio length unknown: pass it as <audio seconds>, or install ffprobe, to check the times against it)'
+    return problems, warnings, summary
+
+
+def cmd_podcast(repo, slug, seconds=''):
+    if seconds:
+        try:
+            float(seconds)
+        except ValueError:
+            sys.exit(f'podcast: <audio seconds> must be a number (got {seconds!r})')
+    j = load(repo, slug)
+    r = podcast_report(repo, slug, j, seconds or None)
+    if r is None:
+        print(f'PROBLEM: no podcast for {slug}: {os.path.join(jdir(repo), slug + ".podcast.json")} does not exist')
+        sys.exit(1)
+    problems, warnings, note = r
+    for w in warnings:
+        print('WARNING: ' + w)
+    for p in problems:
+        print('PROBLEM: ' + p)
+    plural = lambda n, w: f'{n} {w}{"" if n == 1 else "s"}'
+    print(f'{"FAILED" if problems else "ok"}: podcast of {slug}, {plural(len(problems), "problem")}, '
+          f'{plural(len(warnings), "warning")}{note}')
+    sys.exit(1 if problems else 0)
+
+
 def cmd_check(repo, slug, flag=''):
     flag = {'--fix': 'fix'}.get(flag, flag)
     if flag not in ('', 'quiet', 'story', 'refs', 'fix'):
@@ -3109,6 +3364,10 @@ def cmd_check(repo, slug, flag=''):
             warnings.append(f'steps {" and ".join(map(str, ks))} are anchored on the same lines ({sf}:{ss}-{se}): each '
                             f'step shows the lines its own title is about (restep N range <file> <start> <end>)')
     check_extras(repo, since, j, fix, P, warnings, fixed)
+    pod = podcast_report(repo, slug, j)       # its podcast, when it has one (`journey.py podcast` for the details)
+    if pod:
+        problems.extend(pod[0])
+        warnings.extend(pod[1])
     for note in SHAPE_NOTES:
         P(note)
     if GIT_ERROR and any('git could not be asked about a rename' in p for p in problems):      # said once, as what it is
@@ -3170,7 +3429,7 @@ if __name__ == '__main__':
             'rmedge': cmd_rmedge, 'setedge': cmd_setedge, 'reset': cmd_reset, 'migrate': cmd_migrate,
             'meta': cmd_meta, 'range': cmd_range, 'restore': cmd_restore, 'mvstep': cmd_mvstep,
             'migrate-anchors': cmd_migrate_anchors, 'link': cmd_link, 'rmlink': cmd_rmlink, 'value': cmd_value,
-            'rmvalue': cmd_rmvalue, 'scene': cmd_scene, 'rmscene': cmd_rmscene}
+            'rmvalue': cmd_rmvalue, 'scene': cmd_scene, 'rmscene': cmd_rmscene, 'podcast': cmd_podcast}
     def usage(cmd, why):
         """A usage error is exit 2 (a failed validation is exit 1), with the command's own usage line."""
         lines = [l.strip() for l in __doc__.split('\n') if l.strip().startswith(f'journey.py {cmd} ')]
