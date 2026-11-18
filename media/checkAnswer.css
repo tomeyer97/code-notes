@@ -1,16 +1,19 @@
 /* The Check view's answer box (media/checkAnswer.js): under the selected question, quiet until used. */
 .answer { margin: 2px 0 6px 26px; }
-.answer .box { box-sizing: border-box; width: 100%; resize: vertical; min-height: 2.6em; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 4px 6px; }
+.answer .box {
+  box-sizing: border-box; width: 100%; resize: vertical; min-height: 2.6em; font: inherit; padding: 4px 6px; border-radius: 2px;
+  color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border);
+}
 .answer .box:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
-.answer .box::placeholder { color: var(--vscode-input-placeholderForeground); }
+.answer .box::placeholder { color: var(--input-placeholder); }
 .answer .grade p, .answer .checking { margin: 4px 0 0; overflow-wrap: anywhere; }
 .answer .checking, .answer .say { color: var(--muted); font-style: italic; }
 .answer .grade.pass .mark { color: var(--ok); }
-.answer .codelink { font: inherit; color: inherit; background: var(--vscode-toolbar-hoverBackground); border: 0; padding: 0 2px; border-radius: 2px; cursor: pointer; text-align: left; }
+.answer .codelink { font: inherit; color: inherit; background: var(--toolbar-hover); border: 0; padding: 0 2px; border-radius: 2px; cursor: pointer; text-align: left; }
 .answer .codelink:hover { text-decoration: underline; }
-.answer .codelink:focus-visible, .answer .next:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
-.answer .next { margin-top: 4px; font: inherit; color: var(--link); background: none; border: 0; padding: 0; cursor: pointer; }
-.answer .next:hover { text-decoration: underline; }
+.answer .codelink:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+/* "Next question ›": a `.link` (common.css). */
+.answer .next { margin-top: 4px; }
 .answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .answer .concern p:first-child { color: var(--warn); }
 .answer .concern .link { display: inline; }
