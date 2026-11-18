@@ -7,7 +7,7 @@ import { checked, lastMessage } from '../sidebar/nodes'
 import { Note } from '../store'
 import { plural } from '../text'
 import { agentPrompt } from './folder'
-import { notesFrom } from './target'
+import { notesFrom } from './which'
 
 /** The toast says what is in the clipboard: the ticked notes, or the waiting ones. */
 export const copyAgentPrompt = async () => {

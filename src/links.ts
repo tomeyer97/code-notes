@@ -2,7 +2,7 @@
 // way back to the step or the question.
 
 import { codeLinks } from './app'
-import { backToQuestion, checkLinkNote } from './notes/reveal'
+import { backToQuestion, checkLinkNote } from './understanding'
 import { docUri } from './notes/location'
 import { cardLine, stepUri } from './tour/card'
 import { card, tour, walk } from './tour/tour'

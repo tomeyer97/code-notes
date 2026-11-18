@@ -8,8 +8,8 @@ import { noteTitle, rangeLabel } from '../text'
 import { anchorAt, docUri, markPlaced, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc, withinLines } from './location'
 import { docLines } from '../wfs'
 import { partialSelection } from './create'
-import { offerUndo, snapshot } from './status'
-import { notesFrom } from './target'
+import { offerUndo, snapshot } from './undo'
+import { notesFrom } from './which'
 
 export let moveItem: vscode.StatusBarItem
 

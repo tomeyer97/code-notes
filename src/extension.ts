@@ -14,17 +14,22 @@ import { initIdentity, me, rememberMe } from './identity'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
 import { codeLinkBack, openCodeLink } from './links'
-import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS, rangeProvider } from './notes/create'
+import { rangeProvider } from './notes/commentRanges'
+import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS } from './notes/create'
 import { findNote } from './notes/find'
 import { rememberFolder } from './notes/folder'
 import { cancelMove, completeMove, createMoveItem, keepHere, moveItem, moveToSelection } from './notes/move'
 import { copyAgentPrompt, copyNotePrompt } from './notes/prompt'
 import { registerPages } from './notes/pages'
-import { openAt, openBroken, openNoteFile, openNoteId, restoreBroken, revealCommand, stepUnread } from './notes/reveal'
+import { openBroken, restoreBroken } from './notes/broken'
+import { openAt, openNoteFile, openNoteId, revealCommand } from './notes/reveal'
+import { replyAndResolve, replyTo } from './notes/reply'
 import { deleteSession, hideSession, resolveSession, showAllSessions, showOnlySession, showSession } from './notes/sessions'
-import { deleteNotes, deleteResolved, markAllRead, markUnread, offerRestore, reopenNotes, replyAndResolve, replyTo, resolve, resolveAll, resolveChecked, undo } from './notes/status'
+import { deleteNotes, deleteResolved, offerRestore, reopenNotes, resolve, resolveAll, resolveChecked } from './notes/status'
+import { undo } from './notes/undo'
+import { markAllRead, markUnread, stepUnread } from './notes/unread'
 import { applySuggestion } from './notes/suggestion'
-import { target } from './notes/target'
+import { pickNotes } from './notes/which'
 import { createStatusItem, refreshAll, statusItem } from './refresh'
 import { markJourneysSeen, migrateSeen } from './seen'
 import { createJourneysView, searchJourneys, showAllHere, sortJourneys } from './sidebar/journeysTree'
@@ -128,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext) {
   cmd('codeNotes.restoreBroken', restoreBroken)
   cmd('codeNotes.markUnread', markUnread)
   cmd('codeNotes.reveal', revealCommand)
-  cmd('codeNotes.resolve', async (arg?: any, many?: any[]) => resolve(await target(arg, many)))
+  cmd('codeNotes.resolve', async (arg?: any, many?: any[]) => resolve(await pickNotes(arg, many)))
   cmd('codeNotes.reopen', reopenNotes)
   cmd('codeNotes.delete', deleteNotes)
   cmd('codeNotes.acceptCode', keepHere)

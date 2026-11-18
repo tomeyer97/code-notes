@@ -1,14 +1,15 @@
 // The understanding check (src/check/) wired to the notes, the tour and the journeys; its commands.
 
 import * as vscode from 'vscode'
-import { byId, cfg, log, mapPanel, now, provide, state, store, understanding } from './app'
-import { askAbout, claudeAllowed } from './ask'
+import { byId, cfg, log, mapPanel, notes, now, provide, state, store, understanding } from './app'
+import { askAbout, claudeAllowed, claudeCli } from './ask'
 import { Understanding } from './check/index'
-import { findCli } from './claude'
 import { me } from './identity'
 import { newId } from './notes/create'
 import { focusReply, reveal } from './notes/reveal'
-import { addReply, resolve } from './notes/status'
+import { unread } from './seen'
+import { addReply } from './notes/reply'
+import { resolve } from './notes/status'
 import { refreshAll } from './refresh'
 import { markRead, setSeen } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
@@ -18,6 +19,33 @@ import { currentTour, openCheckpoint, tourChanged } from './tour/checkTour'
 import { walkJourney } from './tour/open'
 import { card, tour, walk } from './tour/tour'
 import { journeySkill } from './write/writer'
+import { Note } from './store'
+
+/** Back from a check thread's code link: the question, with the keyboard in its answer box (never in the code). */
+export async function backToQuestion(n: Note): Promise<void> {
+  const q = understanding?.qidOf(n)
+  if (q) { await understanding!.open(q); return }
+  await reveal(n, walk.codeColumn())
+  await focusReply(n)
+}
+
+/** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
+export function checkLinkNote(key: string): { n: Note; links: ReturnType<NonNullable<typeof understanding>['linksIn']> } | undefined {
+  const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
+  const n = m ? byId(m[1]) : undefined
+  return n && understanding ? { n, links: understanding.linksIn(n, Number(m![2])) } : undefined
+}
+
+/**
+ * Whether D (next) and A (previous) walk the check's open questions, outside a tour: while it has some, when nothing
+ * is unread or the thread shown is one of its questions. (Else they step through unread replies.)
+ */
+export function checkStepping(): boolean {
+  if (!understanding?.hasOpen()) return false
+  const nothingUnread = !notes().some((n) => unread(n) > 0)
+  const shown = revealed.id ? byId(revealed.id) : undefined
+  return nothingUnread || (!!shown && understanding.isCheck(shown))
+}
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
 export const answerCheck = async (r: vscode.CommentReply) => {
@@ -43,7 +71,7 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     revealed: () => revealed.id,
     focusReply,
     askAbout,
-    cli: () => findCli(cfg().get<string>('claude.path') || undefined),
+    cli: claudeCli,
     allowed: (what) => claudeAllowed(what),
     model: () => cfg().get<string>('understanding.model') || cfg().get<string>('claude.model') || undefined,
     changed: async (n, created) => {

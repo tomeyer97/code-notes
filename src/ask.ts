@@ -9,8 +9,8 @@ import { Ask, findCli, findCliAsync } from './claude'
 import { me } from './identity'
 import { createNote, noteFromNewThread } from './notes/create'
 import { reveal } from './notes/reveal'
-import { addReply } from './notes/status'
-import { notesFrom } from './notes/target'
+import { addReply } from './notes/reply'
+import { isReply, notesFrom } from './notes/which'
 import { refreshAll } from './refresh'
 import { markRead } from './seen'
 import { Note } from './store'
@@ -32,6 +32,15 @@ const askQueue: string[] = []
 const MAX_ASKS = 3
 
 export const claudeMode = () => cfg().get<string>('claude.mode', 'button')
+
+/** The claude CLI (setting codeNotes.claude.path, else PATH), or undefined. */
+export const claudeCli = () => findCli(cfg().get<string>('claude.path') || undefined)
+
+/** Claude answers every new note and reply on its own (mode "always"). */
+export const askAlways = () => claudeMode() === 'always'
+
+/** A question asked on a journey step is a question for Claude: answered unless Claude is off or not installed. */
+export const askOnQuestion = () => claudeMode() !== 'off' && !!claudeCli()
 
 /**
  * Claude runs (answering a note, a step's question, writing a journey) run tools in the repository, the skill's
@@ -170,7 +179,7 @@ async function runAsk(id: string): Promise<void> {
     await runNext()
     return
   }
-  const cli = findCli(cfg().get<string>('claude.path') || undefined)
+  const cli = claudeCli()
   if (!cli) {
     cantRun(id, 'Claude Code (the `claude` CLI) was not found. Install it, or set **Code Notes › Claude: Path**.', 'Ask Claude failed: the claude CLI was not found (setting codeNotes.claude.path, PATH)')
     return
@@ -254,8 +263,8 @@ export function watchClaudeCli(context: vscode.ExtensionContext): void {
 
 /** Ask Claude: from the note box (a new note), a thread's reply box (a follow-up), a row, a link, or the cursor. */
 export const askClaudeCommand = async (arg?: any, many?: any[]) => {
-  if (arg && typeof arg === 'object' && 'thread' in arg && 'text' in arg) {
-    const reply = arg as vscode.CommentReply
+  if (isReply(arg)) {
+    const reply = arg
     const existing = noteOfThread(reply.thread)
     if (!existing) { const n = await noteFromNewThread(reply); if (n) await askClaude(n); return }
     if (understanding?.isCheck(existing)) { await askClaude(existing, reply.text); return }
@@ -263,8 +272,7 @@ export const askClaudeCommand = async (arg?: any, many?: any[]) => {
     await askClaude(existing)
     return
   }
-  const list = typeof arg === 'string' ? [byId(arg)].filter((n): n is Note => !!n) : notesFrom(arg, many)
-  for (const n of list) await askClaude(n)
+  for (const n of notesFrom(arg, many)) await askClaude(n)
 }
 
 export const cancelClaudeCommand = (arg?: any) => {
