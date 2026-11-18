@@ -1,9 +1,9 @@
 import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
-import { ownSelection } from './claudeLinks'
 import { JBeat } from './journeyModel'
-import { findLine, followLine, shiftLine } from './lineFollow'
-import { EditFollower } from './followEdits'
+import { findLine } from './lineFollow'
+import { TrackedLine, TrackedLines } from './followEdits'
+import { showInCodeGroup, stepFileUri } from './journeys/codeGroup'
 import { docLines } from './wfs'
 
 // A step's animation: the beat on screen lights the one line that does what it shows, nothing else
@@ -13,7 +13,9 @@ import { docLines } from './wfs'
 export type BeatShown = 'lit' | 'none' | 'superseded'
 
 export class Beats implements vscode.Disposable {
-  private here: { uri: string; line: number; text: string } | undefined
+  /** The lit line (at most one); it follows edits to its file. */
+  private readonly litLine = new TrackedLines<TrackedLine>(() => this.paint())
+  private get here(): TrackedLine | undefined { return this.litLine.items[0] }
   /**
    * One look per meaning: the step's lines have a thin bar and a faint tint, a clicked code link a fill
    * (codeLinks.ts); the beat's line a box with a thick left edge in the cursor's colour and no fill, so it reads as
@@ -26,23 +28,9 @@ export class Beats implements vscode.Disposable {
   private readonly subs: vscode.Disposable[]
   /** The newest request wins (beats can be stepped through faster than files open). */
   private seq = 0
-  /** The lit line follows edits to its file. */
-  private readonly follow = new EditFollower(
-    (uri) => this.here?.uri === uri,
-    (edits) => { this.here!.line = shiftLine(this.here!.line, edits); this.paint() },
-    (doc, lines) => this.refind(doc, lines),
-  )
 
   constructor(private log: vscode.LogOutputChannel) {
-    this.subs = [this.deco, this.follow, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
-  }
-
-  private refind(doc: vscode.TextDocument, lines: string[]): void {
-    const h = this.here
-    if (!h || doc.uri.toString() !== h.uri) return
-    const at = followLine(lines, h.line, h.text, [])
-    this.here = at < 0 ? undefined : { ...h, line: at }
-    this.paint()
+    this.subs = [this.deco, this.litLine, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
   }
 
   /** The lit line with a few lines around it (1-based numbers), as last found; nothing lit: nothing. */
@@ -53,28 +41,49 @@ export class Beats implements vscode.Disposable {
   get lit(): { uri: string; line: number } | undefined { return this.here && { uri: this.here.uri, line: this.here.line } }
 
   private paint(): void {
+    const h = this.here
     for (const e of vscode.window.visibleTextEditors) {
-      setDecorations(e, this.deco, this.here && e.document.uri.toString() === this.here.uri ? [new vscode.Range(this.here.line, 0, this.here.line, 0)] : [])
+      const on = h && e.document.uri.toString() === h.uri
+      setDecorations(e, this.deco, on ? [new vscode.Range(h.line, 0, h.line, 0)] : [])
     }
   }
 
   /** Nothing lit; a request still opening its file is dropped. */
-  clear(): void { this.seq++; this.follow.cancel(); if (this.here) { this.here = undefined; this.paint() } }
+  clear(): void {
+    this.seq++
+    this.litLine.cancel()
+    if (!this.here) return
+    this.litLine.set([])
+    this.paint()
+  }
 
   /** Lights the beat's line in the code group (the panel keeps the focus); no beat, or no code: nothing is lit. */
   async show(folder: vscode.Uri, beat: JBeat | undefined, renames: Map<string, string>, column: () => vscode.ViewColumn | undefined): Promise<BeatShown> {
     const mine = ++this.seq
     const c = beat?.code
-    const none = (): BeatShown => { this.here = undefined; this.paint(); return 'none' }
+    const none = (): BeatShown => {
+      this.litLine.set([])
+      this.paint()
+      return 'none'
+    }
     if (!c || typeof c.file !== 'string' || !Number.isInteger(c.line)) return none()
-    const uri = vscode.Uri.joinPath(folder, renames.get(c.file) ?? c.file)
+    const uri = stepFileUri(folder, renames, c.file)
     let doc: vscode.TextDocument
-    try { doc = await vscode.workspace.openTextDocument(uri) } catch { this.log.info(`animation: ${c.file} can't be opened`); return mine === this.seq ? none() : 'superseded' }
+    try {
+      doc = await vscode.workspace.openTextDocument(uri)
+    } catch {
+      this.log.info(`animation: ${c.file} can't be opened`)
+      return mine === this.seq ? none() : 'superseded'
+    }
     if (mine !== this.seq) return 'superseded'
     const lines = docLines(doc)
-    const at = findLine(lines, c.line, String(c.text ?? ''))
-    if (at < 0) { this.log.info(`animation: the line at ${c.file}:${c.line} changed; nothing lit`); return none() }
-    this.here = { uri: uri.toString(), line: at, text: String(c.text ?? '') }
+    const text = String(c.text ?? '')
+    const at = findLine(lines, c.line, text)
+    if (at < 0) {
+      this.log.info(`animation: the line at ${c.file}:${c.line} changed; nothing lit`)
+      return none()
+    }
+    this.litLine.set([{ uri: uri.toString(), line: at, text }])
     // The lines around it, for the panel's own small view of the code (no looking left and right).
     const from = Math.max(0, at - 3), to = Math.min(lines.length - 1, at + 3)
     this.around = { file: c.file, line: at + 1, from: from + 1, lines: lines.slice(from, to + 1) }
@@ -92,9 +101,7 @@ export class Beats implements vscode.Disposable {
 
   private async bring(doc: vscode.TextDocument, column: () => vscode.ViewColumn | undefined): Promise<boolean> {
     const mine = this.seq
-    const col = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === doc.uri.toString())?.viewColumn ?? column()
-    ownSelection()
-    const ed = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: true, ...(col ? { viewColumn: col } : {}) })
+    const ed = await showInCodeGroup(doc, column, { keepFocus: true })
     if (mine !== this.seq || !this.here) return false
     const at = this.here.line
     // The caret on the lit line: one lit line, never the current-line band left elsewhere by the step.
