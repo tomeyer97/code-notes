@@ -88,7 +88,7 @@ function cantRun(id: string, error: string, logLine: string): void {
 
 const NO_CLI = 'Claude Code (the `claude` CLI) was not found. Install it, or set **Code Notes › Claude: Path**.'
 
-/** Claude answers note `id`. Each way out says why, and all but "no CLI" move the queue on. */
+/** Claude answers note `id`. Each way out says why, and moves the queue on (with no CLI, each note waiting says so). */
 async function runAsk(id: string): Promise<void> {
   const n = byId(id)
   if (!n) return
@@ -102,6 +102,7 @@ async function runAsk(id: string): Promise<void> {
   const cli = claudeCli()
   if (!cli) {
     cantRun(id, NO_CLI, 'Ask Claude failed: the claude CLI was not found (setting codeNotes.claude.path, PATH)')
+    await runNext()
     return
   }
   const bad = modelProblem(cfg().get<string>('claude.model') || undefined)
