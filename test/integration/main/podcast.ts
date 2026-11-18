@@ -330,4 +330,152 @@ export const podcastTests = [
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor')
     await until('the panel closed: no podcast, no status item', () => !pod().mapVisible && !pod().itemShown && !pod().playing, 5000)
   }),
+
+  // ---------- broken podcast files (src/podcast/validate.ts, load.ts) ----------
+
+  test('podcast: a half-written podcast file mid-play keeps the last good version playing, and says so', async () => {
+    watchConsole()
+    await playPod()
+    const good = fs.readFileSync(podFile(), 'utf8')
+    // An agent or editor caught mid-write: the file cut off.
+    fs.writeFileSync(podFile(), good.slice(0, 120))
+    await until('the panel says the file has errors', () => /last good version/.test(pod().notices.pod ?? ''), 8000)
+    const t0 = pod().t
+    await sleep(1200)
+    assert.ok(pod().playing && pod().t > t0 + 0.6, `still playing: ${t0} → ${pod().t}`)
+    assert.match(pod().item, /\$\(warning\)/, `the status item says it: ${pod().item}`)
+    assert.match(await panelText('.pod-note'), /last good version/)
+    const errs = diagnostics()
+    assert.equal(errs[0]?.severity, vscode.DiagnosticSeverity.Error, 'an error in the Problems view')
+    assert.match(errs[0].message, /not valid JSON: line \d+, column \d+/)
+    // Written in full again: read again, nothing to say.
+    fs.writeFileSync(podFile(), good)
+    await until('the file is good again (the fixture\'s one warning: beat 4 of a step without an animation)', () => pod().notices.pod === "1 part can't be shown" && diagnostics().length === 1, 8000)
+    assert.ok(pod().playing, 'it played on throughout')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('podcast: a podcast file that can\'t be played leaves a trace: a greyed ▶ with the reason, "Podcast unavailable" in the panel', async () => {
+    const good = fs.readFileSync(podFile(), 'utf8')
+    await playPod()
+    // Paused (playing, a broken file keeps the last good version: the test before).
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    fs.writeFileSync(podFile(), good.replace('"version":1', '"version":2'))
+    await until('unavailable: version 2', () => /version 2/.test(pod().broken.pod ?? ''), 8000)
+    await until('the status item went with it', () => !pod().itemShown, 5000)
+    const row = ctx.api.journeyRow('pod')!
+    assert.match(row.contextValue!, /;podcastBroken/, 'the greyed ▶')
+    assert.doesNotMatch(row.contextValue!, /;podcast(;|$)/, 'not the ▶ that plays')
+    assert.match(row.tooltip!, /Podcast unavailable: version 2: this player reads version 1/)
+    await until('the panel: one line, "Podcast unavailable", and Show why', async () => /Podcast unavailable/.test(await panelText('.pod-note')) && !(await panelVisible('.pod-tl')), 5000)
+    // The row's ▶ is there, greyed (disabled): hovered, in the Journeys view.
+    await vscode.commands.executeCommand('codeNotes.journeys.focus')
+    const page = await ui()
+    const rowSel = '.monaco-list-row[aria-label^="Pod,"], .monaco-list-row[aria-label^="Pod "], .monaco-list-row[aria-label="Pod"]'
+    await until('the row in the Journeys view', async () => (await page.locator(rowSel).count()) > 0, 5000)
+    await page.locator(rowSel).first().hover()
+    const play = await until('its greyed ▶', async () => page.locator(rowSel).first().evaluate((r) => {
+      const a = r.querySelector('.actions .codicon-play')?.closest('.action-label')
+      return a ? { disabled: a.classList.contains('disabled') || a.getAttribute('aria-disabled') === 'true', title: a.getAttribute('aria-label') ?? '' } : undefined
+    }), 5000)
+    assert.ok(play.disabled, `the ▶ is disabled: ${JSON.stringify(play)}`)
+    await windowShot('podcast-unavailable', { wait: 300 })
+    const before = pod().why
+    await (await panelFrame()).click('.pod-why')
+    await until('Show why: the Problems view', () => pod().why === before + 1, 5000)
+    assert.equal(diagnostics()[0]?.range.start.character, good.indexOf('"version"'), 'the error on the version')
+    // Play and Space say why, never nothing.
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    assert.ok(!pod().playing)
+    // Invalid JSON, 0 segments: each its own reason.
+    fs.writeFileSync(podFile(), good.slice(0, 50))
+    await until('unavailable: not JSON', () => /not valid JSON/.test(pod().broken.pod ?? ''), 8000)
+    fs.writeFileSync(podFile(), JSON.stringify({ ...JSON.parse(good), segments: [] }))
+    await until('unavailable: segments empty', () => /"segments" is empty/.test(pod().broken.pod ?? ''), 8000)
+    fs.writeFileSync(podFile(), good)
+    await until('playable again: the ▶, the player', async () => pod().journeys.includes('pod') && !pod().broken.pod && await panelVisible('.pod-tl'), 8000)
+    assert.match(ctx.api.journeyRow('pod')!.contextValue!, /;podcast$/)
+  }),
+
+  test('podcast: the audio removed, then put back: the podcast goes and comes back without touching its file', async () => {
+    const mp3 = path.join(journeysDir(), 'pod.mp3')
+    fs.renameSync(mp3, `${mp3}.away`)
+    await until('unavailable: the audio isn\'t there', () => /pod\.mp3 isn't there/.test(pod().broken.pod ?? ''), 8000)
+    assert.equal(diagnostics()[0]?.range.start.character, fs.readFileSync(podFile(), 'utf8').indexOf('"audio"'), 'the error on "audio"')
+    fs.renameSync(`${mp3}.away`, mp3)
+    await until('back: the podcast plays again', () => pod().journeys.includes('pod') && !pod().broken.pod, 8000)
+  }),
+
+  test('podcast: what is wrong with one that plays is said in the player, the row and the Problems view', async () => {
+    const good = fs.readFileSync(podFile(), 'utf8')
+    const p = JSON.parse(good)
+    p.journey.id = 'podlong'
+    p.segments[2].at = { step: 'nope' }
+    p.segments.push({ id: 'late', at: null, text: 'late', start: 300, end: 600 })
+    p.duration = 600
+    fs.writeFileSync(podFile(), JSON.stringify(p, null, 2))
+    // The panel loads the 40 s audio and reports its length: the file says 10 minutes.
+    await until('the player says it in plain words', () => /The audio is 0:40 long but the episode is 10:00/.test(pod().notices.pod ?? ''), 10000)
+    assert.equal(pod().links.pod, 2, 'two parts can\'t be shown (the fixture\'s beat 4 of a step without one, and "nope")')
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+    await until('the note in the panel', async () => /The audio is 0:40 long/.test(await panelText('.pod-note')), 5000)
+    p.segments.pop()
+    p.duration = 40
+    fs.writeFileSync(podFile(), JSON.stringify(p, null, 2))
+    await until('the other journey and the broken link', () => pod().notices.pod === 'Written for “Pod long” · 2 parts can\'t be shown', 8000)
+    assert.match(ctx.api.journeyRow('pod')!.tooltip!, /Podcast: Written for “Pod long” · 2 parts can't be shown/)
+    const ws = diagnostics()
+    assert.ok(ws.every((d) => d.severity === vscode.DiagnosticSeverity.Warning), 'warnings only')
+    const link = ws.find((d) => d.code === 'step')!
+    assert.equal(link.range.start.line, lineOf(podFile(), '"step": "nope"'), 'the squiggle on the segment\'s step')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing, 5000)
+    fs.writeFileSync(podFile(), good)
+    await until('back to the fixture\'s one warning', () => pod().notices.pod === "1 part can't be shown" && diagnostics().length === 1, 8000)
+    const errors = consoleErrors()
+    assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
+  }),
 ]
+
+const podFile = () => path.join(journeysDir(), 'pod.podcast.json')
+const diagnostics = () => vscode.languages.getDiagnostics(vscode.Uri.file(podFile()))
+/** The 0-based line of the first line of `file` with `text`. */
+const lineOf = (file: string, text: string) => fs.readFileSync(file, 'utf8').split('\n').findIndex((l) => l.includes(text))
+async function panelText(sel: string): Promise<string> {
+  const f = await panelFrame()
+  return f.evaluate((s) => { const e = (globalThis as any).document.querySelector(s); return e && !e.hidden ? e.textContent : '' }, sel)
+}
+async function panelVisible(sel: string): Promise<boolean> {
+  const f = await panelFrame()
+  return f.evaluate((s) => { const e = (globalThis as any).document.querySelector(s); return !!e && e.getClientRects().length > 0 }, sel)
+}
+
+/** "pod" in the panel, playing (a new panel needs one click in it first). */
+async function playPod(): Promise<void> {
+  await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+  await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
+  // A new panel may need one click on ▶ (the webview plays only after one); `error` may be a stale NotAllowedError, so
+  // playing on its own is waited for first. One click only: a second would pause it.
+  if (!(await until('playing on its own', () => pod().playing, 3000).catch(() => false))) {
+    const f = await panelFrame()
+    await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
+    await f.click('.pod-b.play')
+  }
+  await until('playing', () => pod().playing && pod().session === 'pod', 10000)
+}
+
+/** The workbench's console errors and uncaught errors from here on (the panel's frames included). */
+let seen: string[] | undefined
+function watchConsole(): void {
+  if (seen) return
+  seen = []
+  void ui().then((page) => {
+    page.on('console', (m) => { if (m.type() === 'error') seen!.push(`${m.location().url}: ${m.text()}`) })
+    page.on('pageerror', (e) => seen!.push(`uncaught: ${e.message}`))
+  })
+}
+/** The errors seen that come from the extension (its panel, its media files). */
+const consoleErrors = () => (seen ?? []).filter((e) => /vscode-webview|code-notes|journey-|podcast/i.test(e))

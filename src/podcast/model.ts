@@ -1,13 +1,25 @@
 // A journey's podcast (docs/podcast-format.md): one audio file whose parts are linked to the journey's steps and
 // animation beats. This reads the file, checks it against the journey, and answers the one question the player asks
 // all the time: at this second of the audio, where should the journey be? No vscode here: unit tests use it as is
-// (test/podcast.test.ts), and the player (player.ts) applies what it says.
+// (test/podcastModel.test.ts), and the player (player.ts) applies what it says. The full check of a file, with every
+// problem and where it is, is validate.ts.
 
 /** Where a segment belongs in the journey, as written: null (the whole journey: the map), or a step by id, with the
  *  1-based position of a beat in that step's `scene.beats`. */
 export type WrittenAt = null | { step: string; beat?: number }
 
-/** A segment as written in the file. */
+/** Something wrong with a podcast file (validate.ts). `error`: it can't be played; `warning`: it plays, but a part of
+ *  it is not what the file says. `path`: where in the file (JSON keys and indexes); `segment`: the segment's id. */
+export interface PodcastProblem {
+  level: 'error' | 'warning'
+  code: string
+  message: string
+  path: (string | number)[]
+  segment?: string
+}
+
+/** A segment as written in the file. Other fields (e.g. `say`, the spoken form a generator used) are allowed and
+ *  ignored. */
 export interface WrittenSegment {
   id?: string
   at?: unknown
@@ -51,8 +63,10 @@ export interface Episode {
   duration: number
   segments: Segment[]
   chapters: Chapter[]
-  /** What could not be followed (an unknown step, a beat the step does not have, …): said in the log. */
+  /** What could not be followed (an unknown step, a beat the step does not have, …): the messages of `problems`. */
   warnings: string[]
+  /** The same, with the segment and where it is in the file. */
+  problems: PodcastProblem[]
 }
 
 /** What the player needs of the journey: its steps' ids and how many beats each one's animation has. */
@@ -73,7 +87,9 @@ export function parsePodcast(raw: string): Podcast | string {
   if (!isObj(d)) return 'not an object'
   if (d.version !== 1) return `version ${JSON.stringify(d.version)} (this player reads version 1)`
   if (typeof d.audio !== 'string' || !d.audio.trim()) return 'no "audio" file'
-  if (!Array.isArray(d.segments) || !d.segments.length) return 'no "segments"'
+  if (d.segments === undefined) return 'no "segments"'
+  if (!Array.isArray(d.segments)) return '"segments" is not a list'
+  if (!d.segments.length) return '"segments" is empty'
   const j = isObj(d.journey) ? d.journey : {}
   return {
     version: 1,
@@ -92,20 +108,20 @@ export function parsePodcast(raw: string): Podcast | string {
  * step without its animation. Segments without a usable start are dropped; a missing end is the next one's start.
  */
 export function resolveEpisode(p: Podcast, journey: JourneyShape): Episode {
-  const warnings: string[] = []
+  const problems: PodcastProblem[] = []
   const byId = new Map(journey.steps.map((s, i) => [s.id, { n: i + 1, beats: s.beats }]))
   const timed = p.segments
     .map((s, i) => ({ s, i, start: num(s.start) }))
     .filter((x) => {
       const ok = x.start !== undefined && x.start >= 0
-      if (!ok) warnings.push(`segment ${x.s.id ?? x.i + 1}: no start time; skipped`)
+      if (!ok) problems.push(segProblem(x.s, x.i, 'start', `${x.s.start === undefined ? 'no start time' : `start ${JSON.stringify(x.s.start)} is not a time in seconds`}; skipped`, ['start']))
       return ok
     })
     .sort((a, b) => a.start! - b.start! || a.i - b.i)
   let prev: View = { step: 0 }
   const segments: Segment[] = timed.map((x, k) => {
     const id = typeof x.s.id === 'string' ? x.s.id : `#${x.i + 1}`
-    const view = viewOf(x.s, id, byId, prev, warnings)
+    const view = viewOf(x.s, x.i, byId, prev, problems)
     prev = view
     const next = timed[k + 1]?.start
     const end = num(x.s.end) ?? next ?? num(p.duration) ?? x.start!
@@ -113,26 +129,38 @@ export function resolveEpisode(p: Podcast, journey: JourneyShape): Episode {
   })
   const last = segments[segments.length - 1]
   const duration = Math.max(num(p.duration) ?? 0, last ? last.end : 0)
-  return { title: p.title, duration, segments, chapters: chaptersOf(segments, duration), warnings }
+  return { title: p.title, duration, segments, chapters: chaptersOf(segments, duration), warnings: problems.map((w) => w.message), problems }
 }
 
-/** One segment's view (see resolveEpisode); `prev`: the view before it. */
-function viewOf(s: WrittenSegment, id: string, byId: Map<string, { n: number; beats: number }>, prev: View, warnings: string[]): View {
+/** The name a segment goes by in messages: its id, else its place in the file (1-based). */
+export const segmentName = (s: WrittenSegment, i: number) => (typeof s.id === 'string' && s.id ? s.id : `#${i + 1}`)
+
+/** A warning about segment `i` (index in the file) at `sub` (keys within it). */
+export function segProblem(s: WrittenSegment, i: number, code: string, what: string, sub: (string | number)[] = []): PodcastProblem {
+  const name = segmentName(s, i)
+  return { level: 'warning', code, message: `segment ${name}: ${what}`, path: ['segments', i, ...sub], segment: name }
+}
+
+/** Codes of the problems that are a link the journey can't show (a part that can't be shown as written). */
+export const LINK_CODES = new Set(['at', 'step', 'beat'])
+
+/** One segment's view (see resolveEpisode); `i`: its index in the file; `prev`: the view before it. */
+function viewOf(s: WrittenSegment, i: number, byId: Map<string, { n: number; beats: number }>, prev: View, problems: PodcastProblem[]): View {
   const at = s.at
   if (at === null) return { step: 0 }
   if (!isObj(at) || typeof at.step !== 'string') {
-    warnings.push(`segment ${id}: "at" is ${at === undefined ? 'missing' : 'not null or { step, beat }'}; it keeps the view before it`)
+    problems.push(segProblem(s, i, 'at', `"at" is ${at === undefined ? 'missing' : 'not null or { step, beat }'}; it keeps the view before it`, at === undefined ? [] : ['at']))
     return prev
   }
   const st = byId.get(at.step)
   if (!st) {
-    warnings.push(`segment ${id}: no step "${at.step}" in the journey; it keeps the view before it`)
+    problems.push(segProblem(s, i, 'step', `no step "${at.step}" in the journey; it keeps the view before it`, ['at', 'step']))
     return prev
   }
   if (at.beat === undefined || s.cue === 'map') return { step: st.n }
   const b = at.beat
   if (typeof b !== 'number' || !Number.isInteger(b) || b < 1 || b > st.beats) {
-    warnings.push(`segment ${id}: step "${at.step}" has no beat ${JSON.stringify(b)} (it has ${st.beats}); the step only`)
+    problems.push(segProblem(s, i, 'beat', `step "${at.step}" has no beat ${JSON.stringify(b)} (it has ${st.beats}); the step only`, ['at', 'beat']))
     return { step: st.n }
   }
   return { step: st.n, beat: b - 1 }

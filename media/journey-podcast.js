@@ -11,14 +11,19 @@
 //
 // In (journey-map.js routes them here):
 //   { type: 'podcast', episode? }  the journey's episode ({ key, src, title, duration, at, play?, rate, chapters,
-//                                  segments }), or none (the bar goes). `at`: where it starts; `play`: it plays once loaded
+//                                  segments, notice? }), or { unavailable: why } (a podcast that can't be played: one
+//                                  line saying so), or none (the bar goes). `at`: where it starts; `play`: it plays once
+//                                  loaded; `notice`: what is wrong with one that plays
 //   { type: 'podcastCmd', action: 'play' | 'pause' | 'toggle' | 'skip' | 'seek' | 'part' | 'rate', by?, to?, dir?, at?,
 //                         note?, resumeAt? }   play `at`: from there; pause `note`: said in the bar; `resumeAt`: where
 //                                              the next ▶ starts (the walk is on a step the podcast skips)
 // Out:
 //   { type: 'podcastTime', of, t, playing, rate, seek? }  where episode `of`'s audio is (seek: moved by a seek, not by
 //                                                         playing); said each time the shown second changes too
-//   { type: 'podcastError', message }  what went wrong (the extension logs it)
+//   { type: 'podcastError', of, message }  what went wrong (the extension logs it; AbortError, a play cut short by a
+//                                          pause, at debug level)
+//   { type: 'podcastMeta', of, duration }  the audio's real length, once loaded (the extension checks the file against it)
+//   { type: 'podcastWhy' }              "Show why": the problems of the podcast file
 ;(function () {
   const { el, svgEl, runKey } = window.common
 
@@ -104,11 +109,18 @@
     const err = el('span', 'pod-err')
     err.hidden = true
     err.setAttribute('role', 'status')
+    // What is wrong with the podcast (or that it can't be played), and the way to the details.
+    const note = el('div', 'pod-note')
+    note.hidden = true
+    const noteText = el('span', 'pod-note-t')
+    const whyB = el('button', 'link pod-why', 'Show why')
+    whyB.onclick = () => post({ type: 'podcastWhy' })
+    note.append(noteText, whyB)
     const row = el('div', 'pod-row')
     const ctl = el('div', 'pod-ctl')
     ctl.append(prevB, backB, playB, fwdB, nextB)
     row.append(ctl, time, err, rateB)
-    root.append(tl, row, cap, audio)
+    root.append(note, tl, row, cap, audio)
     document.body.append(root)
 
     /** The episode shown ({ src, duration, chapters: [{ start, end, step }], segments: [{ start, end, text, step }] }). */
@@ -175,7 +187,7 @@
       scheduleBoundary()
     }
     /** A line for the extension's log. */
-    const say = (message) => post({ type: 'podcastError', message })
+    const say = (message) => post({ type: 'podcastError', message, ...(ep ? { of: ep.key } : {}) })
     /** Says where the audio is again right as the next segment starts (timeupdate comes only every ~250 ms). */
     function scheduleBoundary() {
       clearTimeout(boundaryTimer)
@@ -241,15 +253,15 @@
       movedT = -1
       const p = audio.play()
       if (p && p.catch) p.catch((e) => {
-        // A pause before it started (a quick Space, Space): nothing went wrong.
-        if (e && e.name === 'AbortError') return
+        // A pause before it started (a quick Space, Space): nothing went wrong (the extension logs it at debug level).
+        if (e && e.name === 'AbortError') { say('AbortError'); return }
         // VS Code's webviews play audio only after a click or a key in them (once per panel): ▶ takes the keyboard.
         const gesture = e && e.name === 'NotAllowedError'
         // Not playing: never "playing" with the clock still.
         if (!audio.paused) audio.pause()
         showError(gesture ? 'Press Space to play' : `Can't play: ${e && e.message}`)
         if (gesture) { askFocus = true; playB.focus({ preventScroll: true }) }
-        post({ type: 'podcastError', message: String(e && (e.name || e.message)) })
+        say(String(e && (e.name || e.message)))
         draw()
         report(false)
       })
@@ -444,6 +456,7 @@
     // ---------- the audio ----------
 
     audio.addEventListener('loadedmetadata', () => {
+      if (ep && Number.isFinite(audio.duration)) post({ type: 'podcastMeta', of: ep.key, duration: audio.duration })
       const to = Math.min(startAt, duration())
       startAt = 0
       build()
@@ -505,6 +518,12 @@
       el: root,
       /** The journey's episode (none: the bar goes; the same journey's same audio again keeps playing). */
       set(e) {
+        const unavailable = e && e.unavailable
+        note.hidden = !(e && (e.notice || unavailable))
+        noteText.textContent = unavailable ? 'Podcast unavailable' : (e && e.notice) || ''
+        note.title = unavailable || (e && e.notice) || ''
+        root.classList.toggle('unavail', !!unavailable)
+        if (unavailable) e = undefined
         if (!e) {
           if (ep) {
             report(false)
@@ -518,10 +537,12 @@
             if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = undefined }
           }
           ep = undefined
-          root.hidden = true
-          document.body.classList.remove('has-pod')
-          podH = '0px'
-          document.documentElement.style.setProperty('--podH', '0px')
+          root.hidden = !unavailable
+          document.body.classList.toggle('has-pod', !!unavailable)
+          if (!unavailable) {
+            podH = '0px'
+            document.documentElement.style.setProperty('--podH', '0px')
+          }
           if (opts.onShown) opts.onShown(false)
           return
         }
@@ -562,7 +583,7 @@
         if (Object.hasOwn(actions, m.action)) actions[m.action]()
       },
       /** For tests: the audio's state. */
-      get state() { return { t: audio.currentTime, playing: playing(), paused: audio.paused, ready: audio.readyState, duration: duration(), error: err.hidden ? '' : err.textContent, blob: blobbed } },
+      get state() { return { t: audio.currentTime, playing: playing(), paused: audio.paused, ready: audio.readyState, duration: duration(), error: err.hidden ? '' : err.textContent, note: note.hidden ? '' : noteText.textContent, blob: blobbed } },
       get shown() { return !!ep },
       /** The journey's titles changed (another journey of the same id, a rename): the tip and labels follow. */
       redraw() { if (ep) draw() },

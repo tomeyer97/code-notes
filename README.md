@@ -47,7 +47,8 @@ write one.
 - **Podcasts:** a journey with an audio episode next to it (`<journey>.podcast.json`) has a ▶. The walk follows the
   voice: each step's code opens, the animation moves beat by beat. The timeline is marked by step; click or drag
   anywhere and the walk is exactly where it is at that time. The audio goes on while VS Code is in the background.
-  [docs/podcast-format.md](docs/podcast-format.md) describes the format.
+  [docs/podcast-format.md](docs/podcast-format.md) describes the format and its checks: problems show in the
+  Problems view, and a podcast that can't play keeps a greyed ▶ that says why.
 
 ![What a step's animation can draw](docs/images/objects.png)
 

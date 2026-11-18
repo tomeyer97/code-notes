@@ -19,6 +19,16 @@
   - A beat whose code is in another file opens that file directly; a part on the map closes the walk's code tab.
   - Space and K play and pause anywhere in the panel, also after clicking the animation's ‹ ›. An audio that can't
     play stays paused and says why.
+- **Podcasts: broken files are explained.** One check of the podcast file, with errors (it can't be played) and
+  warnings (a part is not what the file says: a step or beat the journey doesn't have, overlapping or out-of-order
+  times, an end before its start or past the audio, a cut-off audio, written for another journey). Every problem is
+  in the Problems view on the `.podcast.json` and in the output at warning level. A podcast that can't be played
+  keeps a greyed ▶ on its row (the tooltip says why) and a "Podcast unavailable · Show why" line in the panel; one
+  with warnings says them in one short line. A file that breaks while it plays keeps the last good version playing;
+  the status item goes with its podcast; putting the audio file back brings the podcast back. `audio` outside the
+  journeys folder is refused at load. `journey.py podcast` (the code-journey skill) runs the same checks, and
+  `journey.py check` runs them too. Segments may carry other fields, e.g. `say`, the spoken form (ignored).
+  [docs/podcast-format.md](docs/podcast-format.md) ships with the extension.
 - **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
   (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
   its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the

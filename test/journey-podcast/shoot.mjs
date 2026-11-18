@@ -8,7 +8,8 @@
 // Range (as VS Code for the web serves a webview's files): the bar loads it whole (a blob) so seeks get there. Then:
 // Space and K after a beat's ‹ › clicked, a pause "not in the podcast" with ▶ going on after it, a fetch that fails
 // (the plain URL, no Range: a seek reports where the audio really is, never the time asked), an audio that can't
-// play (▶ stays paused, says why). Exits 1 on any failure.
+// play (▶ stays paused, says why); what is wrong with a podcast (a notice line, "Podcast unavailable" with Show why)
+// fits and keeps the audio. Exits 1 on any failure.
 //
 // Usage (after `npm run build`): node test/journey-podcast/shoot.mjs [screenshot-dir]
 // PLAYWRIGHT / CHROME: as test/harness/page.mjs.
@@ -316,6 +317,49 @@ async function run(b, w) {
     await page.click('.pod-b.play')
     await until('playing across 15 s: step 3 (live), beat 0', async () => { const s = await shown(page); return s.step === 3 && s.anim && s.beat === 0 }, 4000)
     await page.click('.pod-b.play')
+  }
+
+  // The audio's length goes to the extension (it checks the file against it).
+  ok(await page.evaluate(() => window.__posted.some((m) => m.type === 'podcastMeta' && m.duration > 30)), 'the audio\'s length reported (podcastMeta)')
+
+  // What is wrong with the podcast (src/podcast/validate.ts): one line over the timeline, the audio kept.
+  {
+    const t0 = (await audioState(page)).t
+    await fx.send({ type: 'podcast', episode: { ...episode, notice: "Written for “Test run” · 2 parts can't be shown" } })
+    const note = await until('the notice line', () => page.evaluate(() => { const n = document.querySelector('.pod-note'); if (!n || n.hidden) return null; const r = n.getBoundingClientRect(); const t = n.querySelector('.pod-note-t'); return { l: r.left, r: r.right, h: r.height, text: t.textContent, cut: t.scrollWidth > t.clientWidth + 1, why: n.querySelector('.pod-why').getBoundingClientRect().right } }))
+    ok(note && /2 parts can't be shown/.test(note.text), `the notice says it: ${note && note.text}`)
+    ok(note && note.l >= 0 && note.r <= w + 0.5 && note.why <= w + 0.5, `the notice and Show why inside the window: ${JSON.stringify(note)}`)
+    ok(note && note.h < 30, `one line: ${note && note.h}px`)
+    ok(Math.abs((await audioState(page)).t - t0) < 0.3, 'the same audio: not reloaded')
+    await layout(page, w)
+    if (OUT) await page.screenshot({ path: path.join(OUT, `podcast-${w}-notice.png`) })
+    await page.click('.pod-why')
+    await until('Show why: asked of the extension', () => page.evaluate(() => window.__posted.some((m) => m.type === 'podcastWhy')))
+  }
+
+  // A podcast that can't be played: the one line alone, nothing that plays.
+  {
+    await fx.send({ type: 'podcast', episode: { unavailable: 'version 2: this player reads version 1' } })
+    const u = await until('Podcast unavailable', () => page.evaluate(() => {
+      const pod = document.querySelector('.pod'), n = document.querySelector('.pod-note')
+      if (pod.hidden || n.hidden || !pod.classList.contains('unavail')) return null
+      const vis = (s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0 }
+      return { text: n.textContent, title: n.title, tl: vis('.pod-tl'), row: vis('.pod-row'), cap: vis('.pod-cap'), h: pod.getBoundingClientRect().height, scrollW: document.documentElement.scrollWidth }
+    }))
+    ok(u && /^Podcast unavailable\s*Show why$/.test(u.text.trim()), `the line: "${u && u.text}"`)
+    ok(u && /version 2/.test(u.title), 'its tooltip says why')
+    ok(u && !u.tl && !u.row && !u.cap, `no timeline, controls or caption: ${JSON.stringify(u)}`)
+    ok(u && u.h < 40 && u.scrollW <= w, `a slim bar, no sideways scroll: ${JSON.stringify(u)}`)
+    ok((await audioState(page)).paused, 'nothing plays')
+    const times = fx.st.times
+    await page.keyboard.press(' ')
+    await sleep(200)
+    ok(fx.st.times === times, 'Space does nothing')
+    if (OUT) await page.screenshot({ path: path.join(OUT, `podcast-${w}-unavailable.png`) })
+    // Playable again: the player back, no line.
+    await fx.send({ type: 'podcast', episode })
+    await until('the player back', () => page.evaluate(() => document.querySelector('.pod-tl').getClientRects().length > 0 && document.querySelector('.pod-note').hidden))
+    await until('the audio loaded again', async () => (await audioState(page)).ready >= 1)
   }
 
   await layout(page, w)

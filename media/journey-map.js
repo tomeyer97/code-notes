@@ -35,6 +35,7 @@
 //   { type: 'question', id }  { type: 'checkpoint', id }  { type: 'openFile' }  { type: 'restore' }  { type: 'authors' }
 //   { type: 'beat', n, i, user? } (the animation's beat on step n; i = -1: the scene is gone; user: the reader moved it)
 //   { type: 'podcastTime', t, playing, rate, seek? }  { type: 'podcastError', message } (journey-podcast.js)
+//   { type: 'podcastMeta', duration }  { type: 'podcastWhy' } (journey-podcast.js)
 //   These are src/journeys/mapPanel.ts MapMessage (the extension's list, with `close` and `pick`, which it handles but
 //   nothing here posts, and its own `closed`): a name added here goes there too.
 ;(function () {

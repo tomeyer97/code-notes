@@ -9,6 +9,7 @@ import { Note } from './store'
 import { applySuggestion } from './notes/suggestion'
 import { unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
+import { journeyItem } from './sidebar/journeyRows'
 import { listModel } from './sidebar/listModel'
 import { cached, Node, order, sessionOf } from './sidebar/nodes'
 import { groupMode, matchesFilter } from './sidebar/notesFilter'
@@ -151,6 +152,12 @@ export function testApi() {
     mapSend: (m: unknown) => mapPanel.send(m),
     /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
     podcast: () => podcasts.snapshot(),
+    /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */
+    journeyRow: (id: string) => {
+      const lj = journeys.all().find((x) => x.j.id === id)
+      const it = lj && journeyItem(lj)
+      return it && { contextValue: it.contextValue, tooltip: typeof it.tooltip === 'string' ? it.tooltip : it.tooltip?.value }
+    },
     resetTutorial,
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {
