@@ -1,0 +1,822 @@
+[
+ {
+  "name": "a good file: no problems, unknown fields (say) accepted",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "audioDuration": 100.3,
+  "expect": [],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9,\n      \"say\": \"spoken intro\",\n      \"extra\": 1\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19,\n      \"say\": \"spoken a1\",\n      \"extra\": 1\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29,\n      \"say\": \"spoken b\",\n      \"extra\": 1\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39,\n      \"say\": \"spoken c2\",\n      \"extra\": 1\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100,\n      \"say\": \"spoken outro\",\n      \"extra\": 1\n    }\n  ],\n  \"producer\": \"tts\"\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "invalid JSON",
+  "raw": "{\"version\": 1, \"audio\": \"j.mp3\", \"segments\": [",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:json"
+  ],
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "an empty file",
+  "raw": "",
+  "expect": [
+   "error:json"
+  ],
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "not an object",
+  "raw": "[1, 2]",
+  "expect": [
+   "error:object"
+  ],
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "version 2",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:version"
+  ],
+  "raw": "{\n  \"version\": 2,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "no version",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:version"
+  ],
+  "raw": "{\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "no audio field",
+  "expect": [
+   "error:audio"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio outside the journeys folder",
+  "expect": [
+   "error:audio-outside"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"../x.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio by absolute path",
+  "expect": [
+   "error:audio-outside"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"/tmp/x.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio as a URL",
+  "expect": [
+   "error:audio-outside"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"https://example.com/x.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio in a subfolder is fine",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"audio/../audio/j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio file missing",
+  "audio": {
+   "exists": false
+  },
+  "expect": [
+   "error:audio-missing"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio file empty",
+  "audio": {
+   "exists": true,
+   "size": 0
+  },
+  "expect": [
+   "error:audio-empty"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "segments missing",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:segments"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "segments empty",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:segments"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": []\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "segments not a list",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:segments"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": {\n    \"s1\": {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    }\n  }\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "no segment has a start",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "error:segments",
+   "warning:start@x"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"x\",\n      \"at\": null\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "a segment that is not an object is skipped",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:segment"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    },\n    \"oops\"\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "broken links: a beat out of range, an unknown step, a bad at",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:beat@a9",
+   "warning:step@x",
+   "warning:at@bad"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a9\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 9\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a9\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"x\",\n      \"at\": {\n        \"step\": \"nope\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"x\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"bad\",\n      \"at\": \"step c\",\n      \"speaker\": \"host\",\n      \"text\": \"bad\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"none\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"none\",\n      \"start\": 40,\n      \"end\": 50\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "a missing at",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:at@noat"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"noat\",\n      \"start\": 10,\n      \"end\": 20\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "overlap, out of order, end before start",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:overlap@s2",
+   "warning:order@s3",
+   "warning:end-before-start@s3"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 0,\n      \"end\": 10\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"a\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s2\",\n      \"start\": 8,\n      \"end\": 20\n    },\n    {\n      \"id\": \"s4\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s4\",\n      \"start\": 40,\n      \"end\": 50\n    },\n    {\n      \"id\": \"s3\",\n      \"at\": {\n        \"step\": \"c\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s3\",\n      \"start\": 30,\n      \"end\": 25\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "end past the declared duration",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:past-duration@s2"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 0,\n      \"end\": 10\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"a\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s2\",\n      \"start\": 10,\n      \"end\": 150\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "a start that is not a number is skipped",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:start@s2"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 0,\n      \"end\": 10\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"a\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s2\",\n      \"start\": \"10\",\n      \"end\": 20\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "an end that is not a number",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:end@s2"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 0,\n      \"end\": 10\n    },\n    {\n      \"id\": \"s2\",\n      \"at\": {\n        \"step\": \"a\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s2\",\n      \"start\": 10,\n      \"end\": \"x\"\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "a duplicate id and an unknown cue",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:id@s1",
+   "warning:cue@s1"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"s1\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 0,\n      \"end\": 10\n    },\n    {\n      \"id\": \"s1\",\n      \"at\": {\n        \"step\": \"a\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"s1\",\n      \"start\": 10,\n      \"end\": 20,\n      \"cue\": \"zoom\"\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "duration is not a number",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:duration"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": \"12:47\",\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "written for another journey",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "expect": [
+   "warning:journey"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"other\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "declared duration differs from the audio",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "audioDuration": 90,
+  "expect": [
+   "warning:duration",
+   "warning:past-audio@outro"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "cut-off audio: one plain warning",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "audioDuration": 13,
+  "expect": [
+   "warning:audio-short"
+  ],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ },
+ {
+  "name": "audio a little longer than the duration is fine",
+  "audio": {
+   "exists": true,
+   "size": 1000
+  },
+  "audioDuration": 100.8,
+  "expect": [],
+  "raw": "{\n  \"version\": 1,\n  \"title\": \"T\",\n  \"journey\": {\n    \"id\": \"j\"\n  },\n  \"audio\": \"j.mp3\",\n  \"duration\": 100,\n  \"segments\": [\n    {\n      \"id\": \"intro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"intro\",\n      \"start\": 0,\n      \"end\": 9\n    },\n    {\n      \"id\": \"a1\",\n      \"at\": {\n        \"step\": \"a\",\n        \"beat\": 1\n      },\n      \"speaker\": \"host\",\n      \"text\": \"a1\",\n      \"start\": 10,\n      \"end\": 19\n    },\n    {\n      \"id\": \"b\",\n      \"at\": {\n        \"step\": \"b\"\n      },\n      \"speaker\": \"host\",\n      \"text\": \"b\",\n      \"start\": 20,\n      \"end\": 29\n    },\n    {\n      \"id\": \"c2\",\n      \"at\": {\n        \"step\": \"c\",\n        \"beat\": 2\n      },\n      \"speaker\": \"host\",\n      \"text\": \"c2\",\n      \"start\": 30,\n      \"end\": 39\n    },\n    {\n      \"id\": \"outro\",\n      \"at\": null,\n      \"speaker\": \"host\",\n      \"text\": \"outro\",\n      \"start\": 40,\n      \"end\": 100\n    }\n  ]\n}",
+  "journey": {
+   "id": "j",
+   "steps": [
+    {
+     "id": "a",
+     "beats": 3
+    },
+    {
+     "id": "b",
+     "beats": 0
+    },
+    {
+     "id": "c",
+     "beats": 2
+    }
+   ]
+  }
+ }
+]

@@ -1,0 +1,71 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import * as fs from 'fs'
+import * as path from 'path'
+import { audioPathProblem, brokenLinks, lineCol, locate, playNotice, validatePodcast } from '../src/podcast/validate'
+
+// The podcast file's full check (src/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json are run here
+// and through the code-journey skill's `journey.py podcast` (test/cli/podcast.test.mjs): the same rules in both.
+
+interface Case { name: string; raw: string; journey: { id: string; steps: { id: string; beats: number }[] }; audio?: { exists: boolean; size?: number }; audioDuration?: number; expect: string[] }
+const cases: Case[] = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/podcast/cases.json'), 'utf8'))
+const codes = (c: Case) => validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems.map((p) => `${p.level}:${p.code}${p.segment ? `@${p.segment}` : ''}`)
+
+for (const c of cases) {
+  test(`podcast check: ${c.name}`, () => {
+    assert.deepEqual([...codes(c)].sort(), [...c.expect].sort())
+    const v = validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration })
+    assert.equal(v.playable, !c.expect.some((e) => e.startsWith('error:')), 'playable = no error')
+    assert.equal(!!v.episode, v.playable)
+  })
+}
+
+test('podcast check: errors come first, the messages say what is wrong in plain words', () => {
+  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems }
+  assert.match(get('version 2')[0].message, /version 2: this player reads version 1/)
+  assert.match(get('segments empty')[0].message, /"segments" is empty/)
+  assert.match(get('segments missing')[0].message, /no "segments"/)
+  assert.match(get('segments not a list')[0].message, /"segments" is not a list \(it is an object\)/)
+  assert.equal(get('audio outside the journeys folder')[0].message, 'audio must be in the journeys folder (got ../x.mp3)')
+  assert.match(get('audio file missing')[0].message, /the audio file j\.mp3 isn't there/)
+  assert.equal(get('cut-off audio: one plain warning')[0].message, 'The audio is 0:13 long but the episode is 1:40: the file looks cut off (3 parts start after its end)')
+  const timing = get('overlap, out of order, end before start').map((p) => p.message)
+  assert.ok(timing.includes('segment s2: starts at 0:08, before segment s1 ends (0:10): the later one wins from its start'), timing.join('\n'))
+  assert.ok(timing.includes('segment s3: ends at 0:25, before it starts (0:30)'), timing.join('\n'))
+  assert.ok(timing.includes('segment s3: starts at 0:30, before segment s4 above it (0:40): segments play in time order, not in file order'), timing.join('\n'))
+  assert.match(get('written for another journey')[0].message, /written for journey "other", but it is next to "j"/)
+  assert.match(get('end past the declared duration')[0].message, /segment s2: ends at 2:30, after the episode's "duration" \(1:40\)/)
+})
+
+test('podcast check: audio paths', () => {
+  for (const ok of ['a.mp3', './a.mp3', 'sub/a.mp3', 'sub/../a.mp3']) assert.equal(audioPathProblem(ok), undefined, ok)
+  for (const bad of ['../a.mp3', 'sub/../../a.mp3', '/abs/a.mp3', 'C:\\a.mp3', '..\\a.mp3', 'file:///a.mp3', 'http://x/a.mp3']) assert.ok(audioPathProblem(bad), bad)
+})
+
+test('podcast check: each problem is located in the text (the field, else the segment)', () => {
+  const raw = '{\n  "version": 1,\n  "audio": "a.mp3",\n  "segments": [\n    { "id": "s1", "at": null, "start": 0, "end": 5 },\n    { "id": "s2", "at": { "step": "zz" }, "start": 5, "end": 9 }\n  ]\n}'
+  const v = validatePodcast(raw, { journey: { id: 'j', steps: [{ id: 'a', beats: 0 }] } })
+  const p = v.problems.find((x) => x.code === 'step')!
+  assert.deepEqual(p.path, ['segments', 1, 'at', 'step'])
+  const span = locate(raw, p.path)
+  assert.equal(raw.slice(span.start, span.end), '"step": "zz"')
+  assert.deepEqual(lineCol(raw, span.start), { line: 5, col: 26 })
+  // A path partly there: the deepest part that is.
+  assert.equal(raw.slice(locate(raw, ['segments', 0, 'cue']).start, locate(raw, ['segments', 0, 'cue']).end), '{ "id": "s1", "at": null, "start": 0, "end": 5 }')
+  // Invalid JSON: where the parser stopped.
+  const broken = '{\n  "version": 1,\n  "audio": \n}'
+  const at = locate(broken, [])
+  assert.ok(at.start > 10, `the error's place: ${at.start}`)
+})
+
+test('podcast check: what the player says, in one short line', () => {
+  const v = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration }).problems }
+  const links = v('broken links: a beat out of range, an unknown step, a bad at')
+  assert.equal(brokenLinks(links), 3)
+  assert.equal(playNotice(links), "3 parts can't be shown")
+  assert.equal(playNotice(v('written for another journey'), 'Test run'), 'Written for “Test run”')
+  assert.equal(playNotice(v('written for another journey')), 'Written for “other”')
+  assert.equal(playNotice(v('cut-off audio: one plain warning')), 'The audio is 0:13 long but the episode is 1:40: the file looks cut off')
+  assert.equal(playNotice(v('a duplicate id and an unknown cue')), '2 problems in the podcast file')
+  assert.equal(playNotice([]), undefined)
+})
