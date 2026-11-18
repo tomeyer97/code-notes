@@ -60,9 +60,8 @@ export class BackgroundQuestions implements vscode.Disposable {
     await ctl.refresh()
     const st = ctl.st
     if (!st || st.branch !== branch || st.state.phase !== 'none') return
-    // A default branch: main, master, or the branch it is compared with.
-    const base = (st.baseRef ?? '').replace(/^origin\//, '')
-    if ([...ctl.cli.DEFAULT_BRANCHES, base].includes(branch)) return
+    // A default branch (the CLI's isDefaultBranch: origin's HEAD, else main or master; or the branch compared with).
+    if (st.onBase) return
     await ctl.host.memento.update(BG_KEY, [...done.slice(-BG_COMMITS_KEPT), commit])
     await ctl.writer.write(false, { background: true })
   }

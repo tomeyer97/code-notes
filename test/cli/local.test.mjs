@@ -234,6 +234,21 @@ test('the default branch: one line, no check here', () => {
   assert.deepEqual(U.stateWords(st.state, st), { tone: 'ok', bar: '', title: 'main: no check here', line: '', rule: '' })
 })
 
+test('the default branch is one rule: origin/HEAD when known, else main/master, plus the branch compared with', () => {
+  const d = repo()
+  const onBase = (branch, base) => { gitIn(d, 'checkout', '-q', branch); return !!U.localStatus(d, base ? { base } : {}).onBase }
+  // No origin/HEAD: main or master.
+  assert.ok(onBase('main') && !onBase('feat/x'))
+  // origin/HEAD is develop: develop is the default branch, main is not (unless it is the branch compared with).
+  gitIn(d, 'branch', 'develop', 'main')
+  gitIn(d, 'update-ref', 'refs/remotes/origin/develop', 'main')
+  gitIn(d, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop')
+  assert.ok(onBase('develop') && !onBase('main') && !onBase('feat/x'))
+  assert.ok(onBase('main', 'main') && onBase('main', 'origin/main'))
+  assert.equal(U.isDefaultBranch(d, 'trunk', 'origin/trunk'), true)
+  assert.equal(U.isDefaultBranch(d, 'master'), false)
+})
+
 test('a check file with merge-conflict markers: said so, where, and both answers kept when both sides read', async () => {
   const d = repo()
   const f = writeQuestions(d)

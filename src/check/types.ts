@@ -129,6 +129,8 @@ export interface Status {
   base?: string
   baseRef?: string
   head?: string
+  /** On a default branch (the CLI's isDefaultBranch): no check there, no questions in the background. */
+  onBase?: boolean
   changed: number
   exists: boolean
   errors?: string[]
