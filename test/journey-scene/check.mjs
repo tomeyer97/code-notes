@@ -8,11 +8,14 @@
 // install's playwright/index.mjs; CHROME, when set, is the Chromium or Chrome binary to launch (else Playwright's own).
 // The panel's harness (test/journey-map/harness.html) loads out/vendor/elk.bundled.js: run `npm run vendor` first.
 // Try it on the bundled sample: node test/journey-scene/check.mjs test/journey-scene/sample.json /tmp/shots
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright')
 import fs from 'node:fs'
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), OUT = process.argv[3]
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { launchChromium, openHarness } from '../harness/page.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const OUT = process.argv[3]
+const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
 if (!process.argv[2]) { console.error('usage: node check.mjs <journey.json> [<dir for screenshots>]'); process.exit(2) }
 const MIN_PX = 11, SCENE_MIN = 400
 /** How long a beat may take to come to rest (its packets, moves and fades run well under a second). */
@@ -20,8 +23,93 @@ const STILL_TIMEOUT_MS = 10000
 let bad = 0
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
 const journey = { ...r, steps: r.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] }
+/** The rest of a "journey" or "tour" message (the walk's state), `x` over the defaults. */
 const tour = (x = {}) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list: [], moved: {}, ...x })
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+const b = await launchChromium()
+/**
+ * What is wrong with the scene shown now (run in the page): text overflowing its box, anything sticking out of its
+ * actor box or cut by the app window's edge, visible text under MIN_PX on screen, the scene column under SCENE_MIN
+ * (wide layout), the keyboard focus outside the scene. Also the smallest text seen ({ px, text, cls }).
+ */
+function sceneProblems({ MIN_PX, SCENE_MIN }) {
+  const TEXT = '.scn-check, .scn-row, .tm-line, .scn-inner-label, .fl-line, .ch-msg.on, .ap-msg.on, .ap-box, .ap-row.on span, .ap-banner.on, .qu-note, .br-addr, .ga-note, .ap-dialog *, .ap-top *, .ap-title, .ap-title > b, .ap-ctitle, .scn-pod, .scn-label, .scn-fn, .ap-ev, .ap-ev span, .ap-card, .ap-signin, .ap-stitle, .ap-notice, .ap-tr, .ap-picnote, .br-name, .br-btn, .br-top > b, .br-cart, .br-url'
+  const IN_ACTOR = '.scn-check, .scn-row, .tm-line, .scn-inner, .scn-pod, .scn-label, .scn-fn, .ap-card, .ap-ev, .ap-dialog, .ap-signwrap, .ap-tabs, .br-card, .br-cartw'
+
+  /** Text wider than its box. */
+  function overflowingText() {
+    const out = []
+    for (const e of document.querySelectorAll(TEXT)) if (e.scrollWidth > e.clientWidth + 1) out.push(e.className + ':' + e.textContent.slice(0, 40))
+    return out
+  }
+
+  /** Nothing sticks out of its actor box. */
+  function outsideActorBoxes() {
+    const out = []
+    for (const a of document.querySelectorAll('.scn-actor')) {
+      const A = a.getBoundingClientRect()
+      for (const c of a.querySelectorAll(IN_ACTOR)) {
+        const C = c.getBoundingClientRect()
+        if (C.width && (C.right > A.right + 1 || C.bottom > A.bottom + 1)) out.push('outside box: ' + c.textContent.slice(0, 40))
+      }
+    }
+    return out
+  }
+
+  /** Nothing on the app window's shown screen is cut off by its edge. */
+  function cutByAppWindow() {
+    const out = []
+    for (const w of document.querySelectorAll('.ap-win.on')) {
+      const W = w.getBoundingClientRect()
+      for (const c of w.querySelectorAll('*')) {
+        const C = c.getBoundingClientRect()
+        const shown = C.width && C.height && getComputedStyle(c).display !== 'none' && !c.closest('.scn-cursor')
+        if (shown && (C.right > W.right + 1 || C.bottom > W.bottom + 1)) out.push('cut by the app window: ' + c.className + ' ' + c.textContent.slice(0, 40))
+      }
+    }
+    return out
+  }
+
+  /** Every visible text in the scene is at least MIN_PX on screen (font-size × the world's scale); the scene column is at least SCENE_MIN wide. */
+  function textSizes() {
+    const out = []
+    let min = { px: Infinity }
+    const view = document.querySelector('.scn-view'), world = document.querySelector('.scn-world')
+    if (!view || !world) return { out, min }
+    const V = view.getBoundingClientRect()
+    const scale = world.getBoundingClientRect().width / world.offsetWidth
+    const shown = (e) => {
+      for (let x = e; x && x !== document.body; x = x.parentElement) {
+        const s = getComputedStyle(x)
+        if (s.display === 'none' || s.visibility === 'hidden' || Number(s.opacity) < 0.05) return false
+      }
+      return true
+    }
+    for (const e of document.querySelectorAll('.scn *')) {
+      if (![...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) continue
+      const R = e.getBoundingClientRect()
+      if (!R.width || !R.height || !shown(e)) continue
+      const inWorld = world.contains(e)
+      if (inWorld && (R.right < V.left || R.left > V.right || R.bottom < V.top || R.top > V.bottom)) continue
+      const px = parseFloat(getComputedStyle(e).fontSize) * (inWorld ? scale : 1)
+      if (px < min.px) min = { px, text: e.textContent.trim().slice(0, 30), cls: String(e.className) }
+      if (px < MIN_PX - 0.05) out.push(`text ${px.toFixed(1)} px < ${MIN_PX}: ${e.className} "${e.textContent.trim().slice(0, 30)}"`)
+    }
+    const col = document.querySelector('.scnwrap')
+    if (document.querySelector('.body.wide') && col && col.offsetWidth < SCENE_MIN) out.push(`scene column ${col.offsetWidth} px < ${SCENE_MIN}`)
+    return { out, min }
+  }
+
+  /** The keys work: the focus is in the scene. */
+  function focusInScene() {
+    const scn = document.querySelector('.scn')
+    if (scn && !scn.contains(document.activeElement)) return ['focus outside the scene: ' + (document.activeElement && document.activeElement.className)]
+    return []
+  }
+
+  const sizes = textSizes()
+  return { out: [...overflowingText(), ...outsideActorBoxes(), ...cutByAppWindow(), ...sizes.out, ...focusInScene()], min: sizes.min }
+}
+
 let smallest = { px: Infinity }
 let page
 /**
@@ -35,12 +123,8 @@ async function still(i, beats) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, { timeout: STILL_TIMEOUT_MS })
 }
 for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
-  page = await (await b.newContext({ viewport: { width: w, height: 900 } })).newPage()
-  const errors = []
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.text()) })
-  page.on('pageerror', (e) => errors.push('pageerror ' + e.message))
-  await page.goto(`file://${ROOT}/test/journey-map/harness.html?theme=${theme}`)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  let errors
+  ;({ page, errors } = await openHarness(b, HARNESS, { width: w, height: 900, theme, warnings: true, ready: true }))
   const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
   const animated = journey.steps.filter((x) => x.scene).map((x) => x.n)
   if (!animated.length) { console.error('no step has a scene'); process.exit(2) }
@@ -54,38 +138,7 @@ for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
     const beats = journey.steps[n - 1].scene.beats.length
     for (let i = 1; i <= beats; i++) {
       await still(i, beats)
-      const res = await page.evaluate(({ MIN_PX, SCENE_MIN }) => {
-        const out = []
-        for (const e of document.querySelectorAll('.scn-check, .scn-row, .tm-line, .scn-inner-label, .fl-line, .ch-msg.on, .ap-msg.on, .ap-box, .ap-row.on span, .ap-banner.on, .qu-note, .br-addr, .ga-note, .ap-dialog *, .ap-top *, .ap-title, .ap-title > b, .ap-ctitle, .scn-pod, .scn-label, .scn-fn, .ap-ev, .ap-ev span, .ap-card, .ap-signin, .ap-stitle, .ap-notice, .ap-tr, .ap-picnote, .br-name, .br-btn, .br-top > b, .br-cart, .br-url')) if (e.scrollWidth > e.clientWidth + 1) out.push(e.className + ':' + e.textContent.slice(0, 40))
-        // nothing sticks out of its actor box
-        for (const a of document.querySelectorAll('.scn-actor')) { const A = a.getBoundingClientRect(); for (const c of a.querySelectorAll('.scn-check, .scn-row, .tm-line, .scn-inner, .scn-pod, .scn-label, .scn-fn, .ap-card, .ap-ev, .ap-dialog, .ap-signwrap, .ap-tabs, .br-card, .br-cartw')) { const C = c.getBoundingClientRect(); if (C.width && (C.right > A.right + 1 || C.bottom > A.bottom + 1)) out.push('outside box: ' + c.textContent.slice(0, 40)) } }
-        // nothing on the app window's shown screen is cut off by its edge
-        for (const w of document.querySelectorAll('.ap-win.on')) { const W = w.getBoundingClientRect(); for (const c of w.querySelectorAll('*')) { const C = c.getBoundingClientRect(); if (C.width && C.height && getComputedStyle(c).display !== 'none' && !c.closest('.scn-cursor') && (C.right > W.right + 1 || C.bottom > W.bottom + 1)) out.push('cut by the app window: ' + c.className + ' ' + c.textContent.slice(0, 40)) } }
-        // every visible text in the scene is at least MIN_PX on screen: font-size × the world's scale
-        const view = document.querySelector('.scn-view'), world = document.querySelector('.scn-world')
-        let min = { px: Infinity }
-        if (view && world) {
-          const V = view.getBoundingClientRect()
-          const scale = world.getBoundingClientRect().width / world.offsetWidth
-          const shown = (e) => { for (let x = e; x && x !== document.body; x = x.parentElement) { const s = getComputedStyle(x); if (s.display === 'none' || s.visibility === 'hidden' || Number(s.opacity) < 0.05) return false } return true }
-          for (const e of document.querySelectorAll('.scn *')) {
-            if (![...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) continue
-            const R = e.getBoundingClientRect()
-            if (!R.width || !R.height || !shown(e)) continue
-            const inWorld = world.contains(e)
-            if (inWorld && (R.right < V.left || R.left > V.right || R.bottom < V.top || R.top > V.bottom)) continue
-            const px = parseFloat(getComputedStyle(e).fontSize) * (inWorld ? scale : 1)
-            if (px < min.px) min = { px, text: e.textContent.trim().slice(0, 30), cls: String(e.className) }
-            if (px < MIN_PX - 0.05) out.push(`text ${px.toFixed(1)} px < ${MIN_PX}: ${e.className} "${e.textContent.trim().slice(0, 30)}"`)
-          }
-          const col = document.querySelector('.scnwrap')
-          if (document.querySelector('.body.wide') && col && col.offsetWidth < SCENE_MIN) out.push(`scene column ${col.offsetWidth} px < ${SCENE_MIN}`)
-        }
-        // the keys work: the focus is in the scene
-        const scn = document.querySelector('.scn')
-        if (scn && !scn.contains(document.activeElement)) out.push('focus outside the scene: ' + (document.activeElement && document.activeElement.className))
-        return { out, min }
-      }, { MIN_PX, SCENE_MIN })
+      const res = await page.evaluate(sceneProblems, { MIN_PX, SCENE_MIN })
       const over = res.out
       if (res.min.px < smallest.px) smallest = { ...res.min, at: `${w} px, step ${n} beat ${i}` }
       if (i === beats) {

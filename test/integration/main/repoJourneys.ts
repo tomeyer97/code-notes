@@ -4,29 +4,13 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
-import { compactOf } from '../../../src/compact'
 import { test, untilEqual } from '../helpers'
-import { journey, step, writeJourney } from '../fixtures'
+import { writeJourney } from '../fixtures'
 import { ctx, journeyById, journeysDir, journeysTree, snap, until, wsPath } from './context'
+import { repoJourneysDir, savingJourney, savingTs } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** src/saving.ts: saveNote on lines 3-8, loadNote on 10-13. */
-const savingTs = ['import { write } from "./disk"', '', 'export function saveNote(n: Note) {', '  const raw = serialize(n)', '  write(n.path, raw)', '  log(n.id)', '  return raw', '}', '',
-  'export function loadNote(p: string) {', '  const raw = read(p)', '  return parse(raw)', '}', '']
 const writeSavingTs = (lines: string[]) => fs.writeFileSync(wsPath('src', 'saving.ts'), lines.join('\n'))
-
-/** <ws>/journeys */
-export const repoJourneysDir = () => wsPath('journeys')
-
-/** "Saving a note": two steps with compact anchors, the first one's box anchored too. */
-export const savingJourney = journey('saving', [
-  step('src/saving.ts', 3, 8, { id: 'save', title: 'saveNote serializes and writes', node: 'save', anchor: compactOf(savingTs, 2, 7) }),
-  step('src/saving.ts', 10, 13, { id: 'load', title: 'loadNote parses', node: 'load', lead: 'There.', anchor: compactOf(savingTs, 9, 12) }),
-], {
-  question: 'How is a note saved to disk?', title: 'Saving a note', summary: 'A note is serialized and written.',
-  nodes: [{ id: 'app', kind: 'system', label: 'App', summary: '' }, { id: 'save', kind: 'function', label: 'saveNote', parent: 'app', summary: '', at: { file: 'src/saving.ts', start: 3, end: 8, anchor: compactOf(savingTs, 2, 7) } },
-    { id: 'load', kind: 'function', label: 'loadNote', parent: 'app', summary: '' }],
-})
 
 const saving = () => journeyById('saving')
 /** Re-reads the journeys, as a window reload would. */

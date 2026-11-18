@@ -5,15 +5,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import { fakeCalls, flag, readJson, test } from '../helpers'
+import { writeSkillStandIn } from '../fixtures'
 import { ctx, snap, until, wsPath } from './context'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const writeJourneyTests = [
   test('"Ask the agent to write a journey": claude with the code-journey skill writes it, its map opens', async () => {
     // The repository's own copy of the skill is used (a teammate has none in their home folder).
-    const repoSkill = wsPath('.claude', 'skills', 'code-journey')
-    fs.mkdirSync(path.join(repoSkill, 'scripts'), { recursive: true })
-    fs.writeFileSync(path.join(repoSkill, 'scripts', 'journey.py'), '# stand-in\n')
+    const repoSkill = writeSkillStandIn(ctx.ws)
     const callsBefore = fakeCalls().length
     const writing = ctx.api.writeJourney('How is a note saved?')
     // Written into a staging folder; not listed (nor "new") until it is checked and moved; one "Writing:" row meanwhile.

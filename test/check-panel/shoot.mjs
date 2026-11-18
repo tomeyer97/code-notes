@@ -1,145 +1,156 @@
-// The Check view (the understanding check's list in the sidebar) in Chromium (Playwright) at three widths, dark and light: nothing wider than the
-// panel, no console errors, rows, ↓ and the button work. Screenshots go to the folder given (optional).
+// The Check view (the understanding check's list in the sidebar) in Chromium (Playwright) at three widths, dark and
+// light, for every state in views.mjs: nothing wider than the panel, no console errors, rows, ↓, the answer box, the
+// links and the button work. Screenshots go to the folder given (optional).
 // Usage: node test/check-panel/shoot.mjs [screenshot-dir]   (PLAYWRIGHT=<path to playwright's index.mjs> if needed)
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { launchChromium, openHarness } from '../harness/page.mjs'
+import { views } from './views.mjs'
 
-const pw = await import(process.env.PLAYWRIGHT ? pathToFileURL(path.resolve(process.env.PLAYWRIGHT)).href : 'playwright')
-const chromium = pw.chromium ?? pw.default.chromium
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+const HARNESS = pathToFileURL(path.join(HERE, 'harness.html')).href
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
-const long = 'What happens to an already-charged order\'s result when the API answers the report with a 4xx other than 409, such as 401 for a wrong WORKER_KEY, while replayUnreportedResultsFromTheLocalFile is still running?'
-const row = (id, n, kind, text, where, state, word, extra = {}) => ({ id, n, kind, text, where, also: [], state, word, ...extra })
-const views = {
-  answering: { branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', notice: 'Not asked about (uncommitted): README.md, allowlist.js', rows: [
-    row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws or the worker dies halfway through the loop?', 'worker/worker.js:42', 'pass', ''),
-    row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again', { also: ['worker/queue.js:84-96'] }),
-    row('q3', 3, 'Edge case', long, 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js:32', 'todo', '', { flag: 'may be a bug' })] },
-  done: { branch: 'feat/a-branch-with-a-rather-long-name-for-testing', file: 'understanding/feat-a-branch-with-a-rather-long-name-for-testing.json', tone: 'ok', title: '✓ Done', line: 'Commit and push.',
-    rows: ['pass', 'restated', 'explained', 'pass'].map((s, i) => row(`q${i + 1}`, i + 1, 'How', `Question ${i + 1}: how does the worker stop a second charge for the same job?`, 'api/orders.js:12', s, s === 'explained' ? 'explained · say it back' : s === 'restated' ? 'in your words' : '', i === 2 ? { flag: 'flagged for review' } : {})),
-    action: { id: 'commitPush', label: 'Commit & push' }, who: "Ada's check: your answers are recorded as yours.",
-    commits: 'Commits feat-a-branch-with-a-rather-long-name-for-testing.json, also folds check files in diffs (.gitattributes)', also: [{ file: 'services/api/src/refunds.js', label: 'also refunds.js (TODO added)', on: false }] },
-  // The answer box under the selected question: a miss with a hint and a code link, a draft in the box.
-  answer: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
-    row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
-    row('q2', 2, 'Why', 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?', 'worker/charge.js:19', 'retry', 'try again'),
-    row('q3', 3, 'Edge case', 'What does `takeJob` return when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
-    answer: { id: 'q2', n: 2, open: true, draft: 'It checks the idempotency key first, so', grade: { pass: false, feedback: [{ text: 'Not quite: right about the key; re-check when it is written.' }], hint: [{ text: 'What does ' }, { text: 'the INSERT after the charge', link: 0 }, { text: ' do on a retry?' }] } } },
-  // A pass: the box is gone, the grade and "Next question ›".
-  passed: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '2 of 3 done', line: 'Answer all 3 · 2 must pass.', rows: [
-    row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'pass', ''),
-    row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'pass', ''), row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', '')],
-    answer: { id: 'q2', n: 2, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] }, next: true,
-      concern: { text: 'The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.', flagged: false } } },
-  drift: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.', rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')], action: { id: 'topUp', label: 'Add questions' } },
-  // Done after an applied fix and a push of a branch without a merge request: said, the fix offered, the link.
-  doneFix: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'ok', title: '✓ Done', line: 'Your fix is not committed yet.', said: 'Both answers kept.', mr: 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fa-branch-with-a-rather-long-name',
-    rows: ['pass', 'pass', 'pass'].map((s, i) => row(`q${i + 1}`, i + 1, 'How', `Question ${i + 1}: how does the worker stop a second charge for the same job?`, 'api/orders.js:12', s, '', i === 2 ? { flag: 'fix applied · not committed' } : {})),
-    action: { id: 'commitPush', label: 'Commit & push' }, also: [{ file: 'services/api/src/refunds.js', label: 'refunds.js (your fix)', on: false }] },
-  // Claude Code not found: the ways on, in one line.
-  notFound: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], failed: { text: "Claude Code wasn't found.", path: true } },
-  // Grading failed: said under the box with Try again.
-  gradeError: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: '0 of 2 done', line: 'Answer all 2 · 2 must pass.', rows: [
-    row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws?', 'worker/worker.js:42', 'ungraded', 'not graded'), row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'todo', '')],
-    answer: { id: 'q1', n: 1, open: true, draft: '', error: 'Claude is busy right now; your answer is saved.' } },
-  conflict: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'warn', title: 'The check file has a merge conflict', line: 'Both sides of the conflict can be kept.', rows: [], action: { id: 'merge', label: 'Keep both answers' } },
-  none: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/a-branch-with-a-rather-long-name-for-testing', line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
-  // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
-  tour: { branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', title: '1 of 3 done', line: 'Answer all 3 · 2 must pass.', tour: { label: 'Walk the tour · 9 steps', action: 'walk' }, rows: [
-    row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts before the worker takes its refund job?', 'api/orders.js:44', 'todo', '', { step: 4 }),
-    row('q2', 2, 'Edge case', 'After a failed refund, what happens when the customer asks again for a different amount, given the idempotency key?', 'worker/refund.js:7', 'retry', 'try again', { step: 9, flag: 'may be a bug' }),
-    row('q3', 3, 'Why', 'Why does startRefund check the status inside its UPDATE instead of relying on the status read in refundOrder?', 'api/store.js:44', 'pass', '', { step: 2 })] },
-  tourWriting: { branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', title: '0 of 3 done', line: 'Answer all 3 · 2 must pass.', tour: { label: 'Writing the tour · 1:20' }, rows: [
-    row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts?', 'api/orders.js:44', 'todo', ''), row('q2', 2, 'Why', 'Why is the status checked in the UPDATE?', 'api/store.js:44', 'todo', '')] },
-  writing: { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo', title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], busy: 'Writing questions · 0:42 · reading the change' },
+
+/** Has the page posted a message of `type` whose fields include `fields`? */
+const postedType = (page, type, fields = {}) => page.evaluate(([t, f]) => window.__posted.some((m) => m.type === t && Object.entries(f).every(([k, v]) => m[k] === v)), [type, fields])
+/** Draws `view` (as the extension posts it). */
+const draw = (page, view) => page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
+
+// ---------- the checks: each looks at one part of the view, when the view has it; `fail` records a problem ----------
+
+/** ↓ moves from a row to the next. */
+async function arrowDown(page, view, fail) {
+  if (view.rows.length <= 1) return
+  await page.focus('button.open[data-id="q1"]')
+  await page.keyboard.press('ArrowDown')
+  if (!(await page.evaluate(() => document.activeElement?.dataset?.id === 'q2'))) fail('↓ didn\'t move to the next question')
 }
+
+/** Every row is clickable and opens its question. */
+async function rowClick(page, view, fail) {
+  if (!view.rows.length) return
+  await page.click('button.open[data-id="q2"]')
+  if (!(await postedType(page, 'open', { id: 'q2' }))) fail('a row click didn\'t open its question')
+}
+
+/** The answer box: the draft in it; Ctrl+Enter sends; a code link in the grade posts it and keeps the box focused; Esc goes back; a redraw keeps the keyboard there. */
+async function answerBox(page, view, fail) {
+  if (!view.answer?.open) return
+  const box = page.locator('.answer textarea')
+  if ((await box.inputValue()) !== view.answer.draft) fail('the draft is not in the box')
+  if ((await box.getAttribute('placeholder')) !== 'Answer in 1–3 sentences') fail('placeholder')
+  await box.focus()
+  await page.keyboard.type(' it never charges twice.')
+  await page.keyboard.press('Control+Enter')
+  const sent = await page.evaluate((id) => window.__posted.some((m) => m.type === 'answer' && m.id === id && /it never charges twice\.$/.test(m.text)), view.answer.id)
+  if (!sent) fail('Ctrl+Enter didn\'t send the answer')
+  if (view.answer.grade) {
+    await page.click('.answer .codelink')
+    const stays = await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA')
+    if (!(await postedType(page, 'link', { id: 'q2', i: 0 })) || !stays) fail('the code link didn\'t post, or the box lost the keyboard')
+  }
+  await page.keyboard.press('Escape')
+  if (!(await postedType(page, 'escape'))) fail('Esc didn\'t go back to the code')
+  // Drawn again (a new grade arrives): the keyboard stays in the box.
+  await box.focus()
+  await draw(page, view)
+  await page.waitForTimeout(50)
+  if (!(await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA'))) fail('a redraw took the keyboard out of the box')
+}
+
+/** A concern under a passed question: its action posts. */
+async function concernAction(page, view, fail) {
+  if (!view.answer?.concern) return
+  await page.click('.answer .concern .link:last-child')
+  if (!(await postedType(page, 'concern', { action: 'dismiss' }))) fail('a concern action didn\'t post')
+}
+
+/** A passed question: no box; "Next question ›" posts. */
+async function nextQuestion(page, view, fail) {
+  if (!view.answer?.next) return
+  if (await page.locator('.answer textarea').count()) fail('a passed question still has its box')
+  await page.click('.answer .next')
+  if (!(await postedType(page, 'next'))) fail('Next question didn\'t post')
+}
+
+/** A file offered with Commit & push: ticking it posts. */
+async function alsoTick(page, view, fail) {
+  if (!view.also) return
+  await page.click('footer .also input')
+  if (!(await postedType(page, 'include', { file: 'services/api/src/refunds.js', on: true }))) fail('ticking the TODO file didn\'t post')
+}
+
+/** The tour: its link posts and the rows say their step; while it is written, one muted line. */
+async function tourLink(page, view, fail) {
+  if (!view.tour) return
+  if (view.tour.action) {
+    await page.click('button.tour')
+    if (!(await postedType(page, 'tour'))) fail('the tour link didn\'t post')
+    const meta = await page.evaluate(() => document.querySelector('button.open[data-id="q1"] .meta')?.textContent)
+    if (!/^Failure · step 4 · orders\.js/.test(meta ?? '')) fail(`q1's row says "${meta}" (want its step)`)
+    return
+  }
+  const muted = await page.evaluate(() => !document.querySelector('button.tour') && /Writing the tour/.test(document.querySelector('.tour')?.textContent ?? ''))
+  if (!muted) fail('the tour being written is not one muted line')
+}
+
+/** A merge request link: it posts. */
+async function mergeRequest(page, view, fail) {
+  if (!view.mr) return
+  await page.click('.mr button.link')
+  if (!(await postedType(page, 'openMr'))) fail('Open merge request didn\'t post')
+}
+
+/** Claude Code not found: each way on posts. */
+async function notFoundLinks(page, view, fail) {
+  if (!view.failed?.path) return
+  for (const [label, type] of [['Install ↗', 'install'], ['Set its path', 'pathSetting'], ['Retry', 'retry']]) {
+    await page.click(`.failed button.link:text-is("${label}")`)
+    if (!(await postedType(page, type))) fail(`${label} didn't post`)
+  }
+}
+
+/** Grading failed: Try again posts. */
+async function gradeRetry(page, view, fail) {
+  if (!view.answer?.error) return
+  await page.click('.answer .failed button.link')
+  if (!(await postedType(page, 'regrade', { id: 'q1' }))) fail('Try again didn\'t post')
+}
+
+/** The one button sits right under where the check stands, above the questions (never out of sight below them), and posts its action. */
+async function mainButton(page, view, fail) {
+  if (!view.action) return
+  const above = () => page.evaluate(() => document.querySelector('footer').getBoundingClientRect().bottom <= document.querySelector('.rows').getBoundingClientRect().top + 1)
+  if (view.rows.length && !(await above())) fail('the button is not above the questions')
+  await page.click('footer button.primary')
+  if (!(await postedType(page, view.action.id))) fail(`${view.action.label} didn't post`)
+}
+
+/** A question's text is clamped at 3 lines (its thread in the code shows it whole). */
+async function clampedQuestions(page, view, fail) {
+  const tall = await page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('.text')].map((e) => e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight || '18'))))
+  if (tall > 3.2) fail(`a question takes ${tall.toFixed(1)} lines (at most 3)`)
+}
+
+/** In the order they run on each drawn view (each may click, so later ones see what earlier ones posted). */
+const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions]
+
+// ---------- main ----------
+
 const fails = []
-const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+const browser = await launchChromium()
 for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (const [name, view] of Object.entries(views)) {
-  const page = await browser.newPage({ viewport: { width: w, height: 520 } })
-  const errors = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-  page.on('pageerror', (e) => errors.push(String(e)))
-  await page.goto(`${pathToFileURL(path.join(HERE, 'harness.html')).href}?theme=${theme}`)
-  await page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
+  const tag = `${name} ${w}px ${theme}`
+  const fail = (what) => fails.push(`${tag}: ${what}`)
+  const { page, errors } = await openHarness(browser, HARNESS, { width: w, height: 520, theme })
+  await draw(page, view)
   await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'))
   const r = await page.evaluate(() => window.__posted.filter((m) => m.type === 'rendered').pop())
-  const tag = `${name} ${w}px ${theme}`
-  if (r.overflow.length) fails.push(`${tag}: ${r.overflow.join('; ')}`)
-  if (errors.length) fails.push(`${tag}: console: ${errors.join('; ')}`)
-  // Every row is clickable and says which question; the button posts its action; ↓ moves between rows.
-  if (view.rows.length > 1) {
-    await page.focus('button.open[data-id="q1"]'); await page.keyboard.press('ArrowDown')
-    if (!(await page.evaluate(() => document.activeElement?.dataset?.id === 'q2'))) fails.push(`${tag}: ↓ didn't move to the next question`)
-  }
-  if (view.rows.length) {
-    await page.click('button.open[data-id="q2"]')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'open' && m.id === 'q2')))) fails.push(`${tag}: a row click didn't open its question`)
-  }
-  if (view.answer?.open) {
-    // The box: the draft in it; Ctrl+Enter sends; Esc goes back; a code link in the grade posts it and keeps the box focused.
-    const box = page.locator('.answer textarea')
-    if ((await box.inputValue()) !== view.answer.draft) fails.push(`${tag}: the draft is not in the box`)
-    if ((await box.getAttribute('placeholder')) !== 'Answer in 1–3 sentences') fails.push(`${tag}: placeholder`)
-    await box.focus(); await page.keyboard.type(' it never charges twice.'); await page.keyboard.press('Control+Enter')
-    if (!(await page.evaluate((id) => window.__posted.some((m) => m.type === 'answer' && m.id === id && /it never charges twice\.$/.test(m.text)), view.answer.id))) fails.push(`${tag}: Ctrl+Enter didn't send the answer`)
-    if (view.answer.grade) {
-      await page.click('.answer .codelink')
-      if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'link' && m.id === 'q2' && m.i === 0) && document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: the code link didn't post, or the box lost the keyboard`)
-    }
-    await page.keyboard.press('Escape')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'escape')))) fails.push(`${tag}: Esc didn't go back to the code`)
-    // Drawn again (a new grade arrives): the keyboard stays in the box.
-    await box.focus()
-    await page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
-    await page.waitForTimeout(50)
-    if (!(await page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA'))) fails.push(`${tag}: a redraw took the keyboard out of the box`)
-  }
-  if (view.answer?.concern) {
-    await page.click('.answer .concern .link:last-child')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'concern' && m.action === 'dismiss')))) fails.push(`${tag}: a concern action didn't post`)
-  }
-  if (view.answer?.next) {
-    if (await page.locator('.answer textarea').count()) fails.push(`${tag}: a passed question still has its box`)
-    await page.click('.answer .next')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'next')))) fails.push(`${tag}: Next question didn't post`)
-  }
-  if (view.also) {
-    await page.click('footer .also input')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'include' && m.file === 'services/api/src/refunds.js' && m.on === true)))) fails.push(`${tag}: ticking the TODO file didn't post`)
-  }
-  if (view.tour?.action) {
-    await page.click('button.tour')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'tour')))) fails.push(`${tag}: the tour link didn't post`)
-    const meta = await page.evaluate(() => document.querySelector('button.open[data-id="q1"] .meta')?.textContent)
-    if (!/^Failure · step 4 · orders\.js/.test(meta ?? '')) fails.push(`${tag}: q1's row says "${meta}" (want its step)`)
-  }
-  if (view.tour && !view.tour.action && !(await page.evaluate(() => !document.querySelector('button.tour') && /Writing the tour/.test(document.querySelector('.tour')?.textContent ?? '')))) fails.push(`${tag}: the tour being written is not one muted line`)
-  if (view.mr) {
-    await page.click('.mr button.link')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'openMr')))) fails.push(`${tag}: Open merge request didn't post`)
-  }
-  if (view.failed?.path) {
-    for (const [label, type] of [['Install ↗', 'install'], ['Set its path', 'pathSetting'], ['Retry', 'retry']]) {
-      await page.click(`.failed button.link:text-is("${label}")`)
-      if (!(await page.evaluate((t) => window.__posted.some((m) => m.type === t), type))) fails.push(`${tag}: ${label} didn't post`)
-    }
-  }
-  if (view.answer?.error) {
-    await page.click('.answer .failed button.link')
-    if (!(await page.evaluate(() => window.__posted.some((m) => m.type === 'regrade' && m.id === 'q1')))) fails.push(`${tag}: Try again didn't post`)
-  }
-  if (view.action) {
-    // The one button sits right under where the check stands, above the questions (never out of sight below them).
-    if (view.rows.length && !(await page.evaluate(() => document.querySelector('footer').getBoundingClientRect().bottom <= document.querySelector('.rows').getBoundingClientRect().top + 1))) fails.push(`${tag}: the button is not above the questions`)
-    await page.click('footer button.primary')
-    if (!(await page.evaluate((id) => window.__posted.some((m) => m.type === id), view.action.id))) fails.push(`${tag}: ${view.action.label} didn't post`)
-  }
-  // A clamped question keeps its whole text in the tooltip of its row? No: the code thread shows it. Check the clamp is not more than 3 lines.
-  const tall = await page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('.text')].map((e) => e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight || '18'))))
-  if (tall > 3.2) fails.push(`${tag}: a question takes ${tall.toFixed(1)} lines (at most 3)`)
+  if (r.overflow.length) fail(r.overflow.join('; '))
+  if (errors.length) fail(`console: ${errors.join('; ')}`)
+  for (const check of CHECKS) await check(page, view, fail)
   if (OUT) await page.screenshot({ path: path.join(OUT, `check-${name}-${w}-${theme}.png`), fullPage: true })
   await page.close()
 }

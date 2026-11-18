@@ -1,6 +1,25 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scoreJourney, stem, tellingWords, STOP } from '../src/match'
+import { matchScore, queryWords, scoreJourney, stem, tellingWords, STOP } from '../src/match'
+import { items } from './fixtures/journeyList'
+
+// ---------- the Journeys list's search (matchScore, queryWords) ----------
+
+test('the list\'s search: every word must match; a title hit weighs more than a path hit', () => {
+  const orders = items()[0]
+  assert.equal(matchScore(orders, 'orders nothinglikethis').score, 0)
+  assert.ok(matchScore(orders, 'orders').score > matchScore(orders, 'api').score, 'a title hit weighs more than a path hit')
+})
+
+test('a question typed into the search: stop-words left out (unless that is all there is), words stemmed alike', () => {
+  assert.deepEqual(queryWords('how are charges retried'), ['charges', 'retried'])
+  assert.deepEqual(queryWords('how does it'), ['how', 'does', 'it'], 'only stop-words: kept')
+  assert.equal(stem('retried'), stem('retry'))
+  assert.equal(stem('retries'), stem('retrying'))
+  assert.equal(stem('charges'), stem('charge'))
+})
+
+// ---------- which journey answers a question (scoreJourney, tellingWords) ----------
 
 test('a journey matches most of the telling words, with synonyms; title and question count most', () => {
   const j = { title: 'Change a shipping address', question: 'How does the shipping address of an order get updated?', summary: 'The address is updated without a new order.', steps: ['The page posts the new address'] }

@@ -53,7 +53,22 @@ export const closeAllEditors = () => vscode.commands.executeCommand('workbench.a
 /** Is a text tab whose path matches `re` open in any group? */
 export const tabOpen = (re: RegExp) => vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputText && re.test(t.input.uri.path)))
 
-/** The CodeLenses VS Code gets for `uri`, as "line:title" (line 1-based). */
-export async function lenses(uri: vscode.Uri): Promise<string[]> {
-  return ((await vscode.commands.executeCommand('vscode.executeCodeLensProvider', uri)) as vscode.CodeLens[]).map((l) => `${l.range.start.line + 1}:${l.command?.title ?? ''}`)
+/** The CodeLenses VS Code gets for `uri` (the active editor's by default). */
+export async function codeLenses(uri = vscode.window.activeTextEditor!.document.uri): Promise<vscode.CodeLens[]> {
+  return (await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', uri)) ?? []
+}
+
+/** The CodeLenses of `uri` (the active editor's by default) as "line:title", the line 1-based as the editor shows it. */
+export async function lenses(uri?: vscode.Uri): Promise<string[]> {
+  return (await codeLenses(uri)).map((l) => `${l.range.start.line + 1}:${l.command?.title ?? ''}`)
+}
+
+/**
+ * The fake claude CLI (test/fixtures/fake-claude.js) as codeNotes.claude.path, logging its runs to a file of this
+ * workspace's (other test runs on this machine share the temp folder), which `fakeCalls` reads. Called by the first
+ * test that asks Claude (main/notes.ts); every test after it runs this fake.
+ */
+export async function useFakeClaude(): Promise<void> {
+  process.env.FAKE_CLAUDE_LOG = path.join(ctx.ws, '..', `fake-claude-${path.basename(ctx.ws)}.log`)
+  await setting('claude.path', path.join(__dirname, '../../../../test/fixtures/fake-claude.js'))
 }

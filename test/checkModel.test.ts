@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Status, Summary, Words } from '../src/check/types'
+import { Question, Status, Summary, Words } from '../src/check/types'
 import { checkPhase, checkPrompt, tourPrompt } from '../src/check/prompts'
 import { gradeBody, linksAt, questionBody, missingMessages } from '../src/check/threadText'
 import { concernOf, samePerson, whoOf } from '../src/check/concernState'
@@ -10,9 +10,8 @@ import { checkView, statusText, answerBox, linkParts, runAction } from '../src/c
 import { todoLines, todoPlace, commentMark } from '../src/check/todoComment'
 import { gradeFailure, writeFailure, jsonErrorAt } from '../src/check/failures'
 import { importCli } from '../src/check/importCli'
+import { bashCall } from './toolCalls'
 
-/** A Bash tool call, as the stream reports it. */
-const bashCall = (command: string) => ({ name: 'Bash', input: { command } })
 /** A question of the check on api/orders.js lines 10-12. */
 const questionOf = (id: string, kind: 'how' | 'why' | 'failure', attempts: { answer: string }[] = []) => ({
   id,
@@ -23,6 +22,11 @@ const questionOf = (id: string, kind: 'how' | 'why' | 'failure', attempts: { ans
   end: 12,
   attempts,
 })
+/**
+ * A question built in a test, as the model's type: the tests write only the fields each one reads (and literal
+ * verdicts TypeScript widens to string), so the one cast is here.
+ */
+const asQuestion = (q: object) => q as Question
 /** The summary of questions in these states (2 must pass). */
 const summaryOf = (states: Summary['states'], over: Partial<Summary> = {}): Summary => {
   const passed = states.filter((x) => x === 'pass' || x === 'restated').length
@@ -94,11 +98,11 @@ test('plain phases from the script\'s commands', () => {
 })
 
 test('thread messages: the question (with the code it also needs), a pass, a miss with its hint, an explanation, a restatement', () => {
-  assert.equal(questionBody(questionOf('q1', 'failure') as never), 'Question q1?')
+  assert.equal(questionBody(asQuestion(questionOf('q1', 'failure'))), 'Question q1?')
   const withAlso = { ...questionOf('q1', 'failure'), also: [{ file: 'worker/queue.js', start: 84, end: 96 }, { file: 'worker/queue.js', start: 120, end: 124 }] }
-  assert.equal(questionBody(withAlso as never), 'Question q1?\n\nAlso read: queue.js, queue.js (2)')
+  assert.equal(questionBody(asQuestion(withAlso)), 'Question q1?\n\nAlso read: queue.js, queue.js (2)')
   // Named by file and linked to their lines: no line numbers in the text.
-  assert.deepEqual(linksAt(withAlso as never, ['agent'], 0).map((l) => [l.phrase, l.start]), [['queue.js', 84], ['queue.js (2)', 120]])
+  assert.deepEqual(linksAt(asQuestion(withAlso), ['agent'], 0).map((l) => [l.phrase, l.start]), [['queue.js', 84], ['queue.js (2)', 120]])
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Not quite: what then?', hint: '' }), 'Not quite: what then?')
   assert.equal(gradeBody({ answer: 'a', verdict: 'pass', feedback: 'Right. The key makes it safe.' }), '✓ Right. The key makes it safe.')
   assert.equal(gradeBody({ answer: 'a', verdict: 'retry', feedback: 'Close.', hint: 'Look at report().' }), 'Not quite. Close.\n\n**Hint:** Look at report().')
@@ -107,72 +111,115 @@ test('thread messages: the question (with the code it also needs), a pass, a mis
   assert.match(gradeBody({ answer: 'a', verdict: 'explained', feedback: 'The lock, not the lookup.' }, { restatement: true }), /^The lock, not the lookup\.\n\n_Try once more, or leave it: it is done\._$/)
 })
 
-test('the Check view: the CLI\'s words, rows with their state, one button', () => {
-  let v = checkView(statusOf(), wordsOf())
+// ---------- the Check view (checkView) ----------
+
+/** Done: all 3 answered (one explained), with the CLI's words for it. */
+const done = statusOf({ summary: summaryOf(['pass', 'pass', 'explained']), state: { phase: 'done', done: 3, total: 3, passed: 2, needed: 2 } })
+const ok = wordsOf({ tone: 'ok', title: '✓ Done', line: 'Commit and push.' })
+/** Done and nothing left uncommitted. */
+const clean = { ...done, dirty: false }
+
+test('the Check view: the CLI\'s words, rows with their state, no button while answering', () => {
+  const v = checkView(statusOf(), wordsOf())
   assert.deepEqual([v.tone, v.title, v.line], ['todo', '2 of 3 done', 'Answer all 3 · 2 must pass.'])
-  assert.deepEqual(v.rows.map((r) => [r.n, r.state, r.word, r.where, r.also]), [[1, 'pass', '', 'api/orders.js:10', []], [2, 'pass', '', 'api/orders.js:10', ['worker/queue.js:84-96']], [3, 'todo', '', 'api/orders.js', []]])
+  const rows = v.rows.map((r) => [r.n, r.state, r.word, r.where, r.also])
+  assert.deepEqual(rows, [
+    [1, 'pass', '', 'api/orders.js:10', []],
+    [2, 'pass', '', 'api/orders.js:10', ['worker/queue.js:84-96']],
+    [3, 'todo', '', 'api/orders.js', []],
+  ])
   assert.equal(v.action, undefined, 'answering: no button')
-  assert.equal(checkView(statusOf(), wordsOf(), { grading: new Set(['q3']) }).rows[2].word, 'checking…')
-  const done = statusOf({ summary: summaryOf(['pass', 'pass', 'explained']), state: { phase: 'done', done: 3, total: 3, passed: 2, needed: 2 } })
-  const ok = wordsOf({ tone: 'ok', title: '✓ Done', line: 'Commit and push.' })
-  assert.deepEqual(checkView(done, ok).action, { id: 'commitPush', label: 'Commit & push' })
+  const grading = checkView(statusOf(), wordsOf(), { grading: new Set(['q3']) })
+  assert.equal(grading.rows[2].word, 'checking…')
   assert.equal(checkView(done, ok).rows[2].word, 'explained · say it back')
-  const clean = { ...done, dirty: false }
-  assert.deepEqual([checkView(clean, ok, { unpushed: true }).line, checkView(clean, ok, { unpushed: true }).action?.id], ['Not pushed yet.', 'commitPush'])
-  assert.deepEqual([checkView(clean, ok, { unpushed: false }).line, checkView(clean, ok, { unpushed: false }).action], ['Pushed.', undefined])
-  assert.equal(checkView(clean, ok, { unpushed: true, pushed: 'Committed, but the push was rejected: origin has newer commits. Pull, then push again.' }).line, 'Committed, but the push was rejected: origin has newer commits. Pull, then push again.')
-  assert.deepEqual(checkView(statusOf({ state: { phase: 'drift', grew: 52, commitFirst: false } }), wordsOf({ tone: 'warn' })).action, { id: 'topUp', label: 'Add questions' })
-  assert.deepEqual(checkView(statusOf({ state: { phase: 'drift', grew: 52, commitFirst: true } }), wordsOf({ tone: 'warn' })).action, { id: 'scm', label: 'Commit…' })
-  assert.deepEqual(checkView(statusOf({ exists: false, check: undefined, summary: undefined, state: { phase: 'none', changed: 28 } }), wordsOf({ title: 'No check yet for feat/x', line: '28 code lines changed.' })).action, { id: 'start', label: 'Start' })
+})
+
+test('the Check view\'s one button: Commit & push, then Push or none; Add questions or Commit… on drift; Start; none while busy', () => {
+  assert.deepEqual(checkView(done, ok).action, { id: 'commitPush', label: 'Commit & push' })
+  const unpushed = checkView(clean, ok, { unpushed: true })
+  assert.deepEqual([unpushed.line, unpushed.action?.id], ['Not pushed yet.', 'commitPush'])
+  const pushed = checkView(clean, ok, { unpushed: false })
+  assert.deepEqual([pushed.line, pushed.action], ['Pushed.', undefined])
+  const rejected = 'Committed, but the push was rejected: origin has newer commits. Pull, then push again.'
+  assert.equal(checkView(clean, ok, { unpushed: true, pushed: rejected }).line, rejected)
+  const warn = wordsOf({ tone: 'warn' })
+  const drift = statusOf({ state: { phase: 'drift', grew: 52, commitFirst: false } })
+  assert.deepEqual(checkView(drift, warn).action, { id: 'topUp', label: 'Add questions' })
+  const driftUncommitted = statusOf({ state: { phase: 'drift', grew: 52, commitFirst: true } })
+  assert.deepEqual(checkView(driftUncommitted, warn).action, { id: 'scm', label: 'Commit…' })
+  const none = statusOf({ exists: false, check: undefined, summary: undefined, state: { phase: 'none', changed: 28 } })
+  const noneWords = wordsOf({ title: 'No check yet for feat/x', line: '28 code lines changed.' })
+  assert.deepEqual(checkView(none, noneWords).action, { id: 'start', label: 'Start' })
   assert.equal(checkView(done, ok, { busy: 'Pushing…' }).action, undefined)
-  // Commit & push names what it commits; a TODO the check added is offered, not taken.
+})
+
+test('Commit & push names what it commits; a TODO the check added is offered, not taken; only a push once committed', () => {
   const commit = { files: ['understanding/feat-x.json', '.gitattributes', '.ignore'], todos: ['api/refunds.js'], include: new Set<string>() }
   const cv = checkView(done, ok, { commit })
   assert.equal(cv.commits, 'Commits feat-x.json, .gitattributes, .ignore')
   assert.deepEqual(cv.also, [{ file: 'api/refunds.js', label: 'also refunds.js (TODO added)', on: false }])
-  assert.equal(checkView(done, ok, { commit: { ...commit, include: new Set(['api/refunds.js']) } }).also?.[0].on, true)
-  assert.equal(checkView(clean, ok, { unpushed: true, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set() } }).commits, undefined, 'nothing to commit: only the push')
-  assert.equal(checkView(clean, ok, { unpushed: true, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set() } }).action?.label, 'Push')
-  // An applied fix: offered ticked, named, said on its question; Commit & push stays even when the check file is committed.
+  const ticked = { ...commit, include: new Set(['api/refunds.js']) }
+  assert.equal(checkView(done, ok, { commit: ticked }).also?.[0].on, true)
+  const onlyTheFile = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>() }
+  const pushOnly = checkView(clean, ok, { unpushed: true, commit: onlyTheFile })
+  assert.equal(pushOnly.commits, undefined, 'nothing to commit: only the push')
+  assert.equal(pushOnly.action?.label, 'Push')
+})
+
+test('an applied fix: offered ticked, named, said on its question; Commit & push stays though the check file is committed', () => {
   const fixed = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>(), fixes: ['api/refunds.js'], applied: ['q3'], exclude: new Set<string>() }
   const fv = checkView(clean, ok, { unpushed: false, commit: fixed })
-  assert.deepEqual([fv.action?.label, fv.line, fv.also], ['Commit & push', 'Your fix is not committed yet.', [{ file: 'api/refunds.js', label: 'refunds.js (your fix)', on: true }]])
-  assert.equal(checkView(clean, ok, { unpushed: false, commit: { ...fixed, exclude: new Set(['api/refunds.js']) } }).also?.[0].on, false)
-  const withC = statusOf({ summary: summaryOf(['pass', 'pass', 'pass']), state: { phase: 'done' } })
-  withC.check!.questions[2].concern = { text: 'NaN slips through.', flagged: false }
-  assert.equal(checkView(withC, ok, { commit: fixed }).rows[2].flag, 'fix applied · not committed')
-  assert.equal(checkView(withC, ok, { commit: fixed, selected: 'q3' }).answer?.concern?.applied, true)
-  // Only the tour is new: said; the button stays, naming it.
-  const tv = checkView(done, ok, { unpushed: false, commit: { files: ['understanding/feat-x.json'], todos: [], include: new Set(), tourOnly: true } })
+  assert.deepEqual([fv.action?.label, fv.line, fv.also], [
+    'Commit & push',
+    'Your fix is not committed yet.',
+    [{ file: 'api/refunds.js', label: 'refunds.js (your fix)', on: true }],
+  ])
+  const unticked = { ...fixed, exclude: new Set(['api/refunds.js']) }
+  assert.equal(checkView(clean, ok, { unpushed: false, commit: unticked }).also?.[0].on, false)
+  const withConcern = statusOf({ summary: summaryOf(['pass', 'pass', 'pass']), state: { phase: 'done' } })
+  withConcern.check!.questions[2].concern = { text: 'NaN slips through.', flagged: false }
+  assert.equal(checkView(withConcern, ok, { commit: fixed }).rows[2].flag, 'fix applied · not committed')
+  assert.equal(checkView(withConcern, ok, { commit: fixed, selected: 'q3' }).answer?.concern?.applied, true)
+})
+
+test('what Commit & push says: only the tour new (the button stays); the first check also folds check files in diffs', () => {
+  const tourOnly = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>(), tourOnly: true }
+  const tv = checkView(done, ok, { unpushed: false, commit: tourOnly })
   assert.deepEqual([tv.line, tv.action?.label, tv.commits], ['Only the tour is new: it can go with your next push.', 'Commit & push', 'Commits feat-x.json (the tour)'])
   // The repository's first check commit also folds check files in diffs: said on the Commit & push line, no other offer.
   const fold = { files: ['understanding/feat-x.json'], todos: [], include: new Set<string>(), fold: true, foldText: 'also folds check files in diffs (.gitattributes)' }
   assert.equal(checkView(done, ok, { commit: fold }).commits, 'Commits feat-x.json, also folds check files in diffs (.gitattributes)')
   assert.equal(checkView(clean, ok, { unpushed: true, commit: fold }).commits, undefined, 'only the push: nothing to fold')
   assert.ok(!('setup' in checkView(done, ok, { commit: fold })), 'no separate setup offer')
-  // Documentation that describes no code: no tour, and nothing offers to write one.
+})
+
+test('documentation that describes no code: no tour, and nothing offers to write one', () => {
   const noTour = statusOf({ summary: summaryOf(['pass', 'pass', 'pass']), state: { phase: 'done' } })
   assert.equal(checkView(noTour, ok).tour?.label, 'Write a tour')
   noTour.check!.noTour = true
   assert.equal(checkView(noTour, ok).tour, undefined)
-  // Someone else's check: one line, nothing blocked.
-  assert.equal(checkView(statusOf(), wordsOf(), { me: { name: 'Bob', email: 'bob@example.com' } }).who, "Ada's check: your answers are recorded as yours.")
+})
+
+test('someone else\'s check: one line, nothing blocked', () => {
+  const bob = checkView(statusOf(), wordsOf(), { me: { name: 'Bob', email: 'bob@example.com' } })
+  assert.equal(bob.who, "Ada's check: your answers are recorded as yours.")
   assert.equal(checkView(statusOf(), wordsOf(), { me: { name: 'Ada', email: 'ada@example.com' } }).who, undefined)
 })
 
 test('concerns: the grader\'s latest, else the question\'s own "may be a bug"; shown on the row', () => {
   const base = questionOf('q1', 'failure')
-  assert.equal(concernOf(base as never), undefined)
+  assert.equal(concernOf(asQuestion(base)), undefined)
   // A suspect question says nothing before it is answered (that would give the answer away).
-  assert.equal(concernOf({ ...base, suspect: true } as never), undefined)
+  assert.equal(concernOf(asQuestion({ ...base, suspect: true })), undefined)
   const answered = { ...base, suspect: true, attempts: [{ answer: 'a', verdict: 'pass' as const }] }
-  assert.deepEqual(concernOf(answered as never), { text: 'May be a bug.', flagged: false, suspect: true })
-  assert.equal(concernOf({ ...base, suspect: true, attempts: [{ answer: 'a' }] } as never), undefined, 'not graded yet')
+  assert.deepEqual(concernOf(asQuestion(answered)), { text: 'May be a bug.', flagged: false, suspect: true })
+  assert.equal(concernOf(asQuestion({ ...base, suspect: true, attempts: [{ answer: 'a' }] })), undefined, 'not graded yet')
   const c = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, concern: 'OPS_EMAIL is never set: alerts go nowhere.' }], concern: { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true } }
-  assert.deepEqual(concernOf(c as never), { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true, suspect: false })
-  const v = checkView(statusOf({ check: { ...statusOf().check!, questions: [c as never, { ...answered, id: 'q2' } as never, { ...base, id: 'q3', suspect: true } as never] }, summary: summaryOf(['pass', 'pass', 'todo']) }), wordsOf())
+  assert.deepEqual(concernOf(asQuestion(c)), { text: 'OPS_EMAIL is never set: alerts go nowhere.', flagged: true, suspect: false })
+  const questions = [asQuestion(c), asQuestion({ ...answered, id: 'q2' }), asQuestion({ ...base, id: 'q3', suspect: true })]
+  const v = checkView(statusOf({ check: { ...statusOf().check!, questions }, summary: summaryOf(['pass', 'pass', 'todo']) }), wordsOf())
   assert.deepEqual(v.rows.map((r) => r.flag), ['flagged for review', 'may be a bug', undefined])
-  assert.equal(concernOf({ ...base, concern: { text: 'x', flagged: true, by: { name: 'Bob', email: 'bob@example.com' } } } as never)!.by, 'Bob')
+  assert.equal(concernOf(asQuestion({ ...base, concern: { text: 'x', flagged: true, by: { name: 'Bob', email: 'bob@example.com' } } }))!.by, 'Bob')
 })
 
 test('the status bar: the CLI\'s words with an icon; amber for a top-up; hidden when no check is needed', () => {
@@ -189,11 +236,11 @@ test('code links: the question\'s on the first message, each grade\'s own after;
   const qq = { ...questionOf('q1', 'failure'), links: [ql], also: [{ file: 'api/limits.js', start: 11, end: 13 }, { file: 'api/store.js', start: 2, end: 4 }],
     attempts: [{ answer: 'a', verdict: 'retry' as const, links: [gl] }, { answer: 'b' }] }
   const roles = ['agent', 'human', 'agent', 'human']
-  assert.deepEqual(linksAt(qq as never, roles, 0), [ql, { phrase: 'store.js', file: 'api/store.js', start: 2, end: 4 }])
-  assert.deepEqual(linksAt(qq as never, roles, 1), [])
-  assert.deepEqual(linksAt(qq as never, roles, 2), [gl])
-  assert.deepEqual(linksAt(qq as never, roles, 3), [])
-  assert.equal(questionBody(qq as never), 'Question q1?\n\nAlso read: store.js')
+  assert.deepEqual(linksAt(asQuestion(qq), roles, 0), [ql, { phrase: 'store.js', file: 'api/store.js', start: 2, end: 4 }])
+  assert.deepEqual(linksAt(asQuestion(qq), roles, 1), [])
+  assert.deepEqual(linksAt(asQuestion(qq), roles, 2), [gl])
+  assert.deepEqual(linksAt(asQuestion(qq), roles, 3), [])
+  assert.equal(questionBody(asQuestion(qq)), 'Question q1?\n\nAlso read: store.js')
 })
 
 test('a TODO from the check holds the whole concern (wrapped at words), above its line or inside the block it opens', () => {
@@ -216,19 +263,19 @@ test('the answer box: only for the selected question; open until done; its grade
   assert.deepEqual(linkParts('Look at the reset function and reset.', [{ phrase: 'the reset function' }, { phrase: 'nowhere' }]), [{ text: 'Look at ' }, { text: 'the reset function', link: 0 }, { text: ' and reset.' }])
   assert.deepEqual(linkParts('plain'), [{ text: 'plain' }])
   const base = questionOf('q1', 'failure')
-  assert.deepEqual(answerBox(base as never, 1, 'todo', { draft: 'half an answer' }), { id: 'q1', n: 1, open: true, draft: 'half an answer' })
+  assert.deepEqual(answerBox(asQuestion(base), 1, 'todo', { draft: 'half an answer' }), { id: 'q1', n: 1, open: true, draft: 'half an answer' })
   const miss = { ...base, attempts: [{ answer: 'a', verdict: 'retry' as const, feedback: 'Close.', hint: 'Read the loop.', links: [{ phrase: 'the loop', file: 'a.js', start: 1, end: 2 }] }] }
-  const b = answerBox(miss as never, 1, 'retry')
+  const b = answerBox(asQuestion(miss), 1, 'retry')
   assert.equal(b.open, true)
   assert.deepEqual(b.grade, { pass: false, feedback: [{ text: 'Not quite. Close.' }], hint: [{ text: 'Read ' }, { text: 'the loop', link: 0 }, { text: '.' }] })
-  assert.equal(answerBox(miss as never, 1, 'ungraded', { grading: true }).checking, true)
+  assert.equal(answerBox(asQuestion(miss), 1, 'ungraded', { grading: true }).checking, true)
   const passed = { ...base, attempts: [{ answer: 'a', verdict: 'pass' as const, feedback: 'Right.' }] }
-  assert.deepEqual(answerBox(passed as never, 1, 'pass', { others: true }), { id: 'q1', n: 1, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right.' }] }, next: true })
-  assert.equal(answerBox(passed as never, 1, 'pass', { others: false }).next, undefined)
+  assert.deepEqual(answerBox(asQuestion(passed), 1, 'pass', { others: true }), { id: 'q1', n: 1, open: false, draft: '', grade: { pass: true, feedback: [{ text: 'Right.' }] }, next: true })
+  assert.equal(answerBox(asQuestion(passed), 1, 'pass', { others: false }).next, undefined)
   // A concern stays in view with its actions, also after the box closes.
-  assert.deepEqual(answerBox({ ...passed, concern: { text: 'Install fails.', flagged: false } } as never, 1, 'pass').concern, { text: 'Install fails.', flagged: false })
+  assert.deepEqual(answerBox(asQuestion({ ...passed, concern: { text: 'Install fails.', flagged: false } }), 1, 'pass').concern, { text: 'Install fails.', flagged: false })
   const ex = { ...base, attempts: [{ answer: 'a', verdict: 'explained' as const, feedback: 'It retries.' }] }
-  assert.deepEqual([answerBox(ex as never, 1, 'explained').open, answerBox(ex as never, 1, 'explained').grade?.say], [true, 'Got it? Say it back in one sentence (optional).'])
+  assert.deepEqual([answerBox(asQuestion(ex), 1, 'explained').open, answerBox(asQuestion(ex), 1, 'explained').grade?.say], [true, 'Got it? Say it back in one sentence (optional).'])
   // In the view: only the selected question has one.
   assert.equal(checkView(statusOf(), wordsOf()).answer, undefined)
   const v = checkView(statusOf(), wordsOf(), { selected: 'q3', draft: 'x' })
@@ -278,6 +325,8 @@ test('a failure the extension raised is said by its kind, whatever its words', (
 })
 
 test('every function of Cli is in the CLI', async () => {
+  // The interface's member names, read from the source: one per line, indented two spaces (as the file is formatted;
+  // more indentation is a nested type's member, not one of Cli's).
   const src = fs.readFileSync(path.join(__dirname, '../../src/check/types.ts'), 'utf8')
   const body = /export interface Cli \{([\s\S]*?)\n\}/.exec(src)![1]
   const names = [...body.matchAll(/^ {2}([A-Za-z_]\w*)[(:]/gm)].map((m) => m[1])
@@ -296,15 +345,29 @@ test('the command does what the view offers, except where it says otherwise', ()
   assert.equal(runAction(statusOf(), {}), 'walk')
 })
 
-test('people, comment marks, hunks, JSON errors, missing thread messages', () => {
+test('samePerson: the same email, or the same name when one has no email; whoOf drops an empty email', () => {
   assert.ok(samePerson({ name: 'A', email: 'a@x' }, { name: 'B', email: 'a@x' }))
   assert.ok(!samePerson({ name: 'A', email: 'a@x' }, { name: 'A', email: 'b@x' }))
   assert.ok(samePerson({ name: 'A' }, { name: 'A', email: 'b@x' }))
   assert.deepEqual(whoOf({ name: 'A', email: '' }), { name: 'A' })
-  assert.deepEqual([commentMark('a/b.py'), commentMark('x/Dockerfile'), commentMark('a.vue'), commentMark('a.ts')], [['#', ''], ['#', ''], ['<!--', ' -->'], ['//', '']])
-  assert.deepEqual(jsonErrorAt('Unexpected token \'}\', "{\n "a"}" is not valid JSON at position 4', '{\n "a"}'), { line: 2, col: 3, text: 'Line 2: unexpected token \'}\'.' })
-  assert.equal(jsonErrorAt("Expected double-quoted property name in JSON at position 7 (line 2 column 3)", undefined)?.text, 'Line 2: expected double-quoted property name.')
+})
+
+test('commentMark: the comment syntax for a file, by its name', () => {
+  const marks = [commentMark('a/b.py'), commentMark('x/Dockerfile'), commentMark('a.vue'), commentMark('a.ts')]
+  assert.deepEqual(marks, [['#', ''], ['#', ''], ['<!--', ' -->'], ['//', '']])
+})
+
+test('jsonErrorAt: JSON.parse\'s error as a line and column, in words', () => {
+  const unexpected = 'Unexpected token \'}\', "{\n "a"}" is not valid JSON at position 4'
+  assert.deepEqual(jsonErrorAt(unexpected, '{\n "a"}'), { line: 2, col: 3, text: 'Line 2: unexpected token \'}\'.' })
+  const expected = 'Expected double-quoted property name in JSON at position 7 (line 2 column 3)'
+  assert.equal(jsonErrorAt(expected, undefined)?.text, 'Line 2: expected double-quoted property name.')
   assert.equal(jsonErrorAt('ENOENT: no such file', undefined), undefined)
+})
+
+test('missingMessages: the file\'s thread messages the note does not have yet', () => {
   const m = (role: string, body: string) => ({ role, body })
-  assert.deepEqual(missingMessages([m('agent', 'Q'), m('human', 'a1'), m('human', 'remark')], [m('agent', 'Q'), m('human', 'a1'), m('agent', 'g1')]), [m('agent', 'g1')])
+  const inNote = [m('agent', 'Q'), m('human', 'a1'), m('human', 'remark')]
+  const inFile = [m('agent', 'Q'), m('human', 'a1'), m('agent', 'g1')]
+  assert.deepEqual(missingMessages(inNote, inFile), [m('agent', 'g1')])
 })

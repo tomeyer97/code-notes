@@ -5,6 +5,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { CliThread } from '../src/check/cliThread'
+import { writeSlowGit } from './slowGit'
 
 const CLI = path.join(__dirname, '../../cli/understanding.mjs')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -12,18 +13,26 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** A repository on a branch with a change, a check file for it, and a `git` on PATH that takes `slow` seconds per call. */
 function repo(slow: number): { dir: string; env: NodeJS.ProcessEnv; git: (...a: string[]) => string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-thread-'))
-  const env = { ...process.env, GIT_AUTHOR_NAME: 'A', GIT_AUTHOR_EMAIL: 'a@example.com', GIT_COMMITTER_NAME: 'A', GIT_COMMITTER_EMAIL: 'a@example.com' }
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'A',
+    GIT_AUTHOR_EMAIL: 'a@example.com',
+    GIT_COMMITTER_NAME: 'A',
+    GIT_COMMITTER_EMAIL: 'a@example.com',
+  }
   const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, env, encoding: 'utf8' }).trim()
-  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'A'); git('config', 'user.email', 'a@example.com')
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.name', 'A')
+  git('config', 'user.email', 'a@example.com')
   fs.writeFileSync(path.join(dir, 'a.js'), 'export const a = 1\n')
-  git('add', '-A'); git('commit', '-qm', 'one')
+  git('add', '-A')
+  git('commit', '-qm', 'one')
   git('checkout', '-qb', 'feat/x')
   fs.writeFileSync(path.join(dir, 'a.js'), Array.from({ length: 30 }, (_, i) => `export const a${i} = ${i}`).join('\n') + '\n')
   git('commit', '-qam', 'two')
   const bin = path.join(dir, '.bin')
   fs.mkdirSync(bin)
-  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
-  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nsleep ${slow}\nexec ${real} "$@"\n`, { mode: 0o755 })
+  writeSlowGit(bin, slow)
   return { dir, env: { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH}` }, git }
 }
 

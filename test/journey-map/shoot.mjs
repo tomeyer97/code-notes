@@ -15,9 +15,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { launchChromium, openHarness } from '../harness/page.mjs'
 
-const pw = await import(process.env.PLAYWRIGHT ? pathToFileURL(path.resolve(process.env.PLAYWRIGHT)).href : 'playwright')
-const chromium = pw.chromium ?? pw.default.chromium
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
@@ -25,6 +24,8 @@ const JOURNEYS = process.argv[3] ? path.resolve(process.argv[3]) : ''
 if (JOURNEYS && !fs.existsSync(JOURNEYS)) { console.error(`no folder ${JOURNEYS}`); process.exit(2) }
 const SAMPLES = path.join(ROOT, 'test/fixtures/journey/journeys')
 const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
+/** Run in each page before its own scripts: the contrast helpers (window.contrast) and the layout rules `check` uses. */
+const PAGE_HELPERS = [path.join(ROOT, 'test/harness/contrast.js'), path.join(ROOT, 'test/journey-map/layoutChecks.js')]
 for (const f of [path.join(ROOT, 'out/src/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js')]) {
   if (!fs.existsSync(f)) { console.error(`${path.relative(ROOT, f)} is missing: run \`npm run build\` first`); process.exit(2) }
 }
@@ -37,34 +38,93 @@ const journey = parse(path.join(SAMPLES, 'place-order.json'))
 /** Step `n` of a made-up journey, in box `node` (file a.go, line n). */
 const stepIn = (n, node) => ({ id: `s${n}`, n, title: `Step ${n} in ${node}`, node, file: 'a.go', range: { start: n, end: n }, lead: '', refs: [] })
 /** A record two parts hand over through (a dashed store box). */
-const handoff = { id: 'handoff', question: 'How does a cancel reach the worker?', title: 'Cancel', summary: 'The API marks the order; the worker polls it.', problems: [],
-  nodes: [{ id: 'srv', kind: 'system', label: 'Server', summary: '' }, { id: 'api', kind: 'module', label: 'Orders API', summary: '', parent: 'srv' }, { id: 'loop', kind: 'module', label: 'Order worker', summary: '', parent: 'srv' },
-    { id: 'rec', kind: 'store', label: 'Order record', path: 'api/store', summary: '', parent: 'srv' }],
-  edges: [{ from: 'api', to: 'rec', label: 'marks it cancelling' }, { from: 'loop', to: 'rec', label: 'polls every 2 s', async: true }, { from: 'loop', to: 'rec', label: 'marks it cancelled' }],
-  steps: [stepIn(1, 'api'), stepIn(2, 'loop')] }
+const handoff = {
+  id: 'handoff',
+  question: 'How does a cancel reach the worker?',
+  title: 'Cancel',
+  summary: 'The API marks the order; the worker polls it.',
+  problems: [],
+  nodes: [
+    { id: 'srv', kind: 'system', label: 'Server', summary: '' },
+    { id: 'api', kind: 'module', label: 'Orders API', summary: '', parent: 'srv' },
+    { id: 'loop', kind: 'module', label: 'Order worker', summary: '', parent: 'srv' },
+    { id: 'rec', kind: 'store', label: 'Order record', path: 'api/store', summary: '', parent: 'srv' },
+  ],
+  edges: [
+    { from: 'api', to: 'rec', label: 'marks it cancelling' },
+    { from: 'loop', to: 'rec', label: 'polls every 2 s', async: true },
+    { from: 'loop', to: 'rec', label: 'marks it cancelled' },
+  ],
+  steps: [stepIn(1, 'api'), stepIn(2, 'loop')],
+}
 // A generated journey's shape: a system of modules and functions, two top-level external boxes it calls.
-const stripe = { id: 'stripe-plan-change', question: 'How does a plan change reach Stripe and come back?', title: 'Plan change', summary: '', problems: [],
-  nodes: [{ id: 'console', kind: 'system', label: 'Console', summary: '' }, { id: 'page', kind: 'module', label: 'Billing page', summary: '', parent: 'console' },
+const stripe = {
+  id: 'stripe-plan-change',
+  question: 'How does a plan change reach Stripe and come back?',
+  title: 'Plan change',
+  summary: '',
+  problems: [],
+  nodes: [
+    { id: 'console', kind: 'system', label: 'Console', summary: '' },
+    { id: 'page', kind: 'module', label: 'Billing page', summary: '', parent: 'console' },
     { id: 'picker', kind: 'function', label: 'PlanPicker', summary: '', parent: 'page' },
-    { id: 'srv', kind: 'system', label: 'Server', summary: '' }, { id: 'http', kind: 'module', label: 'HTTP API', summary: '', parent: 'srv' },
-    { id: 'change', kind: 'function', label: 'changePlan', summary: '', parent: 'http' }, { id: 'hook', kind: 'function', label: 'handleStripeWebhook', summary: '', parent: 'http' },
-    { id: 'bill', kind: 'module', label: 'Billing', summary: '', parent: 'srv' }, { id: 'apply', kind: 'function', label: 'applyPlan', summary: '', parent: 'bill' },
-    { id: 'sync', kind: 'function', label: 'syncSubscription', summary: '', parent: 'bill' }, { id: 'receipt', kind: 'function', label: 'sendReceipt', summary: '', parent: 'bill' },
+    { id: 'srv', kind: 'system', label: 'Server', summary: '' },
+    { id: 'http', kind: 'module', label: 'HTTP API', summary: '', parent: 'srv' },
+    { id: 'change', kind: 'function', label: 'changePlan', summary: '', parent: 'http' },
+    { id: 'hook', kind: 'function', label: 'handleStripeWebhook', summary: '', parent: 'http' },
+    { id: 'bill', kind: 'module', label: 'Billing', summary: '', parent: 'srv' },
+    { id: 'apply', kind: 'function', label: 'applyPlan', summary: '', parent: 'bill' },
+    { id: 'sync', kind: 'function', label: 'syncSubscription', summary: '', parent: 'bill' },
+    { id: 'receipt', kind: 'function', label: 'sendReceipt', summary: '', parent: 'bill' },
     { id: 'rec', kind: 'store', label: 'Subscription record', summary: '', parent: 'srv' },
-    { id: 'stripe', kind: 'external', label: 'Stripe', summary: '' }, { id: 'mail', kind: 'external', label: 'Email provider', summary: '' }],
-  edges: [{ from: 'picker', to: 'change', label: 'POST /billing/plan' }, { from: 'change', to: 'apply', label: 'validates' }, { from: 'apply', to: 'stripe', label: 'updates the subscription' },
-    { from: 'stripe', to: 'hook', label: 'webhook', async: true }, { from: 'hook', to: 'sync', label: 'verified event' }, { from: 'sync', to: 'rec', label: 'writes' },
-    { from: 'sync', to: 'receipt', label: 'on upgrade' }, { from: 'receipt', to: 'mail', label: 'sends' }],
-  steps: ['picker', 'change', 'apply', 'stripe', 'hook', 'sync', 'receipt', 'mail'].map((node, i) => stepIn(i + 1, node)) }
+    { id: 'stripe', kind: 'external', label: 'Stripe', summary: '' },
+    { id: 'mail', kind: 'external', label: 'Email provider', summary: '' },
+  ],
+  edges: [
+    { from: 'picker', to: 'change', label: 'POST /billing/plan' },
+    { from: 'change', to: 'apply', label: 'validates' },
+    { from: 'apply', to: 'stripe', label: 'updates the subscription' },
+    { from: 'stripe', to: 'hook', label: 'webhook', async: true },
+    { from: 'hook', to: 'sync', label: 'verified event' },
+    { from: 'sync', to: 'rec', label: 'writes' },
+    { from: 'sync', to: 'receipt', label: 'on upgrade' },
+    { from: 'receipt', to: 'mail', label: 'sends' },
+  ],
+  steps: ['picker', 'change', 'apply', 'stripe', 'hook', 'sync', 'receipt', 'mail'].map((node, i) => stepIn(i + 1, node)),
+}
 // The bundled samples, then the journeys of the folder named on the command line.
 const jsonIn = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((f) => path.join(dir, f))
 const extra = JOURNEYS ? jsonIn(JOURNEYS) : []
 const real = [...jsonIn(SAMPLES), ...extra]
-const list = (extra.length ? extra : ['place-order.json', 'other.json']).map((f, i) => ({ key: `k-${path.basename(f)}`, title: path.basename(f).replace(/\.json$/, ''), question: extra.length ? JSON.parse(fs.readFileSync(f, 'utf8')).question : `What is ${f}?`, steps: 13, resume: i === 1 ? 4 : 0, ...(i === 0 ? { here: true } : {}), ...(i === 1 ? { start: true } : {}) }))
+/** The home's journeys: those of the folder named, else two made up; the first is "here", the second left at step 4. */
+const list = (extra.length ? extra : ['place-order.json', 'other.json']).map((f, i) => ({
+  key: `k-${path.basename(f)}`,
+  title: path.basename(f).replace(/\.json$/, ''),
+  question: extra.length ? JSON.parse(fs.readFileSync(f, 'utf8')).question : `What is ${f}?`,
+  steps: 13,
+  resume: i === 1 ? 4 : 0,
+  ...(i === 0 ? { here: true } : {}),
+  ...(i === 1 ? { start: true } : {}),
+}))
 // The home's model, as the extension builds it from the same journeys (journeyList.ts).
 const { buildList } = (await import(pathToFileURL(path.join(ROOT, 'out/src/journeyList.js')).href)).default
-const homeModel = buildList(list.map((x) => ({ key: x.key, kind: 'journey', title: x.title, question: x.question, summary: '', files: ['web/a.js'], stepTitles: [], steps: x.steps, stale: 0, isNew: false, resume: x.resume, ...(x.start ? { start: true } : {}) })))
-const tour = (x = {}) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list, home: homeModel, ...x })
+const homeModel = buildList(list.map((x) => ({
+  key: x.key, kind: 'journey', title: x.title, question: x.question, summary: '', files: ['web/a.js'], stepTitles: [],
+  steps: x.steps, stale: 0, isNew: false, resume: x.resume, ...(x.start ? { start: true } : {}),
+})))
+/** The rest of a "journey" or "tour" message (the walk's state), `x` over the defaults: not walking, no tutorial. */
+const tour = (x = {}) => ({
+  current: 0,
+  marks: {},
+  resume: 0,
+  legendHidden: true,
+  problems: [],
+  key: "Ctrl+'",
+  tutorial: false,
+  list,
+  home: homeModel,
+  ...x,
+})
 
 // ---------- reporting ----------
 
@@ -81,17 +141,12 @@ const prov = { text: 'Written by Fable · 11 Nov', tip: 'claude-fable-5-2 · com
 
 /** A fresh page on the harness at `w` × 900, in `th`'s colours; the map jumps instead of animating. */
 async function newPage(b, w, th) {
-  width = w; theme = th; tag = `${width}-${theme}`
-  errors = []
-  page = await (await b.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 1 })).newPage()
+  width = w
+  theme = th
+  tag = `${width}-${theme}`
   // The map jumps instead of animating (prefers-reduced-motion): checks see where it ends up. One check below animates.
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  page.setDefaultTimeout(4000)
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`) })
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
-  page.on('requestfailed', (r) => errors.push(`request failed: ${r.url()}`))
-  await page.goto(`${HARNESS}?theme=${theme}`)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  const context = { deviceScaleFactor: 1, reducedMotion: 'reduce' }
+  ;({ page, errors } = await openHarness(b, HARNESS, { width, height: 900, theme, warnings: true, failedRequests: true, context, timeout: 4000, initScripts: PAGE_HELPERS, ready: true }))
 }
 
 const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
@@ -119,100 +174,43 @@ const clickPosts = async (sel, want, what) => {
 }
 const view = () => page.evaluate(() => { const m = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(document.querySelector('.gworld')?.style.transform || ''); return m ? { x: +m[1], y: +m[2], k: +m[3] } : null })
 
-/** Layout checks on whatever is shown now. */
+/** Layout checks on whatever is shown now (the rules: layoutChecks.js); in dark, the text's contrast too. */
 const check = async (what, { current = true } = {}) => {
   await page.mouse.move(0, 0)
-  const r = await page.evaluate((wantCurrent) => {
-    const out = []
-    const de = document.documentElement
-    if (de.scrollWidth > de.clientWidth) out.push(`horizontal overflow ${de.scrollWidth} > ${de.clientWidth}`)
-    const rect = (e) => e.getBoundingClientRect()
-    const overlap = (a, b, m = 1) => a.left < b.right - m && b.left < a.right - m && a.top < b.bottom - m && b.top < a.bottom - m
-    const map = document.querySelector('.gmap')
-    if (map) {
-      const far = map.classList.contains('far')
-      const leaves = [...map.querySelectorAll('.gbox.leaf')]
-      const groups = [...map.querySelectorAll('.gbox.group')]
-      const byId = new Map([...leaves, ...groups].map((e) => [e.dataset.id, e]))
-      // Box text never cut (wide enough for its label and numbers).
-      if (!far) for (const x of leaves) if (x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1) out.push(`box ${x.dataset.id}: content clipped (${x.scrollWidth}x${x.scrollHeight} in ${x.clientWidth}x${x.clientHeight})`)
-      for (let i = 0; i < leaves.length; i++) for (let k = i + 1; k < leaves.length; k++) if (overlap(rect(leaves[i]), rect(leaves[k]))) out.push(`boxes ${leaves[i].dataset.id} and ${leaves[k].dataset.id} overlap`)
-      // Every box drawn, inside the box it belongs to.
-      const J = window.__J
-      if (J) for (const n of J.nodes) {
-        const e = byId.get(n.id), p = n.parent && byId.get(n.parent)
-        if (!e) { out.push(`box ${n.id} is not drawn`); continue }
-        if (p) { const a = rect(e), q = rect(p); if (a.left < q.left - 0.5 || a.right > q.right + 0.5 || a.top < q.top - 0.5 || a.bottom > q.bottom + 0.5) out.push(`box ${n.id} sticks out of ${n.parent}`) }
-      }
-      // Arrow labels: on their own line, over no box and no other label.
-      if (!far) {
-        const labels = [...map.querySelectorAll('.glabel')]
-        for (const l of labels) {
-          const r = rect(l)
-          if (!l.textContent || /^calls?(\s|$)/i.test(l.textContent)) out.push(`label "${l.textContent}" drawn (none or generic)`)
-          if (l.scrollWidth > l.clientWidth + 1) out.push(`label "${l.textContent}" is cut`)
-          for (const x of leaves) if (overlap(r, rect(x), 2)) out.push(`label "${l.textContent}" covers box ${x.dataset.id}`)
-          const p = map.querySelector(`path.gedge[data-i="${l.dataset.i}"]`)
-          if (p) {
-            const m = p.getScreenCTM(), len = p.getTotalLength()
-            let on = false
-            for (let d = 0; d <= len && !on; d += 2) { const pt = p.getPointAtLength(d), q = new DOMPoint(pt.x, pt.y).matrixTransform(m); on = q.x >= r.left - 1 && q.x <= r.right + 1 && q.y >= r.top - 1 && q.y <= r.bottom + 1 }
-            if (!on) out.push(`label "${l.textContent}" is off its line`)
-          }
-        }
-        for (let i = 0; i < labels.length; i++) for (let k = i + 1; k < labels.length; k++) if (overlap(rect(labels[i]), rect(labels[k]), 2)) out.push(`labels "${labels[i].textContent}" and "${labels[k].textContent}" overlap`)
-      }
-      // Far out: every name whole (no "Regi…").
-      if (far) for (const t of map.querySelectorAll('.gname')) { const s = t.firstChild; if (getComputedStyle(t).visibility !== 'hidden' && s.scrollWidth > s.clientWidth + 1) out.push(`far name "${s.textContent}" cut`) }
-      // The current step's box ringed and in view.
-      const cur = map.querySelector('.gbox.current')
-      if (wantCurrent) {
-        if (!cur) out.push('no box ringed for the current step')
-        else { const a = rect(cur), v = rect(map.querySelector('.gstage')); if (a.left < v.left - 1 || a.right > v.right + 1 || a.top < v.top - 1 || a.bottom > v.bottom + 1) out.push(`the current box ${cur.dataset.id} is not in view`) }
-      }
-      const ctl = map.querySelector('.gctl')
-      if (!ctl || [...ctl.children].map((x) => x.textContent).join() !== '+,−,Fit,?') out.push(`map controls "${ctl && ctl.textContent}"`)
-      // The controls are a row under the drawing; no box or arrow label shows under them.
-      else {
-        const c = rect(ctl), st = rect(map.querySelector('.gstage'))
-        if (c.top < st.bottom - 1) out.push('the map controls are over the drawing')
-        // What shows of each box and label (the drawing clips the rest).
-        const shownPart = (a) => ({ left: Math.max(a.left, st.left), right: Math.min(a.right, st.right), top: Math.max(a.top, st.top), bottom: Math.min(a.bottom, st.bottom) })
-        for (const e of map.querySelectorAll('.gbox.leaf, .glabel')) { const a = shownPart(rect(e)); if (a.right > a.left && a.bottom > a.top && overlap(a, c) && getComputedStyle(e).visibility !== 'hidden') out.push(`"${e.textContent}" under the map controls`) }
-      }
-    }
-    for (const old of ['.crumbs', '.stub', '.note.more', '.note.idle', '.legend', '.eblock', '.pop']) if (document.querySelector(old)) out.push(`old map part ${old} still drawn`)
-    const story = document.querySelector('.story')
-    if (story) {
-      if (map && overlap(rect(story), rect(map))) out.push('the storyline overlaps the map')
-      for (const s of story.querySelectorAll('.st')) if (s.scrollWidth > s.clientWidth + 1) out.push(`storyline row ${s.dataset.n} overflows`)
-    }
-    for (const [sel, what] of [['.summary', 'a summary under the question'], ['.st .later, .st .asked, .st .wasTag', 'tags in the storyline'], ['.tpos', 'a "1/6" beside the tutorial dots']]) if (document.querySelector(sel)) out.push(`${what} shown`)
-    return out
-  }, current)
+  const r = await page.evaluate((wantCurrent) => window.mapLayoutProblems(wantCurrent), current)
   for (const x of r) fail(`${tag} ${what}: ${x}`)
   if (theme === 'dark') for (const x of await lowContrast()) fail(`${tag} ${what}: ${x}`)
 }
 /** Map text at ≥ 4.5:1 in dark (labels, numbers and names you are meant to read; faint ones are faint on purpose). */
 const lowContrast = () => page.evaluate(() => {
-  const rgba = (c) => { const n = (c.match(/[\d.]+/g) || []).map(Number); const k = c.startsWith('color(') ? 255 : 1; return [n[0] * k, n[1] * k, n[2] * k, n.length > 3 ? n[3] : 1] }
-  const over = (top, under) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3])).concat(1)
-  const bgOf = (e) => { const layers = []; for (let x = e; x; x = x.parentElement) { const c = rgba(getComputedStyle(x).backgroundColor); if (c[3] > 0) layers.push(c); if (c[3] >= 1) break } return layers.reverse().reduce((u, t) => over(t, u), [255, 255, 255, 1]) }
-  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]) }
+  const { rgba, over, backgroundOf, ratio } = window.contrast
   const out = []
   for (const e of document.querySelectorAll('.gmap:not(.far) .glabel:not(.faint), .gmap:not(.far) .gnum:not(.cur), .gmap:not(.far) .gtitle, .gmap:not(.far) .glbl')) {
     if (e.getClientRects().length === 0 || getComputedStyle(e).visibility === 'hidden') continue
+    // The text's colour as shown: faded by its own and its ancestors' opacity, over its background.
     let a = 1
     for (let x = e; x; x = x.parentElement) a *= Number(getComputedStyle(x).opacity)
-    const bg = bgOf(e), fg0 = rgba(getComputedStyle(e).color)
+    const bg = backgroundOf(e), fg0 = rgba(getComputedStyle(e).color)
     const fg = over([fg0[0], fg0[1], fg0[2], fg0[3] * a], bg)
-    const L1 = lum(fg), L2 = lum(bg), ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05)
-    if (ratio < 4.5) out.push(`"${e.textContent.trim()}" (${e.className}) contrast ${ratio.toFixed(2)}:1 < 4.5`)
+    const r = ratio(fg, bg)
+    if (r < 4.5) out.push(`"${e.textContent.trim()}" (${e.className}) contrast ${r.toFixed(2)}:1 < 4.5`)
   }
   return out
 })
-const shot = async (name, full = false) => { if (!OUT) return; await page.mouse.move(0, 0); await page.screenshot({ path: path.join(OUT, `${tag}-${name}.png`), fullPage: full }) }
-const R = (sel) => page.evaluate((q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height } }, sel)
+/** A picture of the page (the whole page with `full`) into OUT as <tag>-<name>.png, the mouse out of the way. */
+const shot = async (name, full = false) => {
+  if (!OUT) return
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: path.join(OUT, `${tag}-${name}.png`), fullPage: full })
+}
+/** Where the first element matching `sel` is: { l, t, r, b, w, h }, null when there is none. */
+const R = (sel) => page.evaluate((q) => {
+  const e = document.querySelector(q)
+  if (!e) return null
+  const r = e.getBoundingClientRect()
+  return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }
+}, sel)
+/** Tells the page's layout rules which journey is drawn (they check every one of its boxes). */
 const setJ = (j) => page.evaluate((x) => { window.__J = x }, j)
 /**
  * Fit and the far view: the map centred in its area; far names never over each other or the buttons,
@@ -245,9 +243,9 @@ const farCheck = async (what) => {
       if (!lit.some((b) => b.textContent === String(cur))) out.push(`far: step ${cur}'s number not shown lit`)
     }
     if (dark) {
+      const { over, ratio: contrastOf } = window.contrast
+      // Not contrast.rgba: this one reads a color(srgb …) value's 0-1 numbers as 0-255 (as this check always has).
       const rgba = (s) => { const n = (s.match(/[\d.]+/g) || []).map(Number); return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1] }
-      const over = (t, u) => t.slice(0, 3).map((v, i) => v * t[3] + u[i] * (1 - t[3])).concat(1)
-      const lum = (q) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(q[0]) + 0.7152 * f(q[1]) + 0.0722 * f(q[2]) }
       const page = rgba(getComputedStyle(document.body).backgroundColor)
       const cover = document.querySelector('.gcover') ? over(rgba(getComputedStyle(document.querySelector('.gcover')).backgroundColor), page) : page
       for (const t of shown) for (const e of [t.querySelector('.gnt'), ...t.querySelectorAll('.gfn:not(.cur)')]) {
@@ -255,7 +253,7 @@ const farCheck = async (what) => {
         for (let x = e; x && x !== m; x = x.parentElement) { const q = rgba(getComputedStyle(x).backgroundColor); if (q[3] > 0) { bg = q; break } }
         for (const under of [page, cover]) {
           const b = bg ? over(bg, under) : under, f = over(rgba(getComputedStyle(e).color), b)
-          const L1 = lum(f), L2 = lum(b), ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05)
+          const ratio = contrastOf(f, b)
           if (ratio < 4.5) { out.push(`far "${e.textContent}" at ${ratio.toFixed(2)}:1`); break }
         }
       }
@@ -266,7 +264,7 @@ const farCheck = async (what) => {
 
 // ---------- the checks, in the order they run on each page ----------
 
-/** 1. The short title, the question under it, one provenance line, the storyline; no Start button. */
+/** The short title, the question under it, one provenance line, the storyline; no Start button. */
 async function header() {
   await setJ(journey)
   await open(journey, { prov })
@@ -325,7 +323,7 @@ async function storylineFocus() {
   await page.evaluate(() => document.activeElement.blur())
 }
 
-/** 2. Walking: the map follows the step (the box ringed, in view, readable), its number lit, its arrows strong. */
+/** Walking: the map follows the step (the box ringed, in view, readable), its number lit, its arrows strong. */
 async function walking() {
   await send({ type: 'tour', ...tour({ current: 1, prov }) })
   await settle()
@@ -397,7 +395,7 @@ async function dragThenNextStep() {
   if (JSON.stringify(await view()) === JSON.stringify(v8)) fail(`${tag}: after a drag the next step did not move the map back`)
 }
 
-/** 3. Clicks: a step number walks there; a function box opens its code; a module zooms to it; a drag clicks nothing. */
+/** Clicks: a step number walks there; a function box opens its code; a module zooms to it; a drag clicks nothing. */
 async function clicks() {
   await clickPosts('.gnum[data-n="9"]', { type: 'step', n: 9 }, 'a step number')
   const at = journey.nodes.find((n) => n.id === 'chargestatus').at
@@ -493,7 +491,7 @@ async function stepAnimates() {
   await check('step 2 animated')
 }
 
-/** 4. End in the header (none on the last step); after End the storyline marks where it was left; a removed last step is clamped. */
+/** End in the header (none on the last step); after End the storyline marks where it was left; a removed last step is clamped. */
 async function endAndResume() {
   await send({ type: 'tour', ...tour({ current: 13 }) })
   await settle()
@@ -514,7 +512,7 @@ async function endAndResume() {
   if ((await page.evaluate(() => document.querySelector('.story .st.cur')?.dataset.n)) !== '13') fail(`${tag}: a removed last step is not clamped`)
 }
 
-/** 5. A step with no code to open: its card under its storyline row; a stale card has one Ask; links, details, Next and Finish. */
+/** A step with no code to open: its card under its storyline row; a stale card has one Ask; links, details, Next and Finish. */
 async function stepCard() {
   await send({ type: 'tour', ...tour({ current: 4, card: { n: 4, lead: 'x', refs: '', stale: true, staleText: "**⚠ Code changed: can't find these lines** · [Ask](ask:update)" } }) })
   await settle()
@@ -537,7 +535,7 @@ async function stepCard() {
   await clickPosts('.scard .send', { type: 'finish' }, 'Finish on the last step')
 }
 
-/** 6. A step low in a long storyline: its row in view under the sticky header. */
+/** A step low in a long storyline: its row in view under the sticky header. */
 async function longStoryline() {
   await page.setViewportSize({ width, height: 420 })
   await send({ type: 'tour', ...tour({ current: 1 }) })
@@ -551,7 +549,7 @@ async function longStoryline() {
   await settle()
 }
 
-/** 7. Problems, authors, deleted. */
+/** Problems, authors, deleted. */
 async function problems() {
   await send({ type: 'tour', ...tour({ problems: ["Can't read the latest version of this file; showing the last good one."], authors: 2 }) })
   await settle()
@@ -628,7 +626,7 @@ async function tutorialCards(cardShown) {
   await clickPosts('.tcard .tnext', { type: 'tutorial', action: 'done' }, 'Done finishes the tutorial')
 }
 
-/** 9. A record two parts hand over through: dashed, opens its path; every arrow drawn with its label. */
+/** A record two parts hand over through: dashed, opens its path; every arrow drawn with its label. */
 async function handoffRecord() {
   await setJ(handoff)
   await open(handoff, { current: 1 })
@@ -638,7 +636,7 @@ async function handoffRecord() {
   await clickPosts('.gbox[data-id="rec"] .glbl', { type: 'openPath', path: 'api/store' }, 'a store opens its path')
 }
 
-/** 10. Home: "‹ Journeys" lists every journey (title, a quiet "n/N" right after it where one was left); a click selects, Enter walks; the extension opens the list, a step closes it. */
+/** Home: "‹ Journeys" lists every journey (title, a quiet "n/N" right after it where one was left); a click selects, Enter walks; the extension opens the list, a step closes it. */
 async function home() {
   await setJ(journey)
   await open(journey, { current: 2 })
@@ -691,7 +689,7 @@ async function anotherOpensAtTop() {
   await page.setViewportSize({ width, height: 900 })
 }
 
-/** 11. The sample journeys and those of the folder named on the command line: parsed as the extension does, the map at every step (the box ringed and in view), Fit; shots of the samples. A generated journey's shape first. */
+/** The sample journeys and those of the folder named on the command line: parsed as the extension does, the map at every step (the box ringed and in view), Fit; shots of the samples. A generated journey's shape first. */
 async function samples() {
   for (const f of ['stripe-plan-change', ...real]) {
     const name = path.basename(f).replace(/\.json$/, '')
@@ -758,11 +756,7 @@ async function pageErrors() {
  * the scripts (VS Code's webview host reads document.body while the page loads).
  */
 async function firstOpen(b, width) {
-  const page = await (await b.newContext({ viewport: { width, height: 900 } })).newPage()
-  const errors = []
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`) })
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
-  await page.goto(`${HARNESS}?theme=dark`)
+  const { page, errors } = await openHarness(b, HARNESS, { width, height: 900, theme: 'dark', warnings: true })
   const bodyFirst = await page.evaluate(() => { const b = document.body; const first = [...b.children].findIndex((c) => c.tagName === 'SCRIPT' && c.src); return first > [...b.children].findIndex((c) => c.id === 'app') && ![...document.head.querySelectorAll('script[src]')].length })
   if (!bodyFirst) failures.push(`first open ${width}: scripts load before the body`)
   await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
@@ -777,17 +771,24 @@ async function firstOpen(b, width) {
 
 // ---------- main ----------
 
-console.log(OUT ? `screenshots: ${OUT}` : 'no screenshots (give a folder as the first argument for them)')
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
-for (const w of [500, 1200]) for (const th of ['light', 'dark']) {
-  await newPage(b, w, th)
-  await header(); await mapPlacement(); await storylineFocus()
-  await walking()
+/** The splitter between the map and the storyline: wide layouts only. */
+async function splitterWhenWide() {
   if (width >= 520) await splitter()
   else if (await page.$('.splitter')) fail(`${tag}: a splitter in the narrow layout`)
-  await dragThenNextStep(); await clicks(); await zoom(); await legend(); await stepAnimates()
-  await endAndResume(); await stepCard(); await longStoryline(); await problems(); await tutorial(); await handoffRecord()
-  await home(); await finished(); await anotherOpensAtTop(); await samples(); await resize(); await pageErrors()
+}
+
+/** The checks, in the order they run on each page: each starts from what the one before left. */
+const CHECKS = [
+  header, mapPlacement, storylineFocus, walking, splitterWhenWide, dragThenNextStep, clicks, zoom, legend, stepAnimates,
+  endAndResume, stepCard, longStoryline, problems, tutorial, handoffRecord, home, finished, anotherOpensAtTop, samples,
+  resize, pageErrors,
+]
+
+console.log(OUT ? `screenshots: ${OUT}` : 'no screenshots (give a folder as the first argument for them)')
+const b = await launchChromium()
+for (const w of [500, 1200]) for (const th of ['light', 'dark']) {
+  await newPage(b, w, th)
+  for (const run of CHECKS) await run()
   await page.close()
   console.log(`${tag}: done`)
 }

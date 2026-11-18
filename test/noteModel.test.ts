@@ -94,7 +94,7 @@ test('titleOf: the first message of a file that is JSON', () => {
   assert.equal(titleOf('{"messages":[{"body":" "}]}'), undefined)
 })
 
-test('captureAnchor: the lines (0-based, inclusive) and two lines of context each side, cut at the file\'s ends', () => {
+test('captureAnchor (a note\'s, full text; journeys/steps.ts has a compact one): the lines (0-based, inclusive) and two lines of context each side, cut at the file\'s ends', () => {
   const lines = ['a', 'b', 'c', 'd', 'e', 'f']
   assert.deepEqual(captureAnchor(lines, 2, 3), { text: 'c\nd', before: 'a\nb', after: 'e\nf' })
   assert.deepEqual(captureAnchor(lines, 0, 0), { text: 'a', before: '', after: 'b\nc' })

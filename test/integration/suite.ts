@@ -11,12 +11,17 @@
 //   main/repoJourneys.ts   journeys in the repo, compact anchors   journeys/, compact.ts
 //   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
 //   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts
-//   roundTrips.ts          calls into the window per action (remote performance)
-// The pure modules have unit tests next to this folder (test/<module>.test.ts).
+//   main/roundTrips.ts     calls into the window per action (remote performance), on the journey animation.ts leaves
+// The pure modules have unit tests next to this folder, named after the module: src/<module>.ts in
+// test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
+// journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
+// Set up here: `ctx` (main/context.ts). The fake claude CLI is wired up later, by the first test that asks Claude
+// (main/notes.ts "Ask Claude: …", `useFakeClaude`): set earlier, every note created before it would be asked to
+// Claude (src/notes/create.ts). The tests after it (writeJourney.ts, requests.ts) read its log.
 import * as vscode from 'vscode'
 import * as path from 'path'
-import { activate, runTests, test } from './helpers'
-import { ctx, until } from './main/context'
+import { activate, runTests } from './helpers'
+import { ctx } from './main/context'
 import { notesTests } from './main/notes'
 import { journeyTourTests } from './main/journeyTour'
 import { keysAndMapTests } from './main/keysAndMap'
@@ -26,9 +31,11 @@ import { writeJourneyTests } from './main/writeJourney'
 import { repoJourneysTests } from './main/repoJourneys'
 import { requestsTests } from './main/requests'
 import { animationTests } from './main/animation'
-import { roundTrips } from './roundTrips'
+import { roundTripsTests } from './main/roundTrips'
 
+/** The entry point run.ts starts VS Code with (extensionTestsPath). */
 export async function run(): Promise<void> {
+  console.log('code-notes integration test')
   ctx.folder = vscode.workspace.workspaceFolders![0]
   ctx.ws = ctx.folder.uri.fsPath
   ctx.notesDir = path.join(ctx.ws, '.code-notes')
@@ -43,7 +50,7 @@ export async function run(): Promise<void> {
     ...repoJourneysTests,
     ...requestsTests,
     ...animationTests,
-    // On the animation journey the tests above leave open.
-    test('calls into the window per action: within their counts (CODE_NOTES_RTT_MS: their time over a slow link)', () => roundTrips(ctx.api, ctx.ws, until)),
+    ...roundTripsTests,
   ])
+  console.log('all passed')
 }

@@ -8,7 +8,7 @@ import * as path from 'path'
 import assert from 'assert'
 import { appendMessage, fakeCalls, linesOf, now, pkg, quiet, readJson, readJsonOr, sleep, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
-import { caretAt, closeAllEditors, ctx, noteAtPath, setting, snap, until, wsPath } from './context'
+import { caretAt, closeAllEditors, ctx, noteAtPath, setting, snap, until, useFakeClaude, wsPath } from './context'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** The first note (the person's question on src/app.ts, the only one at first). */
@@ -16,19 +16,26 @@ const first = () => snap().notes[0]
 const byBody = (start: string) => snap().notes.find((n: any) => n.messages[0].body.startsWith(start))
 const bySession = (s: string) => snap().notes.find((n: any) => n.session === s)
 
+// What earlier tests leave for later ones: each variable names the test that sets it, then the tests that read it.
+/** src/app.ts, its document and editor: set by "note created…"; read up to "renaming the file on disk…". */
 let appTs: vscode.Uri
 let appDoc: vscode.TextDocument
 let appEditor: vscode.TextEditor
-/** The first note's file. */
+/** The first note's file: set by "note created…"; read up to "delete moves the note to .code-notes/.trash". */
 let firstNotePath = ''
-/** src/app.ts after the rename. */
+/** src/app.ts after the rename ("renaming the file on disk…"). */
 const renamedTs = () => wsPath('src', 'renamed.ts')
+/** The partial-selection note, its editor (src/renamed.ts) and line: set by "a partial selection…"; read by "an agent
+ *  reply written while typing…" and "a deleted then restored file…". */
 let selectionNotePath = ''
-/** The editor the partial-selection note was made in (src/renamed.ts). */
 let selectionEditor: vscode.TextEditor
 let selectionLine = 0
+/** Set by "a path with the folder name in front is fixed"; read only there. */
 let prefixedPath = ''
+/** A note with an absolute path inside the workspace: set by "a note pointing outside…"; read by "your own reply…" and
+ *  "Undo as a command…". */
 let absolutePath = ''
+/** Set by "a string "selection" is kept…"; deleted by "a note deleted on disk is kept in .trash". */
 let stringSelectionPath = ''
 
 export const notesTests = [
@@ -241,9 +248,8 @@ export const notesTests = [
   }),
 
   test('Ask Claude: streams, answers, resumes the session on follow-ups, read-only, cancel', async () => {
-    // A fake CLI (test/fixtures/fake-claude.js) with its own log: other test runs on this machine share the temp folder.
-    process.env.FAKE_CLAUDE_LOG = path.join(ctx.ws, '..', `fake-claude-${path.basename(ctx.ws)}.log`)
-    await setting('claude.path', path.join(__dirname, '../../../../test/fixtures/fake-claude.js'))
+    // From here on Claude is the fake CLI, for this test and every one after it.
+    await useFakeClaude()
     const id = bySession('Classic review')!.id
     const asked = () => snap().notes.find((y: any) => y.id === id)
     const file = path.join(ctx.notesDir, `${id}.json`)

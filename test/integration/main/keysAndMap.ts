@@ -8,9 +8,7 @@ import assert from 'assert'
 import { appendMessage, now, quiet, settle, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
 import { at, closeAllEditors, ctx, noteById, notePath, tour, until } from './context'
-
-/** An unread agent note on src/flow2.ts:1 (R resolves it later, in notesReview.ts). */
-export const UNREAD_FINDING = '20261111-200000-unr1'
+import { UNREAD_FINDING } from './shared'
 
 const mapClosed = () => until('map closed', () => tour().map === undefined)
 
