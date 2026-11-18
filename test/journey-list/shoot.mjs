@@ -16,7 +16,7 @@ const chromium = pw.chromium ?? pw.default.chromium
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(import.meta.url)
 const { buildList } = require(path.join(ROOT, 'out/src/journeyList.js'))
-const { items, NOW } = require('./fixture.js')
+const { items, NOW } = require(path.join(ROOT, 'out/test/fixtures/journeyList.js'))
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
 const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href

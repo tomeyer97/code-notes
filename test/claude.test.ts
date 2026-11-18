@@ -21,3 +21,10 @@ test('ignores junk lines', () => {
   assert.equal(foldEvent(state, 'not json'), false)
   assert.equal(foldEvent(state, '{"type":"system","subtype":"init"}'), false)
 })
+
+test('the finished tool call reaches progress (for the phase)', () => {
+  const state: any = { text: '' }
+  const toolUse = { type: 'tool_use', name: 'Bash', input: { command: 'journey.py check . x' } }
+  foldEvent(state, JSON.stringify({ type: 'assistant', message: { content: [toolUse] } }))
+  assert.deepEqual(state.tool, { name: 'Bash', input: { command: 'journey.py check . x' } })
+})

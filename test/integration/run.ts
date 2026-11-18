@@ -10,6 +10,7 @@ import { execFileSync, spawn } from 'child_process'
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron'
 import { connectCdp } from './connectCdp'
 import { writeSkillStandIn } from './fixtures'
+import { writeSlowGit } from '../slowGit'
 
 /** The extension's folder (out/test/integration/ is three below it). */
 const ROOT = path.resolve(__dirname, '../../..')
@@ -155,8 +156,7 @@ async function check() {
 function slowGit(dir: string): string {
   const bin = path.join(dir, '..', `slow-git-${path.basename(dir)}`)
   fs.mkdirSync(bin, { recursive: true })
-  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
-  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nif [ -e .git/slow-git ]; then sleep 0.25; fi\nexec ${real} "$@"\n`, { mode: 0o755 })
+  writeSlowGit(bin, 0.25, '.git/slow-git')
   return bin
 }
 

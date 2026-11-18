@@ -46,7 +46,7 @@ test('sameStepAt: what the reader sees, not the diff\'s old side', () => {
   for (const k of ['start', 'end', 'stale', 'removed', 'now', 'file'] as const) assert.ok(!sameStepAt(a, { ...a, [k]: 99 }), k)
 })
 
-test('captureAnchor: compact from the written range; a step on blank lines keeps its context', () => {
+test('captureAnchor (a step\'s, compact; noteModel.ts has a full-text one): compact from the written range; a step on blank lines keeps its context', () => {
   assert.deepEqual(captureAnchor(code, { start: 3, end: 8 }), compactOf(code, 2, 7))
   assert.deepEqual(captureAnchor(code, { start: 9, end: 9 }), { text: '', before: '  b()\n}', after: 'function g() {}' })
   assert.deepEqual(captureAnchor(code, { start: 40, end: 50 }), compactOf(code, 9, 9), 'past the end: the last line')

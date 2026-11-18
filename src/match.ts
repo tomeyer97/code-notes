@@ -1,6 +1,6 @@
 // Matching words against journeys: the Journeys list's search (`matchScore`, journeyList.ts) and "which journey
 // answers this question" (`scoreJourney`, extension.ts) — one place for both, no vscode API (unit-tested in
-// test/journeyList.test.ts and test/writing.test.ts).
+// test/match.test.ts).
 //
 // The two read words by different rules (WordRules below), on purpose so far: the search runs as you type, so a
 // partial word must hit ("retr" finds "retries") and an identifier typed is one word; a question is a sentence, so its

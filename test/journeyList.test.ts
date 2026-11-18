@@ -1,8 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchScore, queryWords, seeAlso, stem } from '../src/journeyList'
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { items, NOW } = require('../../test/journey-list/fixture.js')
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, seeAlso } from '../src/journeyList'
+import { NOW, items } from './fixtures/journeyList'
+// The word-level rules the list's search uses (queryWords, stem, matchScore: src/match.ts) are tested in match.test.ts.
+
+/** A journey item titled `title` whose steps (all in api/x.js) have these titles. */
+const journeyItem = (key: string, title: string, steps: string[], summary = ''): ListItem => ({
+  key, kind: 'journey', title, question: `How does ${title.toLowerCase()} work?`, summary,
+  files: steps.map(() => 'api/x.js'), stepTitles: steps, steps: steps.length, stale: 0, isNew: false, resume: 0,
+})
+
+/** A journey item named `key` with steps at [file, start, end]. */
+const itemWithSteps = (key: string, steps: [string, number, number][]): ListItem => ({
+  key, kind: 'journey', title: key, question: '', summary: '',
+  files: steps.map((x) => x[0]), stepTitles: steps.map(() => ''), ranges: steps.map((x) => ({ start: x[1], end: x[2] })),
+  steps: steps.length, stale: 0, isNew: false, resume: 0,
+})
 
 test('area: the top folder most steps visit; ties go to the first step\'s', () => {
   assert.equal(areaOf(['api/a.js', 'web/b.js', 'web/c.js']), 'web')
@@ -21,8 +34,6 @@ test('search finds words in step titles, not only titles; every word must match'
   const titles = keys.map((k) => m.rows[k].title)
   assert.ok(titles.includes('How charging work'), `found by its step "retries": ${titles}`)
   assert.ok(m.rows[keys.find((k) => m.rows[k].title === 'How charging work')!].hits.includes('retries'))
-  assert.equal(matchScore(items()[0], 'orders nothinglikethis').score, 0)
-  assert.ok(matchScore(items()[0], 'orders').score > matchScore(items()[0], 'api').score, 'a title hit weighs more than a path hit')
   assert.equal(m.fallback, undefined)
 })
 
@@ -38,19 +49,15 @@ test('search: no journey has every word: any word, and one line says which word 
   assert.equal(buildList(items(), { query: 'zebra', now: NOW }).count, 0)
 })
 
-test('a question asked as one would ask it: stop-words left out, words stemmed, retry journeys first', () => {
-  assert.deepEqual(queryWords('how are charges retried'), ['charges', 'retried'])
-  assert.deepEqual(queryWords('how does it'), ['how', 'does', 'it'], 'only stop-words: kept')
-  assert.equal(stem('retried'), stem('retry')); assert.equal(stem('retries'), stem('retrying')); assert.equal(stem('charges'), stem('charge'))
-  const it = (key: string, title: string, steps: string[], summary = ''): ListItem => ({ key, kind: 'journey', title, question: `How does ${title.toLowerCase()} work?`, summary, files: steps.map(() => 'api/x.js'), stepTitles: steps, steps: steps.length, stale: 0, isNew: false, resume: 0 })
+test('a question asked as one would ask it: retry journeys first', () => {
   const list = [
-    it('totals', 'Order totals and discounts', ['Totals are summed', 'A discount code is applied'], 'How the totals of an order are computed and what the discounts are.'),
-    it('errors', 'Unexpected server errors', ['The error handler logs it', 'The client gets a 500']),
-    it('setup', 'Discount code setup', ['An admin adds a code']),
-    it('backoff', 'Job retry backoff', ['A failed job waits longer each time']),
-    it('queue', 'Worker job queue', ['A job is taken', 'A failed job is retried later']),
-    it('email', 'Order confirmation email', ['The email is queued', 'A failed send is retried']),
-    it('routing', 'API request routing', ['A route is matched']),
+    journeyItem('totals', 'Order totals and discounts', ['Totals are summed', 'A discount code is applied'], 'How the totals of an order are computed and what the discounts are.'),
+    journeyItem('errors', 'Unexpected server errors', ['The error handler logs it', 'The client gets a 500']),
+    journeyItem('setup', 'Discount code setup', ['An admin adds a code']),
+    journeyItem('backoff', 'Job retry backoff', ['A failed job waits longer each time']),
+    journeyItem('queue', 'Worker job queue', ['A job is taken', 'A failed job is retried later']),
+    journeyItem('email', 'Order confirmation email', ['The email is queued', 'A failed send is retried']),
+    journeyItem('routing', 'API request routing', ['A route is matched']),
   ]
   const m = buildList(list, { query: 'how are charges retried' })
   const keys = m.sections[0].keys
@@ -58,7 +65,7 @@ test('a question asked as one would ask it: stop-words left out, words stemmed, 
   assert.equal(keys.length, 3, 'stop-words match nothing')
   assert.equal(m.fallback?.note, 'No journey about “charges”; closest for “retried”')
   // A journey with both words comes first.
-  const both = buildList([...list, it('charge', 'Card charges', ['A declined charge is retried once'])], { query: 'how are charges retried' })
+  const both = buildList([...list, journeyItem('charge', 'Card charges', ['A declined charge is retried once'])], { query: 'how are charges retried' })
   assert.equal(both.sections[0].keys[0], 'charge'); assert.equal(both.fallback, undefined)
 })
 
@@ -136,10 +143,9 @@ test('Stale: a chip with its count; rows say which steps', () => {
 })
 
 test('See also: the journey step on those lines first, then the journey with most steps in the file, then the nearest step', () => {
-  const it = (key: string, steps: [string, number, number][]): ListItem => ({ key, kind: 'journey', title: key, question: '', summary: '', files: steps.map((x) => x[0]), stepTitles: steps.map(() => ''), ranges: steps.map((x) => ({ start: x[1], end: x[2] })), steps: steps.length, stale: 0, isNew: false, resume: 0 })
-  const a = it('a', [['web/x.ts', 1, 5], ['api/orders.js', 10, 20], ['api/orders.js', 40, 50]])
-  const b = it('b', [['api/orders.js', 60, 70]])
-  const c = it('c', [['api/store.js', 1, 9]])
+  const a = itemWithSteps('a', [['web/x.ts', 1, 5], ['api/orders.js', 10, 20], ['api/orders.js', 40, 50]])
+  const b = itemWithSteps('b', [['api/orders.js', 60, 70]])
+  const c = itemWithSteps('c', [['api/store.js', 1, 9]])
   assert.deepEqual(seeAlso([a, b, c], ['api/orders.js'], { start: 62, end: 64 }), { key: 'b', step: 1 })
   assert.deepEqual(seeAlso([a, b, c], ['api/orders.js'], { start: 44, end: 45 }), { key: 'a', step: 3 })
   // No step on those lines: the journey with more steps in the file, at its nearest step.

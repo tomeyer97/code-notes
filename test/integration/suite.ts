@@ -12,7 +12,9 @@
 //   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
 //   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, beatLine.ts
 //   main/roundTrips.ts     calls into the window per action (remote performance), on the journey animation.ts leaves
-// The pure modules have unit tests next to this folder (test/<module>.test.ts).
+// The pure modules have unit tests next to this folder, named after the module: src/<module>.ts in
+// test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
+// journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
 // Set up here: `ctx` (main/context.ts). The fake claude CLI is wired up later, by the first test that asks Claude
 // (main/notes.ts "Ask Claude: …", `useFakeClaude`): set earlier, every note created before it would be asked to
 // Claude (src/notes/create.ts). The tests after it (writeJourney.ts, requests.ts) read its log.
