@@ -10,7 +10,6 @@ import { tree } from '../sidebar/notesTree'
 import { editorSettling } from '../threads/settle'
 import { refreshDecorations } from '../notes/decorations'
 import { wfs } from '../workspaceFs'
-import { plural } from '../text'
 import type { StepCard } from './card'
 import { openCheckpoint, stopBy } from './checkTour'
 import { panelFits } from './panelLayout'
@@ -125,14 +124,6 @@ export class Walk {
     const out: Record<number, string> = {}
     lj.at.forEach((a, i) => { if (a.stale) out[i + 1] = 'stale' })
     return out
-  }
-
-  /** "3/13", "at 3/13" (left there), "13 steps". */
-  progress(lj: LoadedJourney): string {
-    const total = lj.j.steps.length
-    if (lj.key === this.tour.key && this.tour.step) return `${this.tour.step}/${total}`
-    const r = this.resumeAt(lj)
-    return r ? `at ${r}/${total}` : plural(total, 'step')
   }
 
   /**
