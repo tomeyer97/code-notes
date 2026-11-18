@@ -4,7 +4,7 @@ import { isOldFormat, parseJourney } from '../journeyModel'
 import { folderName, folderSetting } from '../store'
 import { jsonFilesIn, jsonName, readText, watchJsonFiles } from '../jsonFolder'
 import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
-import { pathIn, slashPath } from '../paths'
+import { pathIn, settingFolder } from '../paths'
 import { StepTracker } from './tracker'
 
 // Journeys (format v2, docs/journey-format.md): <repo>/journeys/<slug>.json (codeNotes.journeys.folder: committed,
@@ -13,7 +13,7 @@ import { StepTracker } from './tracker'
 
 /** Where journeys are committed (codeNotes.journeys.folder, default `journeys`), relative to the workspace folder. */
 export function journeysFolderName(): string {
-  return slashPath(folderSetting('journeys.folder', 'journeys')).replace(/^\.\//, '')
+  return settingFolder(folderSetting('journeys.folder', 'journeys'))
 }
 
 /** What the list says about a journey file in the old format. */

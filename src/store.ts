@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { wfs } from './workspaceFs'
 import * as fs from 'fs'
 import * as path from 'path'
-import { placeFile } from './paths'
+import { placeFile, settingFolder } from './paths'
 import { fileName, jsonFilesIn, jsonName, readText, watchJsonFiles } from './jsonFolder'
 import { NoteData, agentReadme, folderProblem, merge, parseNote, serialize, titleOf } from './noteModel'
 import { SaveFailures } from './saveFailures'
@@ -35,7 +35,7 @@ export const DEFAULT_FOLDER = '.code-notes'
 
 /** The notes folder (codeNotes.folder, default DEFAULT_FOLDER), relative to the workspace folder. */
 export function folderName(): string {
-  return folderSetting('folder', DEFAULT_FOLDER).replace(/\/+$/, '')
+  return settingFolder(folderSetting('folder', DEFAULT_FOLDER))
 }
 
 const encoder = new TextEncoder()
