@@ -4,10 +4,10 @@
 import * as vscode from 'vscode'
 import * as os from 'os'
 import { lineDiff } from '../anchor'
-import { linkify } from '../answerLinks'
+import { linkify } from '../linkifyAnswer'
 import { alsoAllow, BANNER_COMMANDS, byId, cmdLink, MESSAGE_COMMANDS, systemMarkdown, titledCmdLink, trustedMarkdown, understanding } from '../app'
 import { askErrors, asking } from '../ask/run'
-import type { ThreadStatus } from '../check/index'
+import type { ThreadStatus } from '../check/controller'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../codeLinkText'
 import { otherBranch } from '../checkout'
 import { isAgent, mine } from '../identity'
@@ -21,7 +21,7 @@ import { questionDone, seeAlsoLink } from '../tour/checkTour'
 import { tourState, walk } from '../tour/instances'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
 import { syncThread } from './sync'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 
 export function threadRange(n: Note): vscode.Range {
   return new vscode.Range(n.data.range.start - 1, 0, n.data.range.end - 1, 0)

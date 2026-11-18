@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { byId } from '../app'
 import { Note } from '../store'
 import { plain, rangeLabel } from '../text'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 
 /** A folder note's thread lives on a read-only page about the folder (there is no document to put it on). */
 const FOLDER_SCHEME = 'code-notes-folder'

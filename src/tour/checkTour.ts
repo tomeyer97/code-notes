@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'
-import { Check, QState } from '../checkModel'
+import { Check, QState } from '../check/types'
 import { seeAlso } from '../journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'

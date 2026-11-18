@@ -2,8 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Status, Summary, Words, checkPhase, checkPrompt, checkView, concernOf, gradeBody, linksAt, questionBody, statusText, todoLines, todoPlace, gradeFailure, answerBox, linkParts, tourPrompt, writeFailure, commentMark, hunksOf, jsonErrorAt, missingMessages, runAction, samePerson, whoOf } from '../src/checkModel'
-import { importCli } from '../src/importCli'
+import { Status, Summary, Words } from '../src/check/types'
+import { checkPhase, checkPrompt, tourPrompt } from '../src/check/prompts'
+import { gradeBody, linksAt, questionBody, missingMessages } from '../src/check/threadText'
+import { concernOf, samePerson, whoOf } from '../src/check/concernState'
+import { checkView, statusText, answerBox, linkParts, runAction } from '../src/check/viewModel'
+import { todoLines, todoPlace, commentMark } from '../src/check/todoComment'
+import { gradeFailure, writeFailure, jsonErrorAt } from '../src/check/failures'
+import { importCli } from '../src/check/importCli'
 
 /** A Bash tool call, as the stream reports it. */
 const bashCall = (command: string) => ({ name: 'Bash', input: { command } })
@@ -272,7 +278,7 @@ test('a failure the extension raised is said by its kind, whatever its words', (
 })
 
 test('every function of Cli is in the CLI', async () => {
-  const src = fs.readFileSync(path.join(__dirname, '../../src/checkModel.ts'), 'utf8')
+  const src = fs.readFileSync(path.join(__dirname, '../../src/check/types.ts'), 'utf8')
   const body = /export interface Cli \{([\s\S]*?)\n\}/.exec(src)![1]
   const names = [...body.matchAll(/^ {2}([A-Za-z_]\w*)[(:]/gm)].map((m) => m[1])
   assert.ok(names.length > 30, `found ${names.length} names`)
@@ -296,7 +302,6 @@ test('people, comment marks, hunks, JSON errors, missing thread messages', () =>
   assert.ok(samePerson({ name: 'A' }, { name: 'A', email: 'b@x' }))
   assert.deepEqual(whoOf({ name: 'A', email: '' }), { name: 'A' })
   assert.deepEqual([commentMark('a/b.py'), commentMark('x/Dockerfile'), commentMark('a.vue'), commentMark('a.ts')], [['#', ''], ['#', ''], ['<!--', ' -->'], ['//', '']])
-  assert.deepEqual(hunksOf('diff\n@@ -1,2 +3,4 @@ x\n+a\n@@ -9 +12 @@\n@@ -20,3 +19,0 @@'), [{ start: 3, end: 6 }, { start: 12, end: 12 }, { start: 19, end: 19 }])
   assert.deepEqual(jsonErrorAt('Unexpected token \'}\', "{\n "a"}" is not valid JSON at position 4', '{\n "a"}'), { line: 2, col: 3, text: 'Line 2: unexpected token \'}\'.' })
   assert.equal(jsonErrorAt("Expected double-quoted property name in JSON at position 7 (line 2 column 3)", undefined)?.text, 'Line 2: expected double-quoted property name.')
   assert.equal(jsonErrorAt('ENOENT: no such file', undefined), undefined)

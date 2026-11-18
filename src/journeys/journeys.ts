@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 import { parseJourney } from '../journeyModel'
 import { folderName, journeysFolderName } from '../store'
 import { jsonFilesIn, watchJsonFiles } from '../jsonFolder'

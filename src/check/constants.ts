@@ -6,8 +6,9 @@ export const AUTHOR = 'Understanding check'
 export const SKILL = 'understanding-check'
 /** Files `init` writes: committed with the check when someone ran it by hand. */
 export const REPO_FILES = ['.gitattributes', '.ignore']
-/** Questions written for a branch that was no longer checked out when they were done: kept here until it is. */
-export const CACHE = '.code-notes/.cache/checks'
+
+/** The setting (under codeNotes.) that turns background questions after a push on and off (background.ts). */
+export const BACKGROUND_SETTING = 'understanding.background'
 
 // ---------- per-workspace memory (vscode.Memento keys) ----------
 

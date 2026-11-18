@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { CliThread } from '../src/cliThread'
+import { CliThread } from '../src/check/cliThread'
 
 const CLI = path.join(__dirname, '../../cli/understanding.mjs')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

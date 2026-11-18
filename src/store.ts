@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { wfs } from './wfs'
+import { wfs } from './workspaceFs'
 import * as fs from 'fs'
 import * as path from 'path'
 import { placeFile } from './paths'

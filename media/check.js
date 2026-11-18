@@ -1,6 +1,6 @@
 // The Check view (a webview in the Code Notes sidebar). Plain DOM, textContent only. Needs common.js.
 // In:
-//   { type: 'check', view }     the view to draw (src/checkModel.ts CheckView, or null)
+//   { type: 'check', view }     the view to draw (src/check/viewModel.ts CheckView, or null)
 //   { type: 'test', click }     click this selector (integration tests)
 //   anything else: the answer box's (media/checkAnswer.js)
 // Out:
@@ -13,13 +13,13 @@
 //   { type: 'tour' | 'writeTour' }  the tour of the change: walk it, write it
 //   { type: 'rendered', rows, overflow, height }   what is cut or sticks out (for tests)
 //   and the answer box's (media/checkAnswer.js)
-//   With checkAnswer.js's, these are src/check/view.ts CheckViewRequest and CheckViewReport: a name added here goes
-//   there too.
+//   With checkAnswer.js's, these are src/check/viewMessages.ts CHECK_VIEW_REQUESTS and CHECK_VIEW_REPORTS (a name added
+//   here goes there too; test/checkViewMessages.test.ts compares them).
 ;(function () {
   const { el, button, connect, onMessages, runKey, overflowing, QSTATE } = window.common
   const { post } = connect()
   const app = document.getElementById('app')
-  /** The view (src/checkModel.ts CheckView), or null: no repository. */
+  /** The view (src/check/viewModel.ts CheckView), or null: no repository. */
   let V
 
   function render() {

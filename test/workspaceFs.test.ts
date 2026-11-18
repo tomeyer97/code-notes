@@ -4,10 +4,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 // From a remote extension host every vscode.workspace.fs call is a round trip through the window: the extension's
-// files go through wfs.ts (Node's fs for file: URIs) instead.
-test('no vscode.workspace.fs outside wfs.ts', () => {
+// files go through workspaceFs.ts (Node's fs for file: URIs) instead.
+test('no vscode.workspace.fs outside workspaceFs.ts', () => {
   const dir = path.join(__dirname, '../../src')
-  const hits = fs.readdirSync(dir).filter((f) => f.endsWith('.ts') && f !== 'wfs.ts')
+  const hits = fs.readdirSync(dir).filter((f) => f.endsWith('.ts') && f !== 'workspaceFs.ts')
     .flatMap((f) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n').map((l, i) => [f, i + 1, l] as const))
     .filter(([, , l]) => /workspace\.fs\b/.test(l)).map(([f, i]) => `${f}:${i}`)
   assert.deepEqual(hits, [])

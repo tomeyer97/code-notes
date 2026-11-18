@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { Block, blocksFromSymbols, blocksFromText, Sym } from './codeBlocks'
-import { docLines } from './wfs'
+import { docLines } from './documents'
 
 /** The blocks per document. Symbols not ready yet (a language server still starting) are not kept for long: the
  *  text's blocks stand in, and the symbols are asked for again after SYMBOLS_RETRY_MS. */

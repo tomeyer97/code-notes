@@ -8,7 +8,8 @@ import { commitInfo, otherBranch } from '../checkout'
 import { refreshAll } from '../refresh'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
-import { diskLines, docLines, wfs } from '../wfs'
+import { diskLines, docLines } from '../documents'
+import { wfs } from '../workspaceFs'
 import { folderPage } from './pages'
 
 type Anchor = NoteData['anchor']

@@ -6,7 +6,7 @@ import { refreshAll } from '../refresh'
 import { anchorAt, docUri, missing, noAnchor, otherAnchor, pastEnd } from './location'
 import { rangeLabel } from '../text'
 import { suggestionOf } from '../threads/comments'
-import { docLines } from '../wfs'
+import { docLines } from '../documents'
 
 /** Apply on an agent's ```suggestion block: replaces the note's lines; the editor's Undo takes it back. */
 export async function applySuggestion(id: string, mi: number, k: number): Promise<boolean> {

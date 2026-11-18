@@ -11,7 +11,6 @@ import { shape, shapeOf } from '../notes/changedOnDisk'
 import { newId } from '../notes/create'
 import { addReply } from '../notes/reply'
 import { focusReply, reveal } from '../notes/reveal'
-import { resolve } from '../notes/status'
 import { refreshAll } from '../refresh'
 import { markRead, setSeen, unread } from '../seen'
 import { journeysTree } from '../sidebar/journeysTree'
@@ -19,14 +18,14 @@ import { Note } from '../store'
 import { noteOfThread, revealed } from '../threads/sync'
 import { currentTour, openCheckpoint, tourChanged } from '../tour/checkTour'
 import { walkJourney } from '../tour/commands'
-import { card, tourState, walk } from '../tour/instances'
+import { card, walk } from '../tour/instances'
 import { journeySkill } from '../write/claudeRun'
 import type { ConcernAction } from './concern'
-import { Understanding } from './index'
+import { CheckController } from './controller'
 
 /** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
 export function createUnderstanding(context: vscode.ExtensionContext): void {
-  provide({ understanding: new Understanding({
+  provide({ understanding: new CheckController({
     log, store, extUri: context.extensionUri, memento: state, me, now, newId,
     revealed: () => revealed.id,
     focusReply,
@@ -36,7 +35,6 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     model: checkModel,
     changed: noteChanged,
     addReply: (n, text) => addReply(n, text),
-    resolve: (n) => resolve([n]),
     reveal: (n, col, keep) => reveal(n, col ?? walk.codeColumn(), keep),
     refresh: () => refreshAll(),
     codeColumn: walk.codeColumn,
@@ -45,7 +43,6 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     tourChanged,
     walkTour,
     openInTour,
-    tourNext,
   }) })
   context.subscriptions.push(understanding!)
 }
@@ -88,13 +85,6 @@ async function openInTour(id: string): Promise<boolean> {
   return lj ? openCheckpoint(lj, id) : false
 }
 
-/** The walk is at question `id` of the check's tour: on to the next stop. False when it isn't. */
-async function tourNext(id: string): Promise<boolean> {
-  const lj = walk.tourJourney()
-  if (!lj?.check || !walk.touring() || tourState.checkpointId !== id) return false
-  await walk.stepBy(1)
-  return true
-}
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
 export const answerCheck = async (r: vscode.CommentReply) => {
@@ -110,14 +100,14 @@ const isConcernAction = (a: unknown): a is ConcernAction => CONCERN_ACTIONS.incl
 export const checkConcern = async (id?: string, action?: string, reason?: string) => {
   const n = typeof id === 'string' ? byId(id) : undefined
   if (!n || !isConcernAction(action)) return
-  await understanding!.concern(n, action, typeof reason === 'string' ? reason : undefined)
+  await understanding!.concerns.act(n, action, typeof reason === 'string' ? reason : undefined)
 }
 
 /** codeNotes.gradeCheck (Try again): note `id`'s question graded again. */
 export const gradeCheck = async (id?: string) => {
   const n = typeof id === 'string' ? byId(id) : undefined
   const q = n && understanding!.qidOf(n)
-  if (q) await understanding!.grade(q)
+  if (q) await understanding!.grader.grade(q)
 }
 
 /** Back from a check thread's code link: the question, with the keyboard in its answer box (never in the code). */
@@ -129,7 +119,7 @@ export async function backToQuestion(n: Note): Promise<void> {
 }
 
 /** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
-export function checkLinkNote(key: string): { n: Note; links: ReturnType<Understanding['linksIn']> } | undefined {
+export function checkLinkNote(key: string): { n: Note; links: ReturnType<CheckController['linksIn']> } | undefined {
   const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
   const n = m ? byId(m[1]) : undefined
   return n && understanding ? { n, links: understanding.linksIn(n, Number(m![2])) } : undefined

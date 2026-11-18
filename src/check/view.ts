@@ -1,44 +1,9 @@
 // The Check view in the Code Notes sidebar (media/check.js, media/checkAnswer.js): where the check stands, the
-// questions as rows, one button. This side only carries messages: the controller (index.ts) decides what they do.
+// questions as rows, one button. This side only carries messages: the controller (controller.ts) decides what they do.
 import * as vscode from 'vscode'
-import type { CheckView } from '../checkModel'
+import type { CheckViewMessage } from './viewMessages'
+import type { CheckView } from './viewModel'
 import { webviewPage } from '../webview/page'
-
-/**
- * What the view's page asks the controller for (index.ts `viewHandlers`, one handler each). These and CheckViewReport
- * are the names media/check.js and media/checkAnswer.js list under "Out" (the action ids are checkModel.ts
- * CheckView['action']['id']). JS can't import these types: a name added on one side goes in the other's list too.
- */
-export type CheckViewRequest =
-  | 'ready' | 'open' | 'tour' | 'writeTour' | 'select' | 'answer' | 'draft' | 'link' | 'next' | 'concern' | 'openFile' | 'merge'
-  | 'retry' | 'modelSetting' | 'pathSetting' | 'install' | 'regrade' | 'escape' | 'include' | 'start' | 'topUp' | 'scm'
-  | 'commitPush' | 'pull' | 'openMr'
-/** What the view itself reports (handled here): drawn, an error, the keyboard arrived in a box. */
-type CheckViewReport = 'rendered' | 'error' | 'focused'
-
-/** A message from the view's page. The page is a webview: every field is checked where it is used. */
-export interface CheckViewMessage {
-  type: CheckViewRequest | CheckViewReport | string
-  /** A question's id. */
-  id?: string
-  /** A file to tick or untick for Commit & push (`include`, with `on`). */
-  file?: string
-  on?: boolean
-  /** `focused`: the answer box got the keyboard. */
-  ok?: boolean
-  /** An answer, or a draft of one. */
-  text?: string
-  /** A code link's index in a grade. */
-  i?: number
-  /** A concern's action: fix, todo, flag, dismiss. */
-  action?: string
-  /** `rendered`: rows drawn, layout problems, the page's height. */
-  rows?: number
-  overflow?: string[]
-  height?: number
-  /** `error`: the page's error. */
-  message?: string
-}
 
 export class CheckViewProvider implements vscode.WebviewViewProvider {
   private wv: vscode.WebviewView | undefined

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { fileLines, docLines } from '../wfs'
+import { fileLines, docLines } from '../documents'
 import { JStep } from '../journeyModel'
 import { shift, swallows, Loc, LineEdit } from '../anchor'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, toCompact } from '../compact'

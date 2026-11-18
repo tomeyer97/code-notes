@@ -17,7 +17,8 @@ import { refreshDecorations } from './notes/decorations'
 import { syncThread, threads } from './threads/sync'
 import { keepOffMap } from './tour/panelLayout'
 import { card, tourState, walk } from './tour/instances'
-import { docLines, wfs } from './wfs'
+import { docLines } from './documents'
+import { wfs } from './workspaceFs'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
 async function followJourneyFiles(): Promise<void> {

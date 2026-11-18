@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { LineEdit } from './beatLine'
-import { docLines } from './wfs'
+import { docLines } from './documents'
 
 // Lines remembered by text (a beat's line, a code link's lines, value hints) follow edits to their file in two moves:
 // at once by the lines added or removed above them (`onShift`), and once the typing pauses by their text (`onRefind`).

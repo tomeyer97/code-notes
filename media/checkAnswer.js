@@ -10,7 +10,7 @@
 //   { type: 'next' }  { type: 'escape' }  { type: 'regrade', id }
 //   { type: 'focused', id, ok }      whether the keyboard reached the box
 //   { type: 'concern', id, action }  'fix' | 'todo' | 'flag' | 'dismiss'
-//   (src/check/view.ts CheckViewRequest and CheckViewReport list these with check.js's: keep them the same.)
+//   (src/check/viewMessages.ts lists these with check.js's; test/checkViewMessages.test.ts compares them.)
 ;(function () {
   /** What was typed here, newer than the drafts the extension sends back. */
   const drafts = {}
@@ -123,7 +123,7 @@
   }
 
   window.checkAnswer = {
-    /** The box of answer view `a` (src/checkModel.ts AnswerBox), for row `r`. */
+    /** The box of answer view `a` (src/check/viewModel.ts AnswerBox), for row `r`. */
     box(a, r, post) {
       const w = el('div', 'answer')
       w.dataset.id = a.id

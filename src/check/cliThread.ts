@@ -3,7 +3,7 @@
 // Remote-SSH: the editor too) would wait with it. No vscode here: unit tests use it as is.
 import { Worker } from 'worker_threads'
 import * as path from 'path'
-import { READ_ONLY_GIT } from './git'
+import { READ_ONLY_GIT } from '../git'
 
 /** A call that takes longer than this is given up (a git that hangs): the worker is stopped, the next call starts a new one. */
 const TIMEOUT_MS = 120_000

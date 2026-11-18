@@ -7,12 +7,12 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { statusBranch, statusPaths } from './git'
+import { statusBranch, statusPaths } from '../git'
 import { importCli } from './importCli'
-import type { RefreshResult } from './checkModel'
+import type { RefreshResult } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** The CLI's functions, called by name from the other side (checkModel.ts `Cli` lists the ones the extension uses). */
+/** The CLI's functions, called by name from the other side (check/types.ts `Cli` lists the ones the extension uses). */
 type CliModule = Record<string, any>
 const loaded = importCli<CliModule>((workerData as { cli: string }).cli)
 /** The understanding CLI (cli/understanding.mjs), once loaded. */
@@ -64,8 +64,11 @@ function configKey(repo: string): string {
 /** The branch compared with (the CLI's defaultBase), kept while the branch and the refs it is chosen from stay the same. */
 function defaultBase(repo: string, branch: string | undefined): string | undefined {
   const c = dirs(repo).common
-  const refs = ['packed-refs', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']
-  return cached(`base\0${repo}`, `${branch}|${refs.map((r) => stamp(path.join(c, r))).join('|')}`, () => cli.defaultBase(repo) as string | undefined)
+  // The refs the CLI chooses from (origin's HEAD, then its DEFAULT_BRANCHES on origin, then local), and packed-refs.
+  const names: string[] = cli.DEFAULT_BRANCHES
+  const refs = ['packed-refs', 'refs/remotes/origin/HEAD', ...names.map((b) => `refs/remotes/origin/${b}`), ...names.map((b) => `refs/heads/${b}`)]
+  const refsKey = refs.map((r) => stamp(path.join(c, r))).join('|')
+  return cached(`base\0${repo}`, `${branch}|${refsKey}`, () => cli.defaultBase(repo) as string | undefined)
 }
 
 /**

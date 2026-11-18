@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { byId, log, mapPanel, showError } from '../app'
-import { ownSelection } from '../claudeLinks'
+import { ownSelection } from '../claudeChatLinks'
 import { markRead, visitFrom } from '../seen'
 import { journeyOfNote } from '../sidebar/journeyRows'
 import { Node, noteNode } from '../sidebar/nodes'
@@ -15,7 +15,7 @@ import { editorSettling, editorShownAt, setCollapse, settling } from '../threads
 import { expandWhenMade, revealed, syncThread, threads } from '../threads/sync'
 import { openRef } from '../tour/refs'
 import { walk } from '../tour/instances'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 import { rangesAskedAt, waitUntil } from './commentRanges'
 import { clampLines, docUri, missing, notesFor } from './location'
 import { startMove } from './move'

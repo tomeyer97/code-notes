@@ -7,7 +7,7 @@ import { treeView } from '../sidebar/notesTree'
 import { folderProblem } from '../noteModel'
 import { folderName } from '../store'
 import { plural } from '../text'
-import { wfs } from '../wfs'
+import { wfs } from '../workspaceFs'
 
 /** The notes folder when the setting names none (or one that can't be used). */
 const DEFAULT_FOLDER = '.code-notes'
