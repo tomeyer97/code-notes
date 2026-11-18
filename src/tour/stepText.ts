@@ -12,6 +12,9 @@ import { readLinks } from '../codeLinkText'
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }
 
+/** A step card's text: the lead, the details (More), the references listed under them, and whether it is stale. */
+export interface StepText { lead: string; details: string; refs: string; stale: boolean }
+
 /** What a step's text depends on besides the journey: renamed files, files/lines found gone, the details shown. */
 export interface StepTextInput {
   /** Renamed files (old path -> new path) the journey's steps followed. */
@@ -150,6 +153,14 @@ export function shownBy(lj: TextJourney, n: number, details: string, input: Step
 
 // ---------- the card's text ----------
 
+/**
+ * Text for a comment thread's label: VS Code HTML-escapes a label and then shows it as text ("&lt;script&gt;"), so
+ * <, > and & are drawn with look-alikes (‹ › ＆) instead.
+ */
+export function labelSafe(text: string): string {
+  return text.replace(/</g, '‹').replace(/>/g, '›').replace(/&/g, '＆')
+}
+
 /** What a stale step's card says first: gone, removed, or what changed, and one thing to do. `fileGone`: the step's own file is gone. */
 export function staleText(lj: TextJourney, n: number, ask: string, fileGone: boolean): string {
   // One line: what is known, and the one thing to do. The git gutter shows what changed.
@@ -164,7 +175,7 @@ export function staleText(lj: TextJourney, n: number, ask: string, fileGone: boo
  * A step's text, the same for the inline card and the panel: `link` makes each reference a link (a command URI
  * inline, `ref:i` in the panel). Each file is named once: no ref to lines already on screen.
  */
-export function stepText(lj: TextJourney, n: number, link: (r: StepRef) => string, input: StepTextInput): { lead: string; details: string; refs: string; stale: boolean } {
+export function stepText(lj: TextJourney, n: number, link: (r: StepRef) => string, input: StepTextInput): StepText {
   const s = lj.j.steps[n - 1], at = lj.at[n - 1]
   // A stale step's refs are judged on their own: its lost lines move nothing.
   const delta = at.stale ? 0 : at.start - s.range.start
