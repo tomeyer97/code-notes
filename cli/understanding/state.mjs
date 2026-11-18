@@ -85,7 +85,7 @@ function branchStatus(repo, { base, cfg, env }) {
   return {
     branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(path.join(repo, rel)),
     ...(stack ? { stackedOn: stack.branch } : {}),
-    ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}),
+    ...(isDefaultBranch(repo, branch, baseRef) ? { onBase: true } : {}),
   }
 }
 

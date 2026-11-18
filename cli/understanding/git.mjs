@@ -32,11 +32,14 @@ export function defaultBase(repo) {
   const cur = gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
   return cands.find((c) => c !== cur && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]))
 }
-/** The repository's default branch: origin's HEAD, else main or master (whichever exists). */
-export function isDefaultBranch(repo, branch) {
+/**
+ * A default branch (no check there; no questions written in the background): origin's HEAD when it is known, else main
+ * or master; and the branch the change is compared with (`baseRef`, e.g. "origin/develop"), when given.
+ */
+export function isDefaultBranch(repo, branch, baseRef) {
   const sym = gitOk(repo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
-  if (sym) return branch === sym.replace(/^origin\//, '')
-  return DEFAULT_BRANCHES.includes(branch)
+  const defaults = sym ? [sym.replace(/^origin\//, '')] : DEFAULT_BRANCHES
+  return defaults.includes(branch) || (!!baseRef && branch === baseRef.replace(/^origin\//, ''))
 }
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
 const isAncestor = (repo, a, b) => { try { git(repo, ['merge-base', '--is-ancestor', a, b]); return true } catch { return false } }

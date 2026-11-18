@@ -44,8 +44,8 @@ function backward(lines, e, want, floor) {
 /**
  * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
  * it was. The rules of the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
- * first, then the closest length, then the context lines, then the nearest place. Not (yet) its rule for a range stored
- * with blank lines at its end (tried at its stored length too): there the two can end a range a line apart.
+ * first, then the closest length, then the context lines, then the nearest place. Both sides run the same cases
+ * (test/fixtures/compact-cases.json).
  */
 export function findAnchor(lines, a, hint = 0) {
   const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
@@ -55,7 +55,9 @@ export function findAnchor(lines, a, hint = 0) {
   const L = Math.max(1, a.lines || 1)
   const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
   const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
+  // Either reading of the normalized text: non-blank lines only, or every line (blanks as '').
   const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
+  const hashAllOf = (block) => sha12(block.map(norm).join('\n'))
   // A candidate's rank, compared in order (lower is better): fresh, closest length, more context, nearest.
   const rank = (c) => [c.fresh ? 0 : 1, c.dLen, -c.ctx, c.dist]
   let best
@@ -66,16 +68,14 @@ export function findAnchor(lines, a, hint = 0) {
     let b = i - 1
     while (b >= 0 && blank(lines[b])) b--
     const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
-    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
-      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
-      let f = e + 1
-      while (f < lines.length && blank(lines[f])) f++
+    for (const { end, afterLine: f } of candidateEnds(lines, i, headEnd, tail, L, minLen, maxLen)) {
       const ctxAfter = after && f < lines.length && norm(lines[f]) === after ? 1 : 0
+      const block = lines.slice(i, end + 1)
       const c = {
         start: i,
-        end: e,
-        fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash,
-        dLen: Math.abs(e - i + 1 - L),
+        end,
+        fresh: !a.hash || hashOf(block) === a.hash || hashAllOf(block) === a.hash,
+        dLen: Math.abs(end - i + 1 - L),
         ctx: ctxBefore + ctxAfter,
         dist: Math.abs(i - hint),
       }
@@ -83,6 +83,25 @@ export function findAnchor(lines, a, hint = 0) {
     }
   }
   return best && { start: best.start, end: best.end, fresh: best.fresh }
+}
+
+/**
+ * Where the code starting at `start` (head matched up to `headEnd`) may end: lines where the tail matches, with a
+ * length in [minLen, maxLen], each with the first non-blank line after it. A range stored with blank lines at its end
+ * is tried at its stored length too, so trailing blank lines don't make an unchanged range look moved.
+ */
+function candidateEnds(lines, start, headEnd, tail, storedLen, minLen, maxLen) {
+  const out = []
+  const last = Math.min(lines.length - 1, start + maxLen - 1)
+  for (let e = Math.max(headEnd, start + minLen - 1); e <= last; e++) {
+    if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, start)) continue
+    let afterLine = e + 1
+    while (afterLine < lines.length && blank(lines[afterLine])) afterLine++
+    out.push({ end: e, afterLine })
+    const stored = start + storedLen - 1
+    if (stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank)) out.push({ end: stored, afterLine })
+  }
+  return out
 }
 
 /** `a` comes before `b` (lists of numbers compared element by element). */

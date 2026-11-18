@@ -7,8 +7,8 @@ import { isCode } from './comments.mjs'
 /** The paths to diff for these files: a renamed file's old name too, so git pairs them (a pure move changes no line). */
 const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
 
-/** A hunk header: "@@ -a,b +c,d @@" (a: the old side's first line; c, d: the new side's first line and count). */
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+/** A hunk header: "@@ -a,b +c,d @@" (a, b: the old side's first line and count; c, d: the new side's). */
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
 /**
  * Each line of a unified diff, as what it is (`kind`) and where it is. `line`: the line as it is.
@@ -19,24 +19,30 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
  *              old side (a removed line: the new side's line it comes before; an added one: the old side's)
  *   other      anything else ("index …", "\\ No newline at end of file", "new file mode …")
  * The counters go on from line to line and start again at each hunk; `shift`: old minus new after the line.
+ * "--- " and "+++ " are file names only outside a hunk: inside one (lines left by its counts) they are a removed
+ * "-- …" or an added "++ …" (a SQL, Lua or Haskell comment, say).
  */
 function* walkDiff(diff) {
-  let n = 0, o = 0
+  // The next line on each side; the lines of the current hunk not read yet, on each side.
+  let n = 0, o = 0, nLeft = 0, oLeft = 0
   for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git')) { yield { kind: 'section', line }; continue }
-    if (line.startsWith('--- ')) { yield { kind: 'old', line, path: line.slice(4).replace(/^a\//, '') }; continue }
-    if (line.startsWith('+++ ')) { yield { kind: 'new', line, path: line.slice(4).replace(/^b\//, '') }; continue }
+    const inHunk = nLeft > 0 || oLeft > 0
+    if (line.startsWith('diff --git')) { nLeft = oLeft = 0; yield { kind: 'section', line }; continue }
+    if (!inHunk && line.startsWith('--- ')) { yield { kind: 'old', line, path: line.slice(4).replace(/^a\//, '') }; continue }
+    if (!inHunk && line.startsWith('+++ ')) { yield { kind: 'new', line, path: line.slice(4).replace(/^b\//, '') }; continue }
     const h = HUNK_HEADER.exec(line)
     if (h) {
       o = Number(h[1])
-      n = Number(h[2])
-      yield { kind: 'hunk', line, start: n, count: Number(h[3] ?? 1) }
+      n = Number(h[3])
+      oLeft = Number(h[2] ?? 1)
+      nLeft = Number(h[4] ?? 1)
+      yield { kind: 'hunk', line, start: n, count: nLeft }
       continue
     }
     const kind = '+- '.includes(line[0] ?? 'x') ? line[0] : 'other'
     const at = { kind, line, text: line.slice(1), n, o }
-    if (kind === '+' || kind === ' ') n++
-    if (kind === '-' || kind === ' ') o++
+    if (kind === '+' || kind === ' ') { n++; nLeft-- }
+    if (kind === '-' || kind === ' ') { o++; oLeft-- }
     yield { ...at, shift: o - n }
   }
 }

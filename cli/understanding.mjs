@@ -93,11 +93,14 @@ export function defaultBase(repo) {
   const cur = gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
   return cands.find((c) => c !== cur && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]))
 }
-/** The repository's default branch: origin's HEAD, else main or master (whichever exists). */
-export function isDefaultBranch(repo, branch) {
+/**
+ * A default branch (no check there; no questions written in the background): origin's HEAD when it is known, else main
+ * or master; and the branch the change is compared with (`baseRef`, e.g. "origin/develop"), when given.
+ */
+export function isDefaultBranch(repo, branch, baseRef) {
   const sym = gitOk(repo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
-  if (sym) return branch === sym.replace(/^origin\//, '')
-  return DEFAULT_BRANCHES.includes(branch)
+  const defaults = sym ? [sym.replace(/^origin\//, '')] : DEFAULT_BRANCHES
+  return defaults.includes(branch) || (!!baseRef && branch === baseRef.replace(/^origin\//, ''))
 }
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
 const isAncestor = (repo, a, b) => { try { git(repo, ['merge-base', '--is-ancestor', a, b]); return true } catch { return false } }
@@ -255,8 +258,8 @@ export function isCode(line, file, state = {}) {
 /** The paths to diff for these files: a renamed file's old name too, so git pairs them (a pure move changes no line). */
 const pathsOf = (files) => files.flatMap((f) => (f.from ? [f.from, f.file] : [f.file]))
 
-/** A hunk header: "@@ -a,b +c,d @@" (a: the old side's first line; c, d: the new side's first line and count). */
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+/** A hunk header: "@@ -a,b +c,d @@" (a, b: the old side's first line and count; c, d: the new side's). */
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
 /**
  * Each line of a unified diff, as what it is (`kind`) and where it is. `line`: the line as it is.
@@ -267,24 +270,30 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
  *              old side (a removed line: the new side's line it comes before; an added one: the old side's)
  *   other      anything else ("index …", "\\ No newline at end of file", "new file mode …")
  * The counters go on from line to line and start again at each hunk; `shift`: old minus new after the line.
+ * "--- " and "+++ " are file names only outside a hunk: inside one (lines left by its counts) they are a removed
+ * "-- …" or an added "++ …" (a SQL, Lua or Haskell comment, say).
  */
 function* walkDiff(diff) {
-  let n = 0, o = 0
+  // The next line on each side; the lines of the current hunk not read yet, on each side.
+  let n = 0, o = 0, nLeft = 0, oLeft = 0
   for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git')) { yield { kind: 'section', line }; continue }
-    if (line.startsWith('--- ')) { yield { kind: 'old', line, path: line.slice(4).replace(/^a\//, '') }; continue }
-    if (line.startsWith('+++ ')) { yield { kind: 'new', line, path: line.slice(4).replace(/^b\//, '') }; continue }
+    const inHunk = nLeft > 0 || oLeft > 0
+    if (line.startsWith('diff --git')) { nLeft = oLeft = 0; yield { kind: 'section', line }; continue }
+    if (!inHunk && line.startsWith('--- ')) { yield { kind: 'old', line, path: line.slice(4).replace(/^a\//, '') }; continue }
+    if (!inHunk && line.startsWith('+++ ')) { yield { kind: 'new', line, path: line.slice(4).replace(/^b\//, '') }; continue }
     const h = HUNK_HEADER.exec(line)
     if (h) {
       o = Number(h[1])
-      n = Number(h[2])
-      yield { kind: 'hunk', line, start: n, count: Number(h[3] ?? 1) }
+      n = Number(h[3])
+      oLeft = Number(h[2] ?? 1)
+      nLeft = Number(h[4] ?? 1)
+      yield { kind: 'hunk', line, start: n, count: nLeft }
       continue
     }
     const kind = '+- '.includes(line[0] ?? 'x') ? line[0] : 'other'
     const at = { kind, line, text: line.slice(1), n, o }
-    if (kind === '+' || kind === ' ') n++
-    if (kind === '-' || kind === ' ') o++
+    if (kind === '+' || kind === ' ') { n++; nLeft-- }
+    if (kind === '-' || kind === ' ') { o++; oLeft-- }
     yield { ...at, shift: o - n }
   }
 }
@@ -952,7 +961,7 @@ function branchStatus(repo, { base, cfg, env }) {
   return {
     branch, file: rel, base: mb, baseRef, head, change, changed: linesOf(change), exists: fs.existsSync(path.join(repo, rel)),
     ...(stack ? { stackedOn: stack.branch } : {}),
-    ...(isDefaultBranch(repo, branch) ? { onBase: true } : {}),
+    ...(isDefaultBranch(repo, branch, baseRef) ? { onBase: true } : {}),
   }
 }
 
@@ -1162,8 +1171,8 @@ function backward(lines, e, want, floor) {
 /**
  * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
  * it was. The rules of the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
- * first, then the closest length, then the context lines, then the nearest place. Not (yet) its rule for a range stored
- * with blank lines at its end (tried at its stored length too): there the two can end a range a line apart.
+ * first, then the closest length, then the context lines, then the nearest place. Both sides run the same cases
+ * (test/fixtures/compact-cases.json).
  */
 export function findAnchor(lines, a, hint = 0) {
   const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
@@ -1173,7 +1182,9 @@ export function findAnchor(lines, a, hint = 0) {
   const L = Math.max(1, a.lines || 1)
   const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
   const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
+  // Either reading of the normalized text: non-blank lines only, or every line (blanks as '').
   const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
+  const hashAllOf = (block) => sha12(block.map(norm).join('\n'))
   // A candidate's rank, compared in order (lower is better): fresh, closest length, more context, nearest.
   const rank = (c) => [c.fresh ? 0 : 1, c.dLen, -c.ctx, c.dist]
   let best
@@ -1184,16 +1195,14 @@ export function findAnchor(lines, a, hint = 0) {
     let b = i - 1
     while (b >= 0 && blank(lines[b])) b--
     const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
-    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
-      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
-      let f = e + 1
-      while (f < lines.length && blank(lines[f])) f++
+    for (const { end, afterLine: f } of candidateEnds(lines, i, headEnd, tail, L, minLen, maxLen)) {
       const ctxAfter = after && f < lines.length && norm(lines[f]) === after ? 1 : 0
+      const block = lines.slice(i, end + 1)
       const c = {
         start: i,
-        end: e,
-        fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash,
-        dLen: Math.abs(e - i + 1 - L),
+        end,
+        fresh: !a.hash || hashOf(block) === a.hash || hashAllOf(block) === a.hash,
+        dLen: Math.abs(end - i + 1 - L),
         ctx: ctxBefore + ctxAfter,
         dist: Math.abs(i - hint),
       }
@@ -1201,6 +1210,25 @@ export function findAnchor(lines, a, hint = 0) {
     }
   }
   return best && { start: best.start, end: best.end, fresh: best.fresh }
+}
+
+/**
+ * Where the code starting at `start` (head matched up to `headEnd`) may end: lines where the tail matches, with a
+ * length in [minLen, maxLen], each with the first non-blank line after it. A range stored with blank lines at its end
+ * is tried at its stored length too, so trailing blank lines don't make an unchanged range look moved.
+ */
+function candidateEnds(lines, start, headEnd, tail, storedLen, minLen, maxLen) {
+  const out = []
+  const last = Math.min(lines.length - 1, start + maxLen - 1)
+  for (let e = Math.max(headEnd, start + minLen - 1); e <= last; e++) {
+    if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, start)) continue
+    let afterLine = e + 1
+    while (afterLine < lines.length && blank(lines[afterLine])) afterLine++
+    out.push({ end: e, afterLine })
+    const stored = start + storedLen - 1
+    if (stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank)) out.push({ end: stored, afterLine })
+  }
+  return out
 }
 
 /** `a` comes before `b` (lists of numbers compared element by element). */
