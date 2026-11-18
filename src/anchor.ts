@@ -33,18 +33,18 @@ export function matchesAt(lines: string[], anchor: string[], start: number): boo
 /** Context lines (non-blank ones only) that match around a block of `len` lines at `start`, and how many could. */
 export function contextScore(lines: string[], start: number, len: number, before: string[], after: string[]): { score: number; max: number } {
   let score = 0, max = 0
-  /** Context lines `ctx`, the i-th expected at line `lineOf(i)`, when `inFile` says that line can be read. */
-  const count = (ctx: string[], lineOf: (i: number) => number, inFile: (at: number) => boolean) => {
+  /** Context lines `ctx`, the i-th expected at line `lineOf(i)`, when that line is in the file. */
+  const count = (ctx: string[], lineOf: (i: number) => number) => {
     for (let i = 0; i < ctx.length; i++) {
       if (weak(ctx[i])) continue
       max++
       const at = lineOf(i)
-      if (inFile(at) && norm(lines[at]) === norm(ctx[i])) score++
+      if (at >= 0 && at < lines.length && norm(lines[at]) === norm(ctx[i])) score++
     }
   }
-  // Lines before can only run off the top of the file, lines after only off its end.
-  count(before, (i) => start - before.length + i, (at) => at >= 0)
-  count(after, (i) => start + len + i, (at) => at < lines.length)
+  // Either side can run off either end: `start` may be past the end of a file that shrank.
+  count(before, (i) => start - before.length + i)
+  count(after, (i) => start + len + i)
   return { score, max }
 }
 
