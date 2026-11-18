@@ -7,7 +7,8 @@
 import * as vscode from 'vscode'
 import { provide, tourItems } from '../app'
 import { StepCard } from './card'
-import { stepLenses, STEP_SCHEME } from './refs'
+import { stepLenses } from './lenses'
+import { STEP_SCHEME } from './refs'
 import { TourState } from './state'
 import { Walk } from './walk'
 
