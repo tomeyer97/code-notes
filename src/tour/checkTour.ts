@@ -72,7 +72,7 @@ export function seeAlsoLink(files: string[], span?: { start: number; end: number
   const s = lj?.j.steps[hit!.step - 1]
   if (!lj || !s) return undefined
   const label = `${lj.j.title.replace(/[[\]]/g, '')}, step ${hit!.step}`
-  return cmdLink(label, 'codeNotes.openStepLink', lj.j.id, s.id, hit!.step)
+  return cmdLink(label, 'codeNotes.openStepLink', lj.j.id, s.id, hit!.step, lj.folder.uri.toString())
 }
 
 /** The check's tour follows the check: another branch's (or none) goes; this branch's is read, and the map and the

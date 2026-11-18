@@ -10,7 +10,7 @@ import { inNotesFolder, notesFor, relPath } from '../notes/location'
 import { card, tourState, walk } from './instances'
 
 /** A journey step whose lines are in a file (for the lenses). */
-interface LensStep { line: number; end: number; journey: string; title: string; step: string; n: number; stepTitle: string }
+interface LensStep { line: number; end: number; journey: string; title: string; step: string; n: number; stepTitle: string; folder: string }
 
 /**
  * While walking: "← Back to step n" above an opened ref. Outside a walk: one quiet line above the code a journey step
@@ -48,7 +48,7 @@ function stepsIn(folder: vscode.WorkspaceFolder, rel: string): LensStep[] {
     for (const s of lj.j.steps) {
       const at = lj.at[s.n - 1]
       if (!at || at.stale || fileOf(lj, s.n) !== rel) continue
-      hits.push({ line: at.start - 1, end: at.end - 1, journey: lj.j.id, title: lj.j.title, step: s.id, n: s.n, stepTitle: s.title })
+      hits.push({ line: at.start - 1, end: at.end - 1, journey: lj.j.id, title: lj.j.title, step: s.id, n: s.n, stepTitle: s.title, folder: folder.uri.toString() })
     }
   }
   return hits
@@ -86,7 +86,7 @@ function stepLens(line: number, steps: LensStep[]): vscode.CodeLens {
   if (journeyIds.length === 1) {
     const s = firstStep(steps)
     const title = `◇ Step ${s.n} of ${s.title}`
-    return new vscode.CodeLens(range, { title, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n], tooltip: s.stepTitle })
+    return new vscode.CodeLens(range, { title, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n, s.folder], tooltip: s.stepTitle })
   }
   const titles = [...new Set(steps.map((x) => x.title))].join(' · ')
   const title = `◇ ${journeyIds.length} journeys`
@@ -109,5 +109,5 @@ export async function pickJourneyStep(steps?: LensStep[]): Promise<void> {
     return { label: s.title, description: l.length > 1 ? `steps ${numbers}` : `step ${s.n}`, detail: s.stepTitle, s }
   })
   const pick = await vscode.window.showQuickPick(rows, { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
-  if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n)
+  if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n, pick.s.folder)
 }

@@ -36,6 +36,14 @@ export const fileOf = (lj: Pick<LoadedJourney, 'j' | 'at'>, n: number) => atOf(l
 /** A journey's identity across reloads and file renames within a folder: folder + id. */
 export const posKey = (lj: LoadedJourney) => `${lj.folder.uri.toString()}|${lj.j.id}`
 
+/** The journey `id` in workspace folder `folder` (its uri), else the first with that id: ids are unique only per folder. */
+export function journeyById<T extends { j: Pick<Journey, 'id'>; folder: { uri: { toString(): string } } }>(
+  list: Iterable<T>, id: string, folder?: string,
+): T | undefined {
+  const withId = [...list].filter((x) => x.j.id === id)
+  return withId.find((x) => x.folder.uri.toString() === folder) ?? withId[0]
+}
+
 /** Steps start where their lines were written, nothing found yet. */
 export const writtenAt = (j: Journey): StepAt[] => j.steps.map((s) => ({ ...s.range, stale: false }))
 
