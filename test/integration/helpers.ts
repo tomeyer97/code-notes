@@ -9,6 +9,7 @@
 //   CODE_NOTES_PROFILE=<dir>     keep VS Code's profiles (user data) there instead of in temp folders (run.ts)
 //   CODE_NOTES_CONSOLE_ALL=1     print every workbench console message, not only the errors (run.ts, check run)
 //   ONLY_MAIN / ONLY_UNTRUSTED / ONLY_CHECK=1   run that suite alone (run.ts; with none set, all three)
+//   ONLY_PODCAST=1               with ONLY_MAIN=1: main/podcast.ts alone (suite.ts)
 // Set by run.ts or the tests themselves, not by hand:
 //   CODE_NOTES_CDP               the workbench's DevTools port (main and check runs: devtools.ts)
 //   CODE_NOTES_CONSOLE           the file the workbench console errors are collected in (check run)

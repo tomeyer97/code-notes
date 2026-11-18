@@ -1,8 +1,10 @@
 // Podcast mode: a journey with a podcast file next to it plays in the journey panel, and the walk follows the voice
 // (the step's code opens, the animation's beat lights its line); seeking anywhere puts the walk exactly where it is at
-// that time, backwards too, the last of quick seeks only; Next while it plays moves the audio; the audio goes on in a
-// background tab. The audio is a 40 s tone (test/fixtures/podcast/tone.mp3), so this also proves VS Code's own
-// Electron plays mp3 from the workspace and seeks in it. Source: src/podcast/, media/journey-podcast.js.
+// that time, backwards too, the last of quick seeks only, and the extension is told where the audio really is; Next
+// while it plays moves the audio; the audio goes on in a background tab; a step the podcast skips keeps the walk there
+// and ▶ goes on after it; each journey's place is kept (another journey, a rewritten podcast file). The audio is a
+// 40 s tone (test/fixtures/podcast/tone.mp3), so this also proves VS Code's own Electron plays mp3 from the workspace
+// (fetched whole, as a blob) and seeks in it. Source: src/podcast/, media/journey-podcast.js.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -31,6 +33,35 @@ async function panelFrame(): Promise<import('playwright').Frame> {
     for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).document.querySelector('.pod'))) return f } catch { /* detached */ } }
     return undefined
   }, 10000)
+}
+
+/** What the panel's audio itself says: its time, paused, the bar's note or error. */
+async function panelAudio(): Promise<{ t: number; paused: boolean; note: string; blob: boolean }> {
+  const f = await panelFrame()
+  return f.evaluate(() => {
+    const d = (globalThis as any).document
+    const a = d.querySelector('.pod audio')
+    const e = d.querySelector('.pod-err')
+    return { t: a.currentTime, paused: a.paused, note: e.hidden ? '' : e.textContent, blob: a.src.startsWith('blob:') }
+  })
+}
+
+/** The journey "podgap": three steps, the podcast says nothing about step 2 (its own copy of the tone). */
+function writeGapJourney(g3start = 9) {
+  writeJourney(journeysDir(), journey('podgap', [
+    step('src/pod.ts', 1, 3, { id: 'g1', title: 'one' }),
+    step('src/pod.ts', 4, 6, { id: 'g2', title: 'two, not in the podcast' }),
+    step('src/pod2.ts', 1, 1, { id: 'g3', title: 'three' }),
+  ], { title: 'Pod gap' }))
+  fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), path.join(journeysDir(), 'podgap.mp3'))
+  writeGapPodcast(g3start)
+}
+function writeGapPodcast(g3start: number) {
+  const seg = (id: string, at: unknown, start: number, end: number) => ({ id, at, speaker: 'host', text: `Part ${id}.`, start, end })
+  fs.writeFileSync(path.join(journeysDir(), 'podgap.podcast.json'), JSON.stringify({
+    version: 1, title: 'Pod gap', journey: { id: 'podgap' }, audio: 'podgap.mp3', duration: 40,
+    segments: [seg('intro', null, 0, 2.8), seg('g1', { step: 'g1' }, 3, g3start - 0.2), seg('g3', { step: 'g3' }, g3start, 20), seg('outro', null, 21, 39)],
+  }))
 }
 
 /** The journey "pod" (step 1 and 2 with animations, step 3 without) and its podcast, the tone next to it. */
@@ -112,7 +143,11 @@ export const podcastTests = [
     for (const [t, n, file, line] of points) {
       await seek(t)
       await until(`seek to ${t}s: the audio there, step ${n}, ${file ?? 'no file'}, line ${line} lit`, () => Math.abs(pod().t - t) < 0.5 && at(n, file, line)(), 8000)
+      // What the extension (and the status bar) has is what the audio itself says.
+      const a = await panelAudio()
+      assert.ok(Math.abs(a.t - t) < 0.5 && Math.abs(a.t - pod().t) < 0.5, `seek to ${t}s: the audio says ${a.t}, the extension has ${pod().t}`)
     }
+    assert.ok((await panelAudio()).blob, 'the audio was loaded whole (a blob)')
     assert.ok(!pod().playing, 'seeking while paused stays paused')
   }),
 
@@ -168,7 +203,7 @@ export const podcastTests = [
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor')
   }),
 
-  test('podcast: a long recording: a seek 9 minutes in plays from there (the panel loads the audio in ranges)', async () => {
+  test('podcast: a long recording: a seek 9 minutes in plays from there', async () => {
     // 10 minutes of silence, 8 kHz 8-bit mono WAV (4.8 MB), and a journey of one step for it.
     const secs = 600, rate = 8000
     const wav = Buffer.alloc(44 + secs * rate, 128)
@@ -189,6 +224,104 @@ export const podcastTests = [
     await until('9 minutes in: step 2, the audio there and going on', () => tour().step === 2 && pod().t > 540.5 && pod().t < 545, 10000)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
+  }),
+
+  test('podcast: Next onto a step the podcast skips: the walk stays there, the audio pauses and says so; ▶ goes on after it', async () => {
+    writeGapJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podgap'), 10000)
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podgap')
+    await until('playing podgap', () => pod().playing && pod().session === 'podgap', 10000)
+    await seek(4)
+    await until('step 1', () => tour().step === 1 && pod().t >= 4, 8000)
+    await vscode.commands.executeCommand('codeNotes.nextStep')
+    await until('Next: step 2, the audio paused', () => tour().step === 2 && !pod().playing, 5000)
+    await sleep(1200)
+    assert.equal(tour().step, 2, 'the walk stays on step 2 (no late report takes it back)')
+    assert.ok(!pod().playing, 'still paused')
+    assert.match((await panelAudio()).note, /isn't in the podcast/)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('▶: on after step 2, at step 3\'s part (9 s), not back to step 1', () => pod().playing && tour().step === 3 && pod().t >= 9 && pod().t < 12, 8000)
+    assert.equal((await panelAudio()).note, '', 'the note went once it played on')
+  }),
+
+  test('podcast: the podcast file rewritten: the same moment of the same part, still playing; walk and audio agree', async () => {
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    const t0 = pod().t
+    // Step 3's part now starts 2 s earlier: the same place in it is 2 s earlier.
+    writeGapPodcast(7)
+    await until(`the time follows its part: ${(t0 - 2).toFixed(1)}`, () => Math.abs(pod().t - (t0 - 2)) < 0.3, 8000)
+    const a = await panelAudio()
+    assert.ok(Math.abs(a.t - (t0 - 2)) < 0.3, `the audio is there too: ${a.t}`)
+    assert.equal(tour().step, 3, 'the walk stays on step 3')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    writeGapPodcast(9)
+    await sleep(1500)
+    assert.ok(pod().playing && (await panelAudio()).paused === false, 'rewritten while playing: it plays on')
+    assert.equal(tour().step, 3, 'still step 3')
+    assert.ok(pod().t >= 9, `the same moment, moved back with its part: ${pod().t}`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('podcast: each journey\'s place is kept: another journey, then ▶ goes on where it was', async () => {
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+    await until('pod in the panel, playing', () => pod().session === 'pod' && pod().playing, 10000)
+    await seek(13)
+    await until('step 2', () => tour().step === 2 && pod().t >= 13, 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    const kept = pod().t
+    // Another journey: the walk leaves pod.
+    await vscode.commands.executeCommand('codeNotes.startJourney', 'podgap')
+    await until('walking podgap', () => tour().journey === 'podgap' || tour().map === 'podgap', 8000)
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+    await until(`▶ pod: on from ${kept.toFixed(1)}, step 2 (not 0:00)`, () => pod().session === 'pod' && pod().playing && pod().t >= kept - 0.3 && pod().t < kept + 3 && tour().step === 2, 10000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('podcast: the intro closes the walk\'s code tab; a seek onto a beat in another file opens that file, never the step\'s first', async () => {
+    const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'one()', checks: ['a'] }]
+    writeJourney(journeysDir(), journey('podbeat', [
+      step('src/pod.ts', 1, 3, { id: 'b1', title: 'one', scene: { actors, wires: [], beats: [
+        { focus: 'svc', caption: 'Here.', code: { file: 'src/pod.ts', line: 2, text: 'return 1' } },
+        { focus: 'svc', caption: 'There.', code: { file: 'src/pod2.ts', line: 1, text: 'export const three = 3' } },
+      ] } }),
+    ], { title: 'Pod beat' }))
+    fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), path.join(journeysDir(), 'podbeat.mp3'))
+    const seg = (id: string, at: unknown, start: number, end: number) => ({ id, at, speaker: 'host', text: id, start, end })
+    fs.writeFileSync(path.join(journeysDir(), 'podbeat.podcast.json'), JSON.stringify({
+      version: 1, title: 'Pod beat', journey: { id: 'podbeat' }, audio: 'podbeat.mp3', duration: 40,
+      segments: [seg('intro', null, 0, 2.8), seg('here', { step: 'b1', beat: 1 }, 3, 5.8), seg('there', { step: 'b1', beat: 2 }, 6, 20), seg('outro', null, 21, 39)],
+    }))
+    await until('its podcast is found', () => pod().journeys.includes('podbeat'), 10000)
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podbeat')
+    await until('playing podbeat', () => pod().playing && pod().session === 'podbeat', 10000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(4)
+    await until('step 1, beat 1: pod.ts line 2 lit', at(1, 'pod.ts', 2), 8000)
+    const walkTabs = () => vscode.window.tabGroups.all.filter((g) => g.viewColumn !== tour().mapColumn).flatMap((g) => g.tabs)
+      .filter((t) => t.isPreview && t.input instanceof vscode.TabInputText && /pod2?\.ts$/.test(t.input.uri.path)).map((t) => t.label)
+    assert.ok(walkTabs().length > 0, 'the walk opened its code in a preview tab')
+    await seek(1)
+    await until('the intro: no step, the walk\'s preview tab closed', () => tour().step === 0 && !pod().applying && walkTabs().length === 0, 8000)
+    // Every file the code group shows from here on.
+    const shown: string[] = []
+    const note = (u: vscode.Uri) => { if (u.scheme === 'file') shown.push(path.basename(u.fsPath)) }
+    const subs = [
+      vscode.window.onDidChangeVisibleTextEditors((es) => { for (const e of es) if (e.viewColumn !== tour().mapColumn) note(e.document.uri) }),
+      vscode.window.tabGroups.onDidChangeTabs((e) => { for (const t of [...e.opened, ...e.changed]) if (t.input instanceof vscode.TabInputText) note(t.input.uri) }),
+    ]
+    const sub = { dispose: () => subs.forEach((x) => x.dispose()) }
+    try {
+      await seek(7)
+      await until('step 1, beat 2: pod2.ts line 1 lit', at(1, 'pod2.ts', 1), 8000)
+      await sleep(300)
+    } finally { sub.dispose() }
+    assert.ok(!shown.includes('pod.ts'), `the step's own file was never shown first: ${shown.join(' → ')}`)
   }),
 
   test('podcast: closing the panel stops it; the status item goes', async () => {

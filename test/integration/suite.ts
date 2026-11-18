@@ -42,6 +42,12 @@ export async function run(): Promise<void> {
   ctx.ws = ctx.folder.uri.fsPath
   ctx.notesDir = path.join(ctx.ws, '.code-notes')
   ctx.api = await activate()
+  // ONLY_PODCAST=1: main/podcast.ts alone (it builds on nothing before it).
+  if (process.env.ONLY_PODCAST) {
+    await runTests(podcastTests)
+    console.log('all passed')
+    return
+  }
   await runTests([
     ...notesTests,
     ...journeyTourTests,
