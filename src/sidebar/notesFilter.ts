@@ -3,18 +3,16 @@
 
 import * as vscode from 'vscode'
 import { byId, notes, setCtx, state, understanding } from '../app'
-import { mine, waitingForAgent } from '../identity'
 import { refreshAll } from '../refresh'
 import { unread } from '../seen'
 import { Note } from '../store'
 import { setCollapse } from '../threads/settle'
 import { revealed, threads } from '../threads/sync'
 import { journeyOfNote } from './journeyRows'
-import { fileNode, lastMessage, Node, noteNode, sessionOf, sevRank } from './nodes'
+import { fileNode, Node, noteNode, sessionOf, sevRank } from './nodes'
 
-/** What the Code Notes view lists. The picker offers FILTERS; `needsMe` (an agent spoke last) and `waiting` (you did)
- *  are not offered: nothing sets them now. */
-type Filter = 'all' | 'unread' | 'needsMe' | 'waiting' | 'stale'
+/** What the Code Notes view lists (the picker: FILTERS). Who spoke last is each row's icon, not a filter. */
+type Filter = 'all' | 'unread' | 'stale'
 
 export const FILTERS: { id: Filter; label: string; detail: string }[] = [
   { id: 'all', label: 'All notes', detail: 'Open notes (and resolved ones when shown)' },
@@ -44,8 +42,6 @@ function listedUnder(n: Note, f: Filter): boolean {
   const open = n.data.status === 'open'
   switch (f) {
     case 'unread': return unread(n) > 0 || revealed.id === n.data.id
-    case 'needsMe': return open && !!lastMessage(n) && !mine(lastMessage(n)!)
-    case 'waiting': return waitingForAgent(n)
     case 'stale': return !!n.data.stale && (open || showResolved)
     default: return open || showResolved || unread(n) > 0
   }
