@@ -1,11 +1,11 @@
-// What the understanding check needs from the rest of the extension (src/understanding.ts provides it), and the parts
+// What the understanding check needs from the rest of the extension (src/check/wiring.ts provides it), and the parts
 // of VS Code's git extension API it listens to.
 import * as vscode from 'vscode'
 import type { Note, Store } from '../store'
 import type { Check } from './types'
 
 /**
- * What the check needs from the rest of the extension, by role. One object has them all: src/understanding.ts
+ * What the check needs from the rest of the extension, by role. One object has them all: src/check/wiring.ts
  * createUnderstanding builds it from the notes, the threads, the tour and the settings.
  */
 export type CheckHost = NotesHost & ClaudeHost & EditorHost & TourHost

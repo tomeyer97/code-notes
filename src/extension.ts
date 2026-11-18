@@ -37,18 +37,18 @@ import { markAllRead, markUnread, stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
 import { refreshAll } from './refresh'
 import { markJourneysSeen, migrateSeen } from './seen'
-import { createJourneysView, searchJourneys, showAllHere, sortJourneys } from './sidebar/journeysTree'
+import { createJourneysView, searchJourneys, journeysHereAll, sortJourneys } from './sidebar/journeysTree'
 import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilter, showResolvedNotes } from './sidebar/notesFilter'
 import { createNotesView, rowsSelected, treeView } from './sidebar/notesTree'
 import { Store } from './store'
 import { testApi } from './testApi'
 import { collapseThread, expandThread } from './threads/comments'
 import { askStep, askUpdate } from './tour/askStep'
-import { authorModeOff, mapState, onMapMessage, toggleAnimation } from './tour/mapMessages'
-import { backToStep, endTour, openJourney, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney } from './tour/commands'
+import { toggleAuthorMode, mapState, onMapMessage, toggleAnimation } from './tour/mapMessages'
+import { backToStep, endJourney, openJourney, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney } from './tour/commands'
 import { pickJourneyStep } from './tour/lenses'
 import { registerRefPages } from './tour/refs'
-import { createCard, createTourItems, toggleStepDetails, walk } from './tour/instances'
+import { createCard, createTourItems, stepDetails, walk } from './tour/instances'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tutorialSpot'
 import { ValueHints } from './valueHints'
@@ -242,19 +242,19 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.startJourney': startJourney,
       'codeNotes.nextStep': () => walk.stepBy(1),
       'codeNotes.previousStep': () => walk.stepBy(-1),
-      'codeNotes.endJourney': endTour,
+      'codeNotes.endJourney': endJourney,
       'codeNotes.openStepLink': openStepLink,
-      'codeNotes.toggleAuthorMode': authorModeOff,
+      'codeNotes.toggleAuthorMode': toggleAuthorMode,
       'codeNotes.toggleAnimation': chord(toggleAnimation),
       'codeNotes.askQuestion': askQuestion,
       'codeNotes.backToStep': backToStep,
       'codeNotes.askStep': (text?: string) => askStep(text),
       'codeNotes.askStepUpdate': () => askUpdate(),
       'codeNotes.tutorial': tutorial,
-      'codeNotes.stepDetails': toggleStepDetails,
+      'codeNotes.stepDetails': stepDetails,
       'codeNotes.searchJourneys': chord(searchJourneys),
       'codeNotes.refreshJourney': refreshJourney,
-      'codeNotes.journeysHereAll': showAllHere,
+      'codeNotes.journeysHereAll': journeysHereAll,
       'codeNotes.sortJourneys': sortJourneys,
       'codeNotes.pickJourneyStep': pickJourneyStep,
     },

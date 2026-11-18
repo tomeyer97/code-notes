@@ -151,10 +151,7 @@ export function testApi() {
     resetTutorial,
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {
-      card.clear()
-      tourState.key = undefined
-      tourState.step = 0
-      tourState.doc = undefined
+      walk.forgetTour()
       walk.updateTour()
       await restoreTour()
     },

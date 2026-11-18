@@ -70,7 +70,7 @@ export function createCard(context: vscode.ExtensionContext): void {
 }
 
 /** More / Less on the step card (`open`: which; none: the other). */
-export const toggleStepDetails = (open?: boolean) => {
+export const stepDetails = (open?: boolean) => {
   tourState.detailsOpen = open ?? !tourState.detailsOpen
   const lj = walk.tourJourney()
   if (lj && tourState.step) card.show(lj, tourState.step)

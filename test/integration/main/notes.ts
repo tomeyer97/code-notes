@@ -1,7 +1,7 @@
 // Notes, from the first one to the trash: adding, agent replies and unread counts, following the code (edits, renames,
 // deletes), resolving, sessions, invalid files, Ask Claude, paths outside the workspace, .gitignore.
-// Source: src/notes/ (commands), src/threads/ (threads, following code), src/store.ts (files, trash), src/seen.ts
-// (unread), src/anchor.ts (finding lines), src/ask.ts and src/claude.ts (Ask Claude).
+// Source: src/notes/ (commands; following code: notes/location.ts), src/threads/ (threads), src/store.ts (files,
+// trash), src/seen.ts (unread), src/anchor.ts (finding lines), src/ask/ and src/claude.ts (Ask Claude).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'

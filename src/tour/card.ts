@@ -9,11 +9,12 @@ import { escapeTags } from '../journeys/textFormat'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { Asked, askedOf, askedText } from '../sidebar/journeyRows'
 import { linesOfUri } from '../notes/location'
-import { editorSettling, newThread, setThread, settleLater, settling, whenSettled } from '../threads/settle'
+import { labelSafe } from '../text'
+import { afterEditorSettles, newThread, setThread, settling, whenSettled } from '../threads/settle'
 import { nextStop, seeAlsoLink } from './checkTour'
 import { TourState } from './state'
 import { cardLine, stepUri } from './stepPlace'
-import { labelSafe, refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
+import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
 import { walk } from './instances'
 import { tutorialMark } from './tutorial'
 
@@ -272,14 +273,7 @@ export class StepCard {
 
   /** Its editor is just opening (see editorSettling): the card comes a moment later. True: it will. */
   private showOnceEditorSettles(lj: LoadedJourney, n: number, uri: vscode.Uri): boolean {
-    const wait = editorSettling(uri)
-    if (!wait) return false
-    clearTimeout(settleLater.get('card'))
-    settleLater.set('card', setTimeout(() => {
-      settleLater.delete('card')
-      this.showIfStillOn(lj, n)
-    }, wait))
-    return true
+    return afterEditorSettles(uri, 'card', () => this.showIfStillOn(lj, n))
   }
 
   /** A card shown later: only while the walk is still on that step. */

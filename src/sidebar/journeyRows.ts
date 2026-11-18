@@ -8,7 +8,7 @@ import { ListModel } from '../journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { isNewJourney, unread } from '../seen'
 import { Note } from '../store'
-import { isolate } from '../text'
+import { isolate, plural } from '../text'
 import { isUpdateRequest } from '../tour/askStep'
 import { provenance } from '../tour/provenance'
 import { tourState, walk } from '../tour/instances'
@@ -88,7 +88,7 @@ export function journeyQuestionRows(lj: LoadedJourney): Node[] {
 /** What a journey's row says about the walk: being walked, where it was left (past step 1), new replies. */
 interface JourneyState { active: boolean; left: number; newReplies: number }
 
-const replies = (n: number) => `${n} repl${n === 1 ? 'y' : 'ies'}`
+const replies = (n: number) => plural(n, 'reply', 'replies')
 
 /**
  * A journey's row. The short title is the row; the question is the tooltip. The description is state only.
@@ -148,7 +148,7 @@ function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
 /** The question, the summary, who wrote it, which steps are stale, unread replies ("new" is only a new journey: an
  *  unread answer is said in full here). */
 function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
-  const unreadReplies = s.newReplies ? `${s.newReplies} unread repl${s.newReplies === 1 ? 'y' : 'ies'} from Claude` : ''
+  const unreadReplies = s.newReplies ? `${plural(s.newReplies, 'unread reply', 'unread replies')} from Claude` : ''
   return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies].filter(Boolean).join('\n')
 }
 
@@ -156,7 +156,7 @@ function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
 function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
   const total = lj.j.steps.length
   const where = s.active ? `walking, step ${tourState.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
-  const unreadReplies = s.newReplies ? `${s.newReplies} unread repl${s.newReplies === 1 ? 'y' : 'ies'}` : ''
+  const unreadReplies = s.newReplies ? plural(s.newReplies, 'unread reply', 'unread replies') : ''
   return [lj.j.title, where, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }
 

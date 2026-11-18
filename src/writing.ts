@@ -71,10 +71,3 @@ export function journeyRules(skill: string, stage: string, journeysFolder: strin
     'When done, reply with the storyline.',
   ].join('\n\n')
 }
-
-/** a model Claude Code knows (an alias or a claude-* id), else the message to show; nothing runs then. */
-export function modelProblem(m: string | undefined): string | undefined {
-  if (!m) return undefined
-  if (/^(sonnet|opus|haiku|fable)(\[1m\])?$/i.test(m) || /^claude-[a-z0-9][\w.-]*(\[1m\])?$/i.test(m)) return undefined
-  return `Unknown model '${m}'. Use sonnet, opus, haiku or fable.`
-}

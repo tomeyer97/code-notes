@@ -4,6 +4,7 @@
 import { clock } from '../writing'
 import { concernOf, samePerson } from './concernState'
 import { SAY_IT_BACK, retryText } from './threadText'
+import { notDone } from './types'
 import type { Attempt, Kind, QState, Question, Range, Status, Who, Words } from './types'
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
@@ -82,9 +83,6 @@ export function definedOnly<T extends object>(o: T): T {
   for (const k of Object.keys(o) as (keyof T)[]) if (o[k] === undefined) delete o[k]
   return o
 }
-
-/** A question's state that still asks for an answer. */
-export const notDone = (s: string | undefined): boolean => s === 'todo' || s === 'retry' || s === 'ungraded'
 
 /** "Writing questions · 0:42": what is being done, and for how long. */
 export const busyLabel = (what: string, started: number, now = Date.now()): string => `${what} · ${clock(now - started)}`

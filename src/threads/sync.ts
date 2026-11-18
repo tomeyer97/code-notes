@@ -9,7 +9,7 @@ import { seenCount, unread, visitFrom } from '../seen'
 import { stepLinkOf } from '../sidebar/journeyRows'
 import { hiddenInEditor } from '../sidebar/notesFilter'
 import { Note } from '../store'
-import { shortQ } from '../text'
+import { labelSafe, shortQ } from '../text'
 import { tourState, walk } from '../tour/instances'
 import { commentsOf, expanded, threadRange } from './comments'
 import { afterEditorSettles, newThread, setThread, settling, whenSettled } from './settle'
@@ -113,8 +113,7 @@ function threadLabel(n: Note): string {
     missing.has(n.data.id) ? `⚠ ${target === 'folder' ? 'folder' : 'file'} not found` : '',
     shortQ(firstLine.replace(/\*\*|`/g, ''), 80),
   ].filter(Boolean).join(' · ')
-  // VS Code shows a label HTML-escaped ("&lt;"): <, > and & as look-alikes (as on the step card).
-  return label.replace(/</g, '‹').replace(/>/g, '›').replace(/&/g, '＆')
+  return labelSafe(label)
 }
 
 export function noteOfThread(t: vscode.CommentThread): Note | undefined {

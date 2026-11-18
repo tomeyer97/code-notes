@@ -50,7 +50,7 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   if (showIntro()) await gstate.update(INTRO_KEY, true)
   // One journey on screen at a time: another journey's map ends the running walk quietly (its place is kept
   // for Resume); its status item and code marker go with it.
-  if (lj.key !== tourState.key && walk.touring()) await endTour()
+  if (lj.key !== tourState.key && walk.touring()) await endJourney()
   if (lj.key !== tourState.key) { tourState.key = lj.key; tourState.step = 0 }
   if (show) walk.showMap(lj)
   walk.updateTour()
@@ -64,7 +64,7 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
 export async function finishTour(): Promise<void> {
   const lj = walk.tourJourney()
   const doc = tourState.doc
-  await endTour()
+  await endJourney()
   if (!lj) return
   await state.update(POS_KEY, Object.fromEntries(Object.entries(walk.positions()).filter(([k]) => k !== posKey(lj))))
   // Only the walk's own preview tab (not one you kept open or edited).
@@ -86,7 +86,7 @@ function walkPreviewTabs(lj: LoadedJourney, column: vscode.ViewColumn): vscode.T
 }
 
 /** Ends the tour: its place is kept (resume later), the card goes; the code stays open. */
-export async function endTour(): Promise<void> {
+export async function endJourney(): Promise<void> {
   const lj = walk.tourJourney()
   if (lj && tourState.step) await walk.savePos(lj, tourState.step)
   await state.update(TOUR_KEY, undefined)

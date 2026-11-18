@@ -2,19 +2,13 @@
 
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'
-import { Check, QState } from '../check/types'
+import { Check, QState, questionDone } from '../check/types'
 import { seeAlso } from '../journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'
-import { endTour } from './commands'
+import { endJourney } from './commands'
 import { card, tourState, walk } from './instances'
 
-/**
- * A question of the check that needs no more answers: passed, explained, or said back in your own words. For every
- * QState it is the opposite of checkModel's notDone ('' and other strings: neither); checkModel's answerBox counts
- * only pass and restated as passed.
- */
-export const questionDone = (state: QState | string) => state === 'pass' || state === 'explained' || state === 'restated'
 
 /** A stop of a check's tour: a step, or a question `q` placed after it. */
 export interface Stop { step: number; q?: string }
@@ -91,7 +85,7 @@ export async function tourChanged(check: Check | undefined, file: string | undef
   if (checkTour && (!uri || checkTour.uri.toString() !== uri.toString())) {
     const old = currentTour()
     if (old && mapPanel.journey?.key === old.key) {
-      if (old.key === tourState.key && tourState.step) await endTour()
+      if (old.key === tourState.key && tourState.step) await endJourney()
       mapPanel.close()
     }
     await journeys.setTour(f, checkTour.uri, undefined, checkTour.branch)

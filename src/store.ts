@@ -30,9 +30,12 @@ export function folderSetting(key: string, fallback: string): string {
   return folderProblem(v) ? fallback : v.trim()
 }
 
-/** The notes folder (codeNotes.folder, default `.code-notes`), relative to the workspace folder. */
+/** The notes folder when the setting names none (or one that can't be used). */
+export const DEFAULT_FOLDER = '.code-notes'
+
+/** The notes folder (codeNotes.folder, default DEFAULT_FOLDER), relative to the workspace folder. */
 export function folderName(): string {
-  return folderSetting('folder', '.code-notes').replace(/\/+$/, '')
+  return folderSetting('folder', DEFAULT_FOLDER).replace(/\/+$/, '')
 }
 
 const encoder = new TextEncoder()

@@ -7,7 +7,7 @@ import { askErrors, asking } from '../ask/run'
 import { mine } from '../identity'
 import { unread } from '../seen'
 import { Note } from '../store'
-import { ago, isolate, plain, rangeLabel } from '../text'
+import { ago, isolate, plain, plural, rangeLabel } from '../text'
 import { missing } from '../notes/location'
 import { tourState, walk } from '../tour/instances'
 import { badJourneyItem, journeyItem, journeyOfNote, questionsItem, showIntro, stepLinkOf } from './journeyRows'
@@ -174,7 +174,7 @@ function noteDescription(n: Note, f: NoteFlags): string {
     f.gone ? 'file not found' : d.stale ? 'stale' : '',
     d.status === 'resolved' ? 'resolved' : '',
     where,
-    !f.unread && replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'}` : '',
+    !f.unread && replies > 0 ? plural(replies, 'reply', 'replies') : '',
   ].filter(Boolean).join(' · ')
 }
 

@@ -13,6 +13,9 @@ import type { CheckController } from './controller'
 export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'
 /** The actions the Check view's buttons send. */
 export const VIEW_CONCERN_ACTIONS: ConcernAction[] = ['fix', 'todo', 'flag', 'dismiss']
+/** Every ConcernAction (the codeNotes.checkConcern command takes any of them). */
+const CONCERN_ACTIONS: readonly ConcernAction[] = [...VIEW_CONCERN_ACTIONS, 'fixed']
+export const isConcernAction = (a: unknown): a is ConcernAction => CONCERN_ACTIONS.includes(a as ConcernAction)
 
 /** A concern as shown: its question and what concernOf says. */
 type Shown = { q: Question; c: NonNullable<ReturnType<typeof concernOf>> }

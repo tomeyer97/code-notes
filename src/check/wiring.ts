@@ -20,7 +20,7 @@ import { currentTour, openCheckpoint, tourChanged } from '../tour/checkTour'
 import { walkJourney } from '../tour/commands'
 import { card, walk } from '../tour/instances'
 import { journeySkill } from '../write/claudeRun'
-import type { ConcernAction } from './concern'
+import { isConcernAction } from './concern'
 import { CheckController } from './controller'
 
 /** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
@@ -92,9 +92,6 @@ export const answerCheck = async (r: vscode.CommentReply) => {
   if (n && r.text.trim()) await understanding!.answer(n, r.text)
 }
 
-/** What can be done about a concern (check/concern.ts's ConcernAction; the Check view's buttons send all but 'fixed'). */
-const CONCERN_ACTIONS: readonly ConcernAction[] = ['fix', 'todo', 'flag', 'dismiss', 'fixed']
-const isConcernAction = (a: unknown): a is ConcernAction => CONCERN_ACTIONS.includes(a as ConcernAction)
 
 /** codeNotes.checkConcern (a concern row's links): `action` on note `id`'s concern; `reason`: a dismissal's. */
 export const checkConcern = async (id?: string, action?: string, reason?: string) => {

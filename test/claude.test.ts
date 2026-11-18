@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { foldEvent } from '../src/claude'
+import { foldEvent, modelProblem } from '../src/claude'
 
 test('folds a real `claude -p --output-format stream-json` transcript', () => {
   const lines = fs.readFileSync(path.join(__dirname, '../../test/fixtures/claude-stream.jsonl'), 'utf8').split('\n').filter(Boolean)
@@ -27,4 +27,11 @@ test('the finished tool call reaches progress (for the phase)', () => {
   const toolUse = { type: 'tool_use', name: 'Bash', input: { command: 'journey.py check . x' } }
   foldEvent(state, JSON.stringify({ type: 'assistant', message: { content: [toolUse] } }))
   assert.deepEqual(state.tool, { name: 'Bash', input: { command: 'journey.py check . x' } })
+})
+
+test('models are aliases or claude-* ids', () => {
+  for (const m of [undefined, '', 'sonnet', 'Opus', 'haiku', 'fable', 'sonnet[1m]', 'claude-sonnet-4-5', 'claude-fable-5-2'])
+    assert.equal(modelProblem(m), undefined, String(m))
+  assert.equal(modelProblem('sonet'), "Unknown model 'sonet'. Use sonnet, opus, haiku or fable.")
+  assert.ok(modelProblem('gpt-5') && modelProblem('fake-model-x') && modelProblem('--dangerous'))
 })

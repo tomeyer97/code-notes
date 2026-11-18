@@ -152,14 +152,6 @@ export function shownBy(lj: TextJourney, n: number, details: string, input: Step
 
 // ---------- the card's text ----------
 
-/**
- * Text for a comment thread's label: VS Code HTML-escapes a label and then shows it as text ("&lt;script&gt;"), so
- * <, > and & are drawn with look-alikes (‹ › ＆) instead.
- */
-export function labelSafe(text: string): string {
-  return text.replace(/</g, '‹').replace(/>/g, '›').replace(/&/g, '＆')
-}
-
 /** What a stale step's card says first: gone, removed, or what changed, and one thing to do. `fileGone`: the step's own file is gone. */
 export function staleText(lj: TextJourney, n: number, ask: string, fileGone: boolean): string {
   // One line: what is known, and the one thing to do. The git gutter shows what changed.

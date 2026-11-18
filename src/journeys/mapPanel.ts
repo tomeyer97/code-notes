@@ -11,11 +11,11 @@ import { LoadedJourney } from './steps'
 /**
  * What the webview sends: the names media/journey-map.js's header lists under "Out" (journey-map.js, journey-home.js
  * and journey-scene.js post them). JS can't import this type: a name added on one side goes in the other's list too.
- * Two more: `close` and `pick` have handlers (tour/map.ts) but no page posts them today; `closed` is this panel's own
+ * Two more: `close` and `pick` have handlers (tour/mapMessages.ts) but no page posts them today; `closed` is this panel's own
  * (disposed()).
  *
  * Handled here (MapPanel.receive): ready, rendered, story, error, legend, view, and home with `on`. Every other
- * message is handled in src/tour/map.ts (MAP_MESSAGES); `tutorial` in src/tour/tutorial.ts.
+ * message is handled in src/tour/mapMessages.ts (MAP_MESSAGES); `tutorial` in src/tour/tutorial.ts.
  */
 export type MapMessage =
   // The page itself: drawn, its errors, what it shows (tests read these).

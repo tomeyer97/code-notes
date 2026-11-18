@@ -4,6 +4,7 @@
 import * as vscode from 'vscode'
 import { journeys, mapPanel, state } from '../app'
 import { Group, SORTS } from '../journeyList'
+import { pickOne } from '../quickPick'
 import { walkJourney } from '../tour/commands'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
@@ -115,16 +116,12 @@ export async function searchJourneys(): Promise<void> {
     qp.items = m.fallback ? [{ key: '', label: m.fallback.note, kind: vscode.QuickPickItemKind.Separator }, ...rows] : rows
   }
   qp.onDidChangeValue(fill)
-  qp.onDidAccept(() => {
-    const it = qp.selectedItems[0]
-    qp.hide()
-    if (!it) return
-    const lj = journeys.list.get(it.key)
+  fill()
+  // Not awaited: the command returns while the pick is open.
+  void pickOne(qp).then((it) => {
+    const lj = it && journeys.list.get(it.key)
     if (lj) void walkJourney(lj)
   })
-  qp.onDidHide(() => qp.dispose())
-  fill()
-  qp.show()
 }
 
 export async function sortJourneys(): Promise<void> {
@@ -158,4 +155,4 @@ function cursorMoved(editorChanged: boolean): void {
   if (editorChanged) revealHereGroup()
 }
 
-export const showAllHere = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel.update() }
+export const journeysHereAll = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel.update() }

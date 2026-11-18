@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clock, journeyPrompt, minutes, modelProblem, phaseOf } from '../src/writing'
+import { clock, journeyPrompt, minutes, phaseOf } from '../src/writing'
 import { bashCall } from './toolCalls'
 
 test('elapsed time and a plain phase from journey.py commands', () => {
@@ -29,11 +29,4 @@ test('the prompt treats the words as a request and writes into the staging folde
   assert.match(p, /clarifying question/)
   const b = journeyPrompt('map of auth', '/ext/skills/code-journey', '.code-notes/.writing/abc', 'journeys', true)
   assert.match(b, /^Read \/ext\/skills\/code-journey\/SKILL\.md and follow it exactly .* to answer: map of auth\n/, 'the bundled skill is read as a file')
-})
-
-test('models are aliases or claude-* ids', () => {
-  for (const m of [undefined, '', 'sonnet', 'Opus', 'haiku', 'fable', 'sonnet[1m]', 'claude-sonnet-4-5', 'claude-fable-5-2'])
-    assert.equal(modelProblem(m), undefined, String(m))
-  assert.equal(modelProblem('sonet'), "Unknown model 'sonet'. Use sonnet, opus, haiku or fable.")
-  assert.ok(modelProblem('gpt-5') && modelProblem('fake-model-x') && modelProblem('--dangerous'))
 })

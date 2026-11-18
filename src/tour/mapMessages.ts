@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { beats, byId, cfg, gstate, journeys, KEY, log, mapPanel, state, understanding } from '../app'
 import { git } from '../checkout'
 import { ageOf } from '../journeyList'
-import { MapMessage, TourInfo } from '../journeys/mapPanel'
+import { LEGEND_HIDDEN_KEY, MapMessage, TourInfo } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { reveal } from '../notes/reveal'
 import { askedOf } from '../sidebar/journeyRows'
@@ -17,7 +17,7 @@ import { refreshJourney } from '../write/refreshJourney'
 import { askStep, askUpdate } from './askStep'
 import { openCheckpoint } from './checkTour'
 import { rememberPanelWidth } from './panelLayout'
-import { endTour, finishTour, walkJourney } from './commands'
+import { endJourney, finishTour, walkJourney } from './commands'
 import { provenance } from './provenance'
 import { openRef } from './refs'
 import { card, tourState, walk } from './instances'
@@ -31,7 +31,7 @@ type Handler<K extends MapMessage['type']> = (lj: LoadedJourney, m: Extract<MapM
 /** What each message from the journey panel does (the panel's own state messages have none). */
 const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   step: (lj, m) => void walk.goToStep(lj, m.n, { focus: false }),
-  end: () => void endTour(),
+  end: () => void endJourney(),
   finish: () => void finishTour(),
   question: (_lj, m) => revealNoteById(m.id),
   checkpoint: (lj, m) => void openCheckpoint(lj, m.id),
@@ -192,7 +192,7 @@ export function mapState(lj: LoadedJourney): TourInfo {
     current: walking ? tourState.step : 0,
     marks: walk.stepMarks(lj),
     resume: walk.resumeAt(lj),
-    legendHidden: state.get<boolean>('codeNotes.legendHidden') ?? true, // on demand (M99)
+    legendHidden: state.get<boolean>(LEGEND_HIDDEN_KEY) ?? true, // on demand (M99)
     ...(mapWidth ? { mapWidth } : {}),
     problems: lj.readError ? [lj.readError] : [],
     authors: cfg().get<boolean>('journeys.authorMode') ? lj.j.problems.length : 0,
@@ -230,7 +230,7 @@ function listRow(x: LoadedJourney, shown: LoadedJourney) {
  * Turn author mode off: the setting is the state (journeys.authorMode); the command (shown only while it is on) turns
  * it off, in the workspace too when it is set there.
  */
-export const authorModeOff = async () => {
+export const toggleAuthorMode = async () => {
   await cfg().update('journeys.authorMode', false, vscode.ConfigurationTarget.Global)
   if (cfg().inspect('journeys.authorMode')?.workspaceValue) await cfg().update('journeys.authorMode', false, vscode.ConfigurationTarget.Workspace)
   vscode.window.setStatusBarMessage('$(info) Journey author mode off', 2500)

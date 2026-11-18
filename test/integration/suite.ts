@@ -2,7 +2,7 @@
 // agent would, in one window and one workspace, each test starting from what the one before left.
 //
 // Where the tests are (and the source files they cover most):
-//   main/notes.ts          notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask.ts, claude.ts
+//   main/notes.ts          notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask/, claude.ts
 //   main/journeyTour.ts    walking a journey, step cards, lenses   journeys/, journeyModel.ts, tour/
 //   main/keysAndMap.ts     chord keys, the tutorial, the whole map package.json keybindings, tutorialSpot.ts
 //   main/journeyFiles.ts   a journey's files changing under it     journeys/, gitRenames.ts, anchor.ts, compact.ts

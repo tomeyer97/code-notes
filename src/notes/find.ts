@@ -7,6 +7,7 @@ import { lastMessage, order } from '../sidebar/nodes'
 import { Note } from '../store'
 import { noteTitle, plain } from '../text'
 import { reveal } from './reveal'
+import { pickOne } from '../quickPick'
 
 /** What a note's words are searched in: its file, session, and every message's author and text. */
 const haystack = (n: Note) => [n.data.file, n.data.session ?? '', ...n.data.messages.flatMap((m) => [m.author, m.body])].join('\n').toLowerCase()
@@ -45,7 +46,6 @@ export const findNote = async () => {
   }
   qp.onDidChangeValue(update)
   update()
-  qp.onDidAccept(() => { const pick = qp.selectedItems[0]; qp.hide(); if (pick) void reveal(pick.note) })
-  qp.onDidHide(() => qp.dispose())
-  qp.show()
+  // Not awaited: the command returns while the pick is open.
+  void pickOne(qp).then((pick) => { if (pick) void reveal(pick.note) })
 }

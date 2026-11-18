@@ -1909,7 +1909,7 @@ VALUE_NEAR, BEAT_NEAR = 25, 12         # a hint sits near the step's lines, or n
 SOFT_CAPTION, SOFT_CAPTION_ALL = 70, 110
 MAX_CHECKS, MAX_CHECK, MAX_ROWS, MAX_TERM_LINE = 5, 28, 3, 36
 MAX_PACKET = 24
-# What each actor type reads (the builders in journey-scene.js), what a beat's `set` may change on it, and the beat's own
+# What each actor type reads (the builders in journey-scene.js; the app actor's in journey-scene-app.js), what a beat's `set` may change on it, and the beat's own
 # keys. Anything else is ignored by the engine.
 APP_OLD_KEYS = {'test', 'env', 'findings', 'timeline', 'status', 'provider', 'chat'}     # older journeys' flat fields
 ACTOR_KEYS = {'app': {'brand', 'logo', 'tabs', 'dialog', 'detail', 'signin', 'pages', 'screen'} | APP_OLD_KEYS,

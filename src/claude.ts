@@ -29,6 +29,13 @@ export type AskErrorKind = 'no-cli'
 
 export interface AskResult { text: string; sessionId?: string; costUsd?: number; error?: string; errorKind?: AskErrorKind; cancelled?: boolean }
 
+/** A model Claude Code knows (an alias or a claude-* id), else the message to show; nothing runs then. */
+export function modelProblem(m: string | undefined): string | undefined {
+  if (!m) return undefined
+  if (/^(sonnet|opus|haiku|fable)(\[1m\])?$/i.test(m) || /^claude-[a-z0-9][\w.-]*(\[1m\])?$/i.test(m)) return undefined
+  return `Unknown model '${m}'. Use sonnet, opus, haiku or fable.`
+}
+
 /** Read-only: Claude can look at the code but not change it. */
 export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob']
 /** What the activity line says while Claude uses a read-only tool ("Reading src/a.ts"); other tools: their name. */

@@ -5,12 +5,9 @@ import { cfg, gstate, journeys, notes, showError, store } from '../app'
 import { refreshAll } from '../refresh'
 import { treeView } from '../sidebar/notesTree'
 import { folderProblem } from '../noteModel'
-import { folderName } from '../store'
+import { DEFAULT_FOLDER, folderName } from '../store'
 import { plural } from '../text'
 import { wfs } from '../workspaceFs'
-
-/** The notes folder when the setting names none (or one that can't be used). */
-const DEFAULT_FOLDER = '.code-notes'
 
 /** The notes folder as last set (a change offers to move the notes). */
 let currentFolder = DEFAULT_FOLDER

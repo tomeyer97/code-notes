@@ -1,9 +1,17 @@
 // The understanding check's shapes: the check file (Check, Question, Attempt), where it stands (Status, State, Words: the
-// CLI's), and Cli, the functions of cli/understanding.mjs the extension calls. No code here: the rules live in the CLI.
+// CLI's), and Cli, the functions of cli/understanding.mjs the extension calls. No code here but the two QState tests
+// below: the rules live in the CLI.
 
 export type Kind = 'how' | 'why' | 'failure' | 'edge' | 'change'
 export type Verdict = 'pass' | 'retry' | 'explained' | 'restated'
 export type QState = 'todo' | 'ungraded' | 'pass' | 'retry' | 'explained' | 'restated'
+/** A question's state that still asks for an answer. */
+export const notDone = (s: string | undefined): boolean => s === 'todo' || s === 'retry' || s === 'ungraded'
+/**
+ * A question that needs no more answers: passed, explained, or said back in your own words. For every QState it is
+ * the opposite of notDone ('' and other strings: neither); viewModel's answerBox counts only pass and restated as passed.
+ */
+export const questionDone = (state: QState | string) => state === 'pass' || state === 'explained' || state === 'restated'
 export interface Who {
   name?: string
   email?: string

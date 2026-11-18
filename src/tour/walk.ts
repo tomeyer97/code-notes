@@ -10,10 +10,11 @@ import { tree } from '../sidebar/notesTree'
 import { editorSettling } from '../threads/settle'
 import { refreshDecorations } from '../notes/decorations'
 import { wfs } from '../workspaceFs'
+import { plural } from '../text'
 import type { StepCard } from './card'
 import { openCheckpoint, stopBy } from './checkTour'
 import { panelFits } from './panelLayout'
-import { endTour, finishTour } from './commands'
+import { endJourney, finishTour } from './commands'
 import { pickJourney } from './pick'
 import { MAP_KEY, POS_KEY, ShownAt, TOUR_KEY, TourState } from './state'
 import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
@@ -78,7 +79,7 @@ export class Walk {
     const { tour } = this
     const total = lj.j.steps.length
     if (!total) {
-      void endTour()
+      void endJourney()
       return
     }
     tour.step = Math.min(tour.step, total)
@@ -130,7 +131,7 @@ export class Walk {
     const total = lj.j.steps.length
     if (lj.key === this.tour.key && this.tour.step) return `${this.tour.step}/${total}`
     const r = this.resumeAt(lj)
-    return r ? `at ${r}/${total}` : `${total} step${total === 1 ? '' : 's'}`
+    return r ? `at ${r}/${total}` : plural(total, 'step')
   }
 
   /**
@@ -166,11 +167,17 @@ export class Walk {
     const { tour } = this
     if (tour.step) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
     mapPanel.markDeleted(key)
+    this.forgetTour()
+    void state.update(TOUR_KEY, undefined)
+  }
+
+  /** No tour in memory any more (no journey, step, document or card); what was saved stays. */
+  forgetTour(): void {
+    const { tour } = this
     tour.key = undefined
     tour.step = 0
     tour.doc = undefined
     this.card.clear()
-    void state.update(TOUR_KEY, undefined)
   }
 
   /** Only while a tour runs, and one item: "3/14", click = the map; ‹ › × live on the map and the card. */
@@ -367,7 +374,7 @@ export class Walk {
   async leaveJourney(): Promise<void> {
     const lj = this.tourJourney()
     const n = this.tour.step
-    await endTour()
+    await endJourney()
     if (lj && n) this.tour.lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
   }
 

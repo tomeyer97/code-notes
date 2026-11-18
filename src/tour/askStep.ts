@@ -1,10 +1,9 @@
 // Asking about a step: a note on the step's lines that says which step it is about.
 
 import * as vscode from 'vscode'
-import { cfg, journeys, mapPanel, store } from '../app'
+import { journeys, mapPanel, store } from '../app'
 import { askClaude } from '../ask/run'
-import { claudeMode } from '../ask/settings'
-import { findCli } from '../claudeCli'
+import { askAlways, claudeCli, claudeMode } from '../ask/settings'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { createNote } from '../notes/create'
 import { reveal } from '../notes/reveal'
@@ -43,7 +42,7 @@ export async function askStep(text?: string): Promise<Note | undefined> {
   // The note's thread, open, with the live answer in it (the status bar is only a second cue).
   const shownIn = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri.toString())?.viewColumn
   await reveal(note, shownIn ?? walk.codeColumn())
-  if (claudeMode() === 'button' && findCli(cfg().get<string>('claude.path') || undefined)) void askClaude(note)
+  if (claudeMode() === 'button' && claudeCli()) void askClaude(note)
   return note
 }
 
@@ -66,7 +65,7 @@ async function noteOnStep(lj: LoadedJourney, n: number, text: string): Promise<N
     await store.save(note)
     refreshAll()
   }
-  if (note && claudeMode() === 'always') await askClaude(note)
+  if (note && askAlways()) await askClaude(note)
   return note
 }
 

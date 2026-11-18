@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { byId, notes, setCtx, state, understanding } from '../app'
-import { mine } from '../identity'
+import { mine, waitingForAgent } from '../identity'
 import { refreshAll } from '../refresh'
 import { unread } from '../seen'
 import { Note } from '../store'
@@ -45,7 +45,7 @@ function listedUnder(n: Note, f: Filter): boolean {
   switch (f) {
     case 'unread': return unread(n) > 0 || revealed.id === n.data.id
     case 'needsMe': return open && !!lastMessage(n) && !mine(lastMessage(n)!)
-    case 'waiting': return open && !!lastMessage(n) && mine(lastMessage(n)!)
+    case 'waiting': return waitingForAgent(n)
     case 'stale': return !!n.data.stale && (open || showResolved)
     default: return open || showResolved || unread(n) > 0
   }

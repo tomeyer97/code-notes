@@ -15,12 +15,13 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Note } from '../store'
-import { Check, Cli, Link, QState, Question, RefreshResult, Status, Who, Words } from './types'
+import { Check, Cli, Link, notDone, QState, Question, RefreshResult, Status, Who, Words } from './types'
 import { linksAt, gradeMessageAt, gradedAttempts } from './threadText'
 import { concernOf } from './concernState'
-import { CheckView, checkView, definedOnly, notDone, runAction, statusText } from './viewModel'
+import { CheckView, checkView, definedOnly, runAction, statusText } from './viewModel'
 import { gradeFailure } from './failures'
 import { Coalesced } from '../coalesced'
+import { plural } from '../text'
 import { BackgroundQuestions } from './background'
 import { CliThread } from './cliThread'
 import { Concerns, ConcernAction, VIEW_CONCERN_ACTIONS } from './concern'
@@ -43,7 +44,7 @@ export type { CheckHost } from './host'
 export { SESSION } from './constants'
 
 export class CheckController implements vscode.Disposable {
-  // ---------- shared with the parts in this folder (extension.ts uses the methods further down) ----------
+  // ---------- shared with the parts in this folder (check/wiring.ts and the rest of the extension use the methods further down) ----------
 
   /** The understanding CLI (cli/understanding.mjs), loaded by init(). Not Claude Code (host.cli()). */
   cli!: Cli
@@ -238,7 +239,7 @@ export class CheckController implements vscode.Disposable {
     const st = this.st, ready = this.writer.ready
     const t = statusText(st, this.words)
     if (t && ready && st?.state.phase === 'answering' && !st.summary?.done) {
-      t.text = `$(checklist) ${ready} question${ready === 1 ? '' : 's'} ready`
+      t.text = `$(checklist) ${plural(ready, 'question')} ready`
       t.tip = `Questions about ${st.branch} are ready · Check my understanding`
     }
     // Done: the same words as the Check view ("Pushed.", "Not pushed yet."), not the file's alone.
@@ -571,7 +572,7 @@ export class CheckController implements vscode.Disposable {
 /** Each request's handler, given that request's message. */
 type ViewHandlers = { [T in CheckViewRequest]: (m: CheckViewMessageOf<T>) => void }
 
-/** A check thread's state for its comments (extension.ts commentsOf). */
+/** A check thread's state for its comments (threads/comments.ts commentsOf). */
 export interface ThreadStatus {
   /** Being graded (or its answer taken). */
   checking?: boolean

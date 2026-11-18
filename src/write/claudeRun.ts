@@ -7,10 +7,10 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { cfg, extUri, showError } from '../app'
-import { Ask, AskOptions, AskResult } from '../claude'
-import { findCli } from '../claudeCli'
+import { claudeCli } from '../ask/settings'
+import { Ask, AskOptions, AskResult, modelProblem } from '../claude'
 import { folderName } from '../store'
-import { clock, modelProblem, phaseOf } from '../writing'
+import { clock, phaseOf } from '../writing'
 import { Writing, writingChanged, writingNow } from './inProgress'
 
 /** The model a journey is written with (a request's `model`, the settings), and how it is named. */
@@ -85,7 +85,7 @@ export async function runWriter(w: Writing, title: string, o: Omit<AskOptions, '
  * is returned.
  */
 export async function cliOrClipboard(prompt: string, notice: string): Promise<string | undefined> {
-  const cli = findCli(cfg().get<string>('claude.path') || undefined)
+  const cli = claudeCli()
   if (cli) return cli
   await vscode.env.clipboard.writeText(prompt)
   void vscode.window.showInformationMessage(notice)

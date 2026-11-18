@@ -48,9 +48,8 @@ export function settling(t: vscode.CommentThread): number {
   return b === undefined ? 0 : Math.max(0, b + SETTLE_MS - Date.now())
 }
 
-/** Calls waiting for a thread or an editor to settle, by key: the last call per key wins. (Exported for tour/card's
- *  host, which does what afterEditorSettles does with the key 'card'.) */
-export const settleLater = new Map<string, NodeJS.Timeout>()
+/** Calls waiting for a thread or an editor to settle, by key: the last call per key wins. */
+const settleLater = new Map<string, NodeJS.Timeout>()
 
 /** `fn` runs in `ms` (this key's earlier call, if still waiting, is dropped). */
 function later(key: string, ms: number, fn: () => void): void {

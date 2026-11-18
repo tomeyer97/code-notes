@@ -11,7 +11,7 @@ import { LoadedJourney } from '../journeys/steps'
 import { pickOne } from '../quickPick'
 import { journeysTree } from '../sidebar/journeysTree'
 import { staleCount, staleLine, staleSteps } from '../sidebar/listModel'
-import { shortQ } from '../text'
+import { plural, shortQ } from '../text'
 import { walk } from '../tour/instances'
 import { clock } from '../writing'
 import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
@@ -175,7 +175,7 @@ async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<LoadedJou
   const done = await journeys.reload(lj.uri)
   const left = done ? staleCount(done) : 0
   log.info(`journey ${slug}: refreshed in ${clock(Date.now() - r.started)}${left ? `; ${left} step(s) still out of date` : ''}`)
-  const stillStale = left ? ` · ${left} step${left === 1 ? '' : 's'} still out of date` : ''
+  const stillStale = left ? ` · ${plural(left, 'step')} still out of date` : ''
   void vscode.window.showInformationMessage(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
     if (b) void vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(old), lj.uri, `${title}: before ↔ refreshed`)
   })

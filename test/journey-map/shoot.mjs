@@ -1,5 +1,5 @@
 // Drives the journey panel harness in Chromium (Playwright): screenshots at 500/1200 px, light/dark,
-// and asserts what a person would notice. The map (0.21) is the whole journey at once (journey-graph.js): no boxes
+// and asserts what a person would notice. The map is the whole journey at once (journey-graph.js): no boxes
 // overlapping or sticking out of their container, no box text cut, arrow labels on their lines and never over a box
 // or each other, the current step's box ringed and in view (it follows the step), step numbers walk, boxes open code,
 // drag pans without clicking, Ctrl+wheel zooms, Fit shows it all with whole names; the home list; the storyline,
