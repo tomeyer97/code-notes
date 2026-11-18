@@ -44,6 +44,15 @@ test('a file that is gone, or a line past its end: struck out, not a dead link',
   assert.equal(t.refs, '~~c.ts:3~~ (file gone) · ~~d.ts:50~~ (line gone) · [d.ts:5](lib/d.ts:5-5)\n\nIn ~~c.ts:3~~ (file gone) here.')
 })
 
+test('struck out, a ref reads where it was looked for: the renamed file\'s name, the line moved with the step', () => {
+  // old/x.ts was renamed to new/y.ts (the journey followed it) and new/y.ts is gone now.
+  const renamed = text(one({ refs: ['old/x.ts:5', 'In old/x.ts:5 here.'] }), { renames: new Map([['old/x.ts', 'new/y.ts']]), refGone: new Set(['file:///w|new/y.ts']) })
+  assert.equal(renamed.refs, '~~y.ts:5~~ (file gone)\n\nIn ~~y.ts:5~~ (file gone) here.')
+  // The step moved 5 down in its own file: line 40 was looked for at 45, past the file's 42 lines.
+  const moved = text(one({ refs: ['src/a.ts:40', 'src/a.ts#L39'] }, { start: 15, end: 25 }), { refLines: new Map([['file:///w|src/a.ts', 42]]) })
+  assert.equal(moved.refs, '~~a.ts:45~~ (line gone) · ~~a.ts#L44~~ (line gone)')
+})
+
 test('a stale step: no delta, and its own lines dedupe nothing', () => {
   const t = text(one({ refs: ['src/a.ts:40', 'src/a.ts:12'] }, { start: 15, end: 25, stale: true, was: 'x' }))
   assert.equal(t.refs, '[a.ts:40](src/a.ts:40-40) · [a.ts:12](src/a.ts:12-12)')

@@ -115,15 +115,21 @@ const shiftLines = (text: string, delta: number) =>
   text.replace(/(:|#L)(\d+)(?:([-–])(\d+))?$/, (_m, at: string, a: string, d?: string, b?: string) =>
     `${at}${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
 
+/** `ref` as it reads at `place`: its line moved with the step, a renamed file's new name. */
+function placedText(ref: Ref, place: Placed, delta: number): string {
+  const t = place.same && delta ? shiftLines(ref.text, delta) : ref.text
+  return place.file === ref.file ? t : t.replace(ref.file, place.file).replace(baseName(ref.file), baseName(place.file))
+}
+
 /**
  * How a ref reads: `env.go:405` (the file's name; the whole path is the link's hover), its line moved with the step,
- * "(moved)" after a renamed file. A gone one is struck out, as written, with why: not a dead link.
+ * "(moved)" after a renamed file. A gone one is struck out, with why: not a dead link. It reads as the place that was
+ * looked for (a renamed file's new name, the line moved with the step): that is what is gone.
  */
 export function label(ref: Ref, place: Placed, delta: number): string {
-  if (place.gone) return `~~${shortPaths(ref.text.replace(/[[\]]/g, ''))}~~ (${place.gone} gone)`
-  let t = place.same && delta ? shiftLines(ref.text, delta) : ref.text
-  if (place.file !== ref.file) t = `${t.replace(ref.file, place.file).replace(baseName(ref.file), baseName(place.file))} (moved)`
-  return shortPaths(t)
+  const t = shortPaths(placedText(ref, place, delta))
+  if (place.gone) return `~~${t.replace(/[[\]]/g, '')}~~ (${place.gone} gone)`
+  return place.file === ref.file ? t : `${t} (moved)`
 }
 
 // ---------- dedupe: what is on screen already ----------
