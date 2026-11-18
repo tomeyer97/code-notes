@@ -1,9 +1,10 @@
-// Who the person is (their name in notes, names they used before) and what git says about the checkout.
+// Who the person is: their name in notes, names they used before, and whether a message is theirs or an agent's.
+// (What git says about the checkout: checkout.ts.)
 
 import * as vscode from 'vscode'
 import * as os from 'os'
 import { cfg, state } from './app'
-import { gitOut } from './git'
+import { git } from './checkout'
 import { Message, NoteEvent } from './noteModel'
 import { Note } from './store'
 
@@ -41,15 +42,6 @@ export function waitingForAgent(n: Note): boolean {
   return n.data.status === 'open' && !!last && mine(last)
 }
 
-/** Identity and branch reads are quick: a git that hangs longer than this is given up. */
-const IDENTITY_GIT_TIMEOUT_MS = 3000
-
-/** git's output in this folder's checkout (git.ts runs it: never takes the index lock); undefined off disk or on failure. */
-export function git(folder: vscode.WorkspaceFolder | undefined, args: string[]): Promise<string | undefined> {
-  if (!folder || folder.uri.scheme !== 'file') return Promise.resolve(undefined)
-  return gitOut(folder.uri.fsPath, args, false, { timeoutMs: IDENTITY_GIT_TIMEOUT_MS })
-}
-
 /** The name to write notes under: git's user.name in the first folder, unless the author setting names one. */
 export async function initIdentity(folder: vscode.WorkspaceFolder | undefined): Promise<void> {
   gitName = await git(folder, ['config', 'user.name'])
@@ -62,22 +54,4 @@ export function rememberMe(): void { lastMe = me() }
 export async function authorChanged(): Promise<void> {
   if (lastMe && lastMe !== me() && !pastNames().includes(lastMe)) await state.update(PAST_KEY, [...pastNames(), lastMe])
   lastMe = me()
-}
-
-/** The checked-out branch per workspace folder (updated when.git/HEAD changes). */
-const branches = new Map<string, string | undefined>()
-
-export async function refreshBranch(folder: vscode.WorkspaceFolder): Promise<void> {
-  branches.set(folder.uri.toString(), await git(folder, ['rev-parse', '--abbrev-ref', 'HEAD']))
-}
-
-/** The note was written on another branch than the one checked out now. */
-export function otherBranch(n: Note): string | undefined {
-  const now = branches.get(n.folder.uri.toString())
-  return n.data.anchor.branch && now && now !== n.data.anchor.branch ? n.data.anchor.branch : undefined
-}
-
-export async function commitInfo(folder: vscode.WorkspaceFolder): Promise<{ commit?: string; branch?: string }> {
-  const [commit, branch] = await Promise.all([git(folder, ['rev-parse', '--short', 'HEAD']), git(folder, ['rev-parse', '--abbrev-ref', 'HEAD'])])
-  return { ...(commit ? { commit } : {}), ...(branch && branch !== 'HEAD' ? { branch } : {}) }
 }

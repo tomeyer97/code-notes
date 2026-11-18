@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { anchor, Loc } from '../anchor'
 import { log, notes, store } from '../app'
-import { commitInfo, otherBranch } from '../identity'
+import { commitInfo, otherBranch } from '../checkout'
 import { refreshAll } from '../refresh'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'

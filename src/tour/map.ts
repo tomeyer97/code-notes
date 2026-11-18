@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { beats, byId, cfg, gstate, journeys, KEY, log, mapPanel, state, understanding } from '../app'
-import { git } from '../identity'
+import { git } from '../checkout'
 import { ageOf } from '../journeyList'
 import { MapMessage, MapPanel } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
