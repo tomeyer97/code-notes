@@ -21,7 +21,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 out = []
 for c in json.load(sys.stdin):
-    ps = m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'))
+    ps = m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files'))
     out.append(sorted(f"{p['level']}:{p['code']}" + (f"@{p['segment']}" if p['segment'] else '') for p in ps))
 print(json.dumps(out))
 `
@@ -39,7 +39,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 out = {}
 for c in json.load(sys.stdin):
-    out[c['name']] = [p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'))]
+    out[c['name']] = [p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files'))]
 print(json.dumps(out))
 `
   const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
@@ -49,6 +49,29 @@ print(json.dumps(out))
   assert.ok(got['a duplicate id and an unknown cue'].includes('segment s1: the id "s1" is used twice (0:00 and 0:10)'))
   assert.match(got["narrated in another order than the journey's (steps reordered since)"][0], /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
   assert.deepEqual(got['recorded for an older commit, steps changed since: a quiet note'], ['recorded for 609d0bb; 2 steps changed since (steps 1, 3)'])
+})
+
+test('journey.py podcast: marks are said in the same words as the extension', async () => {
+  const { validatePodcast } = await import(path.join(root, 'out/src/podcast/validate.js'))
+  const py = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+out = {}
+for c in json.load(sys.stdin):
+    out[c['name']] = sorted(p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files')))
+print(json.dumps(out))
+`
+  const marks = cases.filter((c) => c.name.startsWith('marks:'))
+  assert.ok(marks.length >= 3)
+  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(marks), encoding: 'utf8', env }))
+  for (const c of marks) {
+    const files = c.files ? (f) => (f in c.files ? c.files[f] : undefined) : undefined
+    const ts = validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed, files }).problems.map((p) => p.message).sort()
+    assert.deepEqual(got[c.name], ts, c.name)
+  }
 })
 
 /** The example shop (its place-order journey) in a temp folder, with a podcast file and a 30 s WAV beside it. */

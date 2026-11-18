@@ -140,7 +140,7 @@ Rules (`journey.py help <command>` shows the ones for that command):
   line, nearest within 400 lines): moved = WARNING (`check fix` repoints it, apart from the step's range); not found
   = PROBLEM. A journey with none of them gets one WARNING; a step without links, when others have some, too.
 """
-import datetime, hashlib, json, os, random, re, string, subprocess, sys
+import datetime, hashlib, json, math, os, random, re, string, subprocess, sys
 
 # `journey.py` alone: one line per command (the detail: `journey.py help <command>`).
 SUMMARY = [
@@ -2894,10 +2894,169 @@ def _sentences_problem(v, start, end):
     return None
 
 
-def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed=None):
+MARK_SLACK = 0.05
+MARK_REFIND = 20
+
+
+def _js(v):
+    """A value in a message, as JSON.stringify writes it (no spaces, whole floats as integers)."""
+    def norm(x):
+        if isinstance(x, float) and x.is_integer():
+            return int(x)
+        if isinstance(x, list):
+            return [norm(y) for y in x]
+        if isinstance(x, dict):
+            return {k: norm(y) for k, y in x.items()}
+        return x
+    return json.dumps(norm(v), separators=(',', ':'), ensure_ascii=False)
+
+
+def _r2(t):
+    """Seconds rounded to hundredths, as the extension writes them (2.8, 3, 0.48)."""
+    r = math.floor(t * 100 + 0.5) / 100
+    return str(int(r)) if float(r).is_integer() else repr(r)
+
+
+def _is_int(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and float(x).is_integer()
+
+
+def _marks_problems(v, text, start, end, on_map):
+    """What is wrong with a segment's `marks`: [(k, message, drop)] (k None: the list itself). As model.ts marksProblems."""
+    if not isinstance(v, list):
+        return [(None, 'marks is not a list of { phrase, at, lines }; ignored', True)]
+    out, prev_at, frm, prev_phrase, prev_pos = [], None, 0, None, -1
+    length = max(0, end - start)
+    for k, m in enumerate(v):
+        def bad(what):
+            out.append((k, f'mark {k + 1}: {what}; ignored', True))
+        if not isinstance(m, dict):
+            bad('not an object { phrase, at, lines }')
+            continue
+        ph = m.get('phrase')
+        if not isinstance(ph, str) or not ph.strip():
+            bad('no phrase')
+            continue
+        at = _pnum(m.get('at'))
+        if at is None:
+            bad('no "at" (seconds from the segment\'s start)' if 'at' not in m else f'at {_js(m.get("at"))} is not a time in seconds')
+            continue
+        if at < -MARK_SLACK or at > length + MARK_SLACK:
+            bad(f'at {_clock_ms(start + at)} ({_r2(at)} s) is outside the segment ({_clock_ms(start)}–{_clock_ms(end)})')
+            continue
+        ln = m.get('lines')
+        if not (isinstance(ln, list) and len(ln) == 2 and all(_is_int(x) and x >= 1 for x in ln) and ln[1] >= ln[0]):
+            bad(f'lines must be [first, last] (1-based, first <= last), got {_js(ln) if "lines" in m else "undefined"}')
+            continue
+        if 'file' in m and (not isinstance(m['file'], str) or not m['file'].strip()):
+            bad('file is not a path')
+            continue
+        if 'file' not in m and on_map:
+            bad('a mark in a segment on the map ("at": null) needs its own "file"')
+            continue
+        if 'match' in m and (not isinstance(m['match'], str) or not m['match']):
+            bad('match is not a text')
+            continue
+        if 'nth' in m and not (_is_int(m['nth']) and m['nth'] >= 1):
+            bad(f'nth must be 1 or more, got {_js(m["nth"])}')
+            continue
+        if prev_at is not None and at < prev_at - MARK_SLACK:
+            out.append((k, f'mark {k + 1} lights at {_r2(at)} s, before mark {k} ({_r2(prev_at)} s): marks light in the order they are said', False))
+        # The same phrase as the mark before: the same words (two places at once).
+        p = prev_pos if ph == prev_phrase else text.find(ph, frm)
+        if p < 0:
+            out.append((k, f'mark {k + 1}: the phrase {_js(ph)} isn\'t in the text' + (' after the phrase before it' if frm else ''), False))
+        else:
+            frm = p + len(ph)
+        prev_at, prev_phrase, prev_pos = at, ph, p
+    return out
+
+
+def _mark_occurrence(doc, a, b, match, nth):
+    """The nth occurrence of `match` in lines a..b (0-based, inclusive; clipped to the document): True when there."""
+    a, b = max(0, a), min(len(doc) - 1, b)
+    if a > b:
+        return False
+    text = '\n'.join(doc[a:b + 1])
+    i = -len(match)
+    for _ in range(nth):
+        i = text.find(match, i + len(match))
+        if i < 0:
+            return False
+    return True
+
+
+def mark_moved(doc, lines, match, nth=1):
+    """Where `match` is, against `lines` (1-based [first, last]): 0 in place, else the nearest shift within
+    MARK_REFIND lines (up before down), None: not there. As model.ts findMark."""
+    a, b = lines[0] - 1, lines[1] - 1
+    for d in range(0, MARK_REFIND + 1):
+        for s in ((0,) if d == 0 else (-d, d)):
+            if _mark_occurrence(doc, a + s, b + s, match, nth):
+                return s
+    return None
+
+
+def _mark_own_file(x, steps_by_id):
+    """The file a segment shows (a mark's default): its beat's code file, else its step's; '' when not known."""
+    at = x.get('at')
+    if not isinstance(at, dict) or not isinstance(at.get('step'), str):
+        return ''
+    st = steps_by_id.get(at['step'])
+    if not st:
+        return ''
+    b, bf = at.get('beat'), None
+    if x.get('cue') != 'map' and _is_int(b) and b >= 1:
+        files = st.get('beatFiles') or []
+        bf = files[int(b) - 1] if int(b) - 1 < len(files) else None
+    return bf or st.get('file') or ''
+
+
+def _mark_code_problems(x, k_drop, steps_by_id, files, docs):
+    """The marks of segment x against the code: [(n, message)]. As validate.ts markCodeProblems."""
+    out = []
+    own = _mark_own_file(x, steps_by_id)
+    for n, m in enumerate(x['marks']):
+        if n in k_drop:
+            continue
+        f = m['file'] if isinstance(m.get('file'), str) else own
+        if not f:
+            continue
+        if f not in docs:
+            t = files(f)
+            docs[f] = re.split(r'\r?\n', t) if isinstance(t, str) else t
+        lines = docs[f]
+        if lines is ...:
+            continue
+        if lines is None:
+            out.append((n, f"mark {n + 1}: {f} isn't in the repository; nothing is lit"))
+            continue
+        a, b = int(m['lines'][0]), int(m['lines'][1])
+        where = (f'line {a}' if a == b else f'lines {a}–{b}') + f' of {f}'
+        if b > len(lines):
+            past = a > len(lines)
+            out.append((n, f"mark {n + 1}: {where} {('is' if a == b else 'are') if past else 'go'} past its end ({len(lines)} lines){'; nothing is lit' if past else ''}"))
+            continue
+        if not isinstance(m.get('match'), str):
+            continue
+        nth = int(m['nth']) if _is_int(m.get('nth')) else 1
+        moved = mark_moved(lines, [a, b], m['match'], nth)
+        if moved == 0:
+            continue
+        what = f"{_js(m['match'])}{f' (occurrence {nth})' if nth > 1 else ''} isn't in {where}"
+        if moved is not None:
+            d = abs(moved)
+            out.append((n, f"mark {n + 1}: {what}; found {d} {'line' if d == 1 else 'lines'} {'up' if moved < 0 else 'down'}, lit there"))
+        else:
+            out.append((n, f'mark {n + 1}: {what}, nor within {MARK_REFIND} lines: the whole lines light'))
+    return out
+
+
+def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed=None, files=None):
     """Every problem of a podcast file: dicts with level (error | warning | info), code, message, segment (or None).
     journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds;
-    changed: the journey's steps (numbers) whose code changed since the podcast's journey.commit."""
+    changed: the journey's steps (numbers) whose code changed since the podcast's journey.commit; files: a repository
+    file's text by path (None: not there; ...: not read), for the marks."""
     out, errors = [], []
 
     def err(code, msg):
@@ -2997,6 +3156,18 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed
             bad = _sentences_problem(x['sentences'], start, None if end is None else max(end, start))
             if bad:
                 warn('sentences', f'{bad}; the caption is estimated from the text instead', name(x, i))
+    # Marks (their shape, time, phrase), within the segment as the player times it.
+    mark_drops = {}
+    for k, (x, i, start, _) in enumerate(srt):
+        if 'marks' in x:
+            nxt = srt[k + 1][2] if k + 1 < len(srt) else None
+            e = _pnum(x.get('end'))
+            end = max(next((v for v in (e, nxt, duration) if v is not None), start), start)
+            text = x['text'] if isinstance(x.get('text'), str) else ''
+            ps = _marks_problems(x['marks'], text, start, end, 'at' in x and x['at'] is None)
+            mark_drops[i] = {n for n, _, drop in ps if drop}
+            for _, msg, _ in ps:
+                warn('mark', msg, name(x, i))
     # The narration's order against the journey's (steps first talked about in another order: reordered since).
     if journey:
         index = {s['id']: k for k, s in enumerate(journey['steps'])}
@@ -3049,6 +3220,15 @@ def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed
             ok = _pnum(b) is not None and float(b).is_integer() and 1 <= b <= beats
             if not ok:
                 warn('beat', f'step "{at["step"]}" has no beat {json.dumps(b)} (it has {beats}); the step only', n)
+    # The marks against the code: the file, the lines, the match (when the files can be read).
+    if journey and files is not None:
+        read = files if callable(files) else (lambda f: files.get(f, ...))
+        by_id = {st['id']: st for st in journey['steps']}
+        docs = {}
+        for x, i, _, _ in srt:
+            if isinstance(x.get('marks'), list):
+                for _, msg in _mark_code_problems(x, mark_drops.get(i, set()), by_id, read, docs):
+                    warn('mark', msg, name(x, i))
     # Recorded for an older commit, and steps' code changed since: worth knowing, nothing wrong with the file.
     commit = j.get('commit') if isinstance(j.get('commit'), str) else ''
     if commit and changed:
@@ -3124,7 +3304,10 @@ def podcast_report(repo, slug, j, seconds=None):
         raw = open(pf, encoding='utf-8').read()
     except (OSError, UnicodeDecodeError) as e:
         return [f'{pf}: can\'t be read ({e})'], [], ''
-    journey = {'id': j.get('id') or slug, 'steps': [{'id': s.get('id'), 'beats': len(((s.get('scene') or {}).get('beats')) or [])} for s in j.get('steps', [])]}
+    journey = {'id': j.get('id') or slug, 'steps': [{
+        'id': s.get('id'), 'beats': len(((s.get('scene') or {}).get('beats')) or []), 'file': s.get('file'),
+        'beatFiles': [((b or {}).get('code') or {}).get('file') if isinstance(((b or {}).get('code') or {}).get('file'), str) else None
+                      for b in ((s.get('scene') or {}).get('beats') or [])]} for s in j.get('steps', [])]}
     audio, length = None, None
     try:
         name = json.loads(raw).get('audio')
@@ -3139,13 +3322,25 @@ def podcast_report(repo, slug, j, seconds=None):
     except (ValueError, AttributeError):
         commit = None
     changed = podcast_changed_steps(repo, commit, j) if isinstance(commit, str) else None
-    found = podcast_problems(raw, journey, audio, length, changed)
+    found = podcast_problems(raw, journey, audio, length, changed, lambda f: _repo_text(repo, f))
     problems = [f'podcast: {p["message"]}' for p in found if p['level'] == 'error']
     warnings = [f'podcast: {p["message"]}' for p in found if p['level'] == 'warning']
     summary = '' if length else ' (audio length unknown: pass it as <audio seconds>, or install ffprobe, to check the times against it)'
     # Worth knowing, not a problem (recorded for an older commit): in the summary line.
     summary += ''.join(f'; {p["message"]}' for p in found if p['level'] == 'info')
     return problems, warnings, summary
+
+
+def _repo_text(repo, f):
+    """A repository file's text (None: not there or not readable as text)."""
+    p = os.path.normpath(os.path.join(repo, f))
+    if not p.startswith(os.path.normpath(repo) + os.sep):
+        return None
+    try:
+        with open(p, encoding='utf-8') as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def cmd_podcast(repo, slug, seconds=''):

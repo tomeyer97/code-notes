@@ -4,7 +4,7 @@
 // for rule, by the code-journey skill's `journey.py podcast` (the cases in test/fixtures/podcast/cases.json run
 // through both). No vscode here.
 
-import { clock, clockMs, Episode, JourneyShape, LINK_CODES, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
+import { clock, clockMs, Episode, findMark, JourneyShape, LINK_CODES, MARK_REFIND_LINES, marksProblems, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
 
 /** What is known around the file: the journey next to it, its audio file (looked at or not), the audio's real length
  *  (once the panel has loaded it). */
@@ -17,6 +17,9 @@ export interface PodcastContext {
   /** The journey's steps whose code changed since the commit the podcast was recorded for (`journey.commit`), by
    *  number (load.ts asks git; undefined: not known). */
   changed?: number[]
+  /** A repository file's text, for the marks (relative path): null when it isn't there, undefined when not read
+   *  (the player then finds out at play time). */
+  files?: (path: string) => string | null | undefined
 }
 
 export interface Validation {
@@ -110,6 +113,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
 
   problems.push(...timingProblems(written, podcast.duration))
   if (ctx.journey) problems.push(...narrationOrder(written, ctx.journey))
+  if (ctx.journey && ctx.files) problems.push(...markCodeProblems(written, ctx.journey, ctx.files, podcast.duration))
   // Where each segment is shown (an unknown step, a beat the step doesn't have: F30), when the journey is known.
   let episode: Episode | undefined
   if (ctx.journey) {
@@ -192,7 +196,81 @@ function timingProblems(written: { s: WrittenSegment; i: number }[], duration: n
     const bad = sentencesProblem(x.s.sentences, x.start, sentenceBound(x.s, x.start, sorted[k + 1]?.start, duration))
     if (bad) out.push(segProblem(x.s, x.i, 'sentences', `${bad.what}; the caption is estimated from the text instead`, bad.sub))
   })
+  // Marks (their shape, time, phrase), within the segment as the player times it (resolveEpisode's end).
+  sorted.forEach((x, k) => {
+    if (x.s.marks === undefined) return
+    const end = Math.max(num(x.s.end) ?? sorted[k + 1]?.start ?? duration ?? x.start, x.start)
+    const text = typeof x.s.text === 'string' ? x.s.text : ''
+    for (const p of marksProblems(x.s.marks, text, x.start, end, x.s.at === null)) out.push(segProblem(x.s, x.i, 'mark', p.what, p.sub))
+  })
   return out
+}
+
+/**
+ * The marks against the code (F-marks): the file there, the lines in it, `match` (its `nth`) within the lines. Only
+ * marks the player keeps, and only files `files` could read; a mark's file is its own, else its segment's beat's,
+ * else its step's (as the journey says).
+ */
+function markCodeProblems(written: { s: WrittenSegment; i: number }[], journey: JourneyShape & { id: string }, files: (path: string) => string | null | undefined, duration: number | undefined): PodcastProblem[] {
+  const out: PodcastProblem[] = []
+  const byId = new Map(journey.steps.map((s) => [s.id, s]))
+  const timed = written.map((x) => ({ ...x, start: num(x.s.start) })).filter((x) => x.start !== undefined && x.start >= 0).sort((a, b) => a.start! - b.start! || a.i - b.i)
+  const docs = new Map<string, string[] | null | undefined>()
+  const doc = (f: string) => {
+    if (!docs.has(f)) { const t = files(f); docs.set(f, typeof t === 'string' ? t.split(/\r?\n/) : t) }
+    return docs.get(f)
+  }
+  timed.forEach((x, k) => {
+    if (!Array.isArray(x.s.marks)) return
+    const end = Math.max(num(x.s.end) ?? timed[k + 1]?.start ?? duration ?? x.start!, x.start!)
+    const text = typeof x.s.text === 'string' ? x.s.text : ''
+    const dropped = new Set(marksProblems(x.s.marks, text, x.start!, end, x.s.at === null).filter((p) => p.drop).map((p) => p.k))
+    const own = ownFile(x.s, byId)
+    ;(x.s.marks as Record<string, unknown>[]).forEach((m, n) => {
+      if (dropped.has(n)) return
+      const file = typeof m.file === 'string' ? m.file : own
+      if (!file) return
+      const lines = doc(file)
+      const say = (what: string, sub: string) => out.push(segProblem(x.s, x.i, 'mark', `mark ${n + 1}: ${what}`, ['marks', n, sub]))
+      if (lines === undefined) return
+      if (lines === null) { say(`${file} isn't in the repository; nothing is lit`, typeof m.file === 'string' ? 'file' : 'lines'); return }
+      const [a, b] = m.lines as number[]
+      const where = `${a === b ? `line ${a}` : `lines ${a}–${b}`} of ${file}`
+      if (b > lines.length) { say(`${where} ${a > lines.length ? (a === b ? 'is' : 'are') : 'go'} past its end (${lines.length} lines)${a > lines.length ? '; nothing is lit' : ''}`, 'lines'); return }
+      if (typeof m.match !== 'string') return
+      const f = findMark(lines, { lines: [a, b], match: m.match, nth: typeof m.nth === 'number' ? m.nth : undefined })
+      if (!f || f.moved === 0 && f.found) return
+      const what = `${JSON.stringify(m.match)}${typeof m.nth === 'number' && m.nth > 1 ? ` (occurrence ${m.nth})` : ''} isn't in ${where}`
+      if (f.found) say(`${what}; found ${Math.abs(f.moved)} ${Math.abs(f.moved) === 1 ? 'line' : 'lines'} ${f.moved < 0 ? 'up' : 'down'}, lit there`, 'match')
+      else say(`${what}, nor within ${MARK_REFIND_LINES} lines: the whole lines light`, 'match')
+    })
+  })
+  return out
+}
+
+/** The repository files a podcast's marks are in (each mark's own, else its segment's): what to read for the check. */
+export function markFileNames(podcast: Podcast, journey: JourneyShape): string[] {
+  const byId = new Map(journey.steps.map((s) => [s.id, s]))
+  const out = new Set<string>()
+  for (const s of podcast.segments) {
+    if (!Array.isArray(s.marks)) continue
+    for (const m of s.marks) {
+      const f = isObj(m) && typeof m.file === 'string' ? m.file : ownFile(s, byId)
+      if (f) out.add(f)
+    }
+  }
+  return [...out]
+}
+
+/** The file a segment shows (a mark's default): its beat's code file, else its step's; '' when the journey doesn't say. */
+function ownFile(s: WrittenSegment, byId: Map<string, JourneyShape['steps'][number]>): string {
+  const at = s.at
+  if (!isObj(at) || typeof at.step !== 'string') return ''
+  const st = byId.get(at.step)
+  if (!st) return ''
+  const b = at.beat
+  const beatFile = s.cue !== 'map' && typeof b === 'number' && Number.isInteger(b) && b >= 1 ? st.beatFiles?.[b - 1] : undefined
+  return beatFile ?? st.file ?? ''
 }
 
 /** Where a segment is, in a message: its start time, else its place in the file. */

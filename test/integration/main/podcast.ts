@@ -713,6 +713,79 @@ export const podcastTests = [
     const errors = consoleErrors()
     assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
   }),
+  // ---------- marks: highlights as the words are said (src/podcast/marks.ts) ----------
+
+  test('marks: a seek shows exactly the marks said by then, to the character, the newest the focus; back again takes them away', async () => {
+    writeMarksJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podmarks'), 10000)
+    await closeAllButPanel()
+    await playIt('podmarks')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(14)
+    await until('step 1, its beat on line 3', () => tour().journey === 'podmarks' && tour().step === 1 && codeFile() === 'marks.ts' && litLine() === 3 && !pod().applying, 8000)
+    // At 14 s: marks 1-4 are lit (10.88, 12.38, 13.88 twice); 3 and 4 are said with the same words: both the focus.
+    const want = [
+      markAt(3, 'needsModel(steps)', 1, 'dim'),
+      markAt(3, 'strict', 2, 'dim'),
+      markAt(4, 'reject(400)', 1, 'focus'),
+      { line: 4, col: 2, endLine: 5, endCol: MARK_LINES[5].length, text: '}\n  return ok()', style: 'focus' },
+    ]
+    await until('the four marks at 14 s', () => sameMarks(pod().marks, want), 5000)
+    // Back to 11 s: only the first, now the focus.
+    await seek(11)
+    await until('back at 11 s: one mark, the focus', () => sameMarks(pod().marks, [{ ...want[0], style: 'focus' }]), 5000)
+    await seek(10.5)
+    await until('before the first mark: none', () => pod().marks.length === 0, 5000)
+    assert.equal(litLine(), 3, 'the beat\'s own line stays lit')
+  }),
+
+  test('marks: playing, each lights on time (0.12 s before its word); the next segment clears them', async () => {
+    await seek(12)
+    await until('at 12 s: the first mark', () => pod().marks.length === 1 && !pod().applying, 5000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    // "strict is set" lights at 10 + 2.5 - 0.12 = 12.38 s (as the audio says it, not the last report).
+    let audioT = -1
+    await until('"strict" lit', async () => {
+      if (!pod().marks.some((m: any) => m.text === 'strict')) return false
+      audioT = (await panelAudio()).t
+      return true
+    }, 5000)
+    assert.ok(audioT >= 12.38 - 0.1 && audioT <= 12.38 + 0.5, `lit at ${audioT.toFixed(2)} s (due 12.38)`)
+    await until('"right there": two places at once', () => pod().marks.filter((m: any) => m.style === 'focus').length === 2, 5000)
+    await seek(19.4)
+    await until('the next segment: none lit', () => pod().t > 20.1 && pod().marks.length === 0, 6000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('marks: an off-screen mark is scrolled to, but never under a reader looking around (the follow lock)', async () => {
+    const shows = (line: number) => codeEditor()!.visibleRanges.some((r) => r.contains(new vscode.Position(line, 0)))
+    // Following: "at the end" (line 180, far down) lights at 15.88 s and is brought on screen.
+    await seek(14.5)
+    await until('the beat on screen', () => litLine() === 3 && !pod().applying && shows(2), 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await until('line 180 lit and on screen', () => pod().marks.some((m: any) => m.line === 179 && m.style === 'focus') && shows(179), 5000)
+    // Looking around: the reader scrolls away; the mark lights where it is, the editor stays.
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(12)
+    await until('back on the beat, line 180 not lit', () => shows(2) && !pod().applying && !pod().marks.some((m: any) => m.line === 179), 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await sleep(1700)
+    codeEditor()!.revealRange(new vscode.Range(90, 0, 90, 0), vscode.TextEditorRevealType.AtTop)
+    await until('not following', () => pod().follow === false, 5000)
+    const top = codeEditor()!.visibleRanges[0].start.line
+    await until('line 180 lit', () => pod().marks.some((m: any) => m.line === 179), 6000)
+    await sleep(500)
+    assert.ok(Math.abs(codeEditor()!.visibleRanges[0].start.line - top) <= 1 && !shows(179), 'the editor stayed where the reader is')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await vscode.commands.executeCommand('codeNotes.podcastFollow')
+  }),
 ]
 
 const podFile = () => path.join(journeysDir(), 'pod.podcast.json')
@@ -787,6 +860,56 @@ function writeListenJourney(order = ['L1', 'L2', 'L3']) {
       seg('b3', { step: 'L1', beat: 3 }, 20, 22.8),
       seg('l2', { step: 'L2' }, 23, 30.8),
       seg('outro', null, 31, 40),
+    ],
+  }))
+}
+
+/** The marks journey's code: line 3 has the check, 4 the return that rejects, 180 the end (1-based). */
+const MARK_LINES = Array.from({ length: 200 }, (_, i) => `export const m${i + 1} = ${i + 1}`)
+MARK_LINES[2] = '  if (needsModel(steps) && mode === strict && strict) {'
+MARK_LINES[3] = '    return reject(400)'
+MARK_LINES[4] = '  }'
+MARK_LINES[5] = '  return ok()'
+MARK_LINES[179] = 'export const end = done() // the end'
+
+/** A mark expected on `line` (1-based): the `nth` occurrence of `text` there. */
+function markAt(line: number, text: string, nth: number, style: 'focus' | 'dim') {
+  const l = MARK_LINES[line - 1]
+  let col = -text.length
+  for (let k = 0; k < nth; k++) col = l.indexOf(text, col + text.length)
+  return { line: line - 1, col, endLine: line - 1, endCol: col + text.length, text, style }
+}
+
+/** The marks lit are exactly `want` (any order). */
+function sameMarks(got: any[], want: object[]): boolean {
+  const key = (m: any) => JSON.stringify([m.line, m.col, m.endLine, m.endCol, m.text, m.style])
+  return got.length === want.length && want.every((w) => got.some((g) => key(g) === key(w)))
+}
+
+/** The journey "podmarks": one step (src/marks.ts, a beat on line 3) whose part (10-20 s) has five marks: "requires a
+ *  model" (needsModel(steps)), "strict is set" (the second "strict"), "right there" twice (the return, re-found a line
+ *  up from where it says; lines 5-6, whole), "at the end" (line 180). */
+function writeMarksJourney() {
+  writeLines(wsPath('src', 'marks.ts'), MARK_LINES)
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'check()', checks: ['a'] }]
+  writeJourney(journeysDir(), journey('podmarks', [step('src/marks.ts', 1, 10, { id: 'M1', title: 'marks one', scene: { actors, wires: [], beats: [
+    { focus: 'svc', caption: 'The check.', code: { file: 'src/marks.ts', line: 3, text: MARK_LINES[2] } },
+  ] } })], { title: 'Pod marks' }))
+  const mp3 = path.join(journeysDir(), 'podmarks.mp3')
+  if (!fs.existsSync(mp3)) fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), mp3)
+  fs.writeFileSync(path.join(journeysDir(), 'podmarks.podcast.json'), JSON.stringify({
+    version: 1, title: 'Pod marks', journey: { id: 'podmarks' }, audio: 'podmarks.mp3', duration: 40,
+    segments: [
+      { id: 'intro', at: null, speaker: 'host', text: 'Hello.', start: 0, end: 3.8 },
+      { id: 'm0', at: { step: 'M1', beat: 1 }, speaker: 'host', text: 'Here.', start: 4, end: 9.8 },
+      { id: 'm1', at: { step: 'M1', beat: 1 }, speaker: 'host', text: 'If it requires a model and strict is set, it is rejected right there, at the end.', start: 10, end: 19.8, marks: [
+        { phrase: 'requires a model', at: 1, lines: [3, 3], match: 'needsModel(steps)' },
+        { phrase: 'strict is set', at: 2.5, lines: [3, 3], match: 'strict', nth: 2 },
+        { phrase: 'right there', at: 4, lines: [5, 5], match: 'reject(400)' },
+        { phrase: 'right there', at: 4, lines: [5, 6] },
+        { phrase: 'at the end', at: 6, lines: [180, 180], match: 'done()' },
+      ] },
+      { id: 'outro', at: null, speaker: 'host', text: 'Bye.', start: 20, end: 40 },
     ],
   }))
 }

@@ -13,7 +13,8 @@
 // The editor while it plays (docs/podcast-format.md, "The editor while it plays"): a view is held at least
 // VIEW_HOLD_S (model.ts calmViews); the reader scrolling or clicking in the code stops it following until the next
 // step (follow.ts); the step card is one line while it plays, with the player's own ⏮ ⏭ (one transport); a note or a
-// question being written pauses it; the journey edited under it keeps the step (by id), not its number.
+// question being written pauses it; the journey edited under it keeps the step (by id), not its number. Marks
+// (marks.ts) light parts of the code as the words are said.
 
 import * as vscode from 'vscode'
 import { beats, gstate, journeys, KEY, log, mapPanel, state } from '../app'
@@ -26,7 +27,9 @@ import { FollowLock } from './follow'
 import type { Narration } from '../tour/card'
 import { pickJourney } from '../tour/pick'
 import { journeysTree } from '../sidebar/journeysTree'
-import { calmViews, clock, Episode, LatestWins, podcastFileOf, PodcastProblem, sameView, timeOf, View, viewAt } from './model'
+import { calmViews, clock, Episode, LatestWins, markTimes, planMarks, podcastFileOf, PodcastProblem, sameView, segmentAt, timeOf, View, viewAt } from './model'
+import { MarkLights, PlannedMark } from './marks'
+import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
 import { baseName } from '../paths'
 import { podcastReports, PodcastRead, readPodcast, strayPodcasts } from './load'
 import { afterStep, remapTime, resumeTime } from './resume'
@@ -115,6 +118,13 @@ class Podcasts {
   listen!: ListenView
   private hostKey: string | undefined
   private hostState: HostState | undefined
+  /** The marks lit (marks.ts); the segment they are of and how it was reached (played into: the view hold's view;
+   *  sought: its own view); the timer that lights the next one on time while playing; each segment's plan. */
+  lights!: MarkLights
+  private markSeg = -1
+  private markMode: 'calm' | 'exact' = 'calm'
+  private markTimer: NodeJS.Timeout | undefined
+  private plans = new Map<string, PlannedMark[]>()
 
   init(context: vscode.ExtensionContext): void {
     this.item = vscode.window.createStatusBarItem('codeNotes.listen', vscode.StatusBarAlignment.Left, 49.25)
@@ -135,7 +145,8 @@ class Podcasts {
     this.follow = new FollowLock(() => this.drives(), (e) => this.narrated(e), () => this.followChanged())
     walk.following = () => this.follow.locked || !this.drives()
     beats.follow = walk.following
-    context.subscriptions.push(this.follow, { dispose: () => clearTimeout(this.seekTimer) })
+    this.lights = new MarkLights(log)
+    context.subscriptions.push(this.follow, this.lights, { dispose: () => { clearTimeout(this.seekTimer); clearTimeout(this.markTimer) } })
   }
 
   /** The podcast is playing and the walk on its journey follows it. */
@@ -223,6 +234,7 @@ class Podcasts {
     if (this.session && !next.has(this.session)) {
       if (this.playing) this.playOnReturn.add(this.session)
       this.session = undefined
+      this.clearMarks()
       this.playing = false
       this.want = undefined
     }
@@ -430,6 +442,7 @@ class Podcasts {
     this.session = undefined
     this.playing = false
     this.want = undefined
+    this.clearMarks()
     this.renderItem()
   }
 
@@ -527,6 +540,7 @@ class Podcasts {
     if (wasPlaying !== m.playing) this.saidState(lj, m.t)
     this.renderItem()
     this.redrawCard(lj)
+    this.showMarks(lj, l, m.t, !!m.seek, m.playing, m.rate)
     // Paused and not moved: the walk is the reader's.
     if (!m.playing && !m.seek) return
     const v = viewAt(l.ep, m.t)
@@ -554,14 +568,95 @@ class Podcasts {
     this.mover.push({ lj, view, still: false })
   }
 
+  // ---------- marks ----------
+
+  /**
+   * The marks at second `t` (marks.ts): exactly those lit by then in the segment playing then. A segment reached by
+   * a seek shows its own view, one played into the view the hold kept (that decides which file a mark may open).
+   * Playing, the next mark is lit on time by a timer (reports come about four times a second).
+   */
+  private showMarks(lj: LoadedJourney, l: Loaded, t: number, seek: boolean, playing: boolean, rate?: number): void {
+    clearTimeout(this.markTimer)
+    this.markTimer = undefined
+    const k = segmentAt(l.ep.segments, t)
+    if (seek) this.markMode = 'exact'
+    else if (k !== this.markSeg) this.markMode = 'calm'
+    this.markSeg = k
+    const seg = l.ep.segments[k]
+    if (!seg?.marks || t < seg.start) { this.lights.clear(); return }
+    const plan = this.planOf(lj, l, k, this.markMode)
+    void this.lights.show(`${lj.key}|${l.sig}|${k}|${this.markMode}`, plan, t, (p, r, doc) => this.bringMark(p, r, doc))
+    const next = plan.find((p) => !p.skip && p.time > t)
+    if (!playing || !next || next.time >= seg.end) return
+    const ms = ((next.time - t) / (rate || 1)) * 1000
+    this.markTimer = setTimeout(() => {
+      this.markTimer = undefined
+      if (this.session === lj.key && this.playing && this.eps.get(lj.key) === l) this.showMarks(lj, l, next.time, false, true, rate)
+    }, Math.max(0, ms))
+  }
+
+  /** No marks lit, none waiting. */
+  private clearMarks(): void {
+    clearTimeout(this.markTimer)
+    this.markTimer = undefined
+    this.markSeg = -1
+    this.lights?.clear()
+  }
+
+  /** Segment `k`'s marks as played (`mode`: how the segment was reached): each one's file, time, and whether the view
+   *  hold skips it or lets it open its file (model.ts planMarks). */
+  private planOf(lj: LoadedJourney, l: Loaded, k: number, mode: 'calm' | 'exact'): PlannedMark[] {
+    const key = `${lj.key}|${l.sig}|${k}|${mode}`
+    let plan = this.plans.get(key)
+    if (plan) return plan
+    const segs = l.ep.segments
+    const s = segs[k]
+    const own = viewFile(lj, s.beat === undefined ? { step: s.step } : { step: s.step, beat: s.beat })
+    let shown = own, since = s.start
+    if (mode === 'calm') {
+      const views = this.calmViewsOf(lj, l)
+      shown = viewFile(lj, views[k] ?? { step: 0 })
+      let j = k
+      while (j > 0 && viewFile(lj, views[j - 1] ?? { step: 0 }) === shown) j--
+      since = segs[j].start
+    }
+    const marks = s.marks ?? []
+    const times = markTimes(s)
+    const renames = journeys.renames(lj)
+    plan = planMarks(marks, times, own, shown, since).map((x, i) => ({ mark: marks[i], file: x.file, uri: stepFileUri(lj.folder.uri, renames, x.file), time: times[i], skip: x.skip, opens: x.opens }))
+    if (this.plans.size > 200) this.plans.clear()
+    this.plans.set(key, plan)
+    return plan
+  }
+
+  /** A mark that just lit while it plays: on screen if it isn't (centred), never under a reader looking around (the
+   *  follow lock); in another file, that file opens only when the plan lets it (the view hold). */
+  private async bringMark(p: PlannedMark, r: vscode.Range, doc: vscode.TextDocument): Promise<void> {
+    if (!this.follow.locked || !this.drives()) return
+    const uri = doc.uri.toString()
+    let ed = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri && e.viewColumn !== mapPanel.viewColumn)
+    if (!ed) {
+      if (!p.opens) return
+      this.follow.ourMove()
+      ed = await showInCodeGroup(doc, walk.codeColumn, { keepFocus: true })
+    }
+    const seen = ed.visibleRanges.some((v) => v.contains(r.start) && v.contains(r.end))
+    if (seen) return
+    this.follow.ourMove()
+    ed.revealRange(r, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+  }
+
   /** The view a playing episode shows for segment `seg` (the view hold, model.ts calmViews). */
   private calmView(lj: LoadedJourney, l: Loaded, seg: number): View {
+    return this.calmViewsOf(lj, l)[seg] ?? { step: 0 }
+  }
+  private calmViewsOf(lj: LoadedJourney, l: Loaded): View[] {
     let c = this.calm.get(lj)
     if (!c || c.sig !== l.sig) {
       c = { sig: l.sig, views: calmViews(l.ep, (v) => viewFile(lj, v)) }
       this.calm.set(lj, c)
     }
-    return c.views[seg] ?? { step: 0 }
+    return c.views
   }
 
   /** A view with its step's id (from the journey as it is). */
@@ -780,6 +875,7 @@ class Podcasts {
     if (this.session !== lj.key) return
     log.info(`podcast ${lj.j.id}: stopped at ${clock(this.posOf(lj))} (${why}); ▶ goes on from there`)
     this.session = undefined
+    this.clearMarks()
     // Played again, the view at its time is applied afresh (not "the same segment, the same view").
     this.lastSeg = -1
     this.playing = false
@@ -1025,7 +1121,7 @@ class Podcasts {
       journeys: journeys.all().filter((x) => this.has(x)).map((x) => x.j.id),
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
       item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostAlive: this.listen.alive, hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
-      why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor,
+      why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor, marks: this.lights.lit(),
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
       notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
       links: Object.fromEntries([...this.eps].map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, brokenLinks(l.problems)])),

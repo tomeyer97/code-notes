@@ -33,6 +33,8 @@ export interface WrittenSegment {
   end?: unknown
   /** When each sentence of `text` starts in the audio (e.g. a text-to-speech service's alignment): [{ start, text }]. */
   sentences?: unknown
+  /** Highlights lit while the voice says a phrase (docs/podcast-format.md, "Marks"): [{ phrase, at, lines, … }]. */
+  marks?: unknown
 }
 
 /** The podcast file, checked for its shape only (parsePodcast). */
@@ -62,6 +64,8 @@ export interface Segment extends View {
   /** When each sentence starts, as written (only when they are all usable: sentencesProblem). Undefined: the player
    *  estimates the sentence times from the text. */
   sentences?: Sentence[]
+  /** Its usable marks, in the order they light (marksOf). */
+  marks?: Mark[]
 }
 
 /** A sentence of a segment's text and the second of the audio it starts at: the caption shown from then on. */
@@ -83,7 +87,7 @@ export interface Episode {
 }
 
 /** What the player needs of the journey: its steps' ids and how many beats each one's animation has. */
-export interface JourneyShape { steps: { id: string; beats: number }[] }
+export interface JourneyShape { steps: { id: string; beats: number; file?: string; beatFiles?: (string | null)[] }[] }
 
 /** The podcast file next to a journey file: `x.json` → `x.podcast.json`. */
 export const podcastFileOf = (journeyPath: string) => journeyPath.replace(/\.json$/i, '') + '.podcast.json'
@@ -145,6 +149,8 @@ export function resolveEpisode(p: Podcast, journey: JourneyShape): Episode {
     if (x.s.sentences !== undefined && !sentencesProblem(x.s.sentences, x.start!, known)) {
       seg.sentences = (x.s.sentences as Sentence[]).map((t) => ({ start: t.start, text: t.text }))
     }
+    const marks = marksOf(x.s.marks, seg.text, seg.start, seg.end, x.s.at === null)
+    if (marks) seg.marks = marks
     return seg
   })
   const last = segments[segments.length - 1]
@@ -345,6 +351,175 @@ export class LatestWins<T> {
     }
     this.running = false
   }
+}
+
+// ---------- marks: word-timed highlights within a segment (docs/podcast-format.md, "Marks") ----------
+
+/** A highlight that lights while the voice says `phrase`: `lines` of `file` (default: the segment's beat's file, else
+ *  its step's), or only `match` within them (its `nth` occurrence). */
+export interface Mark {
+  phrase: string
+  /** Seconds from the segment's start: when the phrase's first character is said. */
+  at: number
+  file?: string
+  /** 1-based, inclusive. */
+  lines: [number, number]
+  match?: string
+  /** 1-based; default 1. */
+  nth?: number
+}
+
+/** A mark lights this long before its `at` (s): the eye gets there as the word is said, not after it. */
+export const MARK_LEAD_S = 0.12
+/** Marks' `at` this close (s) to the segment's bounds or to each other count as in order (rounding in a generator). */
+const MARK_SLACK_S = 0.05
+
+/**
+ * What is wrong with a segment's `marks` (validate.ts says it; resolveEpisode leaves out the marks it names: `drop`).
+ * `start`, `end`: the segment's times as the player has them; `onMap`: the segment's `at` is null (a mark then needs
+ * its own `file`).
+ */
+export function marksProblems(v: unknown, text: string, start: number, end: number, onMap: boolean): { k?: number; what: string; sub: (string | number)[]; drop: boolean }[] {
+  if (v === undefined) return []
+  if (!Array.isArray(v)) return [{ what: 'marks is not a list of { phrase, at, lines }; ignored', sub: ['marks'], drop: true }]
+  const out: { k?: number; what: string; sub: (string | number)[]; drop: boolean }[] = []
+  const len = Math.max(0, end - start)
+  let prevAt: number | undefined
+  let from = 0
+  let prevPhrase: string | undefined
+  let prevPos = -1
+  v.forEach((m, k) => {
+    const bad = (what: string, sub: (string | number)[] = []) => out.push({ k, what: `mark ${k + 1}: ${what}; ignored`, sub: ['marks', k, ...sub], drop: true })
+    if (!isObj(m)) return bad('not an object { phrase, at, lines }')
+    if (typeof m.phrase !== 'string' || !m.phrase.trim()) return bad('no phrase', m.phrase === undefined ? [] : ['phrase'])
+    const at = num(m.at)
+    if (at === undefined) return bad(m.at === undefined ? 'no "at" (seconds from the segment\'s start)' : `at ${JSON.stringify(m.at)} is not a time in seconds`, m.at === undefined ? [] : ['at'])
+    if (at < -MARK_SLACK_S || at > len + MARK_SLACK_S) return bad(`at ${clockMs(start + at)} (${round2(at)} s) is outside the segment (${clockMs(start)}–${clockMs(end)})`, ['at'])
+    const l = m.lines
+    if (!Array.isArray(l) || l.length !== 2 || !l.every((x) => Number.isInteger(x) && x >= 1) || l[1] < l[0]) return bad(`lines must be [first, last] (1-based, first <= last), got ${JSON.stringify(l)}`, l === undefined ? [] : ['lines'])
+    if (m.file !== undefined && (typeof m.file !== 'string' || !m.file.trim())) return bad('file is not a path', ['file'])
+    if (m.file === undefined && onMap) return bad('a mark in a segment on the map ("at": null) needs its own "file"')
+    if (m.match !== undefined && (typeof m.match !== 'string' || !m.match)) return bad('match is not a text', ['match'])
+    if (m.nth !== undefined && !(Number.isInteger(m.nth) && (m.nth as number) >= 1)) return bad(`nth must be 1 or more, got ${JSON.stringify(m.nth)}`, ['nth'])
+    // Kept, but worth saying: out of order (they light in time order), a phrase that isn't in the text.
+    if (prevAt !== undefined && at < prevAt - MARK_SLACK_S) out.push({ k, what: `mark ${k + 1} lights at ${round2(at)} s, before mark ${k} (${round2(prevAt)} s): marks light in the order they are said`, sub: ['marks', k, 'at'], drop: false })
+    // The same phrase as the mark before: the same words (two places at once).
+    const p = m.phrase === prevPhrase ? prevPos : text.indexOf(m.phrase, from)
+    if (p < 0) out.push({ k, what: `mark ${k + 1}: the phrase ${JSON.stringify(m.phrase)} isn't in the text${from ? ' after the phrase before it' : ''}`, sub: ['marks', k, 'phrase'], drop: false })
+    else from = p + m.phrase.length
+    prevPhrase = m.phrase
+    prevPos = p
+    prevAt = at
+  })
+  return out
+}
+
+const round2 = (t: number) => Math.round(t * 100) / 100
+
+/** A segment's usable marks (marksProblems' dropped ones left out), in the order they light. */
+export function marksOf(v: unknown, text: string, start: number, end: number, onMap: boolean): Mark[] | undefined {
+  if (!Array.isArray(v) || !v.length) return undefined
+  const drop = new Set(marksProblems(v, text, start, end, onMap).filter((p) => p.drop).map((p) => p.k))
+  const out: Mark[] = []
+  v.forEach((m, k) => {
+    if (drop.has(k)) return
+    const x = m as Record<string, unknown>
+    out.push({
+      phrase: x.phrase as string, at: x.at as number, lines: [(x.lines as number[])[0], (x.lines as number[])[1]],
+      ...(typeof x.file === 'string' ? { file: x.file } : {}), ...(typeof x.match === 'string' ? { match: x.match } : {}), ...(typeof x.nth === 'number' ? { nth: x.nth } : {}),
+    })
+  })
+  // Stable: marks said at the same time keep their order.
+  out.sort((a, b) => a.at - b.at)
+  return out.length ? out : undefined
+}
+
+/** When each of a segment's marks lights (s, in the episode): MARK_LEAD_S before `start + at`, never before the
+ *  segment starts; a mark with the same phrase as the one before it lights with it (two places at once). */
+export function markTimes(seg: { start: number; marks?: Mark[] }): number[] {
+  const out: number[] = []
+  const ms = seg.marks ?? []
+  ms.forEach((m, k) => {
+    out.push(k > 0 && ms[k - 1].phrase === m.phrase ? out[k - 1] : Math.max(seg.start, seg.start + m.at - MARK_LEAD_S))
+  })
+  return out
+}
+
+/** Of marks lighting at `times` (in order), how many are lit at second `t`, and from which one on they are the newest
+ *  (the focus: the last lit, with any lit at the same time). */
+export function marksAt(times: number[], t: number): { lit: number; focusFrom: number } {
+  let lit = 0
+  while (lit < times.length && times[lit] <= t + 1e-6) lit++
+  let focusFrom = lit ? lit - 1 : 0
+  while (focusFrom > 0 && times[focusFrom - 1] === times[lit - 1]) focusFrom--
+  return { lit, focusFrom }
+}
+
+/**
+ * Which of a segment's marks light (the view hold, F79, for marks): a mark in the file on screen lights; one in
+ * another file opens it, but only once the file on screen has been there `hold` seconds; sooner it is skipped.
+ * `own`: the segment's own file (a mark's default); `shown`: the file on screen as the segment starts, there since
+ * `since` (s).
+ */
+export function planMarks(marks: Mark[], times: number[], own: string, shown: string, since: number, hold = VIEW_HOLD_S): { file: string; skip: boolean; opens: boolean }[] {
+  let cur = shown, from = since
+  return marks.map((m, k) => {
+    const file = m.file ?? own
+    if (file === cur) return { file, skip: false, opens: false }
+    if (times[k] - from >= hold) {
+      cur = file
+      from = times[k]
+      return { file, skip: false, opens: true }
+    }
+    return { file, skip: true, opens: false }
+  })
+}
+
+/** A mark's `match` is looked for this many lines up and down from its `lines` when the code moved. */
+export const MARK_REFIND_LINES = 20
+
+/** A place in a document (0-based lines and characters, the end exclusive). */
+export interface MarkSpot { line: number; col: number; endLine: number; endCol: number }
+
+/** The `nth` occurrence of `match` in lines a..b (0-based, inclusive, clipped to the document). */
+function occurrence(doc: string[], a: number, b: number, match: string, nth: number): MarkSpot | undefined {
+  a = Math.max(0, a)
+  b = Math.min(doc.length - 1, b)
+  if (a > b) return undefined
+  const text = doc.slice(a, b + 1).join('\n')
+  let i = -match.length
+  for (let n = 0; n < nth; n++) {
+    i = text.indexOf(match, i + match.length)
+    if (i < 0) return undefined
+  }
+  const pos = (off: number) => {
+    let line = a
+    while (off > doc[line].length) { off -= doc[line].length + 1; line++ }
+    return { line, col: off }
+  }
+  const s = pos(i), e = pos(i + match.length)
+  return { line: s.line, col: s.col, endLine: e.line, endCol: e.col }
+}
+
+/**
+ * Where mark `m` is in a document (its lines): its `match` within `lines` (moved 0); else the same lines shifted up to
+ * MARK_REFIND_LINES up or down, the nearest first, up before down (`moved`: the shift); else the whole `lines` (from
+ * the first line's text to the last line's end; `found` false). No `match`: the whole lines. Undefined: the lines are
+ * past the end of the document.
+ */
+export function findMark(doc: string[], m: Pick<Mark, 'lines' | 'match' | 'nth'>): { spot: MarkSpot; moved: number; found: boolean } | undefined {
+  const a = m.lines[0] - 1, b = Math.min(m.lines[1] - 1, doc.length - 1)
+  if (a >= doc.length || a < 0) return undefined
+  if (m.match) {
+    for (let d = 0; d <= MARK_REFIND_LINES; d++) {
+      for (const s of d ? [-d, d] : [0]) {
+        const spot = occurrence(doc, a + s, b + s, m.match, m.nth ?? 1)
+        if (spot) return { spot, moved: s, found: true }
+      }
+    }
+  }
+  const indent = doc[a].length - doc[a].trimStart().length
+  return { spot: { line: a, col: doc[a].trim() ? indent : 0, endLine: b, endCol: doc[b].length }, moved: 0, found: !m.match }
 }
 
 /** m:ss.s: a time in a message, precise enough to find the segment. */

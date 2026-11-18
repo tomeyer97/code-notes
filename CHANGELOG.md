@@ -58,6 +58,15 @@
   quick ⏭ ⏭ open only the last target; a beat it doesn't narrate pauses it; End Journey ends the listening (▶ says
   where it goes on); Ctrl+' Space in a journey without a podcast says so instead of starting another one. Reopened,
   the panel shows the beat it was at; the output logs plays, pauses and stops with why.
+- **Listen: marks, highlights as the words are said.** A segment may carry `marks`: while the voice says "requires a
+  model", that check lights, down to the characters (`match`, its `nth`); on "right there", the line that rejects it.
+  The newest mark is a box in the cursor's colour, the segment's earlier ones stay, fainter, over the beat's own line;
+  the next segment clears them. A mark lights 0.12 s before its word; marks with the same phrase light together; at
+  any time (a seek, paused too) exactly the marks said by then show. Code that moved is found within 20 lines (said
+  once in the output), else the whole lines light. An off-screen mark is scrolled to, never under a reader who is
+  looking around; a mark in another file opens it only after the view hold (8 s). The check (extension and
+  `journey.py podcast`) says marks that can't be used, phrases not in the text, marks out of order, and, reading the
+  code, a missing file, lines past its end, or a `match` not where it says (and whether it is found nearby).
 - **Listen: more checks of the podcast file.** A step the journey doesn't have is said once with its segments and times; a beat written
   as a string, a reused segment id (with both times), and narration in another order than the journey's are warnings;
   a podcast recorded for an older commit whose steps' code changed since gets a quiet note; a podcast file not named

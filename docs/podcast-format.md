@@ -64,6 +64,7 @@ A segment:
 | `say` | Optional: the spoken form a generator sent to text-to-speech (numbers, names spelled out). The player ignores it |
 | `start`, `end` | Seconds in the audio. Gaps between segments belong to the segment before them |
 | `sentences` | Optional: when each sentence of `text` starts, `[{ "start": <seconds in the audio>, "text": "<the sentence>" }]` (e.g. a text-to-speech service's alignment); the caption shows the current one. Used only when every item has a number `start` and a `text`, the starts go up, and each is within the segment (its `start` to its `end`, or the next segment's start); otherwise it is a warning, and, as without it, the player estimates each sentence's time by its share of the text |
+| `marks` | Optional: parts of the code that light up while the voice says a phrase ([Marks](#marks-highlights-as-words-are-said)) |
 
 Other fields, in the file or in a segment, are ignored: generators can keep their own data there.
 
@@ -162,6 +163,45 @@ position.
 - For screen readers: the timeline is a slider whose value says the time, the total and the step (once a second);
   a step change while playing is announced once, politely; every control has a name and its keys in its tooltip.
 
+## Marks: highlights as words are said
+
+A segment may carry `marks`: parts of the code that light up while the voice says a phrase. The segment's `at` (its
+step and beat) decides the file and the view; marks light parts of it, down to a few characters. "If the test requires
+a model and the run is strict, it is rejected right there": on "requires a model" the check lights, on "right there"
+the line that rejects it.
+
+```jsonc
+"marks": [
+  { "phrase": "requires a model", "at": 2.8, "lines": [338, 338], "match": "spec.NeedsModel(steps)" },
+  { "phrase": "right there", "at": 11.36, "lines": [339, 340] },
+  { "phrase": "the replay file", "at": 13.0, "file": "runner/src/replay.ts", "lines": [40, 52] }
+]
+```
+
+| Field | |
+|---|---|
+| `phrase` | The words in `text` the mark goes with (the first occurrence after the mark before's phrase). Marks with the same phrase one after the other light together (two places at once) |
+| `at` | Seconds from the segment's `start` when the phrase is said (its first character), within the segment |
+| `file` | Optional: the file, relative to the repository. Default: the segment's beat's file, else its step's. Required in a segment whose `at` is `null` |
+| `lines` | `[first, last]`, 1-based, inclusive, in the code at the journey's commit |
+| `match` | Optional: only this text within `lines` lights (whitespace as written; it may span the lines) |
+| `nth` | Optional, 1-based: which occurrence of `match` within `lines` (default 1) |
+
+While it plays:
+
+- A mark lights 0.12 s before `start + at` (the eye gets there as the word is said). The beat's own line box stays;
+  the newest mark is a filled box with an edge in the cursor's colour, the segment's earlier marks stay, fainter. The
+  next segment clears them.
+- At any time T, exactly the marks lit by T in the segment playing at T show: a seek forward lights them, a seek back
+  takes them away, also while paused.
+- `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or
+  down (nearer first, up before down; `nth` counts within the shifted lines), said once in the output; not found
+  there either: the whole `lines` light. Lines past the end of the file: nothing.
+- A mark that lights while it plays and is off screen is scrolled to (centred); one on screen never moves the editor.
+  A reader looking around on their own (the follow lock) is never scrolled: marks still light where they are.
+- A mark in another file than the one on screen is a view change: it opens that file only once the view has been on
+  screen at least `VIEW_HOLD_S` (8 s); sooner, it is skipped (the output says so at debug level).
+
 ## Validation
 
 The extension checks the file every time it, the journey or the audio file changes. The code-journey skill's
@@ -186,6 +226,7 @@ runs them too when the podcast file exists).
 | Times | `start` missing or not a number (the segment is skipped); `end` not a number; `end` before `start`; a segment that starts before the one above it in the file (out of order), or before the one before it in time ends (overlap); an end past `duration` |
 | The audio's length | `duration` differs from it; a segment ends after it; the audio is much shorter than the episode, with parts after its end: one warning, "The audio is 0:13 long but the episode is 12:47: the file looks cut off" |
 | Sentences | `sentences` not a non-empty list of `{ start, text }`; a start before the one above it; a start outside the segment. One warning per segment; the caption is estimated from the text instead |
+| Marks | `marks` not a list; a mark that isn't `{ phrase, at, lines }`, with `at` outside the segment, `lines` not `[first, last]`, `nth` under 1, or without `file` in a segment on the map (ignored); marks out of time order, a `phrase` not in `text` (kept). Against the code, when the file can be read (the extension: the workspace; `journey.py`: the repository): the file not there, `lines` past its end, `match` (its `nth`) not within `lines`: "found 2 lines down, lit there", or "nor within 20 lines: the whole lines light" |
 | Others | `journey.id` is another journey's; a segment that isn't an object; a duplicate `id` (with both times); a `cue` other than `map`, `open`, `beat`; a `duration` that isn't a length |
 
 **Notes: nothing wrong with the file.** `journey.commit` set and steps' code changed since that commit (git): "recorded

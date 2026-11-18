@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calmViews, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
+import { calmViews, findMark, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
 
 // The podcast's pure parts (src/podcast/model.ts): reading the file, where the journey is at a time, seeking.
 
@@ -192,4 +192,80 @@ test('a calmer editor: a view is held at least VIEW_HOLD_S while playing; a shor
   // Every segment long enough: every view as written.
   const long = calmViews(sample(), () => 'f', 0)
   assert.deepEqual(long.map((x) => x.step), sample().segments.map((s) => s.step))
+})
+
+// ---------- marks (docs/podcast-format.md, "Marks") ----------
+
+const markEp = (marks: unknown, at: unknown = { step: 'a', beat: 1 }) => resolveEpisode({
+  version: 1, title: 'T', journey: { id: 'j' }, audio: 'a.mp3', duration: 40,
+  segments: [{ id: 's1', at, text: 'If it requires a model and strict is set, it is rejected right there.', start: 10, end: 20, marks }, { id: 's2', at: null, text: 'x', start: 20, end: 40 }],
+}, { steps: [{ id: 'a', beats: 2 }] })
+
+test('marks: parsed in the order they light; bad ones left out; the next segment has none', () => {
+  const ep = markEp([
+    { phrase: 'right there', at: 5, lines: [5, 6] },
+    { phrase: 'requires a model', at: 1.5, lines: [3, 3], match: 'NeedsModel(steps)' },
+    { phrase: 'strict', at: 3, lines: [3, 3], match: 'g == nil', nth: 2, file: 'b.go' },
+    { phrase: 'nope', at: 30, lines: [1, 1] },
+    { phrase: 'bad lines', at: 1, lines: [4, 2] },
+    { at: 1, lines: [1, 1] },
+  ])
+  const ms = ep.segments[0].marks!
+  assert.deepEqual(ms.map((m) => m.phrase), ['requires a model', 'strict', 'right there'])
+  assert.deepEqual(ms[1], { phrase: 'strict', at: 3, lines: [3, 3], file: 'b.go', match: 'g == nil', nth: 2 })
+  assert.equal(ep.segments[1].marks, undefined)
+  assert.equal(markEp('x').segments[0].marks, undefined, 'not a list: none')
+  // On the map (at: null) a mark needs its own file.
+  assert.deepEqual(markEp([{ phrase: 'model', at: 1, lines: [1, 1] }, { phrase: 'strict', at: 2, lines: [1, 1], file: 'a.go' }], null).segments[0].marks!.map((m) => m.phrase), ['strict'])
+})
+
+test('marks: each lights 0.12 s before its time, never before the segment; the same phrase twice lights together', () => {
+  assert.equal(MARK_LEAD_S, 0.12)
+  const seg = { start: 10, marks: [
+    { phrase: 'a', at: 0.05, lines: [1, 1] as [number, number] },
+    { phrase: 'requires a model', at: 2, lines: [1, 1] as [number, number] },
+    { phrase: 'right there', at: 4, lines: [1, 1] as [number, number] },
+    { phrase: 'right there', at: 4.6, lines: [2, 2] as [number, number] },
+  ] }
+  const times = markTimes(seg)
+  assert.deepEqual(times.map((t) => Math.round(t * 1000) / 1000), [10, 11.88, 13.88, 13.88])
+  assert.deepEqual(marksAt(times, 9.9), { lit: 0, focusFrom: 0 })
+  assert.deepEqual(marksAt(times, 10), { lit: 1, focusFrom: 0 })
+  assert.deepEqual(marksAt(times, 11.87), { lit: 1, focusFrom: 0 })
+  assert.deepEqual(marksAt(times, 11.88), { lit: 2, focusFrom: 1 }, 'the newest is the focus, the one before dims')
+  assert.deepEqual(marksAt(times, 14), { lit: 4, focusFrom: 2 }, 'two places at once: both the focus')
+  assert.deepEqual(marksAt(times, 12), { lit: 2, focusFrom: 1 }, 'back again: exactly the ones lit by then')
+})
+
+test('marks: a mark in another file opens it only after the view hold, else it is skipped', () => {
+  const m = (file?: string) => ({ phrase: 'x', at: 0, lines: [1, 1] as [number, number], ...(file ? { file } : {}) })
+  // On screen since 0: a mark in b.go at 3 s is too soon; at 9 s it opens b.go; back to a.go at 12 s is too soon.
+  assert.deepEqual(planMarks([m(), m('b.go'), m('b.go'), m('b.go'), m('a.go')], [1, 3, 9, 10, 12], 'a.go', 'a.go', 0, 8), [
+    { file: 'a.go', skip: false, opens: false },
+    { file: 'b.go', skip: true, opens: false },
+    { file: 'b.go', skip: false, opens: true },
+    { file: 'b.go', skip: false, opens: false },
+    { file: 'a.go', skip: true, opens: false },
+  ])
+  assert.equal(VIEW_HOLD_S, 8)
+})
+
+test('marks: found by match within the lines (its nth), re-found within 20 lines when the code moved, else the whole lines', () => {
+  const doc = ['package a', '', '\tif n := NeedsModel(steps); g == nil && n > 0 {', '\t\treturn reject(400)', '\t}', '\treturn reject(400)']
+  assert.deepEqual(findMark(doc, { lines: [3, 3], match: 'NeedsModel(steps)' }), { spot: { line: 2, col: 9, endLine: 2, endCol: 26 }, moved: 0, found: true })
+  // nth counts within the lines; a match may span them.
+  assert.deepEqual(findMark(doc, { lines: [4, 6], match: 'reject(400)', nth: 2 })!.spot, { line: 5, col: 8, endLine: 5, endCol: 19 })
+  assert.deepEqual(findMark(doc, { lines: [4, 5], match: '400)\n\t}' })!.spot, { line: 3, col: 16, endLine: 4, endCol: 2 })
+  // The code moved down 3 lines: the nearest shift that has it.
+  const moved = ['//', '//', '//', ...doc]
+  assert.deepEqual(findMark(moved, { lines: [3, 3], match: 'g == nil' }), { spot: { line: 5, col: 28, endLine: 5, endCol: 36 }, moved: 3, found: true })
+  // Up before down at the same distance; nearer first.
+  const both = ['x', 'hit', 'y', 'hit']
+  assert.equal(findMark(both, { lines: [3, 3], match: 'hit' })!.moved, -1)
+  assert.equal(findMark(Array.from({ length: 30 }, (_, i) => (i === 25 ? 'far' : '-')), { lines: [1, 1], match: 'far' })!.found, false, 'more than 20 lines away: not found')
+  // Not there: the whole lines, from the first line's text; no match: the same, found.
+  assert.deepEqual(findMark(doc, { lines: [3, 4], match: 'nothing' }), { spot: { line: 2, col: 1, endLine: 3, endCol: 20 }, moved: 0, found: false })
+  assert.deepEqual(findMark(doc, { lines: [4, 4] }), { spot: { line: 3, col: 2, endLine: 3, endCol: 20 }, moved: 0, found: true })
+  assert.equal(findMark(doc, { lines: [7, 8] }), undefined, 'past the end: nothing')
+  assert.deepEqual(findMark(doc, { lines: [6, 9] })!.spot, { line: 5, col: 1, endLine: 5, endCol: 19 }, 'partly past the end: what is there')
 })

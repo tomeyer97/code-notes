@@ -5,13 +5,14 @@
 // plays from the result.
 
 import * as vscode from 'vscode'
-import { log } from '../app'
+import { journeys, log } from '../app'
+import { stepFileUri } from '../journeys/codeGroup'
 import { git } from '../checkout'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { readText } from '../jsonFolder'
 import { wfs } from '../workspaceFs'
 import { isPodcastFile, podcastFileOf, PodcastProblem } from './model'
-import { audioPathProblem, lineCol, locate, validatePodcast, Validation } from './validate'
+import { audioPathProblem, lineCol, locate, markFileNames, validatePodcast, Validation } from './validate'
 
 /** A podcast file next to a journey, read and checked. */
 export interface PodcastRead {
@@ -28,9 +29,22 @@ export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode
   const file = lj.uri.with({ path: podcastFileOf(lj.uri.path) })
   const raw = await readText(file)
   if (raw === undefined) return undefined
-  const journey = { id: lj.j.id, steps: lj.j.steps.map((s) => ({ id: s.id, beats: s.scene?.beats?.length ?? 0 })) }
+  const journey = {
+    id: lj.j.id,
+    steps: lj.j.steps.map((s) => ({
+      id: s.id, beats: s.scene?.beats?.length ?? 0, file: s.file,
+      beatFiles: (s.scene?.beats ?? []).map((b) => (typeof b.code?.file === 'string' ? b.code.file : null)),
+    })),
+  }
   // The audio, when the file names one that can be used: is it there, and how big.
-  const first = validatePodcast(raw, { journey })
+  const first0 = validatePodcast(raw, { journey })
+  // The files the marks are in, read for their check (the lines there, the match in them).
+  const texts = new Map<string, string | null>()
+  for (const f of first0.podcast ? markFileNames(first0.podcast, journey) : []) {
+    texts.set(f, (await readText(stepFileUri(lj.folder.uri, journeys.renames(lj), f))) ?? null)
+  }
+  const files = (f: string) => (texts.has(f) ? texts.get(f) : undefined)
+  const first = texts.size ? validatePodcast(raw, { journey, files }) : first0
   const name = first.podcast?.audio
   let audio: vscode.Uri | undefined
   let exists = false, size = 0
@@ -40,9 +54,9 @@ export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode
   }
   const commit = first.podcast?.journey.commit
   const changed = commit ? await changedSince(lj, commit) : undefined
-  if (!audio) return { file, raw, audioSize: 0, v: changed ? validatePodcast(raw, { journey, changed }) : first }
+  if (!audio) return { file, raw, audioSize: 0, v: changed ? validatePodcast(raw, { journey, changed, files }) : first }
   const audioDuration = exists ? audioLength(audio, size) : undefined
-  return { file, raw, audio, audioSize: size, v: validatePodcast(raw, { journey, audio: { exists, size }, audioDuration, changed }) }
+  return { file, raw, audio, audioSize: size, v: validatePodcast(raw, { journey, audio: { exists, size }, audioDuration, changed, files }) }
 }
 
 /** git's answers per journey and commit, for a few seconds (a scan reads every podcast; scans come in bursts). */
