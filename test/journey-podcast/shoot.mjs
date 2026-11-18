@@ -106,7 +106,7 @@ const tour = (current) => ({ current, marks: {}, resume: 0, legendHidden: true, 
  * The two pages and the extension's part between them: what player.ts does with their messages, on the same model.
  * `st.applied`: every view it applied (a check can say "moved once", "never showed step 2").
  */
-async function pages(b, w, theme, { listenW = 300, srcUrl = src } = {}) {
+async function pages(b, w, theme, { listenW = 300, srcUrl = src, more = {} } = {}) {
   const context = await b.newContext({ viewport: { width: w, height: 760 }, deviceScaleFactor: 1, reducedMotion: 'reduce' })
   const host = await context.newPage()
   await host.setViewportSize({ width: listenW, height: 360 })
@@ -163,7 +163,7 @@ async function pages(b, w, theme, { listenW = 300, srcUrl = src } = {}) {
   await host.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
   await map.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
   await toMap({ type: 'journey', journey, ...tour(0) })
-  const e = { ...episode, src: srcUrl }
+  const e = { ...episode, src: srcUrl, ...more }
   await toMap({ type: 'podcast', episode: e })
   await toHost({ type: 'podcast', episode: e })
   await map.waitForSelector('.pod:not([hidden])')
@@ -674,15 +674,17 @@ async function unplayable(b) {
   console.log(`${tag}: done`)
 }
 
-/** A cut-off audio: the part it can't reach is greyed, and the tip there says so. */
+/** An audio shorter than the episode (a cut-off file: here the episode says 80 s, the audio is 40 s): the part it can't
+ *  reach is greyed, and the tip there says so. (A truncated mp3 whose header still says its full length can't be told
+ *  apart in the player: the validator's length checks cover that.) */
 async function cut(b) {
   tag = 'cut-off audio'
-  const { context, host, map } = await pages(b, 700, 'light', { srcUrl: `${base}/cut/${p.audio}` })
-  await until('the audio\'s (short) length is known', async () => { const a = await audioState(host); return a.ready >= 1 && a.dur < ep.duration - 5 })
+  const { context, host, map } = await pages(b, 700, 'light', { more: { duration: 80 } })
+  await until('the audio loaded', async () => (await audioState(host)).ready >= 1)
   const r = await until('the unreachable part greyed', () => map.evaluate(() => { const e = document.querySelector('.pod-reach'); return e && !e.hidden ? e.getBoundingClientRect().toJSON() : null }))
   const track = await map.evaluate(() => document.querySelector('.pod-track').getBoundingClientRect().toJSON())
   ok(r && r.right <= track.right + 1 && r.left > track.left + track.width * 0.1, `from where the audio ends to the end: ${JSON.stringify(r)}`)
-  const { x, y } = await xAt(map, 35)
+  const { x, y } = await xAt(map, 70 * ep.duration / 80)
   await map.mouse.move(x, y)
   ok(/the audio ends before this/.test(await map.evaluate(() => document.querySelector('.pod-tip').textContent)), 'the tip there says the audio ends before it')
   if (OUT) await map.screenshot({ path: path.join(OUT, 'cut.png') })

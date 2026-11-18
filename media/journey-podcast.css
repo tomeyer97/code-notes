@@ -46,7 +46,7 @@ body.has-pod .body.wide .mapwrap { height: calc(100vh - var(--headH, 0px) - var(
 /* The part a cut-off audio can't reach: greyed, striped. */
 .pod-reach {
   position: absolute; top: 3px; height: 8px;
-  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--raised) 75%, transparent) 0 3px, transparent 3px 6px);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--fg) 22%, transparent) 0 2px, color-mix(in srgb, var(--raised) 85%, transparent) 2px 5px);
 }
 .pod-reach[hidden] { display: none; }
 .pod-marks { position: absolute; left: 0; right: 0; top: 14px; height: 16px; }
