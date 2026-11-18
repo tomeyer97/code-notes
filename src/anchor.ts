@@ -7,6 +7,9 @@
 //   - otherwise (code edited, deleted, or only found in an unrelated place)   -> stale, at its last position
 // Lines are compared without whitespace and with one quote style, so reformatting does not make a note stale.
 // A note on blank lines is anchored on its context alone.
+//
+// Following live edits (shift, swallows) is lineFollow.ts; what a stale step's code became (a diff, or removed) is
+// staleDiff.ts.
 
 /** 0-based, inclusive line range. */
 export interface Loc { start: number; end: number }
@@ -16,9 +19,10 @@ export interface AnchorResult { loc: Loc; stale: boolean; moved: boolean }
 /** What a line means for comparison: no whitespace, one quote style, no trailing; or,. */
 export const norm = (s: string) => s.replace(/\s+/g, '').replace(/['`]/g, '"').replace(/[;,]+$/, '')
 
-const blank = (s: string) => norm(s) === ''
+/** A line with nothing in it once normalized. */
+export const blank = (s: string) => norm(s) === ''
 /** Lines like `}` or `);` say nothing about where code is: they don't count as context. */
-const weak = (s: string) => norm(s).length < 3
+export const weak = (s: string) => norm(s).length < 3
 
 export function matchesAt(lines: string[], anchor: string[], start: number): boolean {
   if (start < 0 || start + anchor.length > lines.length) return false
@@ -29,18 +33,18 @@ export function matchesAt(lines: string[], anchor: string[], start: number): boo
 /** Context lines (non-blank ones only) that match around a block of `len` lines at `start`, and how many could. */
 export function contextScore(lines: string[], start: number, len: number, before: string[], after: string[]): { score: number; max: number } {
   let score = 0, max = 0
-  for (let i = 0; i < before.length; i++) {
-    if (weak(before[i])) continue
-    max++
-    const at = start - before.length + i
-    if (at >= 0 && norm(lines[at]) === norm(before[i])) score++
+  /** Context lines `ctx`, the i-th expected at line `lineOf(i)`, when that line is in the file. */
+  const count = (ctx: string[], lineOf: (i: number) => number) => {
+    for (let i = 0; i < ctx.length; i++) {
+      if (weak(ctx[i])) continue
+      max++
+      const at = lineOf(i)
+      if (at >= 0 && at < lines.length && norm(lines[at]) === norm(ctx[i])) score++
+    }
   }
-  for (let i = 0; i < after.length; i++) {
-    if (weak(after[i])) continue
-    max++
-    const at = start + len + i
-    if (at < lines.length && norm(lines[at]) === norm(after[i])) score++
-  }
+  // Either side can run off either end: `start` may be past the end of a file that shrank.
+  count(before, (i) => start - before.length + i)
+  count(after, (i) => start + len + i)
   return { score, max }
 }
 
@@ -55,20 +59,35 @@ const DISTINCT = 25
 export function relocate(lines: string[], anchor: string[], before: string[], after: string[], hint: number): number | undefined {
   if (!anchor.length || anchor.every(blank)) return undefined
   const first = norm(anchor[0])
-  const found: { at: number; score: number }[] = []
+  const found: Candidate[] = []
   for (let i = 0; i + anchor.length <= lines.length; i++) {
     if (norm(lines[i]) !== first || !matchesAt(lines, anchor, i)) continue
     found.push({ at: i, score: contextScore(lines, i, anchor.length, before, after).score })
   }
-  const substantial = anchor.filter((l) => !weak(l)).length >= 2 || (anchor.length === 1 && norm(anchor[0]).length >= DISTINCT)
-  const ok = found.filter((c) => c.score > 0 || (substantial && found.length === 1))
-  ok.sort((a, b) => b.score - a.score || Math.abs(a.at - hint) - Math.abs(b.at - hint))
-  return ok[0]?.at
+  const recognisable = anchor.filter((l) => !weak(l)).length >= 2
+  const oneLongLine = anchor.length === 1 && norm(anchor[0]).length >= DISTINCT
+  const substantial = recognisable || oneLongLine
+  let best: Candidate | undefined
+  for (const c of found) {
+    const ok = c.score > 0 || (substantial && found.length === 1)
+    if (ok && better(c, best, hint)) best = c
+  }
+  return best?.at
+}
+
+/** A place the code may be now: its first line, and how many context lines match there. */
+interface Candidate { at: number; score: number }
+
+/** A candidate beats the best so far: a higher score, or the same score nearer to where the note was. */
+function better(c: Candidate, best: Candidate | undefined, tracked: number): boolean {
+  if (!best) return true
+  if (c.score !== best.score) return c.score > best.score
+  return Math.abs(c.at - tracked) < Math.abs(best.at - tracked)
 }
 
 /** A note on blank lines: where its context (the code around it) is now. */
 function relocateByContext(lines: string[], len: number, before: string[], after: string[], tracked: number): { at: number; exact: boolean } | undefined {
-  let best: { at: number; score: number } | undefined
+  let best: Candidate | undefined
   let max = 0
   for (let i = 0; i + len <= lines.length; i++) {
     let allBlank = true
@@ -77,7 +96,8 @@ function relocateByContext(lines: string[], len: number, before: string[], after
     const c = contextScore(lines, i, len, before, after)
     max = c.max
     if (c.score === 0) continue
-    if (!best || c.score > best.score || (c.score === best.score && Math.abs(i - tracked) < Math.abs(best.at - tracked))) best = { at: i, score: c.score }
+    const cand = { at: i, score: c.score }
+    if (better(cand, best, tracked)) best = cand
   }
   if (!best) return undefined
   return { at: best.at, exact: best.score === max }
@@ -128,86 +148,53 @@ export function anchor(lines: string[], text: string, before: string, after: str
   return stay(true, len)
 }
 
+/** How far (in lines) from where it was edited code is looked for. */
+const SEARCH_WINDOW = 40
+/** A line of the block counts when found this many lines from where it would be (an insertion inside it shifts the
+ *  rest); it scores LINE_SLACK + 1 - distance, so a line in place counts most. */
+const LINE_SLACK = 3
+/** A context line that matches counts as much as this many block lines in place (context says it is the same code). */
+const CONTEXT_WEIGHT = 2
+/** The block's last recognisable line is looked for this far from where it would be, to find the block's end. */
+const END_SLACK = 6
+
+/** Line `k` of `lines` is `want` (normalized). */
+const lineIs = (lines: string[], k: number, want: string) => k >= 0 && k < lines.length && norm(lines[k]) === want
+
+/** How much the block line `want` (normalized; '' says nothing) counts when it belongs at line `at`: more the nearer it is found. */
+function lineScore(lines: string[], at: number, want: string): number {
+  if (!want) return 0
+  for (let d = 0; d <= LINE_SLACK; d++) {
+    if (lineIs(lines, at + d, want) || lineIs(lines, at - d, want)) return LINE_SLACK + 1 - d
+  }
+  return 0
+}
+
+/** The last line of a block of `want.length` lines found at `start`: where its last recognisable line is now, if close. */
+function blockEnd(lines: string[], start: number, want: string[]): number {
+  const len = want.length
+  const lastI = want.map((w, i) => (w ? i : -1)).filter((i) => i >= 0).pop()
+  if (lastI === undefined) return start + len - 1
+  for (let d = 0; d <= END_SLACK; d++) {
+    const hit = [start + lastI + d, start + lastI - d].find((k) => k >= start && lineIs(lines, k, want[lastI]))
+    if (hit !== undefined) return hit + (len - 1 - lastI)
+  }
+  return start + len - 1
+}
+
 /** Where edited code most likely is now: the offset near `tracked` that keeps most of its (and its context's) lines. */
-export function closest(lines: string[], anchor: string[], before: string[], after: string[], tracked: number, window = 40): Loc | undefined {
+export function closest(lines: string[], anchor: string[], before: string[], after: string[], tracked: number, window = SEARCH_WINDOW): Loc | undefined {
   const len = anchor.length
   const want = anchor.map((l) => (weak(l) ? '' : norm(l)))
-  let best: { at: number; score: number } | undefined
+  let best: Candidate | undefined
   for (let at = Math.max(0, tracked - window); at <= Math.min(lines.length - 1, tracked + window); at++) {
-    // Lines of the block found within a few lines of where they would be (an insertion inside it shifts the rest).
     let score = 0
-    for (let i = 0; i < len; i++) {
-      if (!want[i]) continue
-      for (let d = 0; d <= 3; d++) if ([at + i + d, at + i - d].some((k) => k >= 0 && k < lines.length && norm(lines[k]) === want[i])) { score += 4 - d; break }
-    }
-    score += contextScore(lines, at, len, before, after).score * 2
-    if (score > 0 && (!best || score > best.score || (score === best.score && Math.abs(at - tracked) < Math.abs(best.at - tracked)))) best = { at, score }
+    for (let i = 0; i < len; i++) score += lineScore(lines, at + i, want[i])
+    score += contextScore(lines, at, len, before, after).score * CONTEXT_WEIGHT
+    const cand = { at, score }
+    if (score > 0 && better(cand, best, tracked)) best = cand
   }
   if (!best) return undefined
-  // Its end: where the block's last recognisable line is now, if it is close; else its own length.
-  let end = best.at + len - 1
-  const lastI = want.map((w, i) => (w ? i : -1)).filter((i) => i >= 0).pop()
-  if (lastI !== undefined) {
-    for (let d = 0; d <= 6; d++) {
-      const hit = [best.at + lastI + d, best.at + lastI - d].find((k) => k >= best!.at && k < lines.length && norm(lines[k]) === want[lastI])
-      if (hit !== undefined) { end = hit + (len - 1 - lastI); break }
-    }
-  }
+  const end = blockEnd(lines, best.at, want)
   return { start: best.at, end: clamp(end, best.at, Math.max(best.at, lines.length - 1)) }
 }
-
-/** The lines removed and added between two versions of a block (a longest-common-subsequence diff). */
-export function lineDiff(a: string[], b: string[]): { del: string[]; ins: string[] } {
-  if (a.length * b.length > 250_000) return { del: a, ins: b }
-  const n = a.length, m = b.length
-  const L: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = norm(a[i]) === norm(b[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
-  const del: string[] = [], ins: string[] = []
-  let i = 0, j = 0
-  while (i < n && j < m) {
-    if (norm(a[i]) === norm(b[j])) { i++; j++ } else if (L[i + 1][j] >= L[i][j + 1]) del.push(a[i++]); else ins.push(b[j++])
-  }
-  while (i < n) del.push(a[i++])
-  while (j < m) ins.push(b[j++])
-  return { del, ins }
-}
-
-/** One text edit, in line terms: lines [startLine, endLine] replaced by text with `newLines` line breaks. */
-export interface LineEdit { startLine: number; startChar: number; endLine: number; endChar: number; newLines: number }
-
-/** Follows an edit made in the editor: lines above shift the note, edits inside it grow or shrink it. */
-export function shift(loc: Loc, e: LineEdit): Loc {
-  const delta = e.newLines - (e.endLine - e.startLine)
-  // Entirely above the note, or an insertion at the very start of its first line (pushes it down).
-  if (e.endLine < loc.start || (e.endLine === loc.start && e.endChar === 0 && e.startLine < loc.start) ||
-      (e.startLine === loc.start && e.endLine === loc.start && e.startChar === 0 && e.endChar === 0 && e.newLines > 0)) {
-    return { start: loc.start + delta, end: loc.end + delta }
-  }
-  if (e.startLine > loc.end) return loc
-  // Overlaps the note.
-  const start = Math.min(loc.start, e.startLine)
-  return { start, end: Math.max(start, loc.end + delta) }
-}
-
-/** An edit that replaces the whole note and more (a file reloaded from disk, a big paste): tracking it is meaningless. */
-export function swallows(loc: Loc, e: LineEdit): boolean {
-  return e.startLine <= loc.start && e.endLine >= loc.end && e.endLine - e.startLine > loc.end - loc.start
-}
-
-/**
- * A stale step: edited in place (most of its lines, or the lines around it, are still there: a diff) or removed (its
- * code is not near its old place any more).
- */
-export function staleKind(lines: string[], a: { text: string; before: string; after: string }, loc: { start: number; end: number }): { removed?: boolean; was?: string; now?: string } {
-  // Lines like `}` or `return` say nothing about which code this is.
-  const want = a.text.split('\n').map(norm).filter((l) => l.length > 3)
-  const lo = Math.max(0, loc.start - 3), hi = Math.min(lines.length, loc.end + 4)
-  const near = new Set(lines.slice(lo, hi).map(norm))
-  const kept = want.filter((l) => near.has(l)).length
-  const ctx = [...a.before.split('\n'), ...a.after.split('\n')].map(norm).filter(Boolean)
-  const ctxKept = ctx.filter((l) => near.has(l) || lines.slice(Math.max(0, lo - 3), hi + 3).map(norm).includes(l)).length
-  const edited = want.length > 0 && (kept / want.length >= 0.4 || (ctx.length > 0 && ctxKept / ctx.length >= 0.75 && kept > 0))
-  if (!edited) return { removed: true }
-  return { was: a.text, now: lines.slice(loc.start, Math.min(lines.length, loc.end + 1)).join('\n') }
-}
-

@@ -1,0 +1,75 @@
+/* The journey panel's home (journey-home.js): search, filter chips, sections of journeys, a preview of the selected
+   one. Colours: the tokens in common.css; the base (buttons, h1.q, .note) is journey-map.css, linked before this. */
+
+/* ---------- the top: title and count, search, chips, sort ---------- */
+.home .htop { display: flex; align-items: baseline; gap: 8px; }
+.home .htop h1.q { margin: 0 0 8px; }
+.hcount { color: var(--muted); font-size: 0.9em; font-variant-numeric: tabular-nums; }
+.hsearch {
+  width: 100%; box-sizing: border-box; padding: 4px 6px; font: inherit; border-radius: 2px;
+  color: var(--vscode-input-foreground, inherit); background: var(--vscode-input-background, transparent);
+  border: 1px solid var(--vscode-input-border, var(--border));
+}
+.hsearch:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 8px 0 4px; }
+.chip {
+  font: inherit; font-size: 0.88em; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); background: none;
+  color: var(--muted); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip:hover { background: var(--hover); }
+.chip.on { color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, var(--accent)); border-color: transparent; }
+.hsort {
+  margin-left: auto; font: inherit; font-size: 0.88em; border-radius: 2px;
+  color: var(--vscode-dropdown-foreground, inherit); background: var(--vscode-dropdown-background, transparent);
+  border: 1px solid var(--vscode-dropdown-border, #8884);
+}
+.hnote { margin: 6px 0 0; color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
+
+/* ---------- the list (and the preview beside it when wide) ---------- */
+.hbody { display: block; }
+.home.wide .hbody { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+.hlist { min-width: 0; }
+.hsec { font-size: 0.8em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 12px 0 2px; }
+.jlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.hmore { display: block; font-size: 0.88em; margin: 2px 0 0 6px; }
+
+/* A journey's row: its title and marks, its question (one line), one line about it. */
+.jrow { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; padding: 5px 6px; border-radius: 4px; line-height: 1.35; }
+.jrow .jtop { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.jrow .t { min-width: 0; overflow-wrap: anywhere; }
+.jrow mark { background: var(--vscode-editor-findMatchHighlightBackground, #ea5c0055); color: inherit; border-radius: 2px; }
+.jrow .jstart { flex: none; color: var(--link); font-size: 0.88em; font-weight: 600; }
+.jrow .jnew { flex: none; font-size: 0.8em; color: var(--link); }
+.jrow .jat { flex: none; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; }
+.jrow .jstale { flex: none; color: var(--stale); font-size: 0.88em; }
+.jrow .jq { color: var(--muted); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.jrow .jmeta { color: var(--muted); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jrow.here { box-shadow: inset 2px 0 0 var(--accent); }
+/* In this order: hovered, selected, with the keyboard. */
+.jrow:hover { background: var(--hover); }
+.jrow.sel { background: var(--vscode-list-inactiveSelectionBackground, var(--hover)); }
+.jrow:focus { outline: none; }
+.jrow:focus-visible, .jrow.sel:focus {
+  outline: 1px solid var(--focus); outline-offset: -1px;
+  background: var(--vscode-list-activeSelectionBackground, var(--hover)); color: var(--vscode-list-activeSelectionForeground, inherit);
+}
+.jrow.sel:focus .jq, .jrow.sel:focus .jmeta, .jrow.sel:focus .jat { color: inherit; opacity: 0.85; }
+.chip:focus-visible, .hmore:focus-visible, .refreshb:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+
+/* ---------- the preview: beside the list (wide), unfolded under its row (narrow) ---------- */
+.hprev { position: sticky; top: 8px; border-left: 1px solid var(--border); padding-left: 14px; min-width: 0; }
+.hprev .pt { font-size: 1em; margin: 0 0 4px; overflow-wrap: anywhere; }
+.hprev .pq { margin: 0 0 8px; color: var(--muted); overflow-wrap: anywhere; }
+.hunfold { padding: 2px 6px 8px 10px; }
+.psteps { margin: 0 0 10px; padding-left: 1.6em; color: var(--fg, inherit); font-size: 0.92em; }
+.psteps li { overflow-wrap: anywhere; margin: 1px 0; }
+.psteps li.more { list-style: none; color: var(--muted); }
+.psteps li.stale::marker { color: var(--stale); }
+.psteps .pwhen { display: block; color: var(--stale); font-size: 0.88em; }
+.pnote { margin: -4px 0 10px; color: var(--muted); font-size: 0.88em; }
+.pacts { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.walkb {
+  font: inherit; padding: 3px 12px; border: 0; border-radius: 2px; cursor: pointer;
+  background: var(--vscode-button-background, var(--accent)); color: var(--vscode-button-foreground, #fff);
+}
+.walkb:hover { background: var(--vscode-button-hoverBackground, var(--accent)); }

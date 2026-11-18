@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -41,10 +41,14 @@
   "main": "./out/src/extension.js",
   "files": [
     "out/src/**/*.js",
+    "out/src/webview/*.html",
     "out/vendor/**",
     "media/**",
     "skills/code-journey/SKILL.md",
     "skills/code-journey/scripts/journey.py",
+    "skills/understanding-check/SKILL.md",
+    "skills/understanding-check/scripts/questions.mjs",
+    "cli/understanding.mjs",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -68,7 +72,17 @@
       "codeNotes": [
         {
           "id": "codeNotes.notes",
-          "name": "Code Notes"
+          "name": "Code Notes",
+          "when": "codeNotes.listsNotes || !codeNotes.checkOpen"
+        },
+        {
+          "type": "webview",
+          "id": "codeNotes.check",
+          "name": "Check"
+        },
+        {
+          "id": "codeNotes.journeys",
+          "name": "Journeys"
         }
       ]
     },
@@ -434,6 +448,55 @@
         "command": "codeNotes.toggleAnimation",
         "title": "Play or Stop the Step's Animation",
         "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.checkUnderstanding",
+        "title": "Check my understanding",
+        "category": "Code Notes",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "codeNotes.answerCheck",
+        "title": "Answer",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.gradeCheck",
+        "title": "Grade the answer again",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.checkConcern",
+        "title": "Act on a concern found during the check",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.pickJourneyStep",
+        "title": "Pick a Journey Step Here",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "title": "Search Journeys",
+        "category": "Code Notes",
+        "icon": "$(search)"
+      },
+      {
+        "command": "codeNotes.sortJourneys",
+        "title": "Sort Journeys",
+        "category": "Code Notes",
+        "icon": "$(list-filter)"
+      },
+      {
+        "command": "codeNotes.refreshJourney",
+        "title": "Refresh Journey",
+        "category": "Code Notes",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "codeNotes.journeysHereAll",
+        "title": "Show All Journeys in This File",
+        "category": "Code Notes"
       }
     ],
     "keybindings": [
@@ -517,6 +580,20 @@
       {
         "command": "codeNotes.toggleAnimation",
         "key": "ctrl+[IntlBackslash] p",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+[IntlBackslash] ctrl+j",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+[IntlBackslash] j",
         "args": {
           "prefix": "<"
         }
@@ -606,6 +683,20 @@
         }
       },
       {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+' ctrl+j",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.searchJourneys",
+        "key": "ctrl+' j",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
         "command": "codeNotes.cancelMove",
         "key": "escape",
         "when": "codeNotes.moving && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible"
@@ -632,12 +723,17 @@
         {
           "command": "codeNotes.reply",
           "group": "inline@1",
-          "when": "commentController == codeNotes && !commentThreadIsEmpty && !(commentThread =~ /resolved/)"
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && !(commentThread =~ /resolved/) && !(commentThread =~ /check/)"
         },
         {
           "command": "codeNotes.replyReopen",
           "group": "inline@1",
-          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /resolved/"
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /resolved/ && !(commentThread =~ /check/)"
+        },
+        {
+          "command": "codeNotes.answerCheck",
+          "group": "inline@1",
+          "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /check/"
         }
       ],
       "comments/commentThread/title": [
@@ -649,17 +745,17 @@
         {
           "command": "codeNotes.askClaude",
           "group": "navigation@0",
-          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /asking/) && codeNotes.claudeFound"
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && (commentThread =~ /open/ || commentThread =~ /check/) && !(commentThread =~ /asking/) && codeNotes.claudeFound"
         },
         {
           "command": "codeNotes.resolve",
           "group": "navigation@4",
-          "when": "commentController == codeNotes && commentThread =~ /open/"
+          "when": "commentController == codeNotes && commentThread =~ /open/ && !(commentThread =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",
           "group": "navigation@4",
-          "when": "commentController == codeNotes && commentThread =~ /resolved/"
+          "when": "commentController == codeNotes && commentThread =~ /resolved/ && !(commentThread =~ /check/)"
         }
       ],
       "view/title": [
@@ -727,6 +823,16 @@
           "command": "codeNotes.copyAgentPrompt",
           "group": "2_bulk@5",
           "when": "view == codeNotes.notes && codeNotes.hasNotes"
+        },
+        {
+          "command": "codeNotes.searchJourneys",
+          "when": "view == codeNotes.journeys",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeNotes.sortJourneys",
+          "when": "view == codeNotes.journeys",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -738,7 +844,7 @@
         {
           "command": "codeNotes.resolve",
           "group": "inline@2",
-          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/ && !(viewItem =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",
@@ -748,7 +854,7 @@
         {
           "command": "codeNotes.resolve",
           "group": "1_note@1",
-          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/"
+          "when": "view == codeNotes.notes && viewItem =~ /^note/ && viewItem =~ /open/ && !(viewItem =~ /check/)"
         },
         {
           "command": "codeNotes.reopen",
@@ -844,6 +950,11 @@
           "command": "codeNotes.openBroken",
           "group": "1_broken@2",
           "when": "view == codeNotes.notes && viewItem =~ /^broken/"
+        },
+        {
+          "command": "codeNotes.refreshJourney",
+          "group": "inline@1",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey;stale/"
         }
       ],
       "commandPalette": [
@@ -1094,6 +1205,26 @@
         {
           "command": "codeNotes.toggleAuthorMode",
           "when": "config.codeNotes.journeys.authorMode"
+        },
+        {
+          "command": "codeNotes.answerCheck",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.gradeCheck",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.checkConcern",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.pickJourneyStep",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.journeysHereAll",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -1176,6 +1307,11 @@
           "default": "journeys",
           "description": "Folder (relative to the workspace folder) holding the repository's journeys, committed and shared with the team. Journeys in the notes folder's journeys/ are read too (personal ones, the old place); with the same id, the one here wins."
         },
+        "codeNotes.claudeLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Code links in a Claude Code chat (\"[the phrase](src/file.ts#L12-L20)\") light the lines they open, with \"← Back\" above them to where you were."
+        },
         "codeNotes.journeys.codeLens": {
           "type": "boolean",
           "default": true,
@@ -1190,6 +1326,16 @@
           "type": "string",
           "default": "",
           "description": "Model Claude Code uses to write a journey from the journey picker (\"Ask the agent to write a journey…\"). Empty: Code Notes › Claude: Model, else Claude Code's default."
+        },
+        "codeNotes.understanding.background": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Write a branch's understanding-check questions in the background when it is pushed without a check; the status bar says when they are ready."
+        },
+        "codeNotes.understanding.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The model that writes and grades the understanding-check questions (`sonnet`, `opus`, a `claude-*` id). Empty: **Code Notes › Claude: Model**, else Claude Code's default."
         }
       }
     },
@@ -1266,13 +1412,20 @@
     }
   },
   "scripts": {
-    "build": "tsc -p . && npm run -s vendor",
+    "build": "tsc -p . && npm run -s cli && npm run -s vendor && npm run -s pages",
+    "cli": "node cli/bundle.mjs",
     "vendor": "node -e \"const f=require('fs');f.mkdirSync('out/vendor',{recursive:true});f.copyFileSync('node_modules/elkjs/lib/elk.bundled.js','out/vendor/elk.bundled.js');f.copyFileSync('node_modules/elkjs/LICENSE.md','out/vendor/elk-LICENSE.md')\"",
-    "test": "tsc -p . && node --test out/test/*.test.js",
+    "pages": "node -e \"const f=require('fs');f.mkdirSync('out/src/webview',{recursive:true});for(const n of f.readdirSync('src/webview'))if(n.endsWith('.html'))f.copyFileSync('src/webview/'+n,'out/src/webview/'+n)\"",
+    "test": "tsc -p . && node --import ./test/hermetic.mjs --test out/test/*.test.js test/cli/*.test.mjs",
     "package": "vsce package --no-dependencies",
     "test:integration": "npm run -s build && env -u ELECTRON_RUN_AS_NODE xvfb-run -a node out/test/integration/run.js",
     "test:scenes": "node test/journey-scene/check.mjs test/journey-scene/sample.json",
-    "test:panel": "node test/journey-map/shoot.mjs"
+    "test:panel": "node test/journey-map/shoot.mjs",
+    "test:cli": "node --test test/cli/*.test.mjs",
+    "test:checkpanel": "node test/check-panel/shoot.mjs",
+    "test:checktour": "node test/check-tour/shoot.mjs",
+    "test:journeylist": "node test/journey-list/shoot.mjs",
+    "test:grader": "node test/grader/eval.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

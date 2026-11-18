@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { linkPhrases, readLinks } from '../src/codeLinkText'
+import { linkPhrases } from '../src/codeLinkText'
+import { readLinks } from '../src/journeyModel'
 
 const L = (phrase: string) => ({ phrase, file: 'a.go', start: 1, end: 1, text: '' })
 

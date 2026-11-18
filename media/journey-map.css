@@ -1,15 +1,4 @@
-:root {
-  --fg: var(--vscode-foreground, #333);
-  --muted: var(--vscode-descriptionForeground, #717171);
-  --bg: var(--vscode-editor-background, #fff);
-  --border: var(--vscode-widget-border, var(--vscode-panel-border, #8884));
-  --accent: var(--vscode-codeNotes-noteBorder, var(--vscode-focusBorder, #8250df));
-  --accent-bg: color-mix(in srgb, var(--accent) 12%, var(--bg));
-  --stale: var(--vscode-editorWarning-foreground, #bf8803);
-  --edge: var(--muted); /* lines (dashed too) ≥ 3:1 in dark themes */
-  --hover: var(--vscode-list-hoverBackground, #8881);
-  --raised: var(--vscode-editorWidget-background, var(--bg));
-}
+/* The journey panel. Colours: the tokens in common.css (linked first). */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -20,9 +9,7 @@ body {
 #app.deleted .body { opacity: 0.45; pointer-events: none; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 /* Keyboard focus always visible: inset, so a row's clipping container never hides it. */
-button:focus-visible, .gmap:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--accent)); outline-offset: -2px; }
-.link { color: var(--vscode-textLink-foreground, var(--accent)); }
-.link:hover { text-decoration: underline; }
+button:focus-visible, .gmap:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; }
 .btn {
   background: var(--vscode-button-background, var(--accent)); color: var(--vscode-button-foreground, #fff);
@@ -38,26 +25,31 @@ code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92
 .tbtn { font-size: 0.92em; padding: 2px 8px; margin-left: 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--fg); }
 .tbtn:hover { background: var(--hover); }
 header .top { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
-h1.q {
-  font-size: 1.2em; font-weight: 600; margin: 0; line-height: 1.35; min-width: 0; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-}
+/* The short title (never cut); the question under it, muted, at most three lines (the whole of it on hover). */
+h1.q { font-size: 1.2em; font-weight: 600; margin: 0; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.qsub { margin: 2px 0 0; color: var(--muted); font-size: 0.92em; line-height: 1.35; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 @media (max-width: 420px) { h1.q { font-size: 1.05em; } }
+.homeb { display: block; font-size: 0.9em; margin: 0 0 4px; } /* "‹ Journeys": the home (journey-home.css) */
 .tour { display: flex; align-items: center; gap: 2px; flex: none; }
-.tour .pos { font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: center; }
+/* The journey's file is gone: "Deleted · Restore" (the rest of the panel faded, #app.deleted). */
 .gone { margin: 6px 0 0; color: var(--stale); }
+.gone .sep { color: var(--muted); }
+#app.deleted .head .gone { pointer-events: auto; }
 .problems { margin-top: 6px; font-size: 0.92em; }
 .problems .plink { color: var(--stale); }
 .problems ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+p.loading { color: var(--muted); }
 
-/* ---------- storyline + map (0.20): the storyline gets the width; the map beside it is the interactive one ---------- */
+/* ---------- storyline + map: the storyline gets the width; the map beside it is the interactive one ---------- */
 .body { margin-top: 12px; }
+/* The map column's width: --mapw (journey-splitter.js), else this default. */
 .body.wide { display: grid; grid-template-columns: minmax(0, 1fr) 13px var(--mapw, clamp(260px, 54%, 820px)); gap: 0 4px; align-items: stretch; }
 .body.wide > .story { align-self: start; }
-/* The splitter (0.21.1): invisible until hovered or focused, then a thin line; col-resize. */
+/* The splitter (journey-splitter.js): invisible until hovered or focused, then a thin line; col-resize. */
 .splitter { position: relative; cursor: col-resize; touch-action: none; outline: none; }
 .splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 6px; width: 1px; background: transparent; transition: background 120ms; }
-.splitter:hover::after, .splitter:focus-visible::after, body.resizing .splitter::after { background: var(--vscode-focusBorder, var(--accent)); width: 2px; left: 5px; }
+.splitter:hover::after, .splitter:focus-visible::after, body.resizing .splitter::after { background: var(--focus); width: 2px; left: 5px; }
 body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .prov { margin: 4px 0 0; font-size: 0.88em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prov .changed { color: var(--stale); }
@@ -67,31 +59,53 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .body.wide .gmap { flex: 1; }
 .body:not(.wide) .mapwrap { margin: 0 0 10px; }
 .body:not(.wide) .gmap { height: clamp(220px, 46vh, 420px); }
+/* Narrow panels: "Map", which folds the map away (or back). */
+.maptoggle { display: block; margin: 0 0 4px 6px; font-size: 0.92em; }
+.maptoggle::before { content: '▸\00a0'; display: inline-block; width: 1em; }
+.maptoggle[aria-expanded="true"]::before { content: '▾\00a0'; }
+.note .authors { color: var(--muted); font-size: 0.92em; }
+
+/* ---------- the storyline: a row per step (.st), a check's questions between them (.cp) ---------- */
 .story { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; counter-reset: none; }
-.st { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 4px 6px; border-radius: 4px; line-height: 1.35; }
-.st:hover { background: var(--hover); }
-.st .n { flex: none; min-width: 1.6em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.st .t { min-width: 0; overflow-wrap: anywhere; }
-.st.away .t { color: var(--muted); }
-.st.cur { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
+/* Both rows: the number (.n) right-aligned in its column, the text (.t) beside it; the current one with the accent bar. */
+.st, .cp { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; border-radius: 4px; line-height: 1.35; }
+.st:hover, .cp:hover { background: var(--hover); }
+.st .n, .cp .n { flex: none; min-width: 1.6em; text-align: right; }
+.st .t, .cp .t { min-width: 0; overflow-wrap: anywhere; }
+.st.cur, .cp.cur { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
+/* A step. */
+.st { padding: 4px 6px; }
+.st .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .st.cur .n { color: var(--accent); font-weight: 600; }
 .st.cur .t { color: var(--fg); }
 .st.stale .n { color: var(--stale); font-weight: 600; } /* one quiet mark; the card says the rest */
-/* After End: where you stopped, one quiet mark: the accent bar, no words. */
+/* A check's question between the steps: the same row, in the accent colour, at most two lines; done ones quiet. */
+.cp { padding: 3px 6px; color: var(--fg); }
+.cp .n { color: var(--accent); font-weight: 600; }
+.cp .t { flex: 1; font-style: italic; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cp .w { flex: none; font-size: 0.9em; color: var(--muted); }
+.cp.pass .t, .cp.restated .t, .cp.explained .t { color: var(--muted); }
+.cp.pass .n, .cp.restated .n { color: var(--ok); }
+.cp.retry .n { color: var(--stale); }
 
-/* ---------- the step card in the panel ---------- */
+/* ---------- the step card in the panel (a step with no code to open) ---------- */
 .scard { margin: 2px 0 8px 8px; padding: 6px 10px 8px; border-left: 2px solid var(--accent); line-height: 1.45; overflow-wrap: anywhere; }
 .scard p, .scard ul { margin: 0 0 6px; }
 .scard ul { padding-left: 18px; }
 .scard hr { border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
+.scard pre.code { margin: 4px 0 6px; padding: 4px 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--hover); border-radius: 3px; }
+.scard pre .del { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
+.scard pre .ins { color: var(--vscode-gitDecoration-addedResourceForeground, #587c0c); }
 .scard .sstale { color: var(--stale); }
+.scard .sstale p { margin-bottom: 4px; }
 .scard .srefs { font-size: 0.92em; margin-top: 4px; }
 .scard .squestion.unread { color: var(--vscode-textLink-activeForeground, var(--accent)); font-weight: 600; }
 .scard .ref { text-align: left; }
 .scard .ref:hover { text-decoration: underline; }
 .snav { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.snotice { font-size: 0.92em; color: var(--muted); margin-bottom: 4px; }
 
-/* ---------- tutorial ---------- */
+/* ---------- the tutorial (journey-tutorial.js): the "New here?" bar, the dim with its ring, the card ---------- */
 .tbar {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: -4px 0 10px; padding: 5px 10px; border-radius: 4px;
   background: var(--accent-bg); border-left: 3px solid var(--accent); font-size: 0.95em;
@@ -115,34 +129,14 @@ body.vscode-dark .tdim, body.vscode-high-contrast .tdim { background: #000000b3;
   background: var(--raised); color: var(--fg); border: 1px solid var(--accent); box-shadow: 0 4px 16px #0004;
 }
 .tcard .ttext { margin: 0 0 8px; overflow-wrap: anywhere; }
-.tkt { border-collapse: collapse; margin-top: 6px; font-size: 0.95em; }
-.tkt td { padding: 1px 6px 1px 0; }
-.tkt .tkk { font-weight: 600; }
-.tk2 { margin-top: 4px; }
-.tkl { margin-top: 6px; color: var(--muted); font-size: 0.92em; }
-.tkl kbd, .tkt kbd { font-family: inherit; font-size: 0.9em; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
 .tfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tfoot .dots { color: var(--accent); letter-spacing: 1px; font-size: 0.75em; }
 .tfoot .tnav { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-.tfoot .twait { color: var(--muted); font-style: italic; font-size: 0.9em; }
 @media (prefers-reduced-motion: reduce) {
   .spot::after { animation: none; }
 }
-.note .authors { color: var(--muted); font-size: 0.92em; }
-.scard pre.code { margin: 4px 0 6px; padding: 4px 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--hover); border-radius: 3px; }
-.scard pre .del { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
-.scard pre .ins { color: var(--vscode-gitDecoration-addedResourceForeground, #587c0c); }
-.scard .sstale p { margin-bottom: 4px; }
-#app.deleted .head .gone { pointer-events: auto; }
-.gone .sep, .note.idle .sep { color: var(--muted); }
-.tkt .tthen { color: var(--muted); }
-.maptoggle { display: block; margin: 0 0 4px 6px; font-size: 0.92em; }
-.maptoggle::before { content: '▸\00a0'; display: inline-block; width: 1em; }
-.maptoggle[aria-expanded="true"]::before { content: '▾\00a0'; }
-.snotice { font-size: 0.92em; color: var(--muted); margin-bottom: 4px; }
-p.loading { color: var(--muted); }
 
-/* ---------- the whole map (0.21): pan + zoom; journey-graph.js ---------- */
+/* ---------- the whole map: pan + zoom; journey-graph.js ---------- */
 .gmap {
   position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; cursor: grab; touch-action: none;
   user-select: none; -webkit-user-select: none; min-height: 160px; display: flex; flex-direction: column;
@@ -240,20 +234,7 @@ p.loading { color: var(--muted); }
 .gsample { display: inline-block; width: 24px; height: 12px; border: 1px dashed var(--muted); border-radius: 3px; }
 .gsample.cur { border: 2px solid var(--accent); background: var(--accent-bg); }
 .glegend .gnum { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .gbox { transition: none; } }
-
-/* ---------- home (0.21) ---------- */
-.homeb { display: block; font-size: 0.9em; margin: 0 0 4px; }
-.home h1.q { margin: 0 0 10px; }
-.jlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-width: 560px; }
-.jrow { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; padding: 5px 6px; border-radius: 4px; line-height: 1.35; }
-.jrow .jtop { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
-.jrow .jq { color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
-.jrow .jstart { flex: none; color: var(--vscode-textLink-foreground, var(--accent)); font-size: 0.88em; font-weight: 600; }
-.jrow:hover { background: var(--hover); }
-.jrow .t { min-width: 0; overflow-wrap: anywhere; }
-.jrow .jat { flex: none; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; }
-.jrow.here { box-shadow: inset 2px 0 0 var(--accent); }
+@media (prefers-reduced-motion: reduce) { .gbox, .splitter::after { transition: none; } }
 
 /* ---------- the walk finished ---------- */
 .done { margin: 8px 0 12px; padding: 8px 10px; border-radius: 4px; background: var(--accent-bg); }

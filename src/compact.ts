@@ -13,7 +13,7 @@
 // then the before/after context, then nearness to the stored place. Found, same hash: fresh; found, other hash:
 // changed (shown at the new place); not found: gone. v2 full-text anchors are converted in memory (toCompact).
 import { createHash } from 'crypto'
-import { norm, Loc } from './anchor'
+import { blank, norm, weak, Loc } from './anchor'
 
 export interface CompactAnchor { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
 export type FullAnchor = { text: string; before: string; after: string }
@@ -25,9 +25,6 @@ export const TAIL_LINES = 2
 
 export const isCompact = (a: AnyAnchor | undefined): a is CompactAnchor => !!a && (a as CompactAnchor).v === 3
 const sha12 = (s: string) => createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 12)
-const blank = (s: string) => norm(s) === ''
-/** Lines like `}` say nothing about where code is: no context. */
-const weak = (s: string) => norm(s).length < 3
 
 /** The hash of a block (spec: non-blank lines normalized, joined by "\n"). */
 export function blockHash(block: string[]): string { return sha12(block.map(norm).filter(Boolean).join('\n')) }
@@ -43,8 +40,10 @@ export function compactOf(lines: string[], start: number, end: number): CompactA
   while (b >= 0 && blank(lines[b])) b--
   let a = end + 1
   while (a < lines.length && blank(lines[a])) a++
-  return { v: 3, head: solid.slice(0, HEAD_LINES).join('\n'), tail: solid.slice(-TAIL_LINES).join('\n'), lines: block.length, hash: blockHash(block),
-    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '' }
+  return {
+    v: 3, head: solid.slice(0, HEAD_LINES).join('\n'), tail: solid.slice(-TAIL_LINES).join('\n'), lines: block.length, hash: blockHash(block),
+    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '',
+  }
 }
 
 /** A v2 anchor (the whole text) as v3, in memory. Undefined for a step on blank lines (it has only its context). */
@@ -78,38 +77,67 @@ function backward(lines: string[], e: number, want: string[], floor: number): bo
   return true
 }
 
+/** A place the anchor's code may be: its lines (0-based), whether the hash matches, and how it ranks (see findCompact). */
+type Candidate = { start: number; end: number; hash: boolean; dLen: number; ctx: number; dist: number }
+
+/** The nearest non-blank line from `i` on in direction `step` (-1 or 1); -1 or `lines.length` when there is none. */
+function nonBlank(lines: string[], i: number, step: -1 | 1): number {
+  let k = i
+  while (k >= 0 && k < lines.length && blank(lines[k])) k += step
+  return k
+}
+
+/** Where a candidate may end, and the first non-blank line after it (for the context after). */
+type CandidateEnd = { end: number; afterLine: number }
+
+/** Line `k` (if it exists) is `want` (normalized; '' never matches). */
+const lineIs = (lines: string[], k: number, want: string) => !!want && k >= 0 && k < lines.length && norm(lines[k]) === want
+
+/**
+ * Where the code starting at `start` (its head matched up to `headEnd`) may end: the lines where the tail matches,
+ * with a length in [minLen, maxLen]. A range stored with blank lines at its end is tried at its stored length too
+ * (as journey.py does), so trailing blank lines don't make a fresh anchor look moved.
+ */
+function candidateEnds(
+  lines: string[], start: number, headEnd: number, tail: string[], storedLen: number, minLen: number, maxLen: number,
+): CandidateEnd[] {
+  const out: CandidateEnd[] = []
+  const first = Math.max(headEnd, start + minLen - 1)
+  const last = Math.min(lines.length - 1, start + maxLen - 1)
+  for (let e = first; e <= last; e++) {
+    if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, start)) continue
+    const afterLine = nonBlank(lines, e + 1, 1)
+    const stored = start + storedLen - 1
+    const storedFits = stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank)
+    out.push({ end: e, afterLine })
+    if (storedFits) out.push({ end: stored, afterLine })
+  }
+  return out
+}
+
 /** Where a compact anchor's code is in `lines` now (0-based). `hint`: where it was (the stored or tracked place). */
 export function findCompact(lines: string[], a: CompactAnchor, hint: number): Found {
   const head = a.head.split('\n').map(norm).filter(Boolean)
   const tail = a.tail.split('\n').map(norm).filter(Boolean)
   if (!head.length) return { state: 'gone' }
   if (!tail.length) tail.push(...head.slice(-TAIL_LINES))
-  const L = Math.max(1, a.lines)
-  const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
-  const before = weak(a.before) ? '' : norm(a.before), after = weak(a.after) ? '' : norm(a.after)
-  type C = { start: number; end: number; hash: boolean; dLen: number; ctx: number; dist: number }
-  const cands: C[] = []
-  for (let i = 0; i < lines.length; i++) {
-    if (norm(lines[i]) !== head[0]) continue
-    const headEnd = forward(lines, i, head)
+  const storedLen = Math.max(1, a.lines)
+  const minLen = Math.max(1, Math.ceil(storedLen * 0.5))
+  const maxLen = Math.floor(storedLen * 1.5 + 5)
+  // Context that says something: '' for a weak line (it never matches).
+  const before = weak(a.before) ? '' : norm(a.before)
+  const after = weak(a.after) ? '' : norm(a.after)
+  const cands: Candidate[] = []
+  for (let start = 0; start < lines.length; start++) {
+    if (norm(lines[start]) !== head[0]) continue
+    const headEnd = forward(lines, start, head)
     if (headEnd === undefined) continue
-    let b = i - 1
-    while (b >= 0 && blank(lines[b])) b--
-    const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
-    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
-      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
-      let f = e + 1
-      while (f < lines.length && blank(lines[f])) f++
-      const ctx = ctxBefore + (after && f < lines.length && norm(lines[f]) === after ? 1 : 0)
-      // A range stored with blank lines at its end is tried at its stored length too (as journey.py does), so trailing
-      // blank lines don't make a fresh anchor look moved.
-      const stored = i + L - 1
-      const ends = stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank) ? [e, stored] : [e]
-      for (const end of ends) {
-        const block = lines.slice(i, end + 1)
-        const hash = !a.hash || blockHash(block) === a.hash || blockHashAll(block) === a.hash
-        cands.push({ start: i, end, hash, dLen: Math.abs(end - i + 1 - L), ctx, dist: Math.abs(i - hint) })
-      }
+    const ctxBefore = lineIs(lines, nonBlank(lines, start - 1, -1), before) ? 1 : 0
+    for (const { end, afterLine } of candidateEnds(lines, start, headEnd, tail, storedLen, minLen, maxLen)) {
+      const block = lines.slice(start, end + 1)
+      const hash = !a.hash || blockHash(block) === a.hash || blockHashAll(block) === a.hash
+      const ctx = ctxBefore + (lineIs(lines, afterLine, after) ? 1 : 0)
+      cands.push({ start, end, hash, dLen: Math.abs(end - start + 1 - storedLen), ctx, dist: Math.abs(start - hint) })
     }
   }
   if (!cands.length) return { state: 'gone' }

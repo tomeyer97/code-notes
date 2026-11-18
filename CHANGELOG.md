@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+- **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
+  (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
+  its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the
+  questions are rows of the storyline, Next stops at each open one and opens its thread, a pass walks on. Rows of the
+  Check view say their step and go there. The tour is stored in the check file (`journey`); a top-up adds steps for
+  the new part. The grader may point at a step; the merge request comment gets one line about the tour. A question,
+  and the tour's last step, may say "See also" a journey of the repository that walks the same code.
+- **Faster over Remote-SSH and on big repositories.** The understanding check reads git on a worker thread: the
+  extension host (shared with every other extension, and over Remote-SSH with the editor) never waits for git. It
+  reads again only when something it shows can have changed: another `git status` (the Git view, a terminal, an agent)
+  no longer makes it refresh, and a burst of triggers is one refresh. A code link, Back, the next or previous step, a
+  link from a chat and opening a question each wait for at most one call into the window (fixed waits and repeated
+  context keys, decorations and lens refreshes are gone), so they slow down less with the network's latency.
+- **Remote-SSH: files are read where they are.** Notes, journeys and step files are read and written with Node's fs
+  instead of through the window (a round trip each): opening a folder with many notes and journeys no longer takes a
+  round trip per file. A quick Next, Next, Next ends on the last step asked for, with its file and card. A reply, a
+  note or an answer sent twice with a quick double Ctrl+Enter is saved once, and shows at once ("Checking…" for an
+  answer). Links from a Claude Code chat are recognised on newer VS Code versions too. A code link's Back names its
+  step and goes away once the walk moves on. Copied link text has no hidden zero-width spaces.
+- **Fixes.** The sidebar no longer logs "Failed to resolve tree node" (a reveal waits until the view holds the row,
+  and redraws are spaced so the window applies each). Undo of Mark All Read makes resolves and reopens unread again.
+  Notes queued for Claude no longer stay "Queued…" when the Claude Code CLI isn't found. A note on a file that shrank
+  no longer fails to place. A notes-folder setting like `notes\` or `./notes` works. Step text: a bare `file#L9` ref
+  links to its line, `#L` and range labels move with the code, a sentence ref is hidden only when every place it names
+  is on screen, a gone ref names where it was looked for, and a step link opens the journey of its own folder. The
+  CLI places notes exactly as the extension does, and reads a removed `-- comment` line as code, not a file header.
+  Commit & push sees an unsaved fix behind a `git:` diff view. The default branch is one rule everywhere: origin/HEAD
+  when known, else main or master, plus the compared-with branch. With reduced motion, journey scenes don't animate
+  at all. A question id with a quote no longer stops the Check view drawing; a status or screen named like
+  `constructor` no longer breaks a scene.
+- **Internals:** the extension's code is split into small modules by area (`src/ask`, `check`, `notes`, `tour`,
+  `journeys`, `sidebar`, `write`, `webview`); the CLI's source is modules under `cli/understanding/`, bundled into
+  `cli/understanding.mjs`; tests are one test per behaviour, in a file per module. Behaviour is unchanged apart from
+  the fixes above.
+
+## 0.24.0
+
+- **Understanding check:** **Check my understanding** has Claude Code ask a few questions about your branch's change,
+  each a thread on its lines. Answer in the thread; Claude grades it and replies with a short confirmation, a hint, or
+  (after a second miss) the explanation, naming the code as clickable links. The **Check** view in the sidebar lists
+  the questions; the status bar says where the check stands; **Commit & push** finishes it. Answers are saved in
+  `understanding/<branch>.json` for a merge request check that needs no model (`cli/understanding.mjs ci`, GitLab and
+  GitHub recipes in the README). The bundled `understanding-check` skill writes the questions.
+- **Finding journeys:** journeys have their own **Journeys** view: In this file, Continue, Checks, then All by area,
+  with search and sort. The panel's Journeys list gets a search field, chips, the same sections and a preview of the
+  selected journey (its map, small, and its steps); a click selects, Enter or **Walk** starts it.
+
 ## 0.23.0
 
 First release on the Visual Studio Marketplace.

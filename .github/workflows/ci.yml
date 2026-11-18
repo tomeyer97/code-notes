@@ -28,8 +28,10 @@ jobs:
       - run: npm run build
       - name: Unit tests
         run: npm test
-      - name: Skill script
-        run: python3 skills/code-journey/scripts/journey.py help all > /dev/null
+      - name: Skill scripts
+        run: |
+          python3 skills/code-journey/scripts/journey.py help all > /dev/null
+          node skills/understanding-check/scripts/questions.mjs > /dev/null
       - name: Tests in a real VS Code
         run: npm run test:integration
       - name: Package
@@ -58,3 +60,7 @@ jobs:
         run: npm run test:panel
       - name: Every beat of the sample animations, three widths
         run: npm run test:scenes
+      - name: Understanding check panel, three widths
+        run: npm run test:checkpanel
+      - name: Journeys list in the panel, three widths
+        run: npm run test:journeylist

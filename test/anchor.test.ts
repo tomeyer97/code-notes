@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { anchor, shift, lineDiff } from '../src/anchor'
+import { anchor } from '../src/anchor'
+import { shift } from '../src/lineFollow'
+import { lineDiff } from '../src/staleDiff'
 
 const file = ['a', 'function f() {', '  return 1', '}', 'b', 'c']
 
@@ -129,4 +131,9 @@ test('lineDiff: only the lines that changed', () => {
   const a = ['a', 'b', 'c = 2', 'd']
   const b = ['// new', 'a', 'b', 'c = 5', 'd']
   assert.deepEqual(lineDiff(a, b), { del: ['c = 2'], ins: ['// new', 'c = 5'] })
+})
+
+test('a note on blank lines tracked past the end of a file that shrank: no throw, stale inside the file', () => {
+  const r = anchor(['const a = 1', 'const b = 2'], '', 'function f() {', 'return value', { start: 8, end: 8 })
+  assert.deepEqual(r, { loc: { start: 1, end: 1 }, stale: true, moved: false })
 })

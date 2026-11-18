@@ -1,7 +1,9 @@
 // Compact anchors (v3): relocation as in docs/journey-format.md ("In the repo"), the same rules as journey.py.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { blockHash, compactOf, findCompact, toCompact } from '../src/compact'
+import fs from 'node:fs'
+import path from 'node:path'
+import { blockHash, compactOf, CompactAnchor, findCompact, toCompact } from '../src/compact'
 import { parseJourney } from '../src/journeyModel'
 
 const file = [
@@ -121,3 +123,14 @@ test('parseJourney reads v3 anchors on steps and boxes (files v2 or v3); v2 anch
   assert.equal(j.steps[2].anchor, undefined, 'a v3 anchor without a head is dropped (taken from the code instead)')
   assert.deepEqual(j.nodes[1].at?.anchor, a)
 })
+
+// The same cases run against the CLI's findAnchor (test/cli/units.test.mjs): both sides relocate alike.
+type SharedCase = { name: string; lines: string[]; anchor: CompactAnchor; hint: number; expected: { state: string; start?: number; end?: number } }
+const shared: SharedCase[] = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/compact-cases.json'), 'utf8'))
+
+for (const c of shared) {
+  test(`shared relocation case: ${c.name}`, () => {
+    const f = findCompact(c.lines, c.anchor, c.hint)
+    assert.deepEqual(f.state === 'gone' ? { state: 'gone' } : { state: f.state, start: f.loc.start, end: f.loc.end }, c.expected)
+  })
+}
