@@ -98,7 +98,8 @@ export const animationTests = [
     await quiet(300, 'a scroll away from the card, or a Back row')
     assert.equal(tour().codeLinks.back, false, 'the card is on screen with the lit lines: no Back row')
     assert.ok(onScreen(tour().card!.line!) && onScreen(2), 'card and lit lines both on screen')
-    assert.ok(!(await lenses()).some((x) => /Back/.test(x)), `no Back lens: ${await lenses()}`)
+    const animLenses = await lenses(vscode.Uri.parse(animUri()))
+    assert.ok(!animLenses.some((x) => /Back/.test(x)), `no Back lens: ${animLenses}`)
     await shot('anim-1-link-same-file')
     // A second click on the lit phrase turns it off.
     await codeLink(1)
@@ -111,7 +112,9 @@ export const animationTests = [
     await codeLink(0)
     await until('another phrase', () => tour().codeLinks.active === 0, 10000)
     await settle(600, 'the link\'s own reveal placing the caret first')
-    vscode.window.activeTextEditor!.selection = new vscode.Selection(4, 0, 4, 0)
+    // The code group's editor: the panel may have the focus (no active text editor then).
+    const code = await until('the code group\'s editor', codeGroupEditor)
+    code.selection = new vscode.Selection(4, 0, 4, 0)
     await until('the caret left the lit lines: nothing lit', () => tour().codeLinks.active === -1, 10000)
   }),
 
@@ -135,7 +138,8 @@ export const animationTests = [
     assert.deepEqual(tour().values.filter((x: string) => x.startsWith('anim.ts')), ['anim.ts:1: body = { "id": 1 }', 'anim.ts:2: stored = 11  ·  the length of the body'], 'the step\'s values, at their lines')
     await vscode.commands.executeCommand('codeNotes.codeLinkBack')
     await until('back at the step', () => vscode.window.activeTextEditor?.document.uri.toString() === animUri() && !!tour().card, 10000)
-    assert.ok((await lenses()).includes('2:body = { "id": 1 }') && (await lenses()).includes('3:stored = 11  ·  the length of the body'), `shown above the lines: ${await lenses()}`)
+    const hints = await lenses(vscode.Uri.parse(animUri()))
+    assert.ok(hints.includes('2:body = { "id": 1 }') && hints.includes('3:stored = 11  ·  the length of the body'), `shown above the lines: ${hints}`)
     // Hints and link targets follow edits to the file.
     await editAnim({ insert: '// one\n// two\n' })
     await until('after two lines inserted above: hints and links moved with their lines', () => tour().values.includes('anim.ts:3: body = { "id": 1 }') && tour().codeLinks.at[0]?.start === 3 && tour().codeLinks.at[1]?.start === 4, 10000)
