@@ -38,7 +38,7 @@ export type MapMessage =
   | { type: 'details'; open: boolean }
   | { type: 'beat'; n: number; i: number; user?: boolean }
   // The podcast's bar (media/journey-podcast.js): where the audio is, and what went wrong.
-  | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean }
+  | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
   | { type: 'podcastError'; message: string }
   | { type: 'ask'; update?: boolean }
   | { type: 'restore' }

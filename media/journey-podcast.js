@@ -503,7 +503,7 @@
 
     return {
       el: root,
-      /** The journey's episode (none: the bar goes; the same audio again keeps playing). */
+      /** The journey's episode (none: the bar goes; the same journey's same audio again keeps playing). */
       set(e) {
         if (!e) {
           if (ep) {
@@ -525,7 +525,7 @@
           if (opts.onShown) opts.onShown(false)
           return
         }
-        const same = ep && ep.src === e.src
+        const same = ep && ep.key === e.key && ep.src === e.src
         // Another episode: where the one leaving was is said first (kept for next time).
         if (ep && !same) { audio.pause(); report(false) }
         ep = e
