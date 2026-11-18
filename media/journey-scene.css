@@ -333,9 +333,8 @@
 .animbtn { display: block; margin: 0 0 3px calc(6px + 1.6em + 8px); padding: 0 3px 1px; border-radius: 3px; font-size: 0.88em; color: var(--muted); }
 .animbtn:hover { color: var(--link); text-decoration: underline; }
 
+/* Reduced motion: nothing in the scene moves, fades or pulses; each beat shows its end state at once. One rule for
+   every part (a list per part missed new ones), so it wins over the parts' own, more specific rules. */
 @media (prefers-reduced-motion: reduce) {
-  .scn-world, .scn-actor, .scn-row, .scn-check, .ap-win, .ap-card, .ap-ev, .br-mark, .scn-packet.go, .scn-app.clicked .scn-cursor, .scn-browser.clicking .br-cursor { transition: none; }
-  .br-flash.go, .scn-browser.clicking .br-btn.pressed, .ap-card.on, .ap-ev.on { animation: none; }
-  .scn-packet.go { animation: none; }
-  .scn-pod.ghost.mark, .scn-app.clicked .ap-start, .scn-app.clicked .ap-signin { animation: none; }
+  .scn, .scn *, .scn *::before, .scn *::after { animation: none !important; transition: none !important; }
 }

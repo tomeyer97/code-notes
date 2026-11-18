@@ -1,6 +1,6 @@
 // Steps through every beat of every animated step of a journey in the real panel (headless Chromium), at three panel
 // widths (1300 px dark, 900 px light, 620 px light: there the scene column is its minimum, 400 px, beside the
-// storyline): fails on console errors, text overflowing its box, anything sticking out of an actor box, any visible
+// storyline), then once more at 1300 px with reduced motion asked for: fails on console errors, text overflowing its box, anything sticking out of an actor box, any visible
 // text in the scene smaller than 11 px on screen (font-size × the world's scale), the scene column narrower than
 // 400 px, the keyboard focus leaving the scene, or a last beat without "Next step ›" (but on the last step).
 //   node test/journey-scene/check.mjs <journey.json> [<dir for screenshots>]
@@ -110,6 +110,27 @@ function sceneProblems({ MIN_PX, SCENE_MIN }) {
   return { out: [...overflowingText(), ...outsideActorBoxes(), ...cutByAppWindow(), ...sizes.out, ...focusInScene()], min: sizes.min }
 }
 
+/** The scene shows beat `i` of `beats`, two frames on (a beat starts its moves on the next one). */
+async function shown(i, beats) {
+  await page.waitForFunction((want) => document.querySelector('.scn-pos')?.textContent === want, `${i} / ${beats}`, { timeout: STILL_TIMEOUT_MS })
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+}
+
+/** What still moves in the page (run in it, with reduced motion asked for): a running animation or transition, or any
+ *  element (or its ::before / ::after) with an animation or a transition longer than 0 s. */
+function motionLeft() {
+  const name = (e) => (e ? `${e.tagName.toLowerCase()}.${String(e.className).trim().split(/\s+/).join('.')}` : '?')
+  const out = []
+  for (const a of document.getAnimations()) if (a.playState === 'running') out.push(`running: ${a.animationName || a.transitionProperty} on ${name(a.effect?.target)}`)
+  for (const e of document.querySelectorAll('*')) for (const pseudo of [null, '::before', '::after']) {
+    const s = getComputedStyle(e, pseudo)
+    const timed = (v) => v.split(',').some((d) => parseFloat(d) > 0)
+    if (s.animationName !== 'none') out.push(`animation ${s.animationName}: ${name(e)}${pseudo || ''}`)
+    if (timed(s.transitionDuration) || (timed(s.transitionDelay) && s.transitionProperty !== 'none')) out.push(`transition ${s.transitionProperty} ${s.transitionDuration}: ${name(e)}${pseudo || ''}`)
+  }
+  return [...new Set(out)]
+}
+
 let smallest = { px: Infinity }
 let page
 /**
@@ -118,13 +139,13 @@ let page
  * ever and are left out.
  */
 async function still(i, beats) {
-  await page.waitForFunction((want) => document.querySelector('.scn-pos')?.textContent === want, `${i} / ${beats}`, { timeout: STILL_TIMEOUT_MS })
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await shown(i, beats)
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, { timeout: STILL_TIMEOUT_MS })
 }
-for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
+// The last pass asks for reduced motion: then nothing in the page moves, on any beat.
+for (const [w, theme, reduce] of [[1300, 'dark'], [900, 'light'], [620, 'light'], [1300, 'dark', true]]) {
   let errors
-  ;({ page, errors } = await openHarness(b, HARNESS, { width: w, height: 900, theme, warnings: true, ready: true }))
+  ;({ page, errors } = await openHarness(b, HARNESS, { width: w, height: 900, theme, warnings: true, ready: true, context: reduce ? { reducedMotion: 'reduce' } : {} }))
   const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
   const animated = journey.steps.filter((x) => x.scene).map((x) => x.n)
   if (!animated.length) { console.error('no step has a scene'); process.exit(2) }
@@ -137,6 +158,11 @@ for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
     if (!(await page.locator('.scn').count())) await page.click('li:has(.st.cur) .animbtn')
     const beats = journey.steps[n - 1].scene.beats.length
     for (let i = 1; i <= beats; i++) {
+      if (reduce) {
+        await shown(i, beats)
+        const moving = await page.evaluate(motionLeft)
+        if (moving.length) { bad++; console.log('reduced motion: step', n, 'beat', i, JSON.stringify(moving)) }
+      }
       await still(i, beats)
       const res = await page.evaluate(sceneProblems, { MIN_PX, SCENE_MIN })
       const over = res.out
@@ -147,12 +173,12 @@ for (const [w, theme] of [[1300, 'dark'], [900, 'light'], [620, 'light']]) {
         if (nx !== want) over.push(`last beat: › reads "${nx}", want "${want}"`)
       }
       if (over.length) { bad++; console.log(w, 'step', n, 'beat', i, JSON.stringify(over)) }
-      if (OUT && w !== 900) await page.screenshot({ path: `${OUT}/w${w}-s${n}-b${i}.png` })
+      if (OUT && w !== 900 && !reduce) await page.screenshot({ path: `${OUT}/w${w}-s${n}-b${i}.png` })
       if (i < beats) await page.click('.scn-next')
     }
   }
   if (errors.length) bad++
-  console.log(w, 'errors', JSON.stringify(errors))
+  console.log(reduce ? `${w} reduced motion` : w, 'errors', JSON.stringify(errors))
 }
 
 // ---------- names that are Object.prototype's keys ----------
