@@ -3,7 +3,9 @@
 // the merge request), Dismiss (with a reason, or "I fixed it").
 import * as vscode from 'vscode'
 import type { Note } from '../store'
-import { Check, Question, commentMark, concernOf, hunksOf, samePerson, todoLines, todoPlace, whoOf } from '../checkModel'
+import { Check, Question } from './types'
+import { concernOf, samePerson, settledConcern, whoOf } from './concernState'
+import { commentMark, todoLines, todoPlace } from './todoComment'
 import { gitOut } from '../git'
 import { docLines } from '../wfs'
 import type { Understanding } from './index'
@@ -78,11 +80,7 @@ export class Concerns {
   /** Writes a dismissal (`reason`) or a fix (`fixed`) into the check file: by whom, when; no longer flagged. */
   private async settle(shown: Shown, how: { reason: string } | { fixed: true }): Promise<void> {
     await this.update(shown, (fq, text) => {
-      const me = this.u.who
-      const by = me ? { by: whoOf(me) } : {}
-      const at = this.host.now()
-      const done = 'reason' in how ? { dismissed: { reason: how.reason, ...by, at } } : { fixed: { ...by, at } }
-      fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: false, ...done }
+      fq.concern = settledConcern(fq.concern, text, how, this.u.who, this.host.now())
     })
   }
 
@@ -145,7 +143,7 @@ export class Concerns {
       }
       const at = await this.concernAt(q, n)
       const diff = await gitOut(this.u.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
-      return hunksOf(diff ?? '').some((h) => h.start <= at.end && h.end >= at.start)
+      return this.u.cli.hunksOf(diff ?? '').some((h) => h.start <= at.end && h.end >= at.start)
     } catch {
       return false
     }

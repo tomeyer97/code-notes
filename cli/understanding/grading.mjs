@@ -136,8 +136,20 @@ export async function gradeQuestion(repo, check, q, { backend, model, env, diff 
 export function applyGrade(repo, q, a, text) {
   const mode = gradeMode(q)
   const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
-  if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
-  Object.assign(a, v, { gradedAt: new Date().toISOString() })
+  return recordGrade(repo, q, a, v, new Date().toISOString())
+}
+
+/**
+ * Verdict `v` (parseVerdict's) recorded on attempt `a` of `q` at time `at`: its links to lines that are there, the
+ * time, the hash; a concern kept on the question (its flag survives a later grade). The extension records its grades
+ * with this too (src/check/grading.ts), after checking the attempt is still the one it graded.
+ */
+export function recordGrade(repo, q, a, v, at) {
+  if (v.links) {
+    v.links = codeLinksIn(repo, v.links)
+    if (!v.links.length) delete v.links
+  }
+  Object.assign(a, v, { gradedAt: at })
   a.hash = attemptHash(q, a)
   if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
   return a

@@ -1867,3 +1867,7 @@ test('init: puts the skill in the repository for /understanding-check, with the 
   assert.match(execFileSync('node', [path.join(e, '.claude/skills/understanding-check/scripts/questions.mjs'), 'start', '--base', 'main'], { cwd: e, encoding: 'utf8', env: { ...process.env, ...ID, UNDERSTANDING_CLI: '' } }), /^CHANGE: branch feat\/x/m)
   assert.match((await run(e, ['init'])).out, /^Already set up\./)
 })
+
+test('hunksOf: each hunk\'s new-side lines (a deletion: the line it happened at); the extension asks it about a concern\'s lines', () => {
+  assert.deepEqual(U.hunksOf('diff\n@@ -1,2 +3,4 @@ x\n+a\n@@ -9 +12 @@\n@@ -20,3 +19,0 @@'), [{ start: 3, end: 6 }, { start: 12, end: 12 }, { start: 19, end: 19 }])
+})

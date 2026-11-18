@@ -2,7 +2,8 @@
 // of the question's text when the thread was made.
 import { createHash } from 'crypto'
 import type { Note } from '../store'
-import { Question, questionBody } from '../checkModel'
+import { Question } from './types'
+import { questionBody } from './threadText'
 
 export const isCheck = (n: Note): boolean => !!(n.data.extra as { check?: unknown } | undefined)?.check
 /** A thread's link to its question: the check file, the question's id, and a hash of the text it was shown with. */

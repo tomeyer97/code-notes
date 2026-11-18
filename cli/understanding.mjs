@@ -82,10 +82,14 @@ export function currentBranch(repo, env = process.env) {
   return ciBranch(env) || gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'HEAD'
 }
 
-/** The branch a change is compared with, locally: origin's default branch, else main/master. */
+/** The usual names of a repository's default branch, in the order they are tried. */
+export const DEFAULT_BRANCHES = ['main', 'master']
+
+/** The branch a change is compared with, locally: origin's default branch, else main/master (origin's, then local). */
 export function defaultBase(repo) {
   const sym = gitOk(repo, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
-  const cands = [sym?.replace(/^refs\/remotes\//, ''), 'origin/main', 'origin/master', 'main', 'master'].filter(Boolean)
+  const usual = [...DEFAULT_BRANCHES.map((b) => `origin/${b}`), ...DEFAULT_BRANCHES]
+  const cands = [sym?.replace(/^refs\/remotes\//, ''), ...usual].filter(Boolean)
   const cur = gitOk(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
   return cands.find((c) => c !== cur && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]))
 }
@@ -93,7 +97,7 @@ export function defaultBase(repo) {
 export function isDefaultBranch(repo, branch) {
   const sym = gitOk(repo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (sym) return branch === sym.replace(/^origin\//, '')
-  return ['main', 'master'].includes(branch)
+  return DEFAULT_BRANCHES.includes(branch)
 }
 export const mergeBase = (repo, a, b) => gitOk(repo, ['merge-base', a, b])
 const isAncestor = (repo, a, b) => { try { git(repo, ['merge-base', '--is-ancestor', a, b]); return true } catch { return false } }
@@ -1526,8 +1530,20 @@ export async function gradeQuestion(repo, check, q, { backend, model, env, diff 
 export function applyGrade(repo, q, a, text) {
   const mode = gradeMode(q)
   const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
-  if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
-  Object.assign(a, v, { gradedAt: new Date().toISOString() })
+  return recordGrade(repo, q, a, v, new Date().toISOString())
+}
+
+/**
+ * Verdict `v` (parseVerdict's) recorded on attempt `a` of `q` at time `at`: its links to lines that are there, the
+ * time, the hash; a concern kept on the question (its flag survives a later grade). The extension records its grades
+ * with this too (src/check/grading.ts), after checking the attempt is still the one it graded.
+ */
+export function recordGrade(repo, q, a, v, at) {
+  if (v.links) {
+    v.links = codeLinksIn(repo, v.links)
+    if (!v.links.length) delete v.links
+  }
+  Object.assign(a, v, { gradedAt: at })
   a.hash = attemptHash(q, a)
   if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
   return a

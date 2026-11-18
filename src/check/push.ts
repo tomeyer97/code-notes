@@ -3,7 +3,8 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import { CommitPlan, concernOf, whoOf } from '../checkModel'
+import { concernOf, settledConcern } from './concernState'
+import { CommitPlan } from './viewModel'
 import { gitOut } from '../git'
 import { PUSHED_MESSAGE_MS, REPO_FILES } from './constants'
 import type { Understanding } from './index'
@@ -152,10 +153,10 @@ export class Pusher {
     const done = Object.entries(u.fixes.get(u.st?.branch)).filter(([, f]) => fixing.includes(f)).map(([q]) => q)
     if (!done.length || !abs) return
     const check = u.cli.readCheck(abs)
-    const me = u.who, at = this.host.now()
+    const at = this.host.now()
     for (const q of check.questions) {
       if (!done.includes(q.id) || !q.concern || q.concern.dismissed || q.concern.fixed) continue
-      q.concern = { ...q.concern, flagged: false, fixed: { ...(me?.name || me?.email ? { by: whoOf(me) } : {}), at } }
+      q.concern = settledConcern(q.concern, q.concern.text, { fixed: true }, u.who, at)
     }
     u.save(abs, check)
   }

@@ -2,7 +2,7 @@
 // Code's git extension API it listens to.
 import * as vscode from 'vscode'
 import type { Note, Store } from '../store'
-import type { Check } from '../checkModel'
+import type { Check } from './types'
 
 /** What the check needs from the rest of the extension (extension.ts). */
 export interface CheckHost {

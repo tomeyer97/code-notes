@@ -4,7 +4,7 @@ import * as vscode from 'vscode'
 import * as path from 'path'
 import { Ask, AskErrorKind, AskResult } from '../claude'
 import type { Note } from '../store'
-import type { Attempt, Cli, Question } from '../checkModel'
+import type { Attempt, Cli, Question } from './types'
 import { sameQuestion } from './links'
 import type { Understanding } from './index'
 
@@ -147,20 +147,14 @@ export class Grader {
    */
   private applyVerdict(abs: string, id: string, last: Attempt, v: ReturnType<Cli['parseVerdict']>, res: AskResult): boolean {
     const u = this.u
-    // Links to lines that are really there (the words stay either way).
-    if (v.links) {
-      v.links = u.cli.codeLinksIn(u.repo!, v.links)
-      if (!v.links.length) delete v.links
-    }
     const check = u.cli.readCheck(abs)
     const q: Question | undefined = check.questions.find((x) => x.id === id)
     const latest = q?.attempts?.at(-1)
     const a = latest?.answer === last.answer && !latest?.verdict ? latest : undefined
     if (!q || !a) return false
-    Object.assign(a, v, { gradedAt: this.host.now() })
-    a.hash = u.cli.attemptHash(q, a)
-    // One concern per question, kept on it (its flag survives a later grade).
-    if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
+    // As the CLI records a grade: links to lines that are really there (the words stay either way), the time, the hash,
+    // one concern per question kept on it (its flag survives a later grade).
+    u.cli.recordGrade(u.repo!, q, a, v, this.host.now())
     u.save(abs, check)
     const cost = res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''
     this.host.log.info(`understanding check: ${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${cost}`)

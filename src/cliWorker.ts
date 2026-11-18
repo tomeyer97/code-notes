@@ -9,10 +9,10 @@ import * as path from 'path'
 import { createHash } from 'crypto'
 import { statusBranch, statusPaths } from './git'
 import { importCli } from './importCli'
-import type { RefreshResult } from './checkModel'
+import type { RefreshResult } from './check/types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** The CLI's functions, called by name from the other side (checkModel.ts `Cli` lists the ones the extension uses). */
+/** The CLI's functions, called by name from the other side (check/types.ts `Cli` lists the ones the extension uses). */
 type CliModule = Record<string, any>
 const loaded = importCli<CliModule>((workerData as { cli: string }).cli)
 /** The understanding CLI (cli/understanding.mjs), once loaded. */

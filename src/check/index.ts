@@ -13,10 +13,11 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Note } from '../store'
-import {
-  Check, CheckView, Cli, Link, QState, Question, RefreshResult, Status, Who, Words,
-  checkView, concernOf, definedOnly, gradeFailure, jsonErrorAt, linksAt, notDone, runAction, statusText,
-} from '../checkModel'
+import { Check, Cli, Link, QState, Question, RefreshResult, Status, Who, Words } from './types'
+import { linksAt, gradeMessageAt, gradedAttempts } from './threadText'
+import { concernOf } from './concernState'
+import { CheckView, checkView, definedOnly, notDone, runAction, statusText } from './viewModel'
+import { gradeFailure, jsonErrorAt } from './failures'
 import { CliThread } from '../cliThread'
 import { Coalesced } from '../coalesced'
 import { gitOut } from '../git'
@@ -32,7 +33,8 @@ import { isCheck, linkOf } from './links'
 import { PerScope } from './memento'
 import { Pusher } from './push'
 import { CheckThreads } from './threads'
-import { CheckViewMessage, CheckViewProvider, CheckViewRequest } from './view'
+import { CheckViewProvider } from './view'
+import type { CheckViewMessage, CheckViewMessageOf, CheckViewRequest } from './viewMessages'
 import { Writer } from './writer'
 
 export type { CheckHost } from './host'
@@ -510,10 +512,12 @@ export class Understanding implements vscode.Disposable {
 
   private onView(m: CheckViewMessage): void {
     const handlers = this.viewHandlers()
-    if (Object.hasOwn(handlers, m.type)) handlers[m.type as CheckViewRequest](m)
+    if (!Object.hasOwn(handlers, m.type)) return
+    const handle = handlers[m.type as CheckViewRequest] as (m: CheckViewMessage) => void
+    handle(m)
   }
-  /** One handler per request of the view (view.ts CheckViewRequest); a request's fields are checked here. */
-  private viewHandlers(): Record<CheckViewRequest, (m: CheckViewMessage) => void> {
+  /** One handler per request of the view (viewMessages.ts CheckViewRequest); a request's fields are checked here. */
+  private viewHandlers(): ViewHandlers {
     const str = (v: unknown): v is string => typeof v === 'string'
     return {
       ready: () => this.post(),
@@ -571,10 +575,8 @@ export class Understanding implements vscode.Disposable {
     const n = this.threads.noteOf(id)
     const q = this.st?.check?.questions.find((x) => x.id === id)
     if (!n || !q) return
-    // The grade's message in the thread: the k-th agent message after the question for the k-th graded attempt.
-    const k = (q.attempts ?? []).filter((a) => a.verdict && (a.answer !== undefined || a.verdict === 'explained')).length
-    let seen = 0
-    const mi = n.data.messages.findIndex((m, x) => x > 0 && m.role === 'agent' && ++seen === k)
+    // The latest grade's message in the thread.
+    const mi = gradeMessageAt(n.data.messages.map((m) => m.role ?? ''), gradedAttempts(q).length)
     if (mi > 0) await vscode.commands.executeCommand('codeNotes.codeLink', `check|${n.data.id}|${mi}`, i)
   }
 
@@ -690,6 +692,9 @@ export class Understanding implements vscode.Disposable {
     this.worker?.dispose()
   }
 }
+
+/** Each request's handler, given that request's message. */
+type ViewHandlers = { [T in CheckViewRequest]: (m: CheckViewMessageOf<T>) => void }
 
 /** A check thread's state for its comments (extension.ts commentsOf). */
 export interface ThreadStatus {

@@ -76,7 +76,7 @@
   // ---------- an understanding check's question ----------
 
   /**
-   * A question's states (src/checkModel.ts QState) and how they look. Not answered yet it is "○" in the Check view's
+   * A question's states (src/check/types.ts QState) and how they look. Not answered yet it is "○" in the Check view's
    * list (a checklist) but "? Why …" as a row of the journey storyline, among the numbered steps
    * (docs/understanding-check.md, test/check-tour/shoot.mjs). `answered`: said so to a screen reader in the storyline;
    * `word`: said after the question there.

@@ -6,7 +6,9 @@ import * as path from 'path'
 import { findCompact } from '../compact'
 import { captureAnchor, type NoteData } from '../noteModel'
 import type { Note } from '../store'
-import { Attempt, Check, Question, gradeBody, missingMessages, notDone, questionBody } from '../checkModel'
+import { Attempt, Check, Question } from './types'
+import { gradeBody, missingMessages, questionBody, showsGrade } from './threadText'
+import { notDone } from './viewModel'
 import { AUTHOR, SESSION } from './constants'
 import { linkOf, sameQuestion, textHash } from './links'
 import type { Understanding } from './index'
@@ -64,7 +66,7 @@ export class CheckThreads {
       if (a.answer !== undefined) {
         out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer, ...(a.at ? { at: a.at } : {}) })
       }
-      if (a.verdict && (a.answer !== undefined || a.verdict === 'explained')) {
+      if (showsGrade(a)) {
         out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
       }
       if (a.verdict === 'explained') explained = true
