@@ -35,6 +35,10 @@ const lead = (s: string) => /^\s*(\/\/|#|\/\*|\*|--|@)/.test(s)
 /** Lines that close a block rather than start a new one. */
 const closer = (s: string) => /^\s*[)\]}]/.test(s) || /^\s*(end|fi|done|esac)\b/.test(s)
 
+/** A top-level `const`/`let`/`var` that is not a function (`const f = () => …`): a "var" block. */
+const TOP_LEVEL_VAR = /^(export\s+)?(const|let|var)\s/
+const HOLDS_FUNCTION = /=>|function/
+
 /**
  * Blocks from the text, for files without symbols: a top-level line (not indented, not a comment) whose next
  * non-blank line is indented runs until the next top-level line that is not a closer (`}`, `)`, `end`).
@@ -54,7 +58,8 @@ export function blocksFromText(lines: string[]): Block[] {
       if (closer(lines[j])) { end = j; continue }
       break
     }
-    out.push({ start: i, end, kind: /^(export\s+)?(const|let|var)\s/.test(l) && !/=>|function/.test(l) ? 'var' : 'fn' })
+    const kind = TOP_LEVEL_VAR.test(l) && !HOLDS_FUNCTION.test(l) ? 'var' : 'fn'
+    out.push({ start: i, end, kind })
     i = end
   }
   return out
@@ -65,29 +70,56 @@ export function blockAt(line: number, blocks: Block[]): Block | undefined {
   return blocks.filter((b) => b.start <= line && line <= b.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
 }
 
+/** Steps in a lens group, and the line the lens is on. */
+type StepGroup<T> = { line: number; steps: T[] }
+
 /** One lens per group: steps whose lines start in (or lead into) the same function; the rest by nearby lines. */
-export function groupSteps<T extends { line: number; end?: number }>(hits: T[], blocks: Block[], near = 10): { line: number; steps: T[] }[] {
-  const groups = new Map<string, { line: number; steps: T[] }>()
-  /** Steps outside every function, and the line each is grouped by. */
+export function groupSteps<T extends { line: number; end?: number }>(hits: T[], blocks: Block[], nearLines = 10): StepGroup<T>[] {
+  const { byFunction, loose } = groupByFunction(hits, blocks)
+  const groups = [...byFunction, ...groupLoose(loose, blocks, nearLines)]
+  return groups.map((g) => ({ line: g.line, steps: g.steps })).sort((a, b) => a.line - b.line)
+}
+
+/**
+ * Steps in a function (or starting just above one: its comment, the line before it, and running into it), one group
+ * per function; the rest are `loose`, each with the line it is grouped by.
+ */
+function groupByFunction<T extends { line: number; end?: number }>(hits: T[], blocks: Block[]): { byFunction: StepGroup<T>[]; loose: { at: number; step: T }[] } {
+  const groups = new Map<number, StepGroup<T>>()
   const loose: { at: number; step: T }[] = []
   for (const h of hits) {
-    // In a function; or starting just above one (its comment, the line before it) and running into it.
-    const b = blockAt(h.line, blocks) ?? blocks.find((x) => x.kind === 'fn' && x.start > h.line && x.start <= (h.end ?? h.line) + 2)
+    const runsInto = (x: Block) => x.kind === 'fn' && x.start > h.line && x.start <= (h.end ?? h.line) + 2
+    const b = blockAt(h.line, blocks) ?? blocks.find(runsInto)
     // A top-level const (one line or several) is one of the file's top lines: grouped by its first line, with its
     // neighbours below.
-    if (!b || b.kind === 'var') { loose.push({ at: b ? b.start : h.line, step: h }); continue }
-    const k = `${b.start}`
-    const g = groups.get(k) ?? { line: b.start, steps: [] }
+    if (!b || b.kind === 'var') {
+      loose.push({ at: b ? b.start : h.line, step: h })
+      continue
+    }
+    const g = groups.get(b.start) ?? { line: b.start, steps: [] }
     g.steps.push(h)
-    groups.set(k, g)
+    groups.set(b.start, g)
   }
-  // Outside every function (a file's top-level consts): one lens for steps a few lines apart in the same gap.
+  return { byFunction: [...groups.values()], loose }
+}
+
+/**
+ * Steps outside every function (a file's top-level consts): one lens for steps at most `nearLines` apart in the same
+ * gap between functions.
+ */
+function groupLoose<T extends { line: number }>(loose: { at: number; step: T }[], blocks: Block[], nearLines: number): StepGroup<T>[] {
+  /** Which gap between functions (and classes) a line is in: how many end above it. */
   const gapOf = (line: number) => blocks.filter((b) => b.kind !== 'var' && b.end < line).length
+  const out: StepGroup<T>[] = []
   let cur: { line: number; steps: T[]; last: number; gap: number } | undefined
   for (const { at, step } of [...loose].sort((a, b) => a.at - b.at)) {
-    if (cur && cur.gap === gapOf(at) && at - cur.last <= near) { cur.steps.push(step); cur.last = Math.max(at, step.line); continue }
+    if (cur && cur.gap === gapOf(at) && at - cur.last <= nearLines) {
+      cur.steps.push(step)
+      cur.last = Math.max(at, step.line)
+      continue
+    }
     cur = { line: at, steps: [step], last: step.line, gap: gapOf(at) }
-    groups.set(`l${at}`, cur)
+    out.push(cur)
   }
-  return [...groups.values()].map((g) => ({ line: g.line, steps: g.steps })).sort((a, b) => a.line - b.line)
+  return out
 }
