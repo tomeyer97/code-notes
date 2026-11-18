@@ -190,8 +190,9 @@ the line that rejects it.
 While it plays:
 
 - A mark lights 0.12 s before `start + at` (the eye gets there as the word is said). The beat's own line box stays;
-  the newest mark is a filled box with an edge in the cursor's colour, the segment's earlier marks stay, fainter. The
-  next segment clears them.
+  marks have no borders: a mark within a line tints its characters, a mark of whole lines tints the full lines as one
+  block (the newest with a thin bar on the left). The newest mark is the stronger tint, the segment's earlier marks
+  stay, lighter. The next segment clears them.
 - At any time T, exactly the marks lit by T in the segment playing at T show: a seek forward lights them, a seek back
   takes them away, also while paused.
 - `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or

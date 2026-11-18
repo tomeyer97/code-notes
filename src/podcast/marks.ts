@@ -1,6 +1,6 @@
 // Marks (docs/podcast-format.md, "Marks"): word-timed highlights within a segment. While the voice says a phrase, the
 // code it names lights: whole lines, or only a `match` within them. The newest mark (with any said with the same
-// phrase) is the focus, a strong box; the segment's earlier marks stay, dimmed; the beat's own line box stays under
+// phrase) is the focus, a strong tint; the segment's earlier marks stay, lighter; the beat's own line box stays under
 // them. The next segment clears them. At any time T exactly the marks lit by T in the segment playing at T show (also
 // paused, after a seek); the timing is precomputed per segment (model.ts markTimes, planMarks), so a time report costs
 // a few comparisons. A mark in another file than the one on screen is a view change: the view hold applies
@@ -17,26 +17,38 @@ import { findMark, Mark, MarkSpot, marksAt } from './model'
 export interface PlannedMark { mark: Mark; uri: vscode.Uri; file: string; time: number; skip: boolean; opens: boolean }
 
 /** What the editor shows of the marks now (tests): the range, its text, its style. */
+/** What is lit in one document: ranges within lines, and whole lines, in each style. */
+interface Shown { focus: vscode.Range[]; dim: vscode.Range[]; focusLines: vscode.Range[]; dimLines: vscode.Range[] }
+
 export interface LitMark { file: string; line: number; col: number; endLine: number; endCol: number; text: string; style: 'focus' | 'dim' }
 
 export class MarkLights implements vscode.Disposable {
   /**
-   * The newest mark: a filled box with an edge in the cursor's colour (as the beat's line box: "here, now"); the
-   * earlier ones in the segment: the fill alone, fainter. Theme colours only: both read in light and dark themes.
+   * One family, no borders around text (a box per line splits a block of lines into rows): a mark within a line is a
+   * tint over its characters; a mark of whole lines tints the full lines as one block, the focus with a thin bar on
+   * the left. The newest mark (the focus) is the stronger tint; the segment's earlier ones a lighter one. Theme
+   * colours only: both read in light and dark themes.
    */
   private readonly focus = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground'),
-    borderWidth: '1px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorCursor.foreground'), borderRadius: '3px',
-    overviewRulerColor: new vscode.ThemeColor('editorCursor.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Right,
+    backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground'), borderRadius: '2px',
+    overviewRulerColor: new vscode.ThemeColor('focusBorder'), overviewRulerLane: vscode.OverviewRulerLane.Right,
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
+  private readonly focusLines = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground'),
+    borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('focusBorder'),
+    overviewRulerColor: new vscode.ThemeColor('focusBorder'), overviewRulerLane: vscode.OverviewRulerLane.Right,
+  })
   private readonly dim = vscode.window.createTextEditorDecorationType({
-    backgroundColor: new vscode.ThemeColor('editor.wordHighlightBackground'), borderRadius: '3px',
+    backgroundColor: new vscode.ThemeColor('editor.wordHighlightBackground'), borderRadius: '2px',
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+  private readonly dimLines = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.wordHighlightBackground'),
   })
   private readonly subs: vscode.Disposable[]
   /** What is lit, by document: its ranges in each style (with the marks' text, for tests). */
-  private shown = new Map<string, { focus: vscode.Range[]; dim: vscode.Range[] }>()
+  private shown = new Map<string, Shown>()
   /** What `show` was asked for last (the same again: nothing to do). */
   private sig = ''
   private seq = 0
@@ -46,7 +58,7 @@ export class MarkLights implements vscode.Disposable {
   private said = new Set<string>()
 
   constructor(private readonly log: vscode.LogOutputChannel) {
-    this.subs = [this.focus, this.dim, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
+    this.subs = [this.focus, this.dim, this.focusLines, this.dimLines, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
   }
 
   /** Nothing lit. */
@@ -72,7 +84,7 @@ export class MarkLights implements vscode.Disposable {
     this.sig = key
     const mine = ++this.seq
     for (const p of plan) if (p.skip && p.time <= t) this.once(`${sig}|skip|${p.time}|${p.file}`, `podcast: a mark in ${p.file} at ${p.time.toFixed(2)} s is skipped: it would switch files within the view hold`, 'debug')
-    const next = new Map<string, { focus: vscode.Range[]; dim: vscode.Range[] }>()
+    const next = new Map<string, Shown>()
     const placed: { p: PlannedMark; r: vscode.Range; doc: vscode.TextDocument; k: number }[] = []
     for (let k = 0; k < lit; k++) {
       const p = live[k]
@@ -82,10 +94,11 @@ export class MarkLights implements vscode.Disposable {
         continue
       }
       if (mine !== this.seq) return
-      const rs = this.rangesOf(doc, p, `${sig}|${k}`)
+      const { ranges: rs, whole } = this.rangesOf(doc, p, `${sig}|${k}`)
       if (!rs.length) continue
-      const at = next.get(doc.uri.toString()) ?? { focus: [], dim: [] }
-      ;(k >= focusFrom ? at.focus : at.dim).push(...rs)
+      const at = next.get(doc.uri.toString()) ?? { focus: [], dim: [], focusLines: [], dimLines: [] }
+      const style = k >= focusFrom ? 'focus' : 'dim'
+      at[whole ? `${style}Lines` as const : style].push(...rs)
       next.set(doc.uri.toString(), at)
       placed.push({ p, r: rs[0].union(rs[rs.length - 1]), doc, k })
     }
@@ -98,18 +111,18 @@ export class MarkLights implements vscode.Disposable {
 
   /** Where a mark is in `doc` now: its match (re-found if the code moved), else its whole lines, each from its text
    *  (no box around indentation); none past the end. */
-  private rangesOf(doc: vscode.TextDocument, p: PlannedMark, key: string): vscode.Range[] {
+  private rangesOf(doc: vscode.TextDocument, p: PlannedMark, key: string): { ranges: vscode.Range[]; whole: boolean } {
     const spot = this.spotOf(doc, p, key)
-    if (!spot) return []
+    if (!spot) return { ranges: [], whole: false }
     const whole = spot.whole
-    if (!whole || spot.line === spot.endLine) return [new vscode.Range(spot.line, spot.col, spot.endLine, spot.endCol)]
+    if (!whole) return { ranges: [new vscode.Range(spot.line, spot.col, spot.endLine, spot.endCol)], whole }
     const out: vscode.Range[] = []
     for (let l = spot.line; l <= spot.endLine; l++) {
       const text = doc.lineAt(l).text
       if (!text.trim()) continue
       out.push(new vscode.Range(l, text.length - text.trimStart().length, l, text.length))
     }
-    return out
+    return { ranges: out, whole }
   }
 
   private spotOf(doc: vscode.TextDocument, p: PlannedMark, key: string): (MarkSpot & { whole: boolean }) | undefined {
@@ -140,6 +153,8 @@ export class MarkLights implements vscode.Disposable {
       const s = this.shown.get(e.document.uri.toString())
       setDecorations(e, this.focus, s?.focus ?? [])
       setDecorations(e, this.dim, s?.dim ?? [])
+      setDecorations(e, this.focusLines, s?.focusLines ?? [])
+      setDecorations(e, this.dimLines, s?.dimLines ?? [])
     }
   }
 
@@ -149,7 +164,7 @@ export class MarkLights implements vscode.Disposable {
     for (const [uri, s] of this.shown) {
       const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri)
       const file = vscode.workspace.asRelativePath(vscode.Uri.parse(uri), false)
-      for (const [style, rs] of [['focus', s.focus], ['dim', s.dim]] as const) {
+      for (const [style, rs] of [['focus', [...s.focus, ...s.focusLines]], ['dim', [...s.dim, ...s.dimLines]]] as const) {
         for (const r of rs) out.push({ file, line: r.start.line, col: r.start.character, endLine: r.end.line, endCol: r.end.character, text: doc?.getText(r) ?? '', style })
       }
     }

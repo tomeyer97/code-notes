@@ -60,7 +60,8 @@
   the panel shows the beat it was at; the output logs plays, pauses and stops with why.
 - **Listen: marks, highlights as the words are said.** A segment may carry `marks`: while the voice says "requires a
   model", that check lights, down to the characters (`match`, its `nth`); on "right there", the line that rejects it.
-  The newest mark is a box in the cursor's colour, the segment's earlier ones stay, fainter, over the beat's own line;
+  The newest mark is a strong tint (whole lines: one tinted block with a bar on the left, no lines between rows), the
+  segment's earlier ones stay, lighter, over the beat's own line;
   the next segment clears them. A mark lights 0.12 s before its word; marks with the same phrase light together; at
   any time (a seek, paused too) exactly the marks said by then show. Code that moved is found within 20 lines (said
   once in the output), else the whole lines light. An off-screen mark is scrolled to, never under a reader who is
