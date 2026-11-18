@@ -23,7 +23,7 @@ export let tutorialMark: '' | 'card' | 'links' = ''
 async function tutorialInEditor(lj: LoadedJourney, what: 'card' | 'links'): Promise<void> {
   // The card itself shows it: its buttons, or its linked phrases, on the search-match colour while the tutorial says so.
   tutorialMark = what
-  const n = walk.touring() && tour.key === lj.key && tour.step ? tour.step : walk.resumeAt(lj) || 1
+  const n = walk.startStep(lj)
   await walk.goToStep(lj, n, { focus: false })
   const at = lj.at[n - 1]
   // The card moved on while the file opened: nothing.
@@ -65,7 +65,7 @@ export function onTutorial(lj: LoadedJourney, m: Extract<MapMessage, { type: 'tu
     void gstate.update(TUTORIAL_KEY, true).then(() => mapPanel.update())
   }
   // Finish walks the steps: from where the tour is, else where the map's button would start.
-  if (m.action === 'done') void walk.goToStep(lj, walk.touring() && tour.key === lj.key ? tour.step : walk.resumeAt(lj) || 1, { focus: false })
+  if (m.action === 'done') void walk.goToStep(lj, walk.startStep(lj), { focus: false })
 }
 
 /** The tutorial as never seen (for the integration test). */

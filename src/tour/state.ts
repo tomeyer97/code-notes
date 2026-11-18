@@ -9,6 +9,9 @@ export const TOUR_KEY = 'codeNotes.tour'
 export const POS_KEY = 'codeNotes.journeyPos'
 export const MAP_KEY = 'codeNotes.mapJourney'
 
+/** Where a step was shown: its journey, id, file and lines, and where the journey file put it then (`wrote`). */
+export interface ShownAt { key: string; id: string; file: string; start: number; end: number; removed: boolean; wrote: string }
+
 export class TourState {
   /** The journey whose map is open (its file URI), and the step shown (1-based; 0: browsing the map, no tour running). */
   key: string | undefined
@@ -46,7 +49,7 @@ export class TourState {
    * Where the current step was shown (to see that the agent moved it). `wrote`: where the journey file put the step
    * then (a change there is the agent re-anchoring it).
    */
-  shownAt: { key: string; id: string; file: string; start: number; end: number; removed: boolean; wrote: string } | undefined
+  shownAt: ShownAt | undefined
   /** The panel's step card's links (posted back by index). */
   panelRefs: StepRef[] = []
   /** The step card is being made again (restoreStepCard). */
@@ -57,4 +60,9 @@ export class TourState {
   marked: string[] = []
   /** The journey whose walk was just finished: its panel says Done until a step opens again. */
   finishedKey: string | undefined
+
+  /** The tour is on step n of this journey (whether or not a step is shown). */
+  isAt(lj: { key: string }, n: number): boolean {
+    return this.key === lj.key && this.step === n
+  }
 }

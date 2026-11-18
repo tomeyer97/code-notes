@@ -24,7 +24,7 @@ export async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean
   await openMap(lj, room)
   if (!room) cardOnly()
   if (!lj.j.steps.length) return
-  await walk.goToStep(lj, opts.fromStart ? 1 : tour.key === lj.key && tour.step ? tour.step : walk.resumeAt(lj) || 1)
+  await walk.goToStep(lj, opts.fromStart ? 1 : walk.startStep(lj))
   // Back where the click was: the code is shown, but arrows and Enter never type into it.
   if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
   else if (opts.keepFocus === 'panel' && room) mapPanel.takeFocus()

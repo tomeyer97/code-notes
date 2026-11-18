@@ -11,11 +11,14 @@ import { card, tour, walk } from './tour'
 
 export const qDone = (st: string) => st === 'pass' || st === 'explained' || st === 'restated'
 
+/** A stop of a check's tour: a step, or a question `q` placed after it. */
+export interface Stop { step: number; q?: string }
+
 /** The stops of a check's tour in order: each step, then the questions placed after it that are still open (and the
  *  one the walk is at, even once it is done). */
-export function stopsOf(lj: LoadedJourney): { step: number; q?: string }[] {
+export function stopsOf(lj: LoadedJourney): Stop[] {
   const qs = lj.check ? understanding?.tourStops() ?? [] : []
-  const out: { step: number; q?: string }[] = []
+  const out: Stop[] = []
   for (const s of lj.j.steps) {
     out.push({ step: s.n })
     for (const q of qs) if (q.step === s.n && (!qDone(q.state) || (q.id === tour.cp && tour.step === s.n && tour.key === lj.key))) out.push({ step: s.n, q: q.id })
@@ -23,12 +26,23 @@ export function stopsOf(lj: LoadedJourney): { step: number; q?: string }[] {
   return out
 }
 
+/** Where the walk is among the stops: at its question, else on its step (-1: neither). */
+function stopIndex(stops: Stop[]): number {
+  const atQuestion = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
+  return atQuestion >= 0 ? atQuestion : stops.findIndex((x) => x.step === tour.step && !x.q)
+}
+
 /** The stop after where the walk is (for the card's Next). */
-export function nextStop(lj: LoadedJourney): { step: number; q?: string } | undefined {
+export function nextStop(lj: LoadedJourney): Stop | undefined {
   const stops = stopsOf(lj)
-  let i = stops.findIndex((x) => x.step === tour.step && x.q === tour.cp)
-  if (i < 0) i = stops.findIndex((x) => x.step === tour.step && !x.q)
+  const i = stopIndex(stops)
   return i < 0 ? undefined : stops[i + 1]
+}
+
+/** The stop `dir` away from where the walk is (Next and Previous); from neither, Next is the first stop. */
+export function stopBy(lj: LoadedJourney, dir: 1 | -1): Stop | undefined {
+  const stops = stopsOf(lj)
+  return stops[stopIndex(stops) + dir]
 }
 
 /** A question of the tour: its step (code and card), the map on it, then the question's thread with the keyboard in it. */
