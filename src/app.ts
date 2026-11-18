@@ -9,7 +9,6 @@ import { CodeLinks } from './codeLinks'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
 import { Store } from './store'
-import { label } from './tour/stepText'
 import { TourItems } from './tour/walk'
 import { TutorialSpot } from './tutorialSpot'
 import { ValueHints } from './valueHints'
@@ -84,7 +83,7 @@ export const setCtx = (k: string, v: unknown): Thenable<unknown> => {
 export const notes = () => store.all().filter((n) => !understanding?.offBranch(n))
 export const byId = (id: string) => store.get(id)
 /** The first workspace folder. */
-export const n0 = () => vscode.workspace.workspaceFolders![0]
+export const firstFolder = () => vscode.workspace.workspaceFolders![0]
 
 /** an error the person is shown also goes to the Output channel as [error]. */
 export function showError(text: string, ...items: string[]): Thenable<string | undefined> {

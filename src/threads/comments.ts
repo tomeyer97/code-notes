@@ -38,15 +38,14 @@ export function suggestionOf(body: string, k: number): string | undefined {
 }
 
 /**
- * Markdown of a message: relative links and `path:line` references open the file (C84); images become links (C87).
- * `mi`: the message's index, for an agent's message: its ```suggestion blocks get an Apply link.
- */
-/**
  * The line a question asked from a step ends with (askStep writes it): the step by its id, or (older notes) by its
  * number. Group 1 / group 2: the journey's title.
  */
+// _About the step “Read the config” (id `s3`) of the journey “Start-up”_
 const ABOUT_STEP_BY_ID = /_About the step “[^”]*” \(id [^)]*\) of the journey “([^”]*)”_\s*$/
+// _About step 3 of the journey “Start-up”: Read the config_
 const ABOUT_STEP_BY_NUMBER = /_About step (\d+) of the journey “([^”]*)”: ([^\n]*)_\s*$/
+// Either one, with the blank lines before it.
 const ABOUT_STEP_LINE = new RegExp(`\\n*(?:${ABOUT_STEP_BY_NUMBER.source}|${ABOUT_STEP_BY_ID.source})`)
 
 /** A question's "_About the step …_" line as a link back to that step ("↩ Step 3 · <journey>"); none on that very step,
@@ -63,6 +62,10 @@ function withStepLink(n: Note, md: string): string {
   return md.replace(ABOUT_STEP_BY_NUMBER, (_m, _n: string, title: string) => back(title)).replace(ABOUT_STEP_BY_ID, (_m, title: string) => back(title))
 }
 
+/**
+ * Markdown of a message: relative links and `path:line` references open the file (C84); images become links (C87).
+ * `mi`: the message's index, for an agent's message: its ```suggestion blocks get an Apply link.
+ */
 function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode.MarkdownString {
   const link = (text: string, file: string, line?: string) =>
     `[${text.replace(/[[\]]/g, '\\$&')}](command:codeNotes.openAt?${encodeURIComponent(JSON.stringify([n.folder.uri.toString(), file, Number(line) || 1]))})`

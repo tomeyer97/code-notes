@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as os from 'os'
-import { byId, cfg, log, n0, now, setCtx, state, store, understanding } from './app'
+import { byId, cfg, firstFolder, log, now, setCtx, state, store, understanding } from './app'
 import { Ask, findCli, findCliAsync } from './claude'
 import { me } from './identity'
 import { createNote, noteFromNewThread } from './notes/create'
@@ -107,7 +107,7 @@ function claudePrompt(n: Note, code: string[] | undefined): string {
 
 /** A new note on lines of a file with this question, asked to Claude, and shown. */
 export async function askAbout(file: string, start: number, end: number, question: string, extra: Record<string, unknown>): Promise<void> {
-  const folder = n0()
+  const folder = firstFolder()
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folder.uri, file))
   const n = await createNote(doc, { start: start - 1, end: end - 1 }, question, undefined, extra)
   if (!n) return

@@ -91,10 +91,10 @@ export function offerRestore(n: Note): void {
   offerUndo(`Note deleted on disk: "${plain(n.data.messages[0]?.body ?? '', 40)}"`, async () => { await store.restore(n); refreshAll() }, true)
 }
 
-/** Adds your message; on a failed save (an error toast is shown) the note is left as it was. */
 /** Replies being saved (note and text): a second Ctrl+Enter meanwhile (the box keeps its text until the command returns) is not a second reply. */
 const replying = new Set<string>()
 
+/** Adds your message; on a failed save (an error toast is shown) the note is left as it was. */
 export const addReply = async (n: Note, text: string, status?: 'open' | 'resolved'): Promise<boolean> => {
   const k = `${n.data.id}\0${text}\0${status ?? ''}`
   if (replying.has(k)) return false

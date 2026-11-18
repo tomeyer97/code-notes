@@ -19,7 +19,6 @@ export function notesFrom(arg: any, many?: any[]): Note[] {
   if (arg && typeof arg === 'object' && 'uri' in arg && 'range' in arg) { const n = noteOfThread(arg as vscode.CommentThread); return n ? [n] : [] }
   const editor = vscode.window.activeTextEditor
   if (!editor) return []
-  const line = editor.selection.active.line + 1
   const here = notesAtCursor(editor)
   if (revealed.id) { const r = here.find((n) => n.data.id === revealed.id); if (r) return [r] }
   return here.slice(0, 1)

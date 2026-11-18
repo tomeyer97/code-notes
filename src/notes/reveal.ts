@@ -2,7 +2,7 @@
 // stepping through unread replies.
 
 import * as vscode from 'vscode'
-import { byId, log, mapPanel, n0, notes, showError, store, understanding } from '../app'
+import { byId, firstFolder, log, mapPanel, notes, showError, store, understanding } from '../app'
 import { ownSelection } from '../claudeLinks'
 import { markRead, unread, visitFrom } from '../seen'
 import { journeyOfNote } from '../sidebar/journeyRows'
@@ -117,7 +117,7 @@ export async function stepUnread(dir: 1 | -1): Promise<void> {
   // With a map open, say what D does outside a tour, and how to walk the steps instead.
   if (!pending.length) { vscode.window.setStatusBarMessage(mapPanel.journey ? '$(check) No unread replies · to walk the steps, press ▶ on the map' : '$(check) No unread replies', 4000); return }
   const e = vscode.window.activeTextEditor
-  const here = e ? { file: notesFor(e.document.uri)[0]?.data.file ?? relPath(vscode.workspace.getWorkspaceFolder(e.document.uri) ?? n0(), e.document.uri), line: e.selection.active.line + 1 } : undefined
+  const here = e ? { file: notesFor(e.document.uri)[0]?.data.file ?? relPath(vscode.workspace.getWorkspaceFolder(e.document.uri) ?? firstFolder(), e.document.uri), line: e.selection.active.line + 1 } : undefined
   const key = (n: Note) => [n.data.file, n.data.range.start] as const
   const after = (n: Note) => !here || (dir === 1
     ? key(n)[0] > here.file || (key(n)[0] === here.file && key(n)[1] > here.line)
