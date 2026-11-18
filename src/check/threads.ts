@@ -10,7 +10,7 @@ import { Attempt, Check, Question } from './types'
 import { gradeBody, missingMessages, questionBody, showsGrade } from './threadText'
 import { notDone } from './viewModel'
 import { AUTHOR, SESSION } from './constants'
-import { linkOf, sameQuestion, textHash } from './links'
+import { linkOf, sameQuestion, textHash } from './threadLink'
 import type { CheckController } from './controller'
 
 type Messages = NoteData['messages']

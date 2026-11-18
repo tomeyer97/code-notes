@@ -5,7 +5,7 @@ import * as path from 'path'
 import { Ask, AskErrorKind, AskResult } from '../claude'
 import type { Note } from '../store'
 import type { Attempt, Cli, Question } from './types'
-import { sameQuestion } from './links'
+import { sameQuestion } from './threadLink'
 import { costOf } from './log'
 import type { CheckController } from './controller'
 
