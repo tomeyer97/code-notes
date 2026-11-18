@@ -17,7 +17,10 @@ journeys/
 ```
 
 `audio` is a path relative to the podcast file. It must be inside the journeys folder (or a folder under it): the
-panel can only load files from there. mp3 plays in VS Code (tested); so do ogg/opus and wav.
+panel can only load files from there. mp3 plays in VS Code (tested); so do ogg/opus and wav. The panel loads the file
+whole before it plays (it is held in memory while the panel is open), so seeking works wherever VS Code runs: in the
+browser and in remote windows the panel's files are served without HTTP Range requests, and a streamed file can't be
+sought in.
 
 A journey with a podcast has a ▶ on its row in the Journeys view, and its panel has the player at the bottom.
 
@@ -66,8 +69,21 @@ position.
   says the step and beat. Seeking anywhere, backwards too, applies that directly, never the parts in between; of quick
   seeks (a drag, a key held down), only the last one moves the walk.
 - **Moving the walk yourself moves the audio**: Next, Previous, a step in the storyline or a beat of the animation
-  (‹ ›) jump the audio to the first segment about it. A step the podcast never talks about pauses it, and so does
-  ending the walk or opening another journey. Pausing never ends the walk.
+  (‹ ›) jump the audio to the first segment about it. Ending the walk or opening another journey pauses it. Pausing
+  never ends the walk.
+- **A step the podcast never talks about**: the walk stays on it, the audio pauses, and the player says the step isn't
+  in the podcast. ▶ then goes on with the first segment after that step (the next step it talks about), not back to
+  where the audio was.
+- **On a beat whose code is in another file**, that file opens directly (never the step's own file first). A segment
+  on the map (`at: null`) ends the walk and closes the code tab the walk opened.
+- **Where it was is kept, per journey**: opening another journey, ending the walk, closing the panel or reloading the
+  window keeps the time, and ▶ goes on from there. When the walk is on another step than that time is about, ▶ starts
+  at that step's first segment.
+- **The podcast file saved again** while it plays keeps its place: the same time, or, when the segment playing then has
+  new times, the same moment of that segment (by `id`); it keeps playing if it was.
+- **The time shown is the audio's own**: after a seek, the walk, the player and the status bar show where the audio
+  actually is. If it could not get there, the player says so and the Code Notes output channel logs it, as it logs
+  audio errors.
 - **A link the journey can't show degrades**: a beat the step doesn't have (the journey was edited) shows the step
   without its animation; a step id that isn't in the journey keeps the view of the segment before it. Each is logged
   in the Code Notes output channel.
@@ -75,12 +91,15 @@ position.
 ## Playing
 
 - **▶** on the journey's row, the command **Play Journey Podcast**, or the player's ▶ in the panel.
-- In the panel: Space or K play and pause, ← → go back and forward 15 s, Shift+← → the previous and next step; on
-  the timeline, Home and End, Page Up and Page Down. Hovering over the timeline names the step at that point; click or
+- In the panel: Space or K play and pause (anywhere in the panel but a text field, also after clicking a button
+  such as the animation's ‹ ›; a button you reached with Tab still presses with Space), ← → go back and forward 15 s,
+  Shift+← → the previous and next step; on the timeline, Home and End, Page Up and Page Down. Hovering over the timeline names the step at that point; click or
   drag to go there.
 - From anywhere: **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward 15 s. The status bar
   shows where it is; click it to pause or play.
 - The audio plays in the journey panel and goes on while the panel is behind another tab or VS Code isn't focused.
   Closing the panel stops it; where it was is kept for next time, per journey.
+- If the audio can't play (a broken or cut file), ▶ stays paused and the player says why; it never shows "playing"
+  with the clock standing still.
 - VS Code lets a panel play sound only after a click or a key in it: the first time a panel plays, its ▶ takes the
   keyboard and says "Press Space to play". After that, the keys and commands play it directly.

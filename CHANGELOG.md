@@ -10,6 +10,15 @@
   backwards too. Next, Previous, a step or a beat you pick moves the audio to its part. The audio goes on while the
   panel is behind another tab or VS Code is in the background. Ctrl+' Space plays and pauses from anywhere, Ctrl+' ← →
   skip; the status bar shows where it is.
+  - Seeking works in VS Code for the web and remote windows too: the panel loads the audio whole, and the walk, the
+    player and the status bar always show where the audio actually is (a seek that can't get there is said and
+    logged). One clock: the status bar shows the player's second.
+  - Where you were is kept per journey: another journey, ending the walk, closing the panel, a reload, or saving the
+    podcast file again (the same moment of the same segment) keep it, and ▶ goes on from there.
+  - A step the podcast skips: the walk stays on it, the audio pauses and says so, and ▶ goes on after that step.
+  - A beat whose code is in another file opens that file directly; a part on the map closes the walk's code tab.
+  - Space and K play and pause anywhere in the panel, also after clicking the animation's ‹ ›. An audio that can't
+    play stays paused and says why.
 - **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
   (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
   its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the
