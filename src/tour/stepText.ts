@@ -6,8 +6,8 @@
 // name (`label`). `stepText` composes them.
 import type { LoadedJourney } from '../journeys/steps'
 import type { JStep } from '../journeyModel'
-import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeyModel'
-import { readLinks } from '../codeLinkText'
+import { readLinks } from '../journeyModel'
+import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeys/textFormat'
 
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }

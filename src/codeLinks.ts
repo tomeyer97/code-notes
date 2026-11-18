@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { setDecorations } from './decorations'
 import { fileLines } from './wfs'
 import { ownSelection } from './claudeLinks'
-import { StepLink } from './codeLinkText'
+import type { StepLink } from './journeyModel'
 import { LineEdit, findLine, followLine, shiftLine } from './beatLine'
 import { EditFollower } from './followEdits'
 

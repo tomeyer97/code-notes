@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { wfs } from '../wfs'
-import { parseJourney } from '../journeyModel'
+import { isOldFormat, parseJourney } from '../journeyModel'
 import { folderName, journeysFolderName } from '../store'
 import { jsonFilesIn, watchJsonFiles } from '../jsonFolder'
 import { LoadedJourney, carryPositions, pathIn, posKey, writtenAt } from './steps'
@@ -139,7 +139,7 @@ export class Journeys extends StepTracker {
   private unreadable(folder: vscode.WorkspaceFolder, uri: vscode.Uri, name: string, why: string): string | undefined {
     const key = uri.toString()
     const prev = this.list.get(key)
-    const old = why.startsWith('format v')
+    const old = isOldFormat(why)
     // Never readable: one dimmed row in the list says so; the parser's words are its tooltip.
     if (!prev) this.invalid.set(key, { folder, uri, why: old ? 'Old format (v1): migrate it with journey.py migrate.' : `Can't read it: ${why}.` })
     if (old) { this.list.delete(key); return name }

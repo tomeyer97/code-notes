@@ -121,10 +121,12 @@ export function serialize(d: NoteData): string {
   return JSON.stringify({ ...out, ...extra }, null, 2) + '\n'
 }
 
-/** `{ [k]: v }` when `keep`, else nothing: spread into an object for an optional field. */
+/** `{ [k]: v }` when `keep`, else nothing: spread into an object for an optional field. The same as journeyModel.ts
+ *  `opt` (keep the two in sync): that file has no imports, the map webview loads it as a plain script. */
 const opt = <K extends string, V>(keep: unknown, k: K, v: V) => (keep ? { [k]: v } as { [P in K]: V } : {})
-/** `{ [k]: v }` when `v` is a string (`nonEmpty`: with something in it), else nothing. */
-const optStr = <K extends string>(k: K, v: unknown, nonEmpty = false) => opt(typeof v === 'string' && (!nonEmpty || v), k, v as string)
+/** `{ [k]: v }` when `v` is a string (`nonEmpty`: with something in it), as it is: a note file's strings are not
+ *  trimmed. (journeyModel.ts `optTrimmed` trims and drops empty strings.) */
+const optString = <K extends string>(k: K, v: unknown, nonEmpty = false) => opt(typeof v === 'string' && (!nonEmpty || v), k, v as string)
 
 /** Why a parsed note file is not a note, or undefined. Lines are checked after a file/folder note got its 1-1 range. */
 function noteProblem(v: any): string | undefined {
@@ -147,7 +149,7 @@ const readRole = (r: unknown) => opt(r === 'human' || r === 'agent', 'role', r a
 function readAnchor(a: any): NoteData['anchor'] {
   return {
     text: String(a?.text ?? ''), before: String(a?.before ?? ''), after: String(a?.after ?? ''),
-    ...optStr('commit', a?.commit), ...optStr('branch', a?.branch),
+    ...optString('commit', a?.commit), ...optString('branch', a?.branch),
   }
 }
 
@@ -159,7 +161,7 @@ function readSelection(s: any): Pick<NoteData, 'selection'> {
 }
 
 /** A missing "at" stays missing: unread state does not depend on it, and inventing one would be a lie. */
-const readMessage = (m: any): Message => ({ author: String(m.author ?? 'unknown'), ...readRole(m.role), body: m.body, ...optStr('at', m.at) })
+const readMessage = (m: any): Message => ({ author: String(m.author ?? 'unknown'), ...readRole(m.role), body: m.body, ...optString('at', m.at) })
 
 function readEvents(v: unknown): NoteEvent[] {
   return (Array.isArray(v) ? v : [])
@@ -187,11 +189,11 @@ export function parseNote(raw: string, id: string): NoteData | string {
     range: { start, end: Math.max(start, range.end) },
     anchor: readAnchor(v.anchor),
     ...opt(session, 'session', session),
-    ...optStr('claudeSession', v.claudeSession, true),
+    ...optString('claudeSession', v.claudeSession, true),
     ...readSelection(v.selection),
     status: v.status === 'resolved' ? 'resolved' : 'open',
     stale: !target && !!v.stale,
-    ...optStr('createdAt', v.createdAt),
+    ...optString('createdAt', v.createdAt),
     messages: v.messages.map(readMessage),
     ...opt(severity, 'severity', severity!),
     ...opt(events.length, 'events', events),

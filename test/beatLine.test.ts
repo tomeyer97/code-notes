@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { capValue, findLine, followLine, shiftLine } from '../src/beatLine'
+import { findLine, followLine, shiftLine } from '../src/beatLine'
+import { capValue } from '../src/journeys/textFormat'
 
 test('findLine: the written line, the nearest moved one, or gone', () => {
   const lines = ['a()', '  store(run)', 'b()', '  store(run)', 'c()']

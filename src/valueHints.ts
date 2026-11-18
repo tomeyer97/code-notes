@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { fileLines } from './wfs'
-import { LineEdit, capValue, findLine, followLine, shiftLine } from './beatLine'
+import { LineEdit, findLine, followLine, shiftLine } from './beatLine'
+import { capValue } from './journeys/textFormat'
 import { EditFollower } from './followEdits'
 import type { ValueHint } from './journeyModel'
 

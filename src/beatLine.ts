@@ -35,8 +35,3 @@ export function followLine(lines: string[], line: number, text: string, edits: L
   if (!text.trim()) return Math.min(moved, Math.max(0, lines.length - 1))
   return findLine(lines, moved + 1, text)
 }
-
-/** A value hint's value, cut to about `max` characters so the note after it stays on screen. */
-export function capValue(v: string, max = 40): string {
-  return v.length <= max ? v : `${v.slice(0, max - 1).trimEnd()}…`
-}

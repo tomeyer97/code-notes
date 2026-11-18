@@ -2,13 +2,14 @@
 // has no code to sit on; the bar on the step's lines and the ref opened from the card.
 import * as vscode from 'vscode'
 import { setDecorations } from '../decorations'
-import { escapeTags, readValues } from '../journeyModel'
+import { readLinks, readValues } from '../journeyModel'
+import { escapeTags } from '../journeys/textFormat'
 import { Journeys } from '../journeys/journeys'
 import { MapPanel } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { CodeLinks } from '../codeLinks'
 import { ValueHints } from '../valueHints'
-import { codeLinkMarkup, linkPhrases, PH, PH_RE, readLinks } from '../codeLinkText'
+import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../codeLinkText'
 import { TourState } from './state'
 import { StepRef, StepTextInput, refFiles, staleText, stepText } from './stepText'
 

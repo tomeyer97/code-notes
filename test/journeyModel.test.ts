@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
 import { staleKind } from '../src/anchor'
-import { isGeneric, Journey, linkPaths, escapeTags, parseJourney, readValues, stepRanges } from '../src/journeyModel'
+import { isGeneric, Journey, parseJourney, readValues } from '../src/journeyModel'
+import { escapeTags, linkPaths } from '../src/journeys/textFormat'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
 const j = parseJourney(fixture, 'place-order') as Journey
@@ -55,12 +56,6 @@ test('more than 7 children on a level: a problem for the author (the map still d
   const many = parseJourney(JSON.stringify({ version: 2, nodes: Array.from({ length: 9 }, (_, i) => ({ id: `s${i}`, kind: 'system' })), steps: [{ node: 's8', file: 'x', range: { start: 1 } }] }), 'm') as Journey
   assert.equal(many.nodes.length, 9)
   assert.ok(many.problems.some((p) => /top level: 9 boxes/.test(p)))
-})
-
-test('step ranges', () => {
-  assert.equal(stepRanges([3, 4, 5, 6, 7, 9, 10, 11, 12]), '3–7, 9–12')
-  assert.equal(stepRanges([1, 2, 13]), '1, 2, 13')
-  assert.equal(stepRanges([8]), '8')
 })
 
 test('blurb, path and edge detail are read, and optional', () => {
