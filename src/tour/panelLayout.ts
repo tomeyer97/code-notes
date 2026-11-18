@@ -107,6 +107,8 @@ export async function keepWidthOnFocus(): Promise<void> {
   const before = known
   const now = await flatWidths()
   if (mapCol === undefined || !now) return
+  // The extension set the layout just now (Ctrl+' V's room, a walk's width): that is the one to keep.
+  if (Date.now() - layoutSetAt < 1500) { known = now.sizes; return }
   const i = mapCol - 1
   const expanded = !!before && before.length === now.sizes.length && before[i] <= GROUP_MIN_PX + 0.5 && now.sizes[i] > before[i] + EXPANDED_PX
   if (!expanded) { known = now.sizes; return }
@@ -164,8 +166,10 @@ export async function roomForMap(): Promise<void> {
   const mapCol = mapPanel.viewColumn
   const read = await readEditorLayout()
   if (mapCol === undefined || !read || read.layout.orientation !== 0 || read.layout.groups.some((g) => (g as { groups?: unknown[] }).groups?.length)) return
-  const sizes = read.layout.groups.map((g) => g.size ?? 0)
+  let sizes = read.layout.groups.map((g) => g.size ?? 0)
   const i = mapCol - 1
+  // Revealing the panel may just have had VS Code expand it (focused at its minimum): the widths before that count.
+  if (known && known.length === sizes.length && sizes[i] > known[i] + EXPANDED_PX) sizes = [...known]
   if (i < 0 || i >= sizes.length || sizes[i] >= MAP_ROOM_PX) return
   const from = sizes.map((w, k) => (k === i ? -1 : w)).reduce((best, w, k, a) => (w > a[best] ? k : best), i === 0 ? 1 : 0)
   const give = Math.min(MAP_ROOM_PX - sizes[i], sizes[from] - MAP_ROOM_PX)
@@ -173,7 +177,9 @@ export async function roomForMap(): Promise<void> {
   sizes[i] += give
   sizes[from] -= give
   layoutSetAt = Date.now()
-  const layout = { orientation: 0, groups: sizes.map((w) => ({ size: w / read.total })) }
+  const total = sizes.reduce((x, y) => x + y, 0)
+  await vscode.commands.executeCommand('workbench.action.evenEditorWidths').then(undefined, () => undefined)
+  const layout = { orientation: 0, groups: sizes.map((w) => ({ size: w / total })) }
   await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
   await noteLayout()
 }
