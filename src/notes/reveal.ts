@@ -10,8 +10,7 @@ import { hiddenSessions, matchesFilter, Node, noteNode, order, sessionOf } from 
 import { treeView } from '../sidebar/notesTree'
 import { serialize } from '../noteModel'
 import { Note } from '../store'
-import { plain, rangeLabel } from '../text'
-import { clampLines, docUri, missing, notesFor, relPath } from '../threads/anchoring'
+import { clampLines, docUri, missing, notesFor, relPath } from './location'
 import { threadRange } from '../threads/comments'
 import { editorSettling, editorShownAt, setCollapse, settling } from '../threads/settle'
 import { expandWhenMade, revealed, syncThread, threads } from '../threads/threads'
@@ -19,24 +18,15 @@ import { openRef } from '../tour/refs'
 import { walk } from '../tour/tour'
 import { wfs } from '../wfs'
 import { rangesAskedAt } from './create'
+import { orphanPage } from './pages'
 import { startMove } from './move'
 import { resolve } from './status'
 import { notesFrom } from './target'
 
-/** A note whose file is gone, as a read-only document (never an unsaved Untitled buffer:). */
-const ORPHAN_SCHEME = 'code-notes-note'
-
-function orphanMarkdown(n: Note): string {
-  return [`# ${plain(n.data.messages[0]?.body ?? 'Note', 80)}`, '', `_${n.data.file} ${rangeLabel(n)} no longer exists._`, '',
-    ...(n.data.anchor.text.trim() ? ['It was about:', '', '```', n.data.anchor.text, '```', ''] : []),
-    ...n.data.messages.flatMap((m) => [`**${m.author}** ${m.at ? m.at.slice(0, 16).replace('T', ' ') : ''}`, '', m.body, ''])].join('\n')
-}
-
 export async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false): Promise<void> {
   if (missing.has(n.data.id)) {
     revealInList(n)
-    const uri = vscode.Uri.from({ scheme: ORPHAN_SCHEME, path: `/${n.data.file.split('/').pop()} (note).md`, query: n.data.id })
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true })
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(orphanPage(n)), { preview: true })
     await markRead([n])
     const pick = await vscode.window.showWarningMessage(`${n.data.file} no longer exists. Select the code this note belongs to, then use Move.`, 'Move…', 'Resolve')
     if (pick === 'Move…') await startMove(n)
@@ -143,13 +133,6 @@ export function checkLinkNote(key: string): { n: Note; links: ReturnType<NonNull
 
 /** D / A walk a check's open questions while it has some: when the thread shown is one of them, or nothing is unread. */
 export const checkStepping = () => !!understanding?.hasOpen() && (!notes().some((n) => unread(n) > 0) || (!!revealed.id && !!byId(revealed.id) && understanding.isCheck(byId(revealed.id)!)))
-
-/** The page a note whose file is gone opens on. */
-export function registerOrphanPage(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(ORPHAN_SCHEME, {
-    provideTextDocumentContent: (uri) => { const n = byId(uri.query); return n ? orphanMarkdown(n) : 'This note no longer exists.' },
-  }))
-}
 
 export const openAt = async (folderUri: string, file: string, line: number, end?: number, step?: number) => {
   const lj = walk.tourJourney()

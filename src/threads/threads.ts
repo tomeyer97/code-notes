@@ -13,7 +13,7 @@ import { hiddenInEditor, lastMessage } from '../sidebar/nodes'
 import { Note } from '../store'
 import { shortQ } from '../text'
 import { card, tour, walk } from '../tour/tour'
-import { docUri, lineNotesFor, missing, openDoc, pastEnd, reanchorAll } from './anchoring'
+import { docUri, lineNotesFor, missing, openDoc, pastEnd, reanchorAll } from '../notes/location'
 import { commentsOf, expanded, threadRange } from './comments'
 import { editorSettling, newThread, setThread, settleLater, settling, whenSettled } from './settle'
 

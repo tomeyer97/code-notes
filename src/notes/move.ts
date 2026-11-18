@@ -2,12 +2,10 @@
 
 import * as vscode from 'vscode'
 import { byId, setCtx, store } from '../app'
-import { commitInfo } from '../identity'
-import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
 import { noteTitle, rangeLabel } from '../text'
-import { docUri, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc } from '../threads/anchoring'
+import { anchorAt, docUri, markPlaced, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc, withinLines } from './location'
 import { docLines } from '../wfs'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './status'
@@ -49,12 +47,10 @@ export async function completeMove(): Promise<void> {
   n.data.file = relPath(folder, editor.document.uri)
   n.data.range = { start: loc.start + 1, end: loc.end + 1 }
   // The new code, its branch, and the exact text if only part of a line is selected.
-  n.data.anchor = { ...captureAnchor(docLines(editor.document), loc.start, loc.end), ...(await commitInfo(folder)) }
+  n.data.anchor = await anchorAt(docLines(editor.document), loc.start, loc.end, folder)
   const sel = partialSelection(editor.document, editor.selection)
   if (sel) n.data.selection = sel; else delete n.data.selection
-  n.data.stale = false
-  missing.delete(n.data.id)
-  pastEnd.delete(n.data.id)
+  markPlaced(n)
   cancelMove()
   await store.save(n)
   refreshAll()
@@ -72,11 +68,11 @@ export const keepHere = async (arg?: any) => {
   const [n] = notesFrom(arg)
   if (!n || missing.has(n.data.id)) return
   const doc = await vscode.workspace.openTextDocument(docUri(n))
-  const loc = toLoc(n.data)
-  const end = Math.min(loc.end, doc.lineCount - 1)
+  const { start, end } = withinLines(toLoc(n.data), doc.lineCount)
   // Kept here on this branch; an exact text that is gone is dropped.
-  n.data.anchor = { ...captureAnchor(docLines(doc), Math.min(loc.start, end), end), ...(await commitInfo(n.folder)) }
+  n.data.anchor = await anchorAt(docLines(doc), start, end, n.folder)
   if (n.data.selection && !n.data.anchor.text.includes(n.data.selection.text)) delete n.data.selection
+  // Not missing: checked above.
   n.data.stale = false
   pastEnd.delete(n.data.id)
   await saveIfClean(n)

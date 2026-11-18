@@ -5,7 +5,7 @@ import { byId } from '../app'
 import { order } from '../sidebar/nodes'
 import { Note } from '../store'
 import { noteTitle, rangeLabel } from '../text'
-import { notesFor } from '../threads/anchoring'
+import { notesAtLine } from './location'
 import { noteOfThread, revealed } from '../threads/threads'
 
 /** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor. */
@@ -27,8 +27,7 @@ export function notesFrom(arg: any, many?: any[]): Note[] {
 function notesAtCursor(editor: vscode.TextEditor): Note[] {
   const line = editor.selection.active.line + 1
   const span = (n: Note) => n.data.range.end - n.data.range.start
-  return notesFor(editor.document.uri).filter((n) => line >= n.data.range.start && line <= n.data.range.end)
-    .sort((a, b) => span(a) - span(b) || order(a, b))
+  return notesAtLine(editor.document.uri, line).sort((a, b) => span(a) - span(b) || order(a, b))
 }
 
 /** For palette commands: the note at the cursor, asking which when several overlap. */

@@ -5,7 +5,7 @@ import { beats, cmdLink, codeLinks, journeys, log, mapPanel, notes, now, provide
 import { checkLinkNote } from '../notes/reveal'
 import { Asked, askedOf, askedText, revealJourneyRow, stepLinkOf } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
-import { linesOfUri, notesFor } from '../threads/anchoring'
+import { linesOfUri, notesFor } from '../notes/location'
 import { editorSettling, newThread, setCollapse, setThread, settleLater, settling, whenSettled } from '../threads/settle'
 import { refreshDecorations, syncThread, threads } from '../threads/threads'
 import { StepCard } from './card'

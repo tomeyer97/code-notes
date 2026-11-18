@@ -2,10 +2,8 @@
 
 import * as vscode from 'vscode'
 import { byId, showError, understanding } from '../app'
-import { commitInfo } from '../identity'
-import { captureAnchor } from '../noteModel'
 import { refreshAll } from '../refresh'
-import { docUri, missing, otherAnchor, pastEnd } from '../threads/anchoring'
+import { anchorAt, docUri, missing, noAnchor, otherAnchor, pastEnd } from './location'
 import { rangeLabel } from '../text'
 import { suggestionOf } from '../threads/comments'
 import { docLines } from '../wfs'
@@ -23,7 +21,7 @@ export async function applySuggestion(id: string, mi: number, k: number): Promis
   const doc = await vscode.workspace.openTextDocument(docUri(n))
   const start = n.data.range.start - 1, end = Math.min(n.data.range.end - 1, doc.lineCount - 1)
   // A note whose anchor was lost (an agent rewrote the file from an older copy): take it now, so Undo has the old code.
-  if (!n.data.anchor.text && !n.data.anchor.before && !n.data.anchor.after) n.data.anchor = { ...captureAnchor(docLines(doc), start, end), ...(await commitInfo(n.folder)) }
+  if (noAnchor(n.data.anchor)) n.data.anchor = await anchorAt(docLines(doc), start, end, n.folder)
   const edit = new vscode.WorkspaceEdit()
   edit.replace(doc.uri, new vscode.Range(start, 0, end, doc.lineAt(end).text.length), text)
   if (!(await vscode.workspace.applyEdit(edit))) { void showError('Code Notes: the suggestion could not be applied.'); return false }
@@ -31,7 +29,8 @@ export async function applySuggestion(id: string, mi: number, k: number): Promis
   const newEnd = start + text.split('\n').length - 1
   n.data.range = { start: start + 1, end: newEnd + 1 }
   otherAnchor.set(n.data.id, n.data.anchor)
-  n.data.anchor = { ...captureAnchor(docLines(doc), start, newEnd), ...(await commitInfo(n.folder)) }
+  n.data.anchor = await anchorAt(docLines(doc), start, newEnd, n.folder)
+  // Not missing or past the end: checked above.
   n.data.stale = false
   if (n.data.selection && !n.data.anchor.text.includes(n.data.selection.text)) delete n.data.selection
   const ed = await vscode.window.showTextDocument(doc, { preview: false })

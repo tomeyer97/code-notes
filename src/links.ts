@@ -3,7 +3,7 @@
 
 import { codeLinks } from './app'
 import { backToQuestion, checkLinkNote } from './notes/reveal'
-import { docUri } from './threads/anchoring'
+import { docUri } from './notes/location'
 import { cardLine, stepUri } from './tour/card'
 import { card, tour, walk } from './tour/tour'
 

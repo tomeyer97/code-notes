@@ -7,7 +7,7 @@ import { Block, blockAt, blocksFromSymbols, blocksFromText, Sym } from '../codeB
 import { buildList, ListItem, ListKind, ListModel, Sort } from '../journeyList'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { isNewJourney } from '../seen'
-import { relPath } from '../threads/anchoring'
+import { relPath } from '../notes/location'
 import { tour, walk } from '../tour/tour'
 import { docLines } from '../wfs'
 import { refreshing } from '../write/refreshJourney'

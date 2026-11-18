@@ -10,7 +10,7 @@ import { applyIgnoreInGit, changeFolder } from './notes/folder'
 import { refreshAll, updateCursorContext } from './refresh'
 import { markRead, unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
-import { followMovedFiles, inNotesFolder, lineNotesFor, linesOfUri, missing, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './threads/anchoring'
+import { findMovedFile, followMovedFiles, followRename, inNotesFolder, lineNotesFor, notesAtLine, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './notes/location'
 import { noteVisibleEditors } from './threads/settle'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { keepOffMap } from './tour/layout'
@@ -24,14 +24,12 @@ async function followJourneyFiles(): Promise<void> {
     for (const s of lj.j.steps) {
       const f = fileOf(lj, s.n)
       try { await wfs.stat(vscode.Uri.joinPath(lj.folder.uri, f)); continue } catch { /* gone */ }
-      for (const c of recentCreates) {
-        if (vscode.workspace.getWorkspaceFolder(c.uri)?.uri.toString() !== lj.folder.uri.toString()) continue
-        const ls = await linesOfUri(c.uri)
-        // Only the same code (fresh) follows into a new file: edited look-alikes don't.
-        if (!ls || journeys.findIn(lj, s.n, ls).state !== 'fresh') continue
-        await journeys.moveStep(lj, s.n, relPath(lj.folder, c.uri))
-        break
-      }
+      // Only the same code (fresh) follows into a new file: edited look-alikes don't.
+      const moved = await findMovedFile(
+        (folder) => folder?.uri.toString() === lj.folder.uri.toString(),
+        (lines) => journeys.findIn(lj, s.n, lines).state === 'fresh' || undefined,
+      )
+      if (moved) await journeys.moveStep(lj, s.n, relPath(lj.folder, moved.uri))
       if (fileOf(lj, s.n) === f && (await journeys.locate(lj, (k) => k === s.n))) changed = true
     }
     if (changed) { mapPanel.update(); if (lj.key === tour.key && tour.step) { await card.checkRefs(lj, tour.step); card.show(lj, tour.step) } }
@@ -133,16 +131,7 @@ export function watchFiles(context: vscode.ExtensionContext): void {
   fileWatcher.onDidDelete((u) => onDisk(u))
   context.subscriptions.push(fileWatcher, vscode.workspace.onDidRenameFiles(async (e) => {
     for (const { oldUri, newUri } of e.files) {
-      for (const n of notes()) {
-        const old = pathUri(n).path
-        if (old === oldUri.path || old.startsWith(oldUri.path + '/')) {
-          const folder = vscode.workspace.getWorkspaceFolder(newUri)
-          if (!folder) continue
-          n.data.file = relPath(folder, vscode.Uri.joinPath(newUri, old.slice(oldUri.path.length)))
-          missing.delete(n.data.id)
-          await store.save(n)
-        }
-      }
+      await followRename(oldUri, newUri)
       // Journey steps follow renames too, in memory.
       for (const lj of journeys.list.values()) for (const s of lj.j.steps) {
         const old = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).path
@@ -170,7 +159,7 @@ export function watchEditors(context: vscode.ExtensionContext): void {
 function cursorMoved(e: vscode.TextEditorSelectionChangeEvent): void {
   updateCursorContext()
   const line = (e.selections[0]?.active.line ?? -2) + 1
-  const here = notesFor(e.textEditor.document.uri).filter((n) => line >= n.data.range.start && line <= n.data.range.end)
+  const here = notesAtLine(e.textEditor.document.uri, line)
   if (Date.now() < tour.cursorUntil) return
   if (here.length === 1 && unread(here[0]) && threads.has(here[0].data.id)) markRead(here, here[0])
 }

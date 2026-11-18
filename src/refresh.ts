@@ -7,7 +7,7 @@ import { unread } from './seen'
 import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter, sessionOf } from './sidebar/nodes'
 import { tree, treeView } from './sidebar/notesTree'
 import { plural } from './text'
-import { notesFor } from './threads/anchoring'
+import { notesAtLine } from './notes/location'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { walk } from './tour/tour'
 
@@ -16,7 +16,7 @@ export let statusItem: vscode.StatusBarItem
 export function updateCursorContext(): void {
   const e = vscode.window.activeTextEditor
   const line = e ? e.selection.active.line + 1 : -1
-  setCtx('codeNotes.cursorOnNote', !!e && notesFor(e.document.uri).some((n) => line >= n.data.range.start && line <= n.data.range.end))
+  setCtx('codeNotes.cursorOnNote', !!e && notesAtLine(e.document.uri, line).length > 0)
 }
 
 export function refreshAll(): void {

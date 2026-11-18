@@ -19,7 +19,8 @@ import { findNote } from './notes/find'
 import { rememberFolder } from './notes/folder'
 import { cancelMove, completeMove, createMoveItem, keepHere, moveItem, moveToSelection } from './notes/move'
 import { copyAgentPrompt, copyNotePrompt } from './notes/prompt'
-import { openAt, openBroken, openNoteFile, openNoteId, registerOrphanPage, restoreBroken, revealCommand, stepUnread } from './notes/reveal'
+import { registerPages } from './notes/pages'
+import { openAt, openBroken, openNoteFile, openNoteId, restoreBroken, revealCommand, stepUnread } from './notes/reveal'
 import { deleteSession, hideSession, resolveSession, showAllSessions, showOnlySession, showSession } from './notes/sessions'
 import { deleteNotes, deleteResolved, markAllRead, markUnread, offerRestore, reopenNotes, replyAndResolve, replyTo, resolve, resolveAll, resolveChecked, undo } from './notes/status'
 import { applySuggestion } from './notes/suggestion'
@@ -31,7 +32,6 @@ import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilt
 import { createNotesView, rowsSelected, treeView } from './sidebar/notesTree'
 import { Store } from './store'
 import { testApi } from './testApi'
-import { registerFolderPage } from './threads/anchoring'
 import { collapseThread, expandThread } from './threads/comments'
 import { createDecorations, deco, followNotesOnDisk, notesChangedOnDisk } from './threads/threads'
 import { askStep, askUpdate } from './tour/askStep'
@@ -92,8 +92,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // What each part follows (watch.ts and the parts' own).
   watchJourneys(context)
-  registerOrphanPage(context)
-  registerFolderPage(context)
+  registerPages(context)
   context.subscriptions.push(store.onDidDeleteOnDisk(offerRestore), store.onDidChange(notesChangedOnDisk))
   watchEdits(context)
   watchFiles(context)
