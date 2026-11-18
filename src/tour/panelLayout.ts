@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { gstate, KEY, log, mapPanel } from '../app'
 import { MAP_VIEW } from '../journeys/mapPanel'
 import { panelShare } from '../layout'
-import { walk } from './tour'
+import { walk } from './instances'
 
 /** The panel's width as the reader left it (a share of the editor area), every journey. */
 const PANEL_SHARE_KEY = 'codeNotes.panelShare'

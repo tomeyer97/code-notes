@@ -14,7 +14,7 @@ import { seenCount, visitFrom } from '../seen'
 import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { Note } from '../store'
 import { questionDone, seeAlsoLink } from '../tour/checkTour'
-import { tour, walk } from '../tour/tour'
+import { tourState, walk } from '../tour/instances'
 import { docUri, missing, openDoc, pastEnd } from './anchoring'
 import { syncThread } from './threads'
 import { docLines } from '../wfs'
@@ -55,8 +55,8 @@ function withStepLink(n: Note, md: string): string {
   const sl = stepLinkOf(n)
   if (!sl) return md
   const lj = journeyOfNote(n)
-  const walking = !!lj && walk.touring() && tour.key === lj.key
-  if (walking && (sl.step ? tour.stepId === sl.step : tour.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
+  const walking = !!lj && walk.touring() && tourState.key === lj.key
+  if (walking && (sl.step ? tourState.stepId === sl.step : tourState.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
   // The step's number now (found by id), else the one it had.
   const i = lj && sl.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1
   const back = (title: string) => `[↩ Step ${i >= 0 ? i + 1 : sl.n}${walking ? '' : ` · ${title}`}](command:codeNotes.openStepLink?${encodeURIComponent(JSON.stringify([sl.id, sl.step ?? '', sl.n]))} "Open this step on the journey's map")`

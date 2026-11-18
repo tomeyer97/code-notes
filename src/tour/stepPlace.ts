@@ -1,5 +1,5 @@
 // Where a step's card and code are: its file, the line its inline card hangs under, and where the journey file put it.
-// Imported by the walk, the card, refs and links; kept apart from card.ts, which only tour.ts loads (see there).
+// Imported by the walk, the card, refs and links; kept apart from card.ts, which only instances.ts loads (see there).
 
 import * as vscode from 'vscode'
 import { fileOf, LoadedJourney } from '../journeys/steps'

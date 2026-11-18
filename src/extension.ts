@@ -39,7 +39,7 @@ import { authorModeOff, mapState, onMapMessage, toggleAnimation } from './tour/m
 import { backToStep, endTour, openJourney, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney } from './tour/commands'
 import { pickJourneyStep } from './tour/lenses'
 import { registerRefPages } from './tour/refs'
-import { createCard, createTourItems, toggleStepDetails, walk } from './tour/tour'
+import { createCard, createTourItems, toggleStepDetails, walk } from './tour/instances'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tutorialSpot'
 import { answerCheck, checkConcern, createUnderstanding, gradeCheck } from './understanding'

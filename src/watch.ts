@@ -14,7 +14,7 @@ import { followMovedFiles, inNotesFolder, lineNotesFor, linesOfUri, missing, not
 import { noteVisibleEditors } from './threads/settle'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
 import { keepOffMap } from './tour/panelLayout'
-import { card, tour, walk } from './tour/tour'
+import { card, tourState, walk } from './tour/instances'
 import { docLines, wfs } from './wfs'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
@@ -34,7 +34,7 @@ async function followJourneyFiles(): Promise<void> {
       }
       if (fileOf(lj, s.n) === f && (await journeys.locate(lj, (k) => k === s.n))) changed = true
     }
-    if (changed) { mapPanel.update(); if (lj.key === tour.key && tour.step) { await card.checkRefs(lj, tour.step); card.show(lj, tour.step) } }
+    if (changed) { mapPanel.update(); if (lj.key === tourState.key && tourState.step) { await card.checkRefs(lj, tourState.step); card.show(lj, tourState.step) } }
   }
   card.refreshDecorations()
 }
@@ -51,7 +51,7 @@ export function watchJourneys(context: vscode.ExtensionContext): void {
     card.lensChanged.fire()
     mapPanel.update()
     journeysTree.refresh()
-    if (lj.key === tour.key && tour.step) card.show(lj, tour.step)
+    if (lj.key === tourState.key && tourState.step) card.show(lj, tourState.step)
     card.refreshDecorations()
   }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) { journeys.onEdit(e); journeys.onDocument(e.document) } }))
 }
@@ -171,7 +171,7 @@ function cursorMoved(e: vscode.TextEditorSelectionChangeEvent): void {
   updateCursorContext()
   const line = (e.selections[0]?.active.line ?? -2) + 1
   const here = notesFor(e.textEditor.document.uri).filter((n) => line >= n.data.range.start && line <= n.data.range.end)
-  if (Date.now() < tour.cursorUntil) return
+  if (Date.now() < tourState.cursorUntil) return
   if (here.length === 1 && unread(here[0]) && threads.has(here[0].data.id)) markRead(here, here[0])
 }
 

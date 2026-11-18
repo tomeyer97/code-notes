@@ -1,5 +1,5 @@
 // The running tour's state: which journey and step, the step card's state, what the editor shows for it, and what
-// the integration tests read. One object (tour.ts makes it), passed to the walk and the card; the other tour modules
+// the integration tests read. One object (instances.ts makes it), passed to the walk and the card; the other tour modules
 // import it. The keys it is stored under in the workspace are here too.
 import type * as vscode from 'vscode'
 import type { StepRef } from './stepText'

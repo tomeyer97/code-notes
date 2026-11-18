@@ -15,7 +15,7 @@ import { journeysTree } from './sidebar/journeysTree'
 import { noteOfThread, revealed, shape, shapeOf } from './threads/threads'
 import { currentTour, openCheckpoint, tourChanged } from './tour/checkTour'
 import { walkJourney } from './tour/commands'
-import { card, tour, walk } from './tour/tour'
+import { card, tourState, walk } from './tour/instances'
 import { journeySkill } from './write/claudeRun'
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
@@ -61,7 +61,7 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     tourChanged,
     walkTour: async () => { const lj = currentTour(); if (!lj || !lj.j.steps.length) return false; await walkJourney(lj); return true },
     openInTour: async (id) => { const lj = currentTour(); return lj ? openCheckpoint(lj, id) : false },
-    tourNext: async (id) => { const lj = walk.tourJourney(); if (!lj?.check || !walk.touring() || tour.checkpointId !== id) return false; await walk.stepBy(1); return true },
+    tourNext: async (id) => { const lj = walk.tourJourney(); if (!lj?.check || !walk.touring() || tourState.checkpointId !== id) return false; await walk.stepBy(1); return true },
   }) })
   context.subscriptions.push(understanding!)
 }

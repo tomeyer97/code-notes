@@ -12,7 +12,7 @@ import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
 import { inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from '../threads/anchoring'
 import { shape, shapeOf } from '../threads/threads'
-import { card } from '../tour/tour'
+import { card } from '../tour/instances'
 import { diskLines, docLines, wfs } from '../wfs'
 import { reveal } from './reveal'
 

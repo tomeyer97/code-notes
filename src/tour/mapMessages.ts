@@ -20,7 +20,7 @@ import { rememberPanelWidth } from './panelLayout'
 import { endTour, finishTour, walkJourney } from './commands'
 import { provenance } from './provenance'
 import { openRef } from './refs'
-import { card, tour, walk } from './tour'
+import { card, tourState, walk } from './instances'
 import { onTutorial, TUTORIAL_KEY } from './tutorial'
 
 /** The map column's width in wide panels, as last dragged (0.21.1): every panel, every journey. */
@@ -50,7 +50,7 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   refresh: (_lj, m) => withJourney(m.key, (x) => void refreshJourney(x)),
   hereAll: () => { listState.hereAll = true; mapPanel.update() },
   walk: (_lj, m) => withJourney(m.key, (x) => void walkJourney(x, { keepFocus: 'panel' })),
-  details: (_lj, m) => { tour.detailsOpen = m.open; mapPanel.update() },
+  details: (_lj, m) => { tourState.detailsOpen = m.open; mapPanel.update() },
   openFile: (lj) => void vscode.window.showTextDocument(lj.uri, { viewColumn: walk.codeColumn() }),
   close: () => mapPanel.close(),
   pick: () => void vscode.commands.executeCommand('codeNotes.openJourney'),
@@ -75,10 +75,10 @@ function revealNoteById(id: string): void {
   if (note) void reveal(note)
 }
 
-/** A link of the panel's step card (its index in tour.panelRefs): opened as from the inline card. */
+/** A link of the panel's step card (its index in tourState.panelRefs): opened as from the inline card. */
 function openPanelRef(lj: LoadedJourney, i: number): void {
-  const r = tour.panelRefs[i]
-  if (r) void openRef(lj, r.file, r.line, r.end, tour.step)
+  const r = tourState.panelRefs[i]
+  if (r) void openRef(lj, r.file, r.line, r.end, tourState.step)
 }
 
 /** A journey's preview in the panel's list: the journey, and which steps are stale since when. */
@@ -112,15 +112,15 @@ function showRuleBreaks(lj: LoadedJourney): void {
  */
 async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
   // A beat of a step left just now (the map learns of the move after its scene drew): nothing.
-  if (i >= 0 && (lj.key !== tour.key || n !== tour.step)) return
+  if (i >= 0 && (lj.key !== tourState.key || n !== tourState.step)) return
   const was = beats.lit
   // The caret goes to the lit line: arriving is not reading a note there.
-  tour.cursorUntil = Date.now() + 1500
+  tourState.cursorUntil = Date.now() + 1500
   const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), walk.codeColumn)
   // The panel shows those lines itself, under the caption, when it has the room.
   if (shown !== 'superseded' && i >= 0) mapPanel.send({ type: 'code', n, i, code: shown === 'lit' ? beats.preview : undefined })
-  const givenBack = shown === 'none' && was && !tour.stepping && walk.touring() && tour.key === lj.key && tour.step
-  if (givenBack) await walk.goToStep(lj, tour.step, { focus: false })
+  const givenBack = shown === 'none' && was && !tourState.stepping && walk.touring() && tourState.key === lj.key && tourState.step
+  if (givenBack) await walk.goToStep(lj, tourState.step, { focus: false })
 }
 
 /** Ctrl+' P: the current step's animation on or off, in the journey panel. */
@@ -130,8 +130,8 @@ export function toggleAnimation(): void {
     void vscode.window.setStatusBarMessage('Open a journey step first: its animation plays in the journey panel.', 4000)
     return
   }
-  if (!lj.j.steps[tour.step - 1]?.scene?.beats?.length) {
-    void vscode.window.setStatusBarMessage(`Step ${tour.step} has no animation.`, 4000)
+  if (!lj.j.steps[tourState.step - 1]?.scene?.beats?.length) {
+    void vscode.window.setStatusBarMessage(`Step ${tourState.step} has no animation.`, 4000)
     return
   }
   if (mapPanel.journey?.key !== lj.key || !mapPanel.visible) walk.showMap(lj, true)
@@ -179,14 +179,14 @@ async function lastChange(lj: LoadedJourney, file: string): Promise<string> {
 
 /** What the journey panel shows of a journey besides the journey itself: the walk, the tutorial, the list, its home. */
 export function mapState(lj: LoadedJourney): TourInfo {
-  const walking = lj.key === tour.key
+  const walking = lj.key === tourState.key
   const mapWidth = gstate.get<number>(MAP_WIDTH_KEY)
-  const cardInMap = walking && tour.step && card.inMap(lj, tour.step) ? card.panelCard(lj, tour.step) : undefined
-  const done = tour.finishedKey === lj.key && !(walking && tour.step)
+  const cardInMap = walking && tourState.step && card.inMap(lj, tourState.step) ? card.panelCard(lj, tourState.step) : undefined
+  const done = tourState.finishedKey === lj.key && !(walking && tourState.step)
   return {
     key: KEY,
     tutorial: !gstate.get<boolean>(TUTORIAL_KEY),
-    current: walking ? tour.step : 0,
+    current: walking ? tourState.step : 0,
     marks: walk.stepMarks(lj),
     resume: walk.resumeAt(lj),
     legendHidden: state.get<boolean>('codeNotes.legendHidden') ?? true, // on demand (M99)
@@ -206,7 +206,7 @@ export function mapState(lj: LoadedJourney): TourInfo {
 
 /** A check's tour: its questions, the one the walk is at marked `cur`. */
 function checkStops(lj: LoadedJourney) {
-  const atQuestion = (q: { id: string; step: number }) => lj.key === tour.key && tour.checkpointId === q.id && tour.step === q.step
+  const atQuestion = (q: { id: string; step: number }) => lj.key === tourState.key && tourState.checkpointId === q.id && tourState.step === q.step
   return (understanding?.tourStops() ?? []).map((q) => (atQuestion(q) ? { ...q, cur: true } : { ...q }))
 }
 

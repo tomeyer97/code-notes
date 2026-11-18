@@ -10,7 +10,7 @@ import { Note } from '../store'
 import { ago, isolate, plain } from '../text'
 import { missing } from '../threads/anchoring'
 import { lines } from '../threads/comments'
-import { tour, walk } from '../tour/tour'
+import { tourState, walk } from '../tour/instances'
 import { badJourneyItem, journeyItem, journeyOfNote, questionsItem, showIntro, stepLinkOf } from './journeyRows'
 import { listState } from './listModel'
 import { lastMessage, Node, sessionOf, SEV_ICON } from './nodes'
@@ -38,7 +38,7 @@ export function itemOf(node: Node): vscode.TreeItem {
 
 /** Open the first time (with one quiet line saying what it is), then folded: reading material, not an inbox. */
 function journeysItem(): vscode.TreeItem {
-  const open = (walk.tourJourney() && tour.step) || showIntro()
+  const open = (walk.tourJourney() && tourState.step) || showIntro()
   const item = new vscode.TreeItem('Journeys', open ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed)
   // Its name only: the rows below are the count and the explanation.
   item.id = 'journeys'

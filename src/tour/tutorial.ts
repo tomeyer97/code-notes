@@ -6,7 +6,7 @@ import { MapMessage } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { openMap } from './commands'
 import { pickJourney } from './pick'
-import { card, tour, walk } from './tour'
+import { card, tourState, walk } from './instances'
 import { MAP_KEY } from './state'
 
 export const TUTORIAL_KEY = 'codeNotes.tutorialSeen'
@@ -38,7 +38,7 @@ function tutorialOutOfEditor(): void {
   if (!tutorialMark) return
   tutorialMark = ''
   const lj = walk.tourJourney()
-  if (lj && tour.step) card.show(lj, tour.step)
+  if (lj && tourState.step) card.show(lj, tourState.step)
 }
 
 /** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. */

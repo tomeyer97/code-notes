@@ -13,7 +13,7 @@ import { lastMessage } from '../sidebar/nodes'
 import { hiddenInEditor } from '../sidebar/notesFilter'
 import { Note } from '../store'
 import { shortQ } from '../text'
-import { card, tour, walk } from '../tour/tour'
+import { card, tourState, walk } from '../tour/instances'
 import { docUri, lineNotesFor, missing, openDoc, pastEnd, reanchorAll } from './anchoring'
 import { commentsOf, expanded, threadRange } from './comments'
 import { editorSettling, newThread, setThread, settleLater, settling, whenSettled } from './settle'
@@ -62,7 +62,7 @@ export function syncThread(n: Note): void {
   const r = threadRange(n)
   if (!t.range || !t.range.isEqual(r)) t.range = r
   // Rebuilding comments re-renders the widget: only when something shown changed (an agent reply elsewhere must be cheap).
-  const sig = JSON.stringify([stepLinkOf(n) ? `${tour.key}|${walk.touring()}|${tour.stepId}` : '', n.data.messages.length, n.data.messages[n.data.messages.length - 1]?.body.length, n.data.status, n.data.stale, n.data.events?.length, n.data.target,
+  const sig = JSON.stringify([stepLinkOf(n) ? `${tourState.key}|${walk.touring()}|${tourState.stepId}` : '', n.data.messages.length, n.data.messages[n.data.messages.length - 1]?.body.length, n.data.status, n.data.stale, n.data.events?.length, n.data.target,
     missing.has(n.data.id), pastEnd.get(n.data.id), n.data.stale && openDoc(docUri(n))?.version, seenCount(n), visitFrom.get(n.data.id), expanded.has(n.data.id), otherBranch(n) ?? '', n.data.anchor.text.length,
     asking.get(n.data.id)?.text.length, asking.get(n.data.id)?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null), asking.has(n.data.id) && Math.floor((Date.now() - asking.get(n.data.id)!.started) / 5000), askErrors.get(n.data.id)])
   if (shown.get(n.data.id) !== sig) { t.comments = commentsOf(n, t); shown.set(n.data.id, sig) }
@@ -164,7 +164,7 @@ export async function notesChangedOnDisk(): Promise<void> {
   refreshAll()
   // A question on the current step was asked or answered: the card says so.
   const tj = walk.touring() ? walk.tourJourney() : undefined
-  if (tj && !card.inMap(tj, tour.step)) card.show(tj, tour.step)
+  if (tj && !card.inMap(tj, tourState.step)) card.show(tj, tourState.step)
   clearTimeout(reanchorTimer)
   reanchorTimer = setTimeout(() => reanchorAll().then(refreshAll), 200)
 }

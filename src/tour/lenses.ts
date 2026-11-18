@@ -7,7 +7,7 @@ import { Block, blockAt, groupSteps } from '../codeBlocks'
 import { fileOf } from '../journeys/steps'
 import { blocksOf } from '../symbolBlocks'
 import { inNotesFolder, notesFor, relPath } from '../threads/anchoring'
-import { card, tour, walk } from './tour'
+import { card, tourState, walk } from './instances'
 
 /** A journey step whose lines are in a file (for the lenses). */
 interface LensStep { line: number; end: number; journey: string; title: string; step: string; n: number; stepTitle: string }
@@ -33,9 +33,9 @@ export async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeL
 /** "← Back to step n" above the ref opened from the card, when it is in this document. */
 function backToStepLens(doc: vscode.TextDocument): vscode.CodeLens[] {
   const lj = walk.tourJourney()!
-  const ref = tour.refHere
+  const ref = tourState.refHere
   if (!ref || ref.uri !== doc.uri.toString()) return []
-  const n = tour.step
+  const n = tourState.step
   const range = new vscode.Range(ref.start, 0, ref.start, 0)
   return [new vscode.CodeLens(range, { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
 }

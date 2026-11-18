@@ -11,7 +11,7 @@ import { Note } from '../store'
 import { isolate } from '../text'
 import { isUpdateRequest } from '../tour/askStep'
 import { provenance } from '../tour/provenance'
-import { tour, walk } from '../tour/tour'
+import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
 import { journeysView } from './journeysTree'
 import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
@@ -98,9 +98,9 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   const q = questionsNode(lj)
   // A reply to a step question shows on the folded row, like an unread note.
   const qs = q && q.kind === 'questions' ? q.notes : []
-  const active = lj.key === tour.key && tour.step > 0
+  const active = lj.key === tourState.key && tourState.step > 0
   // Where it is (walking) or was left past step 1, quietly (as in the panel's list); opening one is not reading it.
-  const left = active ? tour.step : walk.resumeAt(lj) > 1 ? walk.resumeAt(lj) : 0
+  const left = active ? tourState.step : walk.resumeAt(lj) > 1 ? walk.resumeAt(lj) : 0
   const s: JourneyState = { active, left, newReplies: qs.filter((n) => unread(n) > 0).length }
   const nestsQuestions = !group || group === 'all' || group.startsWith('area:')
   // The title isolated: right-to-left text in it never pulls the description into the label.
@@ -154,7 +154,7 @@ function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
 /** What a screen reader says: the title, then where the walk is, unread replies, new. */
 function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
   const total = lj.j.steps.length
-  const where = s.active ? `walking, step ${tour.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
+  const where = s.active ? `walking, step ${tourState.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
   const unreadReplies = s.newReplies ? `${s.newReplies} unread repl${s.newReplies === 1 ? 'y' : 'ies'}` : ''
   return [lj.j.title, where, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }

@@ -9,7 +9,7 @@ import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter } fr
 import { tree, treeView } from './sidebar/notesTree'
 import { notesFor } from './threads/anchoring'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
-import { walk } from './tour/tour'
+import { walk } from './tour/instances'
 
 export let statusItem: vscode.StatusBarItem
 

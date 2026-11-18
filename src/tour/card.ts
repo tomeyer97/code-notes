@@ -13,7 +13,7 @@ import { nextStop, seeAlsoLink } from './checkTour'
 import { TourState } from './state'
 import { cardLine, stepUri } from './stepPlace'
 import { labelSafe, refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
-import { walk } from './tour'
+import { walk } from './instances'
 import { tutorialMark } from './tutorial'
 
 /** The tutorial's highlight: what its cards point at on the step card. */

@@ -16,7 +16,7 @@ import { missing } from './threads/anchoring'
 import { threads } from './threads/threads'
 import { askDrafts, stepAskBox } from './tour/askStep'
 import { restoreTour } from './tour/commands'
-import { card, tour, walk } from './tour/tour'
+import { card, tourState, walk } from './tour/instances'
 import { resetTutorial, TUTORIAL_KEY, tutorialMark, tutorialSeen } from './tour/tutorial'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
@@ -37,10 +37,10 @@ export function testApi() {
       me: me(),
       journeys: journeys.all().map((x) => ({ id: x.j.id, steps: x.j.steps.length, at: x.at, resume: walk.resumeAt(x) })),
       tour: {
-        journey: walk.tourJourney()?.j.id, step: tour.step, touring: walk.touring(), cp: tour.checkpointId, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
-        beat: beats.lit, beatCode: beats.preview, codeLinks: codeLinks.state, values: valueHints.state, mapColumn: mapPanel.viewColumn, codeColumn: tour.doc?.column, status: tourItems.pos.text, statusShown: !!tourItems.pos.text && walk.touring(),
-        tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark }, key: KEY, lastLeft: tour.lastLeft, fileGone: tour.fileGone,
-        panelCard: walk.touring() && card.inMap(walk.tourJourney()!, tour.step) ? card.panelCard(walk.tourJourney()!, tour.step) : undefined, ref: tour.refHere, peek: tour.lastPeek, marked: tour.marked,
+        journey: walk.tourJourney()?.j.id, step: tourState.step, touring: walk.touring(), cp: tourState.checkpointId, story: mapPanel.story, map: mapPanel.journey?.j.id, mapTitle: mapPanel.tabTitle, mapBoxes: mapPanel.rendered, mapFocus: mapPanel.focus,
+        beat: beats.lit, beatCode: beats.preview, codeLinks: codeLinks.state, values: valueHints.state, mapColumn: mapPanel.viewColumn, codeColumn: tourState.doc?.column, status: tourItems.pos.text, statusShown: !!tourItems.pos.text && walk.touring(),
+        tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark }, key: KEY, lastLeft: tourState.lastLeft, fileGone: tourState.fileGone,
+        panelCard: walk.touring() && card.inMap(walk.tourJourney()!, tourState.step) ? card.panelCard(walk.tourJourney()!, tourState.step) : undefined, ref: tourState.refHere, peek: tourState.lastPeek, marked: tourState.marked,
         card: card.thread ? { file: card.thread.uri.path, line: card.thread.range?.start.line, label: card.thread.label, title: card.thread.label?.replace(/^\d+\/\d+ · /, ''),
           body: (card.thread.comments[0]?.body as vscode.MarkdownString | undefined)?.value, canReply: card.thread.canReply, expanded: card.thread.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded } : undefined,
       },
@@ -89,7 +89,7 @@ export function testApi() {
     resetTutorial,
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {
-      card.clear(); tour.key = undefined; tour.step = 0; tour.doc = undefined; walk.updateTour()
+      card.clear(); tourState.key = undefined; tourState.step = 0; tourState.doc = undefined; walk.updateTour()
       await restoreTour()
     },
     applySuggestion,
@@ -105,7 +105,7 @@ export function testApi() {
     answerClarify: (text: string) => answerClarify(text).then((x) => x?.j.id),
     /** The open Ask box on a step: type into it and press Enter. */
     askBox: () => stepAskBox && { title: stepAskBox.box.title, value: stepAskBox.box.value },
-    askBoxSend: (text: string) => { const b = stepAskBox; if (!b) return false; b.box.value = text; askDrafts.set(`${walk.tourJourney()?.j.id}|${walk.tourJourney()?.j.steps[tour.step - 1]?.id}`, text); b.accept(); return true },
+    askBoxSend: (text: string) => { const b = stepAskBox; if (!b) return false; b.box.value = text; askDrafts.set(`${walk.tourJourney()?.j.id}|${walk.tourJourney()?.j.steps[tourState.step - 1]?.id}`, text); b.accept(); return true },
     /** The pick: its journeys' titles, and choosing one. */
     choosing: () => choosing?.titles,
     choose: (title: string) => choosing?.accept(title),

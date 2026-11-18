@@ -1,4 +1,5 @@
-// The running tour, its step card and its walk: one of each for the window.
+// The running tour's state, its step card and its walk: one of each for the window, made here; and the status bar
+// items and the card's comment controller and decorations, made when the extension starts.
 //
 // Only this file imports card.ts and walk.ts (helpers they used to export are in stepPlace.ts and state.ts): their
 // modules import the rest of the extension, which imports this one back, so they must have loaded before the two
@@ -13,13 +14,13 @@ import { TourState } from './state'
 import { Walk } from './walk'
 
 /** The running tour: journey, step, the step card's state (tour/state.ts). */
-export const tour = new TourState()
+export const tourState = new TourState()
 
 /** The step card (tour/card.ts). */
-export const card = new StepCard(tour)
+export const card = new StepCard(tourState)
 
 /** The walk (tour/walk.ts): opening steps, moving on, the status bar item, where each journey was left. */
-export const walk = new Walk(tour, card)
+export const walk = new Walk(tourState, card)
 
 /** The walk's status bar items: ‹ step › ×. */
 export function createTourItems(): void {
@@ -40,8 +41,17 @@ export function createTourItems(): void {
 
 /** The step card's comment controller, its decorations, and the lenses above the code journeys walk. */
 export function createCard(context: vscode.ExtensionContext): void {
-  card.refDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'), overviewRulerColor: new vscode.ThemeColor('textLink.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center })
-  context.subscriptions.push(card.refDeco, card.lensChanged, vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], { onDidChangeCodeLenses: card.lensChanged.event, provideCodeLenses: stepLenses }))
+  card.refDeco = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    overviewRulerColor: new vscode.ThemeColor('textLink.foreground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Center,
+  })
+  const lenses = vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], {
+    onDidChangeCodeLenses: card.lensChanged.event,
+    provideCodeLenses: stepLenses,
+  })
+  context.subscriptions.push(card.refDeco, card.lensChanged, lenses)
   card.controller = vscode.comments.createCommentController('codeNotes.journey', 'Journey')
   card.controller.options = { prompt: '', placeHolder: '' }
   card.deco = {
@@ -59,8 +69,9 @@ export function createCard(context: vscode.ExtensionContext): void {
   context.subscriptions.push(card.controller, card.deco.at, card.deco.stale, { dispose: () => card.clear() })
 }
 
+/** More / Less on the step card (`open`: which; none: the other). */
 export const toggleStepDetails = (open?: boolean) => {
-  tour.detailsOpen = open ?? !tour.detailsOpen
+  tourState.detailsOpen = open ?? !tourState.detailsOpen
   const lj = walk.tourJourney()
-  if (lj && tour.step) card.show(lj, tour.step)
+  if (lj && tourState.step) card.show(lj, tourState.step)
 }

@@ -11,7 +11,7 @@ import { INTRO_KEY, showIntro } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
 import { cardOnly, codeGetsMoreRoom, panelFits } from './panelLayout'
 import { pickJourney } from './pick'
-import { card, tour, walk } from './tour'
+import { card, tourState, walk } from './instances'
 import { MAP_KEY, POS_KEY, TOUR_KEY } from './state'
 
 /**
@@ -50,8 +50,8 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   if (showIntro()) await gstate.update(INTRO_KEY, true)
   // One journey on screen at a time: another journey's map ends the running walk quietly (its place is kept
   // for Resume); its status item and code marker go with it.
-  if (lj.key !== tour.key && walk.touring()) await endTour()
-  if (lj.key !== tour.key) { tour.key = lj.key; tour.step = 0 }
+  if (lj.key !== tourState.key && walk.touring()) await endTour()
+  if (lj.key !== tourState.key) { tourState.key = lj.key; tourState.step = 0 }
   if (show) walk.showMap(lj)
   walk.updateTour()
   tree.refresh()
@@ -63,14 +63,14 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
  */
 export async function finishTour(): Promise<void> {
   const lj = walk.tourJourney()
-  const doc = tour.doc
+  const doc = tourState.doc
   await endTour()
   if (!lj) return
   await state.update(POS_KEY, Object.fromEntries(Object.entries(walk.positions()).filter(([k]) => k !== posKey(lj))))
   // Only the walk's own preview tab (not one you kept open or edited).
   const tabs = doc ? walkPreviewTabs(lj, doc.column) : []
   if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
-  tour.finishedKey = lj.key
+  tourState.finishedKey = lj.key
   // The panel says Done when it is open or has the room; else the status bar says it.
   if (mapPanel.journey || (await panelFits())) walk.showMap(lj)
   else vscode.window.setStatusBarMessage('$(check) Journey finished', 3000)
@@ -88,14 +88,14 @@ function walkPreviewTabs(lj: LoadedJourney, column: vscode.ViewColumn): vscode.T
 /** Ends the tour: its place is kept (resume later), the card goes; the code stays open. */
 export async function endTour(): Promise<void> {
   const lj = walk.tourJourney()
-  if (lj && tour.step) await walk.savePos(lj, tour.step)
+  if (lj && tourState.step) await walk.savePos(lj, tourState.step)
   await state.update(TOUR_KEY, undefined)
   // The code you were reading stays open: you probably ended the tour to keep reading there.
-  tour.doc = undefined
+  tourState.doc = undefined
   codeLinks.clear()
   valueHints.clear()
   beats.clear()
-  tour.step = 0
+  tourState.step = 0
   card.clear()
   walk.updateTour()
   tree.refresh()
@@ -106,7 +106,7 @@ export async function restoreTour(): Promise<void> {
   const lj = journeys.byPos(state.get<string>(TOUR_KEY))
   if (!lj) return
   const n = walk.resumeAt(lj) || 1
-  if (!mapPanel.journey) { tour.key = lj.key }
+  if (!mapPanel.journey) { tourState.key = lj.key }
   await walk.goToStep(lj, n, { focus: false })
 }
 
@@ -130,7 +130,7 @@ export function restoreMapPanel(context: vscode.ExtensionContext): () => void {
         afterRestore(() => panel.dispose())
         return
       }
-      if (!tour.key) tour.key = lj.key
+      if (!tourState.key) tourState.key = lj.key
       mapPanel.adopt(panel, lj)
       walk.updateTour()
       afterRestore(() => void codeGetsMoreRoom())
@@ -177,7 +177,7 @@ export async function showMap(a?: unknown): Promise<void> {
 
 /** Start Journey: a journey (the argument, else the one whose map is open, else picked) from step 1. */
 export async function startJourney(arg?: unknown): Promise<void> {
-  const lj = await pickJourney(arg ?? tour.key)
+  const lj = await pickJourney(arg ?? tourState.key)
   if (lj) await walk.goToStep(lj, 1)
 }
 
@@ -196,5 +196,5 @@ export async function openStepLink(id: string, stepId: string, n: number): Promi
 /** From a reference's "← Back to step n": the step again (its file, card and lines). */
 export async function backToStep(): Promise<void> {
   const lj = walk.tourJourney()
-  if (lj && tour.step) await walk.goToStep(lj, tour.step)
+  if (lj && tourState.step) await walk.goToStep(lj, tourState.step)
 }

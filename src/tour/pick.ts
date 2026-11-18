@@ -7,7 +7,7 @@ import { pickOne } from '../quickPick'
 import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
-import { tour, walk } from './tour'
+import { tourState, walk } from './instances'
 
 /** A row of the picker: a journey, or (`ask`) writing one for the question typed. */
 type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJourney | undefined }
@@ -43,7 +43,7 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
 function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickItem[] {
   const words = value.toLowerCase().split(/\s+/).filter(Boolean)
   const typed = value.trim().toLowerCase()
-  const going = (x: LoadedJourney) => (x.key === tour.key && tour.step ? 2 : walk.resumeAt(x) ? 1 : 0)
+  const going = (x: LoadedJourney) => (x.key === tourState.key && tourState.step ? 2 : walk.resumeAt(x) ? 1 : 0)
   const items = all.map((x) => ({ x, k: pickerScore(x, words, typed) }))
     .filter((v) => v.k >= 0)
     .sort((a, b) => b.k - a.k || going(b.x) - going(a.x))
@@ -63,7 +63,7 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
   return {
     ask: undefined,
-    label: `${x.key === tour.key && tour.step ? '$(play-circle) ' : ''}${x.j.title}`,
+    label: `${x.key === tourState.key && tourState.step ? '$(play-circle) ' : ''}${x.j.title}`,
     description: [about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,

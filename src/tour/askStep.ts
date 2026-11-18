@@ -9,7 +9,7 @@ import { createNote } from '../notes/create'
 import { reveal } from '../notes/reveal'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
-import { card, tour, walk } from './tour'
+import { card, tourState, walk } from './instances'
 
 export const UPDATE_ASK = 'This step is out of date: its code changed or was deleted. Please update the step.'
 
@@ -19,19 +19,19 @@ export const isUpdateRequest = (n: Note) => !!n.data.messages[0]?.body.startsWit
 /** "Ask about this step": a normal note on the step's lines. With text (tests, scripts): saved at once; else a box asks for it. */
 export async function askStep(text?: string): Promise<Note | undefined> {
   const lj = walk.tourJourney()
-  if (!lj || !tour.step) {
+  if (!lj || !tourState.step) {
     vscode.window.setStatusBarMessage('$(info) No journey step open', 2500)
     return undefined
   }
-  if (typeof text === 'string' && text.trim()) return noteOnStep(lj, tour.step, text.trim())
-  const n = tour.step
+  if (typeof text === 'string' && text.trim()) return noteOnStep(lj, tourState.step, text.trim())
+  const n = tourState.step
   const s = lj.j.steps[n - 1]
   const draftKey = `${lj.j.id}|${s.id}`
   const uri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))
   const typed = await askWithDraft(`Ask about step ${n}/${lj.j.steps.length}: ${s.title}`, draftKey)
   if (!typed?.trim()) return undefined
   // The walk moved on while typing: the question is still about the step it was asked on.
-  if (walk.tourJourney() !== lj || tour.step !== n) {
+  if (walk.tourJourney() !== lj || tourState.step !== n) {
     askDrafts.set(draftKey, typed)
     vscode.window.setStatusBarMessage('$(info) The step changed: your question is kept for it', 4000)
     return undefined
@@ -116,15 +116,15 @@ export let stepAskBox: { box: vscode.InputBox; accept: () => void } | undefined
  */
 export async function askUpdate(): Promise<Note | undefined> {
   const lj = walk.tourJourney()
-  if (!lj || !tour.step) return undefined
-  const n = tour.step
+  if (!lj || !tourState.step) return undefined
+  const n = tourState.step
   const text = await vscode.window.showInputBox({
     title: `Ask the agent to update step ${n}/${lj.j.steps.length}: ${lj.j.steps[n - 1].title}`,
     value: UPDATE_ASK,
     valueSelection: [UPDATE_ASK.length, UPDATE_ASK.length],
     prompt: 'Add what you know (where it moved, what changed). Enter saves the note; Esc cancels.',
   })
-  if (!text?.trim() || tour.step !== n || walk.tourJourney() !== lj) return undefined
+  if (!text?.trim() || tourState.step !== n || walk.tourJourney() !== lj) return undefined
   const note = await askStep(text)
   if (!note) return undefined
   vscode.window.setStatusBarMessage('$(check) Asked the agent to update this step', 3000)

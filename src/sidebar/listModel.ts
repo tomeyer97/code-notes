@@ -9,7 +9,7 @@ import { buildList, ListItem, ListKind, ListModel, Sort } from '../journeyList'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { isNewJourney } from '../seen'
 import { relPath } from '../threads/anchoring'
-import { tour, walk } from '../tour/tour'
+import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
 
 export const SORT_KEY = 'codeNotes.journeySort'
@@ -27,7 +27,7 @@ export function activeRel(): string | undefined {
 export function listItems(): ListItem[] {
   const pos = walk.positions()
   return journeys.all().map((lj) => {
-    const walking = lj.key === tour.key && tour.step > 0
+    const walking = lj.key === tourState.key && tourState.step > 0
     return {
       key: lj.key,
       kind: 'journey' as const,
@@ -43,7 +43,7 @@ export function listItems(): ListItem[] {
       staleSteps: staleSteps(lj),
       isNew: isNewJourney(lj),
       ...(refreshing.has(lj.key) ? { refreshing: true } : {}),
-      resume: walking ? tour.step : walk.resumeAt(lj),
+      resume: walking ? tourState.step : walk.resumeAt(lj),
       ...(walking ? { walking: true } : {}),
       walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined,
       ...(lj.j.start ? { start: true } : {}),

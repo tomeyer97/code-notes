@@ -17,7 +17,7 @@ import { Note } from './store'
 import { docUri, linesOfUri } from './threads/anchoring'
 import { noteOfThread, revealed, shape, shapeOf, syncThread } from './threads/threads'
 import { UPDATE_ASK } from './tour/askStep'
-import { walk } from './tour/tour'
+import { walk } from './tour/instances'
 import { modelProblem } from './writing'
 
 /** A note Claude is answering (or that waits its turn): the answer so far and what Claude is doing. */
