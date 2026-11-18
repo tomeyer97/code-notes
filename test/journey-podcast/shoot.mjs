@@ -563,6 +563,8 @@ async function behaviour(b, w) {
 
   // A transcript: opened, the sentence being said marked; a sentence clicked goes there.
   {
+    // In a narrow storyline ▶ and ≡ show on the row under the pointer.
+    await map.hover('.story li[data-pstep="3"] .st')
     await map.click('.story li[data-pstep="3"] .trb')
     const s = await until('the transcript of step 3', () => map.evaluate(() => { const t = document.querySelector('.trx[data-tr="s3"]'); return t && !t.hidden && t.querySelectorAll('.trs').length }))
     ok(s >= 3, `its sentences (${s})`)
@@ -572,6 +574,7 @@ async function behaviour(b, w) {
     await until('and marked', () => map.evaluate(() => document.querySelector('.trx[data-tr="s3"] .trs:nth-of-type(2)').classList.contains('cur')))
     ok(await map.evaluate(() => document.querySelector('.trx[data-tr="s1"]').getAttribute('hidden') === 'until-found'), 'a shut transcript is still found by Ctrl+F (hidden="until-found")')
     if (OUT) await map.screenshot({ path: path.join(OUT, `behaviour-${w}-transcript.png`) })
+    await map.hover('.story li[data-pstep="3"] .st')
     await map.click('.story li[data-pstep="3"] .trb')
   }
 
