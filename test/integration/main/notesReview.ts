@@ -5,7 +5,7 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import assert from 'assert'
-import { appendMessage, now, quiet, readJson, settle, test } from '../helpers'
+import { appendMessage, now, quiet, readJson, settle, sleep, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
 import { at, bodyOf, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
 import { UNREAD_FINDING } from './shared'
@@ -189,7 +189,9 @@ export const notesReviewTests = [
     editor.selection = new vscode.Selection(2, 0, 2, 0)
     const notesBefore = snap().notes.length
     await vscode.commands.executeCommand('codeNotes.add')
-    await settle(600, 'the comment box opening and taking the keyboard')
+    // Typed 600 ms later, as a person would, and not scaled with the other waits: in the test window the keyboard
+    // leaves the box after a second or two (to an open thread's Reply above it), and what is typed then is lost.
+    await sleep(600)
     await vscode.commands.executeCommand('type', { text: 'Typed into the box' })
     await vscode.commands.executeCommand('editor.action.submitComment')
     await until('Add Note saved a note', () => snap().notes.length === notesBefore + 1 && snap().notes.some((x: any) => x.messages[0].body === 'Typed into the box'), 8000)

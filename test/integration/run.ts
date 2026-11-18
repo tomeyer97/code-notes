@@ -12,6 +12,10 @@ import { connectCdp } from './connectCdp'
 import { writeSkillStandIn } from './fixtures'
 import { writeSlowGit } from '../slowGit'
 
+// The CI job's own variables (GITHUB_HEAD_REF, CI_COMMIT_REF_NAME, …) must not reach VS Code: the extension host
+// passes its environment to the understanding CLI, which takes the branch from them. CI itself stays (helpers.ts: SCALE).
+for (const k of Object.keys(process.env)) if (/^(GITHUB_|GITLAB_|CI_|RUNNER_)/.test(k)) delete process.env[k]
+
 /** The extension's folder (out/test/integration/ is three below it). */
 const ROOT = path.resolve(__dirname, '../../..')
 
