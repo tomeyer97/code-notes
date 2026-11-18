@@ -2,7 +2,9 @@
 
 import * as vscode from 'vscode'
 import { byId, cfg, log, mapPanel, notes, now, provide, state, store, understanding } from './app'
-import { askAbout, claudeAllowed, claudeCli } from './ask'
+import { askAbout } from './ask/run'
+import { claudeCli } from './ask/settings'
+import { claudeAllowed } from './ask/trust'
 import { Understanding } from './check/index'
 import { me } from './identity'
 import { newId } from './notes/create'

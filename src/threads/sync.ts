@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { byId, cfg, controller, understanding } from '../app'
-import { askErrors, asking } from '../ask'
+import { askErrors, asking } from '../ask/run'
 import { otherBranch } from '../identity'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
 import { seenCount, unread, visitFrom } from '../seen'

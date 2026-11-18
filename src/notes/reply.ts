@@ -3,7 +3,8 @@
 
 import * as vscode from 'vscode'
 import { log, now, store } from '../app'
-import { askAlways, askClaude } from '../ask'
+import { askClaude } from '../ask/run'
+import { askAlways } from '../ask/settings'
 import { me } from '../identity'
 import { refreshAll } from '../refresh'
 import { markRead } from '../seen'

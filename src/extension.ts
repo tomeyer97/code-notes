@@ -4,7 +4,9 @@
 
 import * as vscode from 'vscode'
 import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, gstate, journeys, KEY, log, mapPanel, PREFIX_KEY, provide, setCtx, setKey, state, store, tourItems, tutorialSpot, understanding, valueHints } from './app'
-import { askClaudeCommand, cancelClaudeCommand, loadAskErrors, watchClaudeCli } from './ask'
+import { askClaudeCommand, cancelClaudeCommand } from './ask/commands'
+import { createAskStatusItem, askStatusItem, loadAskErrors } from './ask/run'
+import { watchClaudeCli } from './ask/settings'
 import { Beats } from './beats'
 import { next, prefixUsed, previous, resolveNext } from './chords'
 import { ClaudeLinks } from './claudeLinks'
@@ -30,7 +32,7 @@ import { undo } from './notes/undo'
 import { markAllRead, markUnread, stepUnread } from './notes/unread'
 import { applySuggestion } from './notes/suggestion'
 import { pickNotes } from './notes/which'
-import { createStatusItem, refreshAll, statusItem } from './refresh'
+import { refreshAll } from './refresh'
 import { markJourneysSeen, migrateSeen } from './seen'
 import { createJourneysView, searchJourneys, showAllHere, sortJourneys } from './sidebar/journeysTree'
 import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilter, showResolvedNotes } from './sidebar/nodes'
@@ -76,7 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
   controller.options = NOTE_OPTIONS
   createJourneysView(context)
   createNotesView(context)
-  createStatusItem()
+  createAskStatusItem()
   createMoveItem()
   createTourItems()
   provide({ journeys: new Journeys(log, context.workspaceState) })
@@ -94,7 +96,7 @@ export async function activate(context: vscode.ExtensionContext) {
   createDecorations()
   setCtx('codeNotes.showResolved', false)
   rememberMe()
-  context.subscriptions.push(log, store, controller, treeView, statusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
+  context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
 
   // What each part follows (watch.ts and the parts' own).
   watchJourneys(context)

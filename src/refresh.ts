@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { journeys, notes, setCtx, store, understanding } from './app'
-import { asking } from './ask'
+import { refreshAskStatus } from './ask/run'
 import { unread } from './seen'
 import { checked, filter, FILTERS, groupMode, hiddenSessions, matchesFilter, sessionOf } from './sidebar/nodes'
 import { tree, treeView } from './sidebar/notesTree'
@@ -11,8 +11,6 @@ import { notesAtLine } from './notes/location'
 import { refreshDecorations } from './notes/decorations'
 import { syncThread, threads } from './threads/sync'
 import { walk } from './tour/tour'
-
-export let statusItem: vscode.StatusBarItem
 
 export function updateCursorContext(): void {
   const e = vscode.window.activeTextEditor
@@ -45,18 +43,8 @@ export function refreshAll(): void {
   setCtx('codeNotes.groupBy', groupMode)
   setCtx('codeNotes.hasSessions', notes().some((n) => n.data.session))
   setCtx('codeNotes.hasHiddenSessions', notes().some((n) => hiddenSessions().has(sessionOf(n))))
-  if (asking.size) {
-    statusItem.text = `$(sync~spin) Claude · ${asking.size}`
-    statusItem.tooltip = `Claude is answering ${plural(asking.size, 'note')}`
-    statusItem.command = 'codeNotes.notes.focus'
-    statusItem.show()
-  } else statusItem.hide() // no note counter: the activity bar badge is the one unread count
+  refreshAskStatus()
   refreshDecorations()
   updateCursorContext()
   walk.updateTour()
-}
-
-/** The status bar item that says Claude is answering. */
-export function createStatusItem(): void {
-  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50)
 }

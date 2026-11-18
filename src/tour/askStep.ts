@@ -2,7 +2,8 @@
 
 import * as vscode from 'vscode'
 import { cfg, journeys, mapPanel, store } from '../app'
-import { askClaude, claudeMode } from '../ask'
+import { askClaude } from '../ask/run'
+import { claudeMode } from '../ask/settings'
 import { findCli } from '../claude'
 import { fileOf } from '../journeys/steps'
 import { createNote } from '../notes/create'

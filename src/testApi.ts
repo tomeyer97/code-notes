@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { beats, claudeLinks, codeLinks, gstate, journeys, KEY, mapPanel, notes, state, store, tourItems, tutorialSpot, understanding, valueHints } from './app'
-import { askErrors, asking } from './ask'
+import { askErrors, asking } from './ask/run'
 import { me } from './identity'
 import { applySuggestion } from './notes/suggestion'
 import { unread } from './seen'

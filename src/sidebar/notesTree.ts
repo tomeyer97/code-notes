@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { notes, setCtx, store } from '../app'
-import { askErrors, asking } from '../ask'
+import { askErrors, asking } from '../ask/run'
 import { mine } from '../identity'
 import { unread } from '../seen'
 import { Note } from '../store'
