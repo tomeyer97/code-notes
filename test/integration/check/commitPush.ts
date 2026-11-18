@@ -30,7 +30,8 @@ export const commitPushTests = [
     await until('pushed', () => view()?.line === 'Pushed.' && !view().action, 20000)
     // Said where the person looks: the status bar says what went; the item uses the view's word; the merge request link.
     await until('the merge request link', () => view()?.mr === 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Flimits')
-    // The status item is redrawn after the view (it lagged one state behind in 2 of 4 runs: "Not pushed yet.").
+    // view() is the model computed now, so it can say "Pushed." part way through the refresh after the push; the status
+    // item (like the view on screen) is drawn at the end of that refresh. Wait for it rather than read it at once.
     await until('the status item says "Pushed." too', () => /Done\. Pushed\.$/.test(chk().itemLabel ?? ''))
     assert.match(chk().itemLabel ?? '', /Done\. Pushed\.$/)
     if (cdp) {
