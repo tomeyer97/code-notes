@@ -729,8 +729,9 @@
     app.classList.toggle('deleted', !!deleted)
     if (home.on) { home.draw(); saveState(); return }
     const episode = inEpisode()
-    // Playing: the step's animation, or the map, alone (the same box every step); the rest comes back on pause.
-    const boxOnly = episode && listening && !deleted && !tutorial.card
+    // Playing: the step's animation, or the map, alone (the same box every step); the rest comes back on pause. A panel
+    // too narrow for the map's boxes keeps the chapter list (an empty box would be all there is).
+    const boxOnly = episode && listening && !deleted && !tutorial.card && window.JourneySplitter.mapFits(app.clientWidth)
     document.body.classList.toggle('pod-map', boxOnly && !cur)
     // No "New here?" while an episode is on (the walk's tutorial is not about listening).
     if (tutorial.offered && !tutorial.card && !deleted && !episode) app.append(tutorial.bar())

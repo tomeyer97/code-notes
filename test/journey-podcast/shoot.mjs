@@ -322,7 +322,9 @@ async function matrix(b) {
       const hidden = await map.evaluate(() => [...document.querySelectorAll('.scn-cap, .scn-code, .scn-bar')].every((e) => !e.getClientRects().length))
       ok(hidden, `${tag}: while listening the animation's sentence, its bar and the code snippet give way to the caption`)
       const box = await map.evaluate(() => ({ story: !!document.querySelector('.story'), anim: !!document.querySelector('.pbox .scnwrap'), back: !!document.querySelector('header .homeb, header .end') }))
-      ok(!box.story && box.anim && !box.back, `${tag}: playing, the step's animation alone, no ‹ or End: ${JSON.stringify(box)}`)
+      // Too narrow for the map's boxes (< 240 px): no box, the chapter list stays.
+      const roomy = w >= 240
+      ok(roomy ? !box.story && box.anim && !box.back : box.story && !box.anim && !box.back, `${tag}: playing, ${roomy ? 'the step\'s animation alone' : 'the chapter list (no room for a box)'}, no ‹ or End: ${JSON.stringify(box)}`)
       await assertLayout(host, `${tag} Listen view playing`, { panel: false })
       await shot('playing')
       await clickEverything(map, `${tag} playing`, async () => { await toHost({ type: 'podcastCmd', action: 'rate', rate: 1 }); await toHost({ type: 'podcastCmd', action: 'mute', muted: false }) })
@@ -332,8 +334,7 @@ async function matrix(b) {
       await shot('paused-episode')
       // The intro, playing: the whole map, its names only.
       await toHost({ type: 'podcastCmd', action: 'play', at: 0.5 })
-      await until('the intro, playing: the map alone', () => map.evaluate(() => !!document.querySelector('.pbox .gmap') && document.body.classList.contains('pod-map')))
-      ok(await map.evaluate(() => document.querySelector('header.listening h1.q')?.textContent === 'Intro'), `${tag}: the intro's header says "Intro"`)
+      await until('the intro, playing: the header says "Intro", the map alone (no room for it: the chapter list)', () => map.evaluate((roomy) => document.querySelector('header.listening h1.q')?.textContent === 'Intro' && (roomy ? !!document.querySelector('.pbox .gmap') && document.body.classList.contains('pod-map') : !!document.querySelector('.story') && !document.querySelector('.pbox')), w >= 240))
       await sleep(300)
       await shot('intro')
       await reset()
