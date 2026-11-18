@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, viewAt } from '../src/podcast/model'
+import { calmViews, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
 
 // The podcast's pure parts (src/podcast/model.ts): reading the file, where the journey is at a time, seeking.
 
@@ -131,11 +131,12 @@ test('journey → audio: the first segment of a step or of a beat; nothing when 
   assert.equal(timeOf(ep, 9), undefined)
 })
 
-test('previous / next part: by chapter; previous restarts the chapter unless just past its start', () => {
+test('previous / next part: by chapter; previous is always the part before (as the step card\'s ‹ Previous)', () => {
   const ep = sample()
   assert.equal(chapterJump(ep, 15, 1), 40)
-  assert.equal(chapterJump(ep, 35, -1), 10)
-  assert.equal(chapterJump(ep, 11, -1), 0, 'within 3 s of the start: the chapter before')
+  assert.equal(chapterJump(ep, 45, -1), 10, 'always the part before, however far into this one (F73)')
+  assert.equal(chapterJump(ep, 35, -1), 0)
+  assert.equal(chapterJump(ep, 11, -1), 0, 'the chapter before')
   assert.equal(chapterJump(ep, 2, -1), 0)
   assert.equal(chapterJump(ep, 65, 1), 100, 'past the last: the end')
 })
@@ -167,4 +168,28 @@ test('clock', () => {
   assert.equal(clock(0), '0:00')
   assert.equal(clock(767.88), '12:47')
   assert.equal(clock(3725), '1:02:05')
+})
+
+test('a calmer editor: a view is held at least VIEW_HOLD_S while playing; a short part in another file only stays in the view before', () => {
+  assert.equal(VIEW_HOLD_S, 8, 'the hold (s): the episode generator merges brief beats by the same rule')
+  // Step a's beats 1 and 3 are in a.ts, beat 2 in other.ts; step b in b.ts; step c in c.ts.
+  const files: Record<string, string> = { '1:0': 'a.ts', '1:1': 'other.ts', '1:2': 'a.ts', '1:': 'a.ts', '2:': 'b.ts', '3:': 'c.ts', '3:1': 'c.ts' }
+  const fileOf = (v: { step: number; beat?: number }) => (v.step ? files[`${v.step}:${v.beat ?? ''}`] ?? '' : '')
+  const ep = episode([
+    seg('intro', null, 0, 9),
+    seg('a1', { step: 'a', beat: 1 }, 10, 19),
+    seg('a2', { step: 'a', beat: 2 }, 20, 23), // 3 s in other.ts: held in a.ts
+    seg('a3', { step: 'a', beat: 3 }, 23, 26), // a.ts again, beat 3 moves the highlight
+    seg('b', { step: 'b' }, 26, 30), // 4 s in b.ts, then c.ts: held (step a stays)
+    seg('c2', { step: 'c', beat: 2 }, 30, 31), // c.ts 1 s ...
+    seg('c', { step: 'c' }, 31, 45), // ... and on in c.ts: the run lasts 15 s, shown
+    seg('outro', null, 45, 100),
+  ])
+  const v = calmViews(ep, fileOf)
+  assert.deepEqual(v, [{ step: 0 }, { step: 1, beat: 0 }, { step: 1, beat: 0 }, { step: 1, beat: 2 }, { step: 1, beat: 2 }, { step: 3, beat: 1 }, { step: 3 }, { step: 0 }])
+  // A seek still lands exactly: viewAt is not held.
+  assert.deepEqual(viewAt(ep, 21), { seg: 2, step: 1, beat: 1 })
+  // Every segment long enough: every view as written.
+  const long = calmViews(sample(), () => 'f', 0)
+  assert.deepEqual(long.map((x) => x.step), sample().segments.map((s) => s.step))
 })

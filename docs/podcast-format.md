@@ -7,7 +7,8 @@ podcasts; how you make one (a text-to-speech service, a recording) is up to you.
 
 ## Where it goes
 
-Next to its journey, with the same name:
+Next to its journey, with the same name (a podcast file named otherwise is not played; the "Code Notes" output says
+why, and which journey its `journey.id` names):
 
 ```
 journeys/
@@ -74,12 +75,20 @@ position.
 - **At any time the walk is where the podcast is at that time**: the segment playing then (the last one started)
   says the step and beat. Seeking anywhere, backwards too, applies that directly, never the parts in between; of quick
   seeks (a drag, a key held down), only the last one moves the walk.
-- **Moving the walk yourself moves the audio**: Next, Previous, a step in the storyline or a beat of the animation
-  (‹ ›) jump the audio to the first segment about it. Ending the walk or opening another journey pauses it. Pausing
-  never ends the walk.
+- **Moving the walk yourself moves the audio**: a step in the storyline or a beat of the animation (‹ ›), and, while
+  paused, Next and Previous, jump the audio to the first segment about it. Ending the walk or opening another journey
+  pauses it and ends the listening (the status item goes; ▶ goes on where it was, and says from where). Pausing never
+  ends the walk.
+- **One transport while it plays**: the step card's ⏮ ⏭, Ctrl+' A / D and the player's ⏮ ⏭ do the same thing: the
+  part before or after, in the order of the audio. ⏮ always goes to the part before (it never restarts the one
+  playing). In the Intro and the Recap, Ctrl+' A / D move the episode too.
 - **A step the podcast never talks about**: the walk stays on it, the audio pauses, and the player says the step isn't
   in the podcast. ▶ then goes on with the first segment after that step (the next step it talks about), not back to
-  where the audio was.
+  where the audio was. A beat of the animation it doesn't narrate, picked while it plays, is the same: shown, the
+  audio paused ("Beat 4 isn't narrated"), ▶ goes on with the next part.
+- **The journey edited under it** keeps the step (by id), not its number: the walk and the audio stay where they are.
+  The step on screen removed: the walk shows what the podcast says at its time now (the view before a part about a
+  step that is gone). Quick ⏭ ⏭ open only the last target.
 - **On a beat whose code is in another file**, that file opens directly (never the step's own file first). A segment
   on the map (`at: null`) ends the walk and closes the code tab the walk opened.
 - **Where it was is kept, per journey**: opening another journey, ending the walk, closing the Listen view or reloading the
@@ -115,13 +124,36 @@ position.
 - **Keys in the panel**: Space or K play and pause (K by its place on the keyboard: Caps Lock and other layouts too;
   anywhere but a text field, also after clicking a button such as the animation's ‹ ›; a button you reached with Tab
   still presses with Space), M mutes, < > change the speed, ← → go back and forward 15 s, Shift+← → the previous and
-  next step. On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up and Page Down a step.
+  next step (⏮ is always the part before). On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up
+  and Page Down a step.
 - **From anywhere** (the editor too): **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward
   15 s, **Ctrl+' Shift+←** / **→** the previous and next step (commands **Listen: Play/Pause**, **Listen: Back 15 s**,
   **Listen: Forward 15 s**, **Listen: Previous Step**, **Listen: Next Step**). The status bar says **Listening ·
   6:58** or **Paused · 6:58**; its tooltip has these actions and keys; a click opens the journey's map. Headphone and
   media keys work too (the system's "now playing" names the journey and the step).
 - The speed and muting are remembered (every journey).
+
+## The editor while it plays
+
+- **The walk follows the voice: code opens beside the map.** The first play says so once. Step code always opens in
+  one group beside the panel: the group the walk used before (another journey, the map's moments and a reload keep
+  it), never a group holding your own unsaved or untitled file, never in two groups.
+- **A view is held at least 8 s** (`VIEW_HOLD_S`): a part shorter than that whose `at` would show another file stays in
+  the view before it; beats in the same file move the highlight. A seek shows exactly its time. (Generators: merge
+  brief beats by the same rule.)
+- **Reading around**: scroll or click in the narrated code yourself and the editor stops following (the beat is still
+  lit where it is); the step card says **Follow along** to snap back, and the next step follows again.
+- **The step card** is one line while it plays: "3/14 · title", ⏸, "narrating · beat 2/6", ⏮ ⏭. Paused, the full
+  card comes back, with ▶ Play.
+- **The map's moments** (Intro, Recap, `at: null`): the walk's code tabs close, so the map has the editor; the code
+  comes back beside it at the next step. The editor at a time depends only on that time.
+- **A note or a question** (Ctrl+' C, Ask on the card) pauses it: the code stays under your draft; ▶ (the card,
+  Ctrl+' Space) goes on.
+- **The panel keeps its width**: focusing it, ‹ Journeys, its row in the Journeys view or Open Journey… on the journey
+  you're in (which focus it, never close it) don't resize it, and a reload doesn't close it. Ctrl+' V in a panel too
+  narrow for the map gives it the room.
+- Reopened mid-episode, the panel shows the beat at the time it was left, and the status item shows the paused time.
+  The output logs each play, pause and stop with why.
 - If the audio can't play (a broken or cut file), ▶ stays paused and the player says why; it never shows "playing"
   with the clock standing still.
 - VS Code lets a view play sound only after a click or a key in it: the first time the Listen view plays, it takes
@@ -149,11 +181,16 @@ runs them too when the podcast file exists).
 
 | | |
 |---|---|
-| Links | `at` missing or not `null` / `{ step, beat }`; a step id the journey doesn't have; a beat the step doesn't have |
+| Links | `at` missing or not `null` / `{ step, beat }`; a step id the journey doesn't have (said once per step, with its segments and times: "step "x" isn't in the journey (segments s14–s21, 2:45–3:52)"); a beat the step doesn't have, or written as a string ("beat must be a number, got the string "2"") |
+| Order | the steps narrated in another order than the journey's (its steps were reordered since): one warning, at the first step out of order |
 | Times | `start` missing or not a number (the segment is skipped); `end` not a number; `end` before `start`; a segment that starts before the one above it in the file (out of order), or before the one before it in time ends (overlap); an end past `duration` |
 | The audio's length | `duration` differs from it; a segment ends after it; the audio is much shorter than the episode, with parts after its end: one warning, "The audio is 0:13 long but the episode is 12:47: the file looks cut off" |
 | Sentences | `sentences` not a non-empty list of `{ start, text }`; a start before the one above it; a start outside the segment. One warning per segment; the caption is estimated from the text instead |
-| Others | `journey.id` is another journey's; a segment that isn't an object; a duplicate `id`; a `cue` other than `map`, `open`, `beat`; a `duration` that isn't a length |
+| Others | `journey.id` is another journey's; a segment that isn't an object; a duplicate `id` (with both times); a `cue` other than `map`, `open`, `beat`; a `duration` that isn't a length |
+
+**Notes: nothing wrong with the file.** `journey.commit` set and steps' code changed since that commit (git): "recorded
+for 609d0bb; 3 steps changed since (steps 2, 5, 9)", in the output at info level, the Problems view as information,
+and, when nothing else is said, the player's line. `journey.py podcast` prints it on its summary line.
 
 The audio's length is known once the panel has loaded the audio (for `journey.py podcast`: the argument, a WAV's
 header, or `ffprobe` when it is installed).
@@ -162,7 +199,7 @@ header, or `ffprobe` when it is installed).
 
 - **A podcast that can't be played** keeps a trace: its row in the Journeys view has a greyed ▶ and the row's tooltip
   says why ("Podcast unavailable: version 2: this player reads version 1"); the panel shows one line, "Podcast
-  unavailable", with **Show why**; Play Journey Podcast says why too.
+  unavailable", with **Show why**; Listen to Journey says why too.
 - **One that plays with warnings**: the panel shows one short line above the timeline ("2 parts can't be shown",
   "Written for “Test run”", the cut-off audio), with **Show why**; the row's tooltip says the same.
 - **Every problem** is in the Problems view, on the `.podcast.json` at the field or segment it is about, and in the

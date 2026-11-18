@@ -26,6 +26,8 @@ import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
 import { podcasts } from './podcast/player'
+import { onMapMessage } from './tour/mapMessages'
+import type { MapMessage } from './journeys/mapPanel'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
@@ -152,6 +154,8 @@ export function testApi() {
     mapSend: (m: unknown) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
     listenSend: (m: unknown) => podcasts.listen.send(m),
+    /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */
+    mapMessage: (m: MapMessage) => { if (mapPanel.journey) onMapMessage(mapPanel.journey, m) },
     /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
     podcast: () => podcasts.snapshot(),
     /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */

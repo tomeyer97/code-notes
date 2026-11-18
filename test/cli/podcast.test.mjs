@@ -21,7 +21,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 out = []
 for c in json.load(sys.stdin):
-    ps = m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'))
+    ps = m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'))
     out.append(sorted(f"{p['level']}:{p['code']}" + (f"@{p['segment']}" if p['segment'] else '') for p in ps))
 print(json.dumps(out))
 `
@@ -29,6 +29,26 @@ print(json.dumps(out))
   const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
   const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
   cases.forEach((c, i) => assert.deepEqual(got[i], [...c.expect].sort(), c.name))
+})
+
+test('journey.py podcast: the same words as the extension for a missing step, a string beat, a reused id, the order, the commit', () => {
+  const py = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+out = {}
+for c in json.load(sys.stdin):
+    out[c['name']] = [p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'))]
+print(json.dumps(out))
+`
+  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
+  assert.deepEqual(got["a step the journey doesn't have, in three segments: said once, with its segments and times"], ['step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them'])
+  assert.deepEqual(got['a beat written as a string'], ['segment a2: beat must be a number, got the string "2"; the step only'])
+  assert.ok(got['a duplicate id and an unknown cue'].includes('segment s1: the id "s1" is used twice (0:00 and 0:10)'))
+  assert.match(got["narrated in another order than the journey's (steps reordered since)"][0], /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
+  assert.deepEqual(got['recorded for an older commit, steps changed since: a quiet note'], ['recorded for 609d0bb; 2 steps changed since (steps 1, 3)'])
 })
 
 /** The example shop (its place-order journey) in a temp folder, with a podcast file and a 30 s WAV beside it. */
@@ -70,11 +90,11 @@ test('journey.py podcast: problems and warnings, each on its segment; exit 1 on 
   assert.equal(r.code, 0, r.out)
   assert.match(r.out, /WARNING: podcast: segment s2: step "s2xple" has no beat 9 \(it has 3\); the step only/)
   assert.match(r.out, /WARNING: podcast: segment s3: starts at 0:15, before segment s2 ends \(0:20\)/)
-  assert.match(r.out, /WARNING: podcast: segment s4: no step "nope" in the journey/)
+  assert.match(r.out, /WARNING: podcast: step "nope" isn't in the journey \(segment s4, 0:40–1:00\): it keeps the view before it/)
   assert.match(r.out, /WARNING: podcast: segment s4: ends at 1:00, after the episode's "duration" \(0:30\)/)
   assert.match(r.out, /WARNING: podcast: The audio is 0:30 long but the episode is 1:00: the file looks cut off/)
   // `check` runs it too.
-  assert.match(run(shop(p), 'check', '.', 'place-order', 'quiet').out, /WARNING: podcast: segment s4: no step "nope"/)
+  assert.match(run(shop(p), 'check', '.', 'place-order', 'quiet').out, /WARNING: podcast: step "nope" isn't in the journey/)
   r = run(shop(episode({ audio: '../x.wav' })), 'podcast', '.', 'place-order')
   assert.equal(r.code, 1)
   assert.match(r.out, /PROBLEM: podcast: audio must be in the journeys folder \(got \.\.\/x\.wav\)/)

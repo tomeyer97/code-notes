@@ -1,7 +1,7 @@
 // The step card: the running step's text above its code (a read-only comment thread), or in the map when the step
 // has no code to sit on; the bar on the step's lines and the ref opened from the card.
 import * as vscode from 'vscode'
-import { cmdLink, codeLinks, journeys, mapPanel, valueHints } from '../app'
+import { cmdLink, codeLinks, journeys, KEY, mapPanel, titledCmdLink, valueHints } from '../app'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../codeLinkText'
 import { setDecorations } from '../decorations'
 import { readLinks, readValues } from '../journeyModel'
@@ -25,7 +25,12 @@ const TUTORIAL_HI = 'var(--vscode-editor-findMatchHighlightBackground)'
 const CARD_COMMANDS = [
   'codeNotes.codeLink', 'codeNotes.openAt', 'codeNotes.nextStep', 'codeNotes.previousStep', 'codeNotes.endJourney',
   'codeNotes.askStep', 'codeNotes.askStepUpdate', 'codeNotes.openNoteId', 'codeNotes.stepDetails', 'codeNotes.openStepLink',
+  'codeNotes.podcastToggle', 'codeNotes.podcastFollow',
 ]
+
+/** What the card shows of a podcast on its journey (src/podcast/player.ts): playing or paused, following the voice or
+ *  not (the follow lock), the beat being narrated (0-based, of `beats`). */
+export interface Narration { playing: boolean; following: boolean; beat?: number; beats: number; key: string }
 
 /** The card's buttons that stand out while the tutorial's card about the card is up (`askStep` also matches the
  *  stale banner's `askStepUpdate`). */
@@ -60,6 +65,9 @@ export class StepCard {
   readonly lensChanged = new vscode.EventEmitter<void>()
 
   constructor(private readonly tour: TourState) {}
+
+  /** The podcast on step n of `lj`, when one is in the panel for it (set by the player). */
+  narration: ((lj: LoadedJourney, n: number) => Narration | undefined) | undefined
 
   /**
    * One step card, inline above the code (no panel mode). Only a step with no code to sit on (its
@@ -151,6 +159,9 @@ export class StepCard {
     const { tour } = this
     const tutorial = tutorialMark
     const step = lj.j.steps[n - 1]
+    // While the voice tells this step: one line (the voice and the code are enough, F19/F111).
+    const nar = this.narration?.(lj, n)
+    if (nar?.playing) return this.narratingMarkdown(lj, n, nar)
     const t = this.text(lj, n, (r) => commandRefLink(lj, n, r))
     const asked = askedOf(lj)[n]
     // Its code can't be found: say what happened first, and the one thing to do (ask: the note box opens
@@ -158,6 +169,8 @@ export class StepCard {
     const askUpdate = asked?.update ? cmdLink('Asked ›', 'codeNotes.openNoteId', asked.id) : cmdLink('Ask', 'codeNotes.askStepUpdate')
     const st = this.staleText(lj, n, askUpdate)
     const nav = this.navLinks(lj, n, t, asked, !!st)
+    // Paused: the full card, and the way to play on.
+    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${KEY} Space)`, 'codeNotes.podcastToggle'))
     // Code links: a phrase that is a link to the lines doing what it says. Placeholders here; the markup goes in
     // after escapeTags.
     const links = readLinks(step.links)
@@ -185,6 +198,27 @@ export class StepCard {
     // Only for the code links' colour; every other tag in the text was escaped above.
     md.supportHtml = links.length > 0 || tutorial === 'card'
     md.baseUri = lj.folder.uri
+    return md
+  }
+
+  /**
+   * The card while the voice tells the step: the header line ("3/14 · title") and one line under it: ⏸, "narrating"
+   * and the beat, ⏮ ⏭ (the player's own: one transport, F71), and "Follow along" once the reader looked around on their
+   * own (the follow lock). The full card comes back on pause.
+   */
+  private narratingMarkdown(lj: LoadedJourney, n: number, nar: Narration): vscode.MarkdownString {
+    const step = lj.j.steps[n - 1]
+    // Value hints stay on the code; the code links' phrases are not on the card now, so their lines are not lit.
+    this.presentLinksAndHints(lj, n, `${lj.key}|${step.id}`, readLinks(step.links), new Set())
+    const beat = nar.beat !== undefined && nar.beats ? ` · beat ${nar.beat + 1}/${nar.beats}` : ''
+    const parts = [
+      titledCmdLink('⏸', `Pause (${KEY} Space)`, 'codeNotes.podcastToggle') + ` _narrating${beat}_`,
+      titledCmdLink('⏮', 'Previous part', 'codeNotes.previousStep'),
+      titledCmdLink('⏭', 'Next part', 'codeNotes.nextStep'),
+    ]
+    if (!nar.following) parts.push(titledCmdLink('Follow along', 'Back to what the voice is showing', 'codeNotes.podcastFollow'))
+    const md = new vscode.MarkdownString(parts.join(NAV_GAP))
+    md.isTrusted = { enabledCommands: CARD_COMMANDS }
     return md
   }
 

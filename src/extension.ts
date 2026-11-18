@@ -169,11 +169,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
   const groups: Record<string, Handler>[] = [
     // Notes: adding, replying, Claude.
     {
-      'codeNotes.add': chord(addNote),
+      // A note being written pauses a podcast playing (its code stays put under the draft: F52).
+      'codeNotes.add': chord(() => { podcasts.hold('note'); return addNote() }),
       'codeNotes.addQuick': addQuickNote,
       'codeNotes.addPathNote': (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
       'codeNotes.askFromThread': askFromThread,
-      'codeNotes.createFromThread': createFromThread,
+      'codeNotes.createFromThread': async (...a: Parameters<typeof createFromThread>) => {
+        try { return await createFromThread(...a) } finally { podcasts.released('note') }
+      },
       'codeNotes.askClaude': askClaudeCommand,
       'codeNotes.cancelClaude': cancelClaudeCommand,
       'codeNotes.reply': replyTo,
@@ -260,6 +263,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
       // The row's ⏸ (listening) and ▶ Resume (paused there).
       'codeNotes.podcastPauseRow': (arg?: unknown) => podcasts.toggleRow(arg),
       'codeNotes.podcastResumeRow': (arg?: unknown) => podcasts.toggleRow(arg),
+      // "Follow along" on the step card: the editor follows the voice again (podcast/follow.ts).
+      'codeNotes.podcastFollow': () => podcasts.followAlong(),
       'codeNotes.askQuestion': askQuestion,
       'codeNotes.backToStep': backToStep,
       'codeNotes.askStep': (text?: string) => askStep(text),

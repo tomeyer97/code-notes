@@ -36,8 +36,6 @@
   /** Back / forward (s): the keys (← →) and the commands; no buttons (the units of a walk are steps). */
   const SKIP_S = 15
   const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2]
-  /** Within this many seconds of a part's start, ⏮ goes to the part before (as src/podcast/model.ts chapterJump). */
-  const RESTART_GRACE_S = 3
   /** A seek that lands further than this from where it was asked to go (s) did not get there. */
   const MISS_S = 0.75
   /** Playing, the clock not moving for this long (ms): it is not playing (a broken or cut file); it pauses and says so. */
@@ -385,7 +383,8 @@
       const cs = ep.chapters
       const i = chapterAt(t)
       if (dir > 0) seek(i + 1 < cs.length ? cs[i + 1].start : total())
-      else seek(t - cs[i].start > RESTART_GRACE_S || i === 0 ? cs[i].start : cs[i - 1].start)
+      // ⏮ is always the part before, as the step card's ‹ Previous (src/podcast/model.ts chapterJump).
+      else seek(i === 0 ? cs[0].start : cs[i - 1].start)
     }
     function play(at, upTo) {
       if (!ep) return

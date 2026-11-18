@@ -36,6 +36,11 @@ export class TourState {
 
   /** The file the tour last opened, in the code group (its preview tab is closed when the tour ends). */
   doc: { uri: vscode.Uri; column: vscode.ViewColumn } | undefined
+  /** The editor group the walk shows code in: kept for the window (another journey, the map's moments in a podcast,
+   *  the walk ended), so step code always opens in the same group beside the panel (walk.codeColumn). */
+  walkGroup: vscode.TabGroup | undefined
+  /** The last "Journey updated: this step is now N" status message: gone once the walk moves on. */
+  notice: vscode.Disposable | undefined
   /** Until then, cursor moves are the journey's, not the reader's. */
   cursorUntil = 0
   /** The step's file doesn't exist: its card is in the map, whatever the setting. */

@@ -28,6 +28,9 @@ export class Beats implements vscode.Disposable {
   private readonly subs: vscode.Disposable[]
   /** The newest request wins (beats can be stepped through faster than files open). */
   private seq = 0
+  /** False while the reader looks around on their own during a podcast (the follow lock): a beat is lit where it is,
+   *  the editor is not moved to it. */
+  follow: () => boolean = () => true
 
   constructor(private log: vscode.LogOutputChannel) {
     this.subs = [this.deco, this.litLine, vscode.window.onDidChangeVisibleTextEditors(() => this.paint())]
@@ -101,12 +104,19 @@ export class Beats implements vscode.Disposable {
 
   private async bring(doc: vscode.TextDocument, column: () => vscode.ViewColumn | undefined): Promise<boolean> {
     const mine = this.seq
+    // Not following: lit where it is (if its file is on screen), nothing moved.
+    if (!this.follow()) {
+      this.paint()
+      return true
+    }
     const ed = await showInCodeGroup(doc, column, { keepFocus: true })
     if (mine !== this.seq || !this.here) return false
     const at = this.here.line
     // The caret on the lit line: one lit line, never the current-line band left elsewhere by the step.
     ed.selection = new vscode.Selection(at, 0, at, 0)
     ed.revealRange(new vscode.Range(Math.max(0, at - 6), 0, Math.min(doc.lineCount - 1, at + 6), 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    // From column 1: an editor scrolled sideways would show the lit line's end, or nothing (F90).
+    ed.revealRange(new vscode.Range(at, 0, at, 0), vscode.TextEditorRevealType.Default)
     this.paint()
     return true
   }

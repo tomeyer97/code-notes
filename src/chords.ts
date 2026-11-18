@@ -21,9 +21,12 @@ export const prefixUsed = (a: unknown) => {
   mapPanel.update()
 }
 
-/** D: the next step while a tour runs; else the next open question of a check; else the next unread reply. */
+/** D: the next step while a tour runs (a podcast playing, or on its Intro or Recap: its next part); else the next open
+ *  question of a check; else the next unread reply. */
 export const next = (a?: unknown) => {
   prefixUsed(a)
+  // A podcast on the map's parts (Intro, Recap) or playing: D is its ⏭ (one transport, F85).
+  if (walk.transport?.(1)) return
   if (walk.touring()) return walk.stepBy(1)
   // Questions of a check still open: D goes to the next one (unread replies wait until the check is done).
   if (checkStepping()) return understanding!.step(1)
@@ -34,6 +37,7 @@ export const next = (a?: unknown) => {
 /** A: back, as D goes on. */
 export const previous = (a?: unknown) => {
   prefixUsed(a)
+  if (walk.transport?.(-1)) return
   if (walk.touring()) return walk.stepBy(-1)
   if (checkStepping()) return understanding!.step(-1)
   return stepUnread(-1)
