@@ -13,7 +13,7 @@ import { journeysTree } from './sidebar/journeysTree'
 import { followMovedFiles, inNotesFolder, lineNotesFor, linesOfUri, missing, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './threads/anchoring'
 import { noteVisibleEditors } from './threads/settle'
 import { refreshDecorations, syncThread, threads } from './threads/threads'
-import { keepOffMap } from './tour/layout'
+import { keepOffMap } from './tour/panelLayout'
 import { card, tour, walk } from './tour/tour'
 import { docLines, wfs } from './wfs'
 
