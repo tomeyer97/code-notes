@@ -41,7 +41,7 @@ export class MarkLights implements vscode.Disposable {
   private sig = ''
   private seq = 0
   /** Where each mark was found, by document version and mark. */
-  private spots = new Map<string, MarkSpot | null>()
+  private spots = new Map<string, (MarkSpot & { whole: boolean }) | null>()
   /** Marks already said in the log (moved, not found, skipped). */
   private said = new Set<string>()
 
@@ -82,12 +82,12 @@ export class MarkLights implements vscode.Disposable {
         continue
       }
       if (mine !== this.seq) return
-      const r = this.rangeOf(doc, p, `${sig}|${k}`)
-      if (!r) continue
+      const rs = this.rangesOf(doc, p, `${sig}|${k}`)
+      if (!rs.length) continue
       const at = next.get(doc.uri.toString()) ?? { focus: [], dim: [] }
-      ;(k >= focusFrom ? at.focus : at.dim).push(r)
+      ;(k >= focusFrom ? at.focus : at.dim).push(...rs)
       next.set(doc.uri.toString(), at)
-      placed.push({ p, r, doc, k })
+      placed.push({ p, r: rs[0].union(rs[rs.length - 1]), doc, k })
     }
     this.shown = next
     this.paint()
@@ -96,13 +96,28 @@ export class MarkLights implements vscode.Disposable {
     if (newest.length && lit > before) await fresh(newest[0].p, newest[0].r, newest[0].doc)
   }
 
-  /** Where a mark is in `doc` now: its match (re-found if the code moved), else its whole lines; none past the end. */
-  private rangeOf(doc: vscode.TextDocument, p: PlannedMark, key: string): vscode.Range | undefined {
+  /** Where a mark is in `doc` now: its match (re-found if the code moved), else its whole lines, each from its text
+   *  (no box around indentation); none past the end. */
+  private rangesOf(doc: vscode.TextDocument, p: PlannedMark, key: string): vscode.Range[] {
+    const spot = this.spotOf(doc, p, key)
+    if (!spot) return []
+    const whole = spot.whole
+    if (!whole || spot.line === spot.endLine) return [new vscode.Range(spot.line, spot.col, spot.endLine, spot.endCol)]
+    const out: vscode.Range[] = []
+    for (let l = spot.line; l <= spot.endLine; l++) {
+      const text = doc.lineAt(l).text
+      if (!text.trim()) continue
+      out.push(new vscode.Range(l, text.length - text.trimStart().length, l, text.length))
+    }
+    return out
+  }
+
+  private spotOf(doc: vscode.TextDocument, p: PlannedMark, key: string): (MarkSpot & { whole: boolean }) | undefined {
     const id = `${doc.uri.toString()}@${doc.version}|${p.mark.lines.join('-')}|${p.mark.match ?? ''}|${p.mark.nth ?? 1}`
     let spot = this.spots.get(id)
     if (spot === undefined) {
       const f = findMark(docLines(doc), p.mark)
-      spot = f?.spot ?? null
+      spot = f ? { ...f.spot, whole: !p.mark.match || !f.found } : null
       const where = `${p.file}:${p.mark.lines[0]}${p.mark.lines[1] !== p.mark.lines[0] ? `-${p.mark.lines[1]}` : ''}`
       if (!f) this.once(key, `podcast: mark "${p.mark.phrase}": ${where} is past the end of the file; nothing lit`)
       else if (!f.found) this.once(key, `podcast: mark "${p.mark.phrase}": ${JSON.stringify(p.mark.match)} isn't at ${where} nor within 20 lines; its lines are lit`)
@@ -110,7 +125,7 @@ export class MarkLights implements vscode.Disposable {
       if (this.spots.size > 500) this.spots.clear()
       this.spots.set(id, spot)
     }
-    return spot ? new vscode.Range(spot.line, spot.col, spot.endLine, spot.endCol) : undefined
+    return spot ?? undefined
   }
 
   private once(key: string, line: string, level: 'info' | 'debug' = 'info'): void {

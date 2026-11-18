@@ -724,12 +724,14 @@ export const podcastTests = [
     await until('paused', () => !pod().playing)
     await seek(14)
     await until('step 1, its beat on line 3', () => tour().journey === 'podmarks' && tour().step === 1 && codeFile() === 'marks.ts' && litLine() === 3 && !pod().applying, 8000)
-    // At 14 s: marks 1-4 are lit (10.88, 12.38, 13.88 twice); 3 and 4 are said with the same words: both the focus.
+    // At 14 s: marks 1-4 are lit (10.88, 12.38, 13.88 twice); 3 and 4 are said with the same words: both the focus
+    // (4 is whole lines: each line from its text).
     const want = [
       markAt(3, 'needsModel(steps)', 1, 'dim'),
       markAt(3, 'strict', 2, 'dim'),
       markAt(4, 'reject(400)', 1, 'focus'),
-      { line: 4, col: 2, endLine: 5, endCol: MARK_LINES[5].length, text: '}\n  return ok()', style: 'focus' },
+      { line: 4, col: 2, endLine: 4, endCol: 3, text: '}', style: 'focus' },
+      { line: 5, col: 2, endLine: 5, endCol: MARK_LINES[5].length, text: 'return ok()', style: 'focus' },
     ]
     await until('the four marks at 14 s', () => sameMarks(pod().marks, want), 5000)
     // Back to 11 s: only the first, now the focus.
@@ -753,7 +755,7 @@ export const podcastTests = [
       return true
     }, 5000)
     assert.ok(audioT >= 12.38 - 0.1 && audioT <= 12.38 + 0.5, `lit at ${audioT.toFixed(2)} s (due 12.38)`)
-    await until('"right there": two places at once', () => pod().marks.filter((m: any) => m.style === 'focus').length === 2, 5000)
+    await until('"right there": two places at once', () => pod().marks.filter((m: any) => m.style === 'focus').length === 3, 5000)
     await seek(19.4)
     await until('the next segment: none lit', () => pod().t > 20.1 && pod().marks.length === 0, 6000)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
@@ -776,12 +778,13 @@ export const podcastTests = [
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('playing', () => pod().playing)
     await sleep(1700)
-    codeEditor()!.revealRange(new vscode.Range(90, 0, 90, 0), vscode.TextEditorRevealType.AtTop)
+    codeEditor()!.revealRange(new vscode.Range(40, 0, 40, 0), vscode.TextEditorRevealType.AtTop)
     await until('not following', () => pod().follow === false, 5000)
     const top = codeEditor()!.visibleRanges[0].start.line
     await until('line 180 lit', () => pod().marks.some((m: any) => m.line === 179), 6000)
     await sleep(500)
-    assert.ok(Math.abs(codeEditor()!.visibleRanges[0].start.line - top) <= 1 && !shows(179), 'the editor stayed where the reader is')
+    const now = codeEditor()!.visibleRanges[0]
+    assert.ok(Math.abs(now.start.line - top) <= 1 && !shows(179), `the editor stayed where the reader is (top ${top} → ${now.start.line}-${now.end.line})`)
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
     await vscode.commands.executeCommand('codeNotes.podcastFollow')

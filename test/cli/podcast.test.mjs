@@ -104,6 +104,20 @@ test('journey.py podcast: a good podcast is ok; the audio length comes from the 
   assert.match(r.out, /^ok: podcast of place-order, 0 problems, 0 warnings$/m)
 })
 
+test('journey.py podcast: marks are checked against the repository (run from its folder)', () => {
+  const d = shop(episode())
+  const line3 = fs.readFileSync(path.join(d, 'api/validate.js'), 'utf8').split('\n')[2]
+  const ep = episode()
+  ep.segments[2].marks = [
+    { phrase: 'Then', at: 1, lines: [3, 3], match: line3.trim().slice(0, 8) },
+    { phrase: 'Then', at: 1, file: 'api/nope.js', lines: [1, 1] },
+  ]
+  fs.writeFileSync(path.join(d, 'journeys/place-order.podcast.json'), JSON.stringify(ep, null, 2))
+  const r = run(d, 'podcast', '.', 'place-order')
+  assert.match(r.out, /segment s3: mark 2: api\/nope\.js isn't in the repository; nothing is lit/)
+  assert.match(r.out, /0 problems, 1 warnings?$/m, r.out)
+})
+
 test('journey.py podcast: problems and warnings, each on its segment; exit 1 on a problem', () => {
   const p = episode()
   p.segments[1].at = { step: 's2xple', beat: 9 }

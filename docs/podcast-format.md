@@ -196,7 +196,7 @@ While it plays:
   takes them away, also while paused.
 - `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or
   down (nearer first, up before down; `nth` counts within the shifted lines), said once in the output; not found
-  there either: the whole `lines` light. Lines past the end of the file: nothing.
+  there either: the whole `lines` light (each line from its text, never its indentation). Lines past the end of the file: nothing.
 - A mark that lights while it plays and is off screen is scrolled to (centred); one on screen never moves the editor.
   A reader looking around on their own (the follow lock) is never scrolled: marks still light where they are.
 - A mark in another file than the one on screen is a view change: it opens that file only once the view has been on

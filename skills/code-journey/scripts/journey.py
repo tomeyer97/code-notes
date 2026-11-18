@@ -3333,8 +3333,9 @@ def podcast_report(repo, slug, j, seconds=None):
 
 def _repo_text(repo, f):
     """A repository file's text (None: not there or not readable as text)."""
-    p = os.path.normpath(os.path.join(repo, f))
-    if not p.startswith(os.path.normpath(repo) + os.sep):
+    root = os.path.abspath(repo)
+    p = os.path.normpath(os.path.join(root, f))
+    if not p.startswith(root + os.sep):
         return None
     try:
         with open(p, encoding='utf-8') as fh:
