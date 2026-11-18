@@ -14,7 +14,7 @@ import { markRead, setSeen } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
 import { noteOfThread, revealed, shape, shapeOf } from './threads/threads'
 import { currentTour, openCheckpoint, tourChanged } from './tour/checkTour'
-import { walkJourney } from './tour/open'
+import { walkJourney } from './tour/commands'
 import { card, tour, walk } from './tour/tour'
 import { journeySkill } from './write/writer'
 

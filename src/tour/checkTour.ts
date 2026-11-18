@@ -6,7 +6,7 @@ import { Check } from '../checkModel'
 import { seeAlso } from '../journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'
-import { endTour } from './open'
+import { endTour } from './commands'
 import { card, tour, walk } from './tour'
 
 export const qDone = (st: string) => st === 'pass' || st === 'explained' || st === 'restated'

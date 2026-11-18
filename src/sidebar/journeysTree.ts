@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { journeys, mapPanel, state } from '../app'
 import { Group, SORTS } from '../journeyList'
-import { walkJourney } from '../tour/open'
+import { walkJourney } from '../tour/commands'
 import { revealHereGroup } from './journeyRows'
 import { activeRel, listModel, listSort, listState, SORT_KEY, updateCursorSpan } from './listModel'
 import { cached, Node } from './nodes'
