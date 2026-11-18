@@ -34,13 +34,30 @@ export let claudeLinks: ClaudeLinks
 export let valueHints: ValueHints
 export let tourItems: TourItems
 
+/**
+ * What `provide` takes: the services above. They are `let`s, so every module reads the one made in activate by its
+ * bare name (an import is a live binding); a module can only assign its own `let`s, hence this list and provide's.
+ */
 interface Services {
-  store: Store; state: vscode.Memento; gstate: vscode.Memento; log: vscode.LogOutputChannel; controller: vscode.CommentController
-  extUri: vscode.Uri; extVersion: string; journeys: Journeys; understanding: Understanding; mapPanel: MapPanel; beats: Beats
-  tutorialSpot: TutorialSpot; codeLinks: CodeLinks; claudeLinks: ClaudeLinks; valueHints: ValueHints; tourItems: TourItems
+  store: Store
+  state: vscode.Memento
+  gstate: vscode.Memento
+  log: vscode.LogOutputChannel
+  controller: vscode.CommentController
+  extUri: vscode.Uri
+  extVersion: string
+  journeys: Journeys
+  understanding: Understanding
+  mapPanel: MapPanel
+  beats: Beats
+  tutorialSpot: TutorialSpot
+  codeLinks: CodeLinks
+  claudeLinks: ClaudeLinks
+  valueHints: ValueHints
+  tourItems: TourItems
 }
 
-/** Hands over services as activate makes them. */
+/** Hands over services as activate (extension.ts) makes them: the only place they are set. */
 export function provide(s: Partial<Services>): void {
   if (s.store) store = s.store
   if (s.state) state = s.state
