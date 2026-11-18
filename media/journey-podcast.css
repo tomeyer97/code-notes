@@ -151,15 +151,17 @@ header.listening h1.q { font-size: 1em; white-space: nowrap; overflow: hidden; t
 header.listening .top { gap: 6px; }
 header.listening .homeb { display: inline-block; margin: 0; flex: none; font-size: 1.1em; padding: 0 4px; }
 body.pod-on .scn-cap, body.pod-on .scn-code { display: none; }
-/* A narrow storyline: ▶ and ≡ only on the row being said or the one under the pointer; narrower still, the time
-   under the title (the title keeps the width). */
+/* A narrow storyline: the time under the title, and ▶ ≡ on that line's right, only on the row being said or the one
+   under the pointer (the title keeps the row's width). */
 .pod-story { container-type: inline-size; container-name: story; }
 @container story (max-width: 320px) {
-  .pod-story li:not(.pnow):not(:hover):not(:focus-within) .plisten,
-  .pod-story li:not(.pnow):not(:hover):not(:focus-within) .trb:not([aria-expanded="true"]) { display: none; }
-}
-@container story (max-width: 240px) {
+  .pod-story .strow { position: relative; }
   .pod-story .st { flex-wrap: wrap; row-gap: 0; }
   .pod-story .st .t { flex: 1 1 0; }
   .pod-story .st .pt { flex-basis: calc(100% - 1.6em - 8px); margin-left: calc(1.6em + 8px); padding-left: 0; }
+  .pod-story .plisten, .pod-story .trb { position: absolute; bottom: 0; height: 20px; line-height: 20px; }
+  .pod-story .plisten { right: 26px; }
+  .pod-story .trb { right: 2px; }
+  .pod-story li:not(.pnow):not(:hover):not(:focus-within) .plisten,
+  .pod-story li:not(.pnow):not(:hover):not(:focus-within) .trb:not([aria-expanded="true"]) { display: none; }
 }
