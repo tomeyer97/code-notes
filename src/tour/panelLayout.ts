@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { gstate, KEY, log, mapPanel } from '../app'
 import { MAP_VIEW } from '../journeys/mapPanel'
-import { panelShare } from '../panelWidth'
+import { listeningShare, panelShare } from '../panelWidth'
 import { walk } from './instances'
 
 /** The panel's width as the reader left it (a share of the editor area), every journey. */
@@ -12,6 +12,9 @@ const PANEL_SHARE_KEY = 'codeNotes.panelShare'
 
 /** When the extension last set the layout (a resize right after is ours, not the reader's). */
 let layoutSetAt = 0
+
+/** An episode is on (src/podcast/player.ts says): the panel takes the listening width, the code the rest. */
+export const panelLayout = { episodeOn: (): boolean => false }
 
 type Layout = { orientation: number; groups: { size?: number }[] }
 
@@ -61,12 +64,13 @@ export async function panelFits(): Promise<boolean> {
  * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
  * 80 columns. A panel that is open is never closed from here (a reload, a row clicked again): too little room keeps
  * the layout as it is; only opening a journey decides "the step card only" (openMapIfRoom). The layout never changes
- * on its own mid-walk (F15, F51, F112, F128).
+ * on its own mid-walk (F15, F51, F112, F128). While an episode is on, the panel is as wide as its animation and player
+ * need (listeningShare) and the code gets the rest; it is not remembered as the reader's width.
  */
 export async function codeGetsMoreRoom(): Promise<void> {
   const s = await sideBySide()
   if (!s) return
-  const share = shareFor(s.total)
+  const share = panelLayout.episodeOn() ? listeningShare(s.total) : shareFor(s.total)
   if (!share) { log.info('journey panel: no room beside 80 columns of code; the layout stays as it is'); return }
   const want = s.layout.groups.map((_, i) => (i === s.panel ? share : 1 - share))
   const now = (s.layout.groups[s.panel].size ?? 0) / s.total

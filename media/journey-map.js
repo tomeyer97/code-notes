@@ -116,7 +116,7 @@
 
   function saveState() {
     const n = J ? J.steps.length : 0
-    vscode.setState({ id: J && J.id, q: J && J.question, cur, n, scroll: window.scrollY, mapShut, mapW, animOn })
+    vscode.setState({ id: J && J.id, q: J && J.question, cur, n, scroll: window.scrollY, mapShut, mapW, animOn, trOn, podSession })
   }
   /** Step `n`'s animation, when it has one with beats. */
   function sceneOf(n) {
@@ -233,16 +233,20 @@
   function header() {
     const h = el('header')
     const top = el('div', 'top')
-    // Listening: one line that names where the voice is ("‹ Step 6 of 14 · title  End"); the rest returns on pause.
-    if (listening && !deleted) {
+    // An episode on (playing or paused): one line that names where the voice is ("Step 6 of 14 · title", "Intro");
+    // ‹ and End only on pause. The question and the byline come back once the episode is over.
+    if (inEpisode() && !deleted) {
       h.classList.add('listening')
-      const hb = el('button', 'link homeb', '‹')
-      hb.title = 'All journeys'
-      hb.setAttribute('aria-label', 'All journeys')
-      hb.onclick = goHome
+      if (!listening) {
+        const hb = el('button', 'link homeb', '‹')
+        hb.title = 'All journeys'
+        hb.setAttribute('aria-label', 'All journeys')
+        hb.onclick = goHome
+        top.append(hb)
+      }
       const q = el('h1', 'q', listeningTitle())
-      q.title = `${J.title || J.question}: ${listeningTitle()}`
-      top.append(hb, q, stepControls())
+      q.title = listeningTitle()
+      top.append(q, ...(listening ? [] : [stepControls()]))
       h.append(top)
       return h
     }
@@ -286,7 +290,7 @@
     return h
   }
 
-  /** While listening: the step the voice is on ("Step 6 of 14 · title"), or the part on the map ("Intro · title"). */
+  /** While listening: the step the voice is on ("Step 6 of 14 · title"), or the part on the map ("Intro", "Recap"). */
   function listeningTitle() {
     if (cur) return `Step ${cur} of ${J.steps.length} · ${J.steps[cur - 1].title}`
     const ep = podcast && podcast.episode
@@ -294,8 +298,7 @@
     const cs = ep ? ep.chapters : []
     let i = 0
     for (let k = 0; k < cs.length; k++) if (t >= cs[k].start) i = k
-    const part = i === 0 ? 'Intro' : i === cs.length - 1 ? 'Recap' : 'Map'
-    return `${part} · ${J.title || J.question}`
+    return i === 0 ? 'Intro' : i === cs.length - 1 ? 'Recap' : 'Map'
   }
 
   /** One short line when the journey can't be read (readers see only what affects reading); the list on hover. */
@@ -328,7 +331,7 @@
     if (cur === J.steps.length) return t
     const end = el('button', 'tbtn end', 'End')
     end.title = 'Stop walking this journey'
-    end.onclick = () => post({ type: 'end' })
+    end.onclick = () => { podSession = ''; post({ type: 'end' }) }
     t.append(end)
     return t
   }
@@ -339,8 +342,8 @@
     const { stops, card } = T
     const ol = el('ol', 'story')
     ol.setAttribute('aria-label', 'Steps')
-    // With a podcast the storyline is its chapter list: each row's start time, ♪ on the one being said, "not narrated"
-    // on a step it skips, ▶ to hear just that step, and its transcript under it.
+    // With a podcast the storyline is its chapter list: number and title, the row being said in bold, ▶ (on hover) to
+    // hear just that step; the transcript of the row being said under it (the Transcript switch, transcriptHead()).
     const chap = podcastChapters()
     if (chap) ol.classList.add('pod-story')
     if (chap && chap.intro) ol.append(partRow(chap.intro, 'Intro'))
@@ -363,9 +366,8 @@
         const c = chap.steps.get(s.n)
         const row = el('div', 'strow')
         row.append(b)
-        b.append(el('span', 'pt', c ? clock(c.start) : 'not narrated'))
         if (!c) { li.classList.add('unnarrated'); b.title = b.title || "The podcast doesn't talk about this step: it pauses here" }
-        else row.append(stepListen(s.n, c), transcriptToggle(`s${s.n}`))
+        else row.append(stepListen(s.n))
         li.dataset.pstep = String(s.n)
         li.append(row)
         if (c) li.append(transcript(`s${s.n}`, c.segs))
@@ -390,9 +392,10 @@
 
   // ---------- the storyline as the podcast's chapter list (journey-podcast.js has the episode) ----------
 
-  const clock = window.JourneyPodcast ? window.JourneyPodcast.clock : (t) => String(Math.floor(t))
-  /** Transcripts opened (by row key), across re-renders. */
-  const trOpen = new Set()
+  /** The Transcript switch: the transcript of the row being said shows under it (across re-renders). */
+  let trOn = !!saved.trOn
+  /** The row the voice is on ('intro', 's3', 'map5', 'recap'): its transcript is the one shown. */
+  let trRow = ''
   /** The episode's parts by step: { steps: n -> { start, end, segs }, intro, recap, after: n -> [map parts] }. */
   function podcastChapters() {
     const ep = podcast && podcast.episode
@@ -412,44 +415,45 @@
     }
     return { steps, intro, recap, after }
   }
-  /** A part on the map (the intro, the recap) as a row: its name and time, its transcript. */
+  /** A part on the map (the intro, the recap) as a row like the others (no number): its name, its transcript. */
   function partRow(c, name) {
     const li = el('li', 'ppart')
     const row = el('div', 'strow')
     const b = el('button', 'st part')
-    b.append(el('span', 'n', '♪'), el('span', 't', name), el('span', 'pt', clock(c.start)))
-    b.title = `Listen from the ${name.toLowerCase()} (${clock(c.start)})`
+    b.append(el('span', 'n', ''), el('span', 't', name))
+    b.title = `Listen from the ${name.toLowerCase()}`
     b.onclick = () => podcast.playFrom(c.start)
     li.dataset.ppart = c.key
-    row.append(b, transcriptToggle(c.key))
+    row.append(b)
     li.append(row, transcript(c.key, c.segs))
     return li
   }
   /** ▶ on a row: that step alone, stopping at its end. */
-  function stepListen(n, c) {
-    const label = `Listen to step ${n} (${clock(c.end - c.start)})`
+  function stepListen(n) {
+    const label = `Listen to step ${n} only`
     const b = el('button', 'icon plisten', '▶')
-    b.title = `${label}: it stops at the step's end`
+    b.title = label
     b.setAttribute('aria-label', label)
     b.onclick = () => podcast.playStep(n)
     return b
   }
-  function transcriptToggle(key) {
-    const b = el('button', 'icon trb', '≡')
-    const open = trOpen.has(key)
-    b.title = open ? 'Hide the transcript' : 'Transcript'
-    b.setAttribute('aria-label', 'Transcript')
-    b.setAttribute('aria-expanded', String(open))
-    b.dataset.tr = key
+  /** "Transcript" above the chapter list: the transcript of the row being said, under it, following the voice. */
+  function transcriptHead() {
+    const d = el('div', 'trhead')
+    const b = el('button', 'link trtoggle', 'Transcript')
+    b.setAttribute('aria-pressed', String(trOn))
     b.onclick = () => {
-      if (trOpen.has(key)) trOpen.delete(key)
-      else trOpen.add(key)
-      const t = app.querySelector(`.trx[data-tr="${key}"]`)
-      if (t) setTrOpen(t, trOpen.has(key))
-      b.setAttribute('aria-expanded', String(trOpen.has(key)))
-      b.title = trOpen.has(key) ? 'Hide the transcript' : 'Transcript'
+      trOn = !trOn
+      b.setAttribute('aria-pressed', String(trOn))
+      showTranscripts()
+      saveState()
     }
-    return b
+    d.append(b)
+    return d
+  }
+  /** The row being said's transcript shown (Transcript on), the others shut. */
+  function showTranscripts() {
+    for (const t of app.querySelectorAll('.trx')) setTrOpen(t, trOn && t.dataset.tr === trRow)
   }
   /** Shut transcripts stay findable (Ctrl+F opens the one with the match: hidden="until-found"). */
   function setTrOpen(t, open) {
@@ -460,12 +464,7 @@
   function transcript(key, segs) {
     const d = el('div', 'trx')
     d.dataset.tr = key
-    setTrOpen(d, trOpen.has(key))
-    d.addEventListener('beforematch', () => {
-      trOpen.add(key)
-      const b = app.querySelector(`.trb[data-tr="${key}"]`)
-      if (b) b.setAttribute('aria-expanded', 'true')
-    })
+    setTrOpen(d, trOn && key === trRow)
     const ep = podcast.episode
     const many = new Set(ep.segments.map((x) => x.speaker).filter(Boolean)).size > 1
     let prevWho = ''
@@ -478,7 +477,6 @@
         x.dataset.t = String(sen.start)
         x.dataset.e = String(sen.end)
         x.tabIndex = -1
-        x.title = clock(sen.start)
         x.onclick = () => podcast.seek(sen.start)
         p.append(x, ' ')
       }
@@ -500,9 +498,10 @@
     const k = `${rowKey}|${sen ? sen.dataset.t : ''}|${playing}`
     if (k === lastTick) return
     lastTick = k
+    if (rowKey !== trRow) { trRow = rowKey; showTranscripts() }
     for (const r of app.querySelectorAll('.story .pnow')) r.classList.remove('pnow')
     const row = app.querySelector(c && c.step ? `.story li[data-pstep="${c.step}"]` : `.story li[data-ppart="${rowKey}"]`)
-    if (row) { row.classList.add('pnow'); row.classList.toggle('pplaying', !!playing) }
+    if (row) row.classList.add('pnow')
     for (const x of app.querySelectorAll('.trs.cur')) x.classList.remove('cur')
     if (sen) sen.classList.add('cur')
   }
@@ -625,9 +624,19 @@
 
   // ---------- the podcast (journey-podcast.js): its bar, and the animation following it ----------
 
-  /** The audio is playing (the Listen view says so): the header is one line, the beat's sentence and the code snippet
-   *  give way to the caption (one text channel while you listen); all back on pause. */
+  /** The audio is playing (its host says so): the step's animation (or the map) alone under a one-line header; the
+   *  beat's sentence, its bar and the code snippet give way to the caption (one text channel while you listen). On
+   *  pause the chapter list comes back. */
   let listening = false
+  /** The episode listened to in this panel and not over yet (its key; '' none): the header stays one line, paused
+   *  too, until it ends (or End). */
+  let podSession = saved.podSession || ''
+  /** An episode is on: playing, or paused before its end. */
+  function inEpisode() {
+    const ep = podcast && podcast.episode
+    if (!ep || !J || podcast.now.ended) return false
+    return listening || podSession === ep.key
+  }
   const podcast = window.JourneyPodcast ? window.JourneyPodcast({
     post,
     mode: 'remote',
@@ -637,8 +646,12 @@
     onListening: (on) => {
       if (on === listening) return
       listening = on
+      const ep = podcast && podcast.episode
+      if (on && ep) podSession = ep.key
+      else if (!ep || podcast.now.ended) podSession = ''
       document.body.classList.toggle('pod-on', on)
       if (J && !home.on) render()
+      else saveState()
     },
     onTick: (t, step, playing) => onPodcastTick(t, step, playing),
   }) : undefined
@@ -715,19 +728,30 @@
     app.textContent = ''
     app.classList.toggle('deleted', !!deleted)
     if (home.on) { home.draw(); saveState(); return }
-    if (tutorial.offered && !tutorial.card && !deleted) app.append(tutorial.bar())
+    const episode = inEpisode()
+    // Playing: the step's animation, or the map, alone (the same box every step); the rest comes back on pause.
+    const boxOnly = episode && listening && !deleted && !tutorial.card
+    document.body.classList.toggle('pod-map', boxOnly && !cur)
+    // No "New here?" while an episode is on (the walk's tutorial is not about listening).
+    if (tutorial.offered && !tutorial.card && !deleted && !episode) app.append(tutorial.bar())
     const head = el('div', 'head')
     head.append(header())
     app.append(head)
-    if (T.done && !cur && !deleted) app.append(doneView())
+    if (T.done && !cur && !deleted && !episode) app.append(doneView())
     // The storyline leads: the map beside it (wide) or above it (narrow, foldable under "Map"); too narrow for
     // boxes: none.
-    const L = chooseLayout()
-    const body = el('div', 'body')
-    const story = J.steps.length ? storyline() : el('p', 'note', 'This journey has no steps yet.')
+    const L = boxOnly ? boxLayout() : chooseLayout()
+    const body = el('div', boxOnly ? 'body pbox' : 'body')
     const m = L.shown ? (L.anim ? sceneEl() : mapEl()) : undefined
     // No animation on screen any more: the editor's highlight of its beat goes too.
     if (!(L.shown && L.anim) && sceneKey) { sceneKey = ''; scene.forget(); post({ type: 'beat', n: 0, i: -1 }) }
+    if (boxOnly) {
+      if (m) body.append(m)
+      app.append(body)
+      afterRender(body, head, m, L, 0)
+      return
+    }
+    const story = J.steps.length ? storyColumn() : el('p', 'note', 'This journey has no steps yet.')
     if (L.wide) {
       body.classList.add('wide')
       body.classList.toggle('anim', L.anim)
@@ -768,6 +792,22 @@
     // Narrow: folded under "Map" by hand, but never while the tutorial points at it, with no steps, or animating.
     const shown = hasMap && (wide || !mapShut || tutorialUp || !J.steps.length || anim)
     return { wide, hasMap, anim, shown }
+  }
+
+  /** Playing: the box alone, the animation when the step has one on, else the map. */
+  function boxLayout() {
+    const hasMap = window.JourneySplitter.mapFits(app.clientWidth)
+    const anim = hasMap && !!scene && animOn && !!cur && !!sceneOf(cur)
+    return { wide: false, hasMap, anim, shown: hasMap }
+  }
+
+  /** The storyline, under "Transcript" when it is the podcast's chapter list. */
+  function storyColumn() {
+    const ol = storyline()
+    if (!ol.classList.contains('pod-story')) return ol
+    const d = el('div', 'storycol')
+    d.append(transcriptHead(), ol)
+    return d
   }
 
   /** Narrow panels: "Map", which folds the map away (or back). */

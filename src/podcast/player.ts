@@ -22,7 +22,7 @@ import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
 import { closeWalkTabs, endJourney, openMap } from '../tour/commands'
 import { card, tourState, walk } from '../tour/instances'
 import { showBeat } from '../tour/mapMessages'
-import { codeGetsMoreRoom } from '../tour/panelLayout'
+import { codeGetsMoreRoom, panelLayout } from '../tour/panelLayout'
 import { FollowLock } from './follow'
 import type { Narration } from '../tour/card'
 import { pickJourney } from '../tour/pick'
@@ -160,7 +160,9 @@ class Podcasts {
     this.listen.onGone = () => this.hostGone()
     context.subscriptions.push(this.item, this.listen, this.listen.register(), journeys.onDidChange(() => void this.scan()))
     podcastReports.init(context, () => void this.scan())
-    mapPanel.podcastFor = (lj, toUri) => { this.panelShows(lj); return this.episodeFor(lj, toUri) }
+    mapPanel.podcastFor = (lj, toUri) => { this.panelShows(lj); this.listen.send({ type: 'panel', key: lj.key }); return this.episodeFor(lj, toUri) }
+    // An episode on: the panel beside the code at the listening width (Q15), from its start (the panel opened for it).
+    panelLayout.episodeOn = () => !!this.sessionJourney() || this.starting
     mapPanel.podcastStateFor = (lj) => this.stateFor(lj)
     walk.onMoved = () => this.walkMoved()
     walk.onStepRemoved = (lj) => this.stepRemoved(lj)
@@ -357,6 +359,8 @@ class Podcasts {
    *  it, else where it was left, paused. */
   /** The journey the panel's player was last given (undefined: the panel closed). */
   private panelKey: string | undefined
+  /** Listen to Journey is opening the journey's panel (its width is the listening one). */
+  private starting = false
   private stateFor(lj: LoadedJourney): HostState | undefined {
     if (!this.eps.has(lj.key)) return undefined
     if (this.hostKey === lj.key && this.hostState?.of === lj.key) return this.hostState
@@ -420,8 +424,9 @@ class Podcasts {
       case 'podcastEnd': { const lj = (m.of && journeys.list.get(m.of)) || this.sessionJourney(); if (lj) void this.onEnd(lj, m.action) } break
       case 'ready':
         // A new page (the view was made again): its audio locked, no episode until it is sent one. While the panel
-        // plays the audio, it is the panel's remote.
+        // plays the audio, it is the panel's remote. The journey the panel shows (it has the player then).
         this.unlocked.listen = false
+        this.listen.send({ type: 'panel', key: mapPanel.journey?.key })
         if (this.hostIn === 'panel') {
           const lj = this.hostKey ? journeys.list.get(this.hostKey) : undefined
           this.listen.send({ type: 'podcastRole', role: 'remote' })
@@ -1204,6 +1209,7 @@ class Podcasts {
    *  Listen view's audio may not play yet, it waits there, paused); the status item and the card are drawn again. */
   onClosed(): void {
     this.panelKey = undefined
+    this.listen.send({ type: 'panel' })
     this.unlocked.panel = false
     if (this.hostIn === 'panel') {
       const lj = this.hostKey ? journeys.list.get(this.hostKey) : undefined
@@ -1270,8 +1276,11 @@ class Podcasts {
     if (!lj) return
     // Not the episode in the Listen view: it goes on where it was left (or where the walk is: resumeTime).
     const fresh = this.session !== lj.key || this.hostKey !== lj.key || !this.hostAlive()
-    if (mapPanel.journey?.key !== lj.key) await openMap(lj)
-    else if (!mapPanel.visible) walk.showMap(lj, true)
+    this.starting = true
+    try {
+      if (mapPanel.journey?.key !== lj.key) await openMap(lj)
+      else if (!mapPanel.visible) walk.showMap(lj, true)
+    } finally { this.starting = false }
     const walkStep = walk.touring() && tourState.key === lj.key ? tourState.step : 0
     const ep = this.eps.get(lj.key)!.ep
     const at = typeof o.at === 'number' ? o.at : fresh ? resumeTime(ep, this.posOf(lj), walkStep) : undefined

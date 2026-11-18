@@ -109,22 +109,27 @@ position.
 - **▶ Listen** on the journey's row (⏸ while it plays, ▶ Resume when it is paused there), the ▶ on its row in
   **Open Journey…**, the command **Code Notes: Listen to Journey**, or the player's ▶ in the panel.
 - **Where the audio lives**: in the **Listen** view (in the Code Notes side bar, under Journeys; shown once there is a
-  podcast). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused; the panel's
-  player and the status bar are its remotes. Closing the Listen view itself stops it (where it was is kept).
-- **The player** (in the panel and the Listen view): the caption, the timeline with a mark per step (click a mark: that
-  step's start; hover: the time and the step; the part a cut-off audio can't reach is greyed), ⏮ ▶ ⏭, the time and
-  the step, the speed (0.75× to 2×) and mute. In a narrow panel the step's name, then mute, the total time and the
-  speed give way; ▶ ⏮ ⏭ stay. At the end: **Replay**, **Walk it yourself**, **Next journey** (the next one with a
-  podcast). A seek after the end plays on.
-- **The storyline is the chapter list**: each step's start time, ♪ on the one being said, "not narrated" on a step the
-  podcast skips; ▶ on a row plays that step alone and stops at its end; ≡ opens its transcript (the sentence being
-  said marked, a click goes there; Ctrl+F finds words in shut transcripts too). The intro and the recap have rows.
-- **While it plays, one text channel**: the caption. The panel's header shrinks to one line ("Step 6 of 14 · …"), the
-  animation's own sentence and the code snippet under it hide; they come back on pause. When the voice moves to
-  another step, the panel scrolls to it (unless you just scrolled).
+  podcast). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused. While the
+  journey panel shows the episode, its player is the player and the Listen view is one line (the journey, ⏸ / ▶, the
+  time); the whole player shows there when the panel is closed. Closing the Listen view itself stops it (where it was
+  is kept).
+- **The player**: the caption, the timeline with a tick where each step starts (click: that step's start; hover:
+  "Step 6 · title · 5:23"; the part a cut-off audio can't reach is greyed), ⏮ ⏸ ⏭, the time, and the speed ("1×": a
+  click goes 1× → 1.25× → 1.5× → 2×). In a narrow panel the total time, then the speed give way; ⏮ ▶ ⏭ stay. At the
+  end only **Replay**, **Walk it yourself** and **Next journey** (the next one with a podcast). A seek after the end
+  plays on.
+- **The panel while an episode is on**: its header is one line, "Step 6 of 14 · title" (or "Intro", "Recap"), until
+  the episode ends. While it plays the panel shows the step's animation alone, in the same box every step (the map
+  for a step without one, and at the intro and the recap, with the areas' and boxes' names only); the caption is the
+  one text. On pause the chapter list comes back, with ‹ and End. Beside the code the panel is 360–420 px wide while
+  the episode is on (the code gets the rest).
+- **The storyline is the chapter list**: number and title, the step being said in bold, a step the podcast skips
+  muted; ▶ on a row (under the pointer) plays that step alone and stops at its end. **Transcript** above the list shows
+  the transcript of the step being said under its row, following the voice (the sentence being said marked, a click
+  goes there; Ctrl+F finds words in shut transcripts too). The intro and the recap have rows.
 - **Keys in the panel**: Space or K play and pause (K by its place on the keyboard: Caps Lock and other layouts too;
   anywhere but a text field, also after clicking a button such as the animation's ‹ ›; a button you reached with Tab
-  still presses with Space), M mutes, < > change the speed, ← → go back and forward 15 s, Shift+← → the previous and
+  still presses with Space), M mutes, < > change the speed (0.75× to 2×), ← → go back and forward 15 s, Shift+← → the previous and
   next step (⏮ is always the part before). On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up
   and Page Down a step.
 - **From anywhere** (the editor too): **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward

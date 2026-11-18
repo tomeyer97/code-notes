@@ -13,9 +13,11 @@
 // - Behaviour: play advances the audio, one clock; a click anywhere on the timeline shows exactly that step and beat
 //   (forwards and backwards); a drag moves the walk once; the hover tip names the time and the step, inside the
 //   window, and goes when the pointer leaves; keys (Space, K by its place, M, ← →, ↑ ↓ on the slider, Home, Page
-//   Down); a step clicked moves the audio; ▶ on a storyline row plays that step and stops at its end; a transcript
-//   sentence clicked seeks; the speed menu; mute; a step the podcast skips; the end (Replay, a seek after the end
-//   plays); the caption shows the sentence being said, the speaker when the voice changes; Media Session; a fetch
+//   Down); a step clicked moves the audio; ▶ on a storyline row plays that step and stops at its end; the Transcript
+//   switch shows the row being said's, a sentence clicked seeks; the speed button cycles; M mutes; a step the podcast
+//   skips; the end (Replay · Walk it yourself · Next journey and nothing else; a seek after the end plays);
+//   while playing the panel is the one-line header and the step's animation (or the map) alone, the chapter list on
+//   pause; the Listen view one line while the panel shows the episode; the caption shows the sentence being said, the speaker when the voice changes; Media Session; a fetch
 //   that fails (seeks report where the audio really is); an audio that can't play; a cut-off audio greys the part
 //   it can't reach. No console errors from either page.
 //
@@ -173,9 +175,11 @@ async function pages(b, w, theme, { listenW = 300, srcUrl = src, more = {} } = {
 /** What the panel shows: the current step's number, the animation's beat, the player's time and caption. */
 const shown = (map) => map.evaluate(() => {
   const cur = document.querySelector('.story .st.cur')
+  // Playing, the chapter list gives way to the animation: the step is the header's ("Step 3 of 7 · …").
+  const head = /^Step (\d+) of/.exec(document.querySelector('header.listening h1.q')?.textContent || '')
   const pos = document.querySelector('#app .scnwrap .scn-pos')
   return {
-    step: cur ? Number(cur.dataset.n) : 0,
+    step: cur ? Number(cur.dataset.n) : head ? Number(head[1]) : 0,
     beat: pos ? Number(pos.textContent.trim().split(' / ')[0]) - 1 : undefined,
     anim: !!document.querySelector('#app .scnwrap'),
     time: document.querySelector('.pod-now')?.textContent,
@@ -215,7 +219,7 @@ async function assertLayout(pg, where, { panel = true } = {}) {
     return {
       W, H, pod: box(pod), podVis: vis(pod), controls, marks, track, cap, story, storyW, titles,
       shown: { prev: shownCls('.pod-b.prev'), play: shownCls('.pod-b.play'), next: shownCls('.pod-b.next'), time: shownCls('.pod-time'), total: shownCls('.pod-total'), rate: shownCls('.pod-rate'), mute: shownCls('.pod-mute') },
-      unavail: pod.classList.contains('unavail'),
+      unavail: pod.classList.contains('unavail'), ended: pod.classList.contains('ended'),
       scrollW: document.documentElement.scrollWidth,
       appPad: app ? parseFloat(getComputedStyle(app).paddingBottom) : 0,
       headH: head ? head.getBoundingClientRect().height : 0, listening: !!(head && head.classList.contains('listening')),
@@ -237,6 +241,10 @@ async function assertLayout(pg, where, { panel = true } = {}) {
     ok(!overlap, say(`${a.c} and ${c.c} overlap`))
   }
   if (L.unavail) return L
+  if (L.ended) {
+    ok(!L.shown.play && !L.shown.rate, say(`the end: no transport, no speed: ${JSON.stringify(L.shown)}`))
+    return L
+  }
   ok(L.track.w >= L.pod.w - 40, say(`the timeline is the player's width (${L.track.w.toFixed(0)} of ${L.pod.w.toFixed(0)})`))
   ok(L.marks.length === ep.chapters.filter((c) => c.step).length, say(`a mark per step part: ${L.marks.length}`))
   for (const m of L.marks) {
@@ -269,7 +277,7 @@ async function clickEverything(pg, where, restore) {
   const sels = await pg.evaluate(() => {
     const pod = document.querySelector('.pod')
     for (const e of pod.querySelectorAll('[data-ck]')) delete e.dataset.ck
-    const all = [...pod.querySelectorAll('button')].filter((e) => e.getClientRects().length && !e.closest('.pod-menu'))
+    const all = [...pod.querySelectorAll('button')].filter((e) => e.getClientRects().length)
     return all.map((e, i) => { e.dataset.ck = String(i); return { sel: `.pod [data-ck="${i}"]`, c: e.className, text: e.textContent.trim() } })
   })
   for (const s of sels) {
@@ -280,12 +288,6 @@ async function clickEverything(pg, where, restore) {
       continue
     }
     await sleep(120)
-    if (await pg.evaluate(() => !document.querySelector('.pod-menu').hidden)) {
-      const r = await pg.evaluate(() => { const m = document.querySelector('.pod-menu').getBoundingClientRect(); return { l: m.left, r: m.right, t: m.top, b: m.bottom, W: innerWidth, H: innerHeight, items: document.querySelectorAll('.pod-mi').length } })
-      ok(r.l >= 0 && r.r <= r.W + 0.5 && r.t >= 0 && r.b <= r.H + 0.5, `${where}: the speed menu inside the window: ${JSON.stringify(r)}`)
-      ok(r.items === 6, `${where}: six speeds (0.75–2): ${r.items}`)
-      await pg.keyboard.press('Escape')
-    }
     ok((await pg.evaluate(() => window.__errors.length)) === before, `${where}: clicking ${s.c} raised an error`)
     if (restore) await restore(s)
   }
@@ -317,16 +319,34 @@ async function matrix(b) {
       const L = await assertLayout(map, `${tag} playing`)
       ok(L.listening, `${tag}: the header is one line while listening`)
       ok(L.headH < 44, `${tag}: one line: ${L.headH}px`)
-      const hidden = await map.evaluate(() => [...document.querySelectorAll('.scn-cap, .scn-code')].every((e) => !e.getClientRects().length))
-      ok(hidden, `${tag}: while listening the animation's sentence and the code snippet give way to the caption`)
+      const hidden = await map.evaluate(() => [...document.querySelectorAll('.scn-cap, .scn-code, .scn-bar')].every((e) => !e.getClientRects().length))
+      ok(hidden, `${tag}: while listening the animation's sentence, its bar and the code snippet give way to the caption`)
+      const box = await map.evaluate(() => ({ story: !!document.querySelector('.story'), anim: !!document.querySelector('.pbox .scnwrap'), back: !!document.querySelector('header .homeb, header .end') }))
+      ok(!box.story && box.anim && !box.back, `${tag}: playing, the step's animation alone, no ‹ or End: ${JSON.stringify(box)}`)
       await assertLayout(host, `${tag} Listen view playing`, { panel: false })
       await shot('playing')
       await clickEverything(map, `${tag} playing`, async () => { await toHost({ type: 'podcastCmd', action: 'rate', rate: 1 }); await toHost({ type: 'podcastCmd', action: 'mute', muted: false }) })
       await reset()
-      await until('paused again: the header back', () => map.evaluate(() => !document.querySelector('header.listening')))
+      await until('paused again: the chapter list back, the header still one line', () => map.evaluate(() => !!document.querySelector('.story') && !!document.querySelector('header.listening')))
+      await sleep(150)
+      await shot('paused-episode')
+      // The intro, playing: the whole map, its names only.
+      await toHost({ type: 'podcastCmd', action: 'play', at: 0.5 })
+      await until('the intro, playing: the map alone', () => map.evaluate(() => !!document.querySelector('.pbox .gmap') && document.body.classList.contains('pod-map')))
+      ok(await map.evaluate(() => document.querySelector('header.listening h1.q')?.textContent === 'Intro'), `${tag}: the intro's header says "Intro"`)
+      await sleep(300)
+      await shot('intro')
+      await reset()
+      // The Listen view while the panel shows the episode: one line (the journey, ▶, the time).
+      await toHost({ type: 'panel', key: episode.key })
+      await sleep(100)
+      const one = await host.evaluate(() => { const vis = (s) => [...document.querySelectorAll(s)].some((e) => e.getClientRects().length > 0); const inside = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth + 0.5 }; return { h: document.getElementById('app').getBoundingClientRect().height, play: vis('.pod-b.play') && inside('.pod-b.play'), time: vis('.pod-now') && inside('.pod-now'), tl: vis('.pod-tl'), cap: vis('.pod-cap'), rate: vis('.pod-rate') } })
+      ok(one.play && one.time && !one.tl && !one.cap && !one.rate && one.h < 40, `${tag}: the Listen view is one line while the panel has the player: ${JSON.stringify(one)}`)
+      if (OUT && (w === 190 || w === 340)) await host.screenshot({ path: path.join(OUT, `listen-${Math.min(w, 300)}-${theme}-panel-open.png`) })
+      await toHost({ type: 'panel' })
       // Ended.
       await toHost({ type: 'podcastCmd', action: 'play', at: ep.duration - 0.4 })
-      await until('the end', async () => /End of episode/.test(await map.evaluate(() => document.querySelector('.pod-end')?.textContent || '')), 6000)
+      await until('the end', () => map.evaluate(() => document.querySelector('.pod').classList.contains('ended') && !!document.querySelector('.pod-replay')?.getClientRects().length), 6000)
       await sleep(150) // the player's new height, given to the page a frame later
       await assertLayout(map, `${tag} ended`)
       await shot('ended')
@@ -418,10 +438,9 @@ async function behaviour(b, w) {
     const t = 19.5
     const { x, y } = await xAt(map, t)
     await map.mouse.move(x, y)
-    const tip = await map.evaluate(() => { const t = document.querySelector('.pod-tip'); return { time: t.querySelector('.pod-tip-time')?.textContent, part: t.querySelector('.pod-tip-part')?.textContent, r: t.getBoundingClientRect().toJSON(), cut: t.scrollWidth > t.clientWidth + 1, hidden: t.hidden } })
+    const tip = await map.evaluate(() => { const t = document.querySelector('.pod-tip'); return { part: t.querySelector('.pod-tip-part')?.textContent, r: t.getBoundingClientRect().toJSON(), cut: t.scrollWidth > t.clientWidth + 1, hidden: t.hidden } })
     const n = viewAt(ep, t).step
-    ok(!tip.hidden && tip.time === '0:19', `hover at ${t}s: the tip says the time ("${tip.time}")`)
-    ok((tip.part || '').startsWith(`Step ${n} of ${journey.steps.length} · ${journey.steps[n - 1].title}`), `hover: the tip names step ${n} in full ("${tip.part}")`)
+    ok(!tip.hidden && tip.part === `Step ${n} · ${journey.steps[n - 1].title} · 0:19`, `hover at ${t}s: the tip says "Step ${n} · title · 0:19" ("${tip.part}")`)
     ok(tip.r.left >= 0 && tip.r.right <= w + 0.5 && !tip.cut, `the tip inside the window, not cut: ${JSON.stringify(tip.r)}`)
     if (OUT) await map.screenshot({ path: path.join(OUT, `behaviour-${w}-hover.png`) })
     await map.mouse.move(x, y - 120)
@@ -473,7 +492,7 @@ async function behaviour(b, w) {
     await until('K on another layout ("л") plays', async () => !(await audioState(host)).paused)
     await map.keyboard.press('KeyM')
     await until('M mutes', async () => (await audioState(host)).muted)
-    await until('the panel shows it muted', () => map.evaluate(() => document.querySelector('.pod-mute').getAttribute('aria-pressed') === 'true'))
+    ok(await map.evaluate(() => !document.querySelector('.pod-mute')), 'no mute button (M is the key)')
     await map.keyboard.press('KeyM')
     await until('M again: sound', async () => !(await audioState(host)).muted)
     await map.keyboard.press('k')
@@ -484,17 +503,15 @@ async function behaviour(b, w) {
     await until('< slower', async () => (await audioState(host)).rate === 1)
   }
 
-  // The speed menu: 0.75 chosen, the button says so.
+  // The speed button: 1 → 1.25 → 1.5 → 2 → 1, the button says so.
   {
     await map.mouse.move(5, 5)
     if (await map.evaluate(() => !!document.querySelector('.pod-rate').getClientRects().length)) {
-      await map.click('.pod-rate')
-      await map.click('.pod-mi:first-child')
-      await until('0.75×', async () => (await audioState(host)).rate === 0.75)
-      await until('the button says 0.75×', () => map.evaluate(() => document.querySelector('.pod-rate').textContent === '0.75×'))
-      await map.click('.pod-rate')
-      await map.click('.pod-mi:nth-child(2)')
-      await until('1×', async () => (await audioState(host)).rate === 1)
+      for (const r of [1.25, 1.5, 2, 1]) {
+        await map.click('.pod-rate')
+        await until(`${r}×`, async () => (await audioState(host)).rate === r)
+        await until(`the button says ${r}×`, () => map.evaluate((x) => document.querySelector('.pod-rate').textContent === x, `${r}×`))
+      }
     }
   }
 
@@ -539,14 +556,16 @@ async function behaviour(b, w) {
     if (OUT) await map.screenshot({ path: path.join(OUT, `behaviour-${w}-caption.png`) })
   }
 
-  // The storyline as the chapter list: start times, "not narrated", ♪ on the row being said.
+  // The storyline as the chapter list: number and title only, the step it skips muted, the row being said bold.
   {
-    const rows = await map.evaluate(() => [...document.querySelectorAll('.story li[data-pstep]')].map((li) => ({ n: Number(li.dataset.pstep), pt: li.querySelector('.pt').textContent, now: li.classList.contains('pnow') })))
+    const rows = await map.evaluate(() => [...document.querySelectorAll('.story li[data-pstep]')].map((li) => ({ n: Number(li.dataset.pstep), text: li.querySelector('.st').textContent, skip: li.classList.contains('unnarrated'), now: li.classList.contains('pnow'), plisten: [...li.querySelectorAll('.plisten')].some((b) => getComputedStyle(b).visibility !== 'hidden') })))
     ok(rows.length === journey.steps.length, `a row per step (${rows.length})`)
-    ok(rows.find((r) => r.n === DEPLOY)?.pt === 'not narrated', `the step it skips says "not narrated": ${JSON.stringify(rows.find((r) => r.n === DEPLOY))}`)
-    ok(rows.find((r) => r.n === 1)?.pt === '0:03', `step 1 starts at 0:03: ${JSON.stringify(rows[0])}`)
+    ok(rows.every((r) => r.text === `${r.n}${journey.steps[r.n - 1].title}`), `number and title only: ${JSON.stringify(rows.map((r) => r.text))}`)
+    ok(rows.find((r) => r.n === DEPLOY)?.skip, `the step it skips is marked: ${JSON.stringify(rows.find((r) => r.n === DEPLOY))}`)
+    ok(rows.every((r) => !r.plisten), 'no ▶ on a row until the pointer is on it')
+    ok(await map.evaluate(() => document.querySelectorAll('.trb').length === 0 && document.querySelectorAll('.trtoggle').length === 1), 'one Transcript switch, no ≡ per row')
     const at = viewAt(ep, (await audioState(host)).t).step
-    ok(rows.find((r) => r.now)?.n === at, `♪ on the row being said (${at}): ${JSON.stringify(rows.find((r) => r.now))}`)
+    ok(rows.find((r) => r.now)?.n === at, `the row being said (${at}) marked: ${JSON.stringify(rows.find((r) => r.now))}`)
     ok(await map.evaluate(() => !!document.querySelector('.story li[data-ppart="intro"]') && !!document.querySelector('.story li[data-ppart="recap"]')), 'the intro and the recap have rows')
   }
 
@@ -561,11 +580,12 @@ async function behaviour(b, w) {
     await until(`it stops at the step's end (${end}s)`, async () => { const a = await audioState(host); return a.paused && Math.abs(a.t - end) < 0.5 }, (end - c[0].start + 3) * 1000)
   }
 
-  // A transcript: opened, the sentence being said marked; a sentence clicked goes there.
+  // The transcript: the switch on, the row being said's shows, the sentence being said marked; a sentence clicked goes
+  // there.
   {
-    // In a narrow storyline ▶ and ≡ show on the row under the pointer.
-    await map.hover('.story li[data-pstep="3"] .st')
-    await map.click('.story li[data-pstep="3"] .trb')
+    await toHost({ type: 'podcastCmd', action: 'seek', to: timeOf(ep, 3) + 0.3 })
+    await until('step 3', async () => (await shown(map)).step === 3)
+    await map.click('.trtoggle')
     const s = await until('the transcript of step 3', () => map.evaluate(() => { const t = document.querySelector('.trx[data-tr="s3"]'); return t && !t.hidden && t.querySelectorAll('.trs').length }))
     ok(s >= 3, `its sentences (${s})`)
     await map.click('.trx[data-tr="s3"] .trs:nth-of-type(2)')
@@ -573,9 +593,9 @@ async function behaviour(b, w) {
     await until('the sentence clicked: the audio there', async () => Math.abs((await audioState(host)).t - t2) < 0.3)
     await until('and marked', () => map.evaluate(() => document.querySelector('.trx[data-tr="s3"] .trs:nth-of-type(2)').classList.contains('cur')))
     ok(await map.evaluate(() => document.querySelector('.trx[data-tr="s1"]').getAttribute('hidden') === 'until-found'), 'a shut transcript is still found by Ctrl+F (hidden="until-found")')
+    ok(await map.evaluate(() => [...document.querySelectorAll('.trs')].every((x) => !x.title)), 'no time tooltip on the sentences')
     if (OUT) await map.screenshot({ path: path.join(OUT, `behaviour-${w}-transcript.png`) })
-    await map.hover('.story li[data-pstep="3"] .st')
-    await map.click('.story li[data-pstep="3"] .trb')
+    await map.click('.trtoggle')
   }
 
   // A step the podcast skips, clicked: the walk stays, the audio pauses and says so; the panel shows the note.
@@ -612,13 +632,16 @@ async function behaviour(b, w) {
   // The end: what next; a seek after the end plays on (the reader didn't pause it).
   {
     await toHost({ type: 'podcastCmd', action: 'play', at: ep.duration - 0.3 })
-    await until('End of episode', async () => /End of episode/.test(await map.evaluate(() => document.querySelector('.pod-end').textContent)), 5000)
-    ok(await map.evaluate(() => [...document.querySelectorAll('.pod-end button')].map((b) => b.textContent).join('|') === 'Replay|Walk it yourself|Next journey'), 'Replay · Walk it yourself · Next journey')
+    await until('the end', () => map.evaluate(() => document.querySelector('.pod').classList.contains('ended')), 5000)
+    ok(await map.evaluate(() => document.querySelector('.pod-end').textContent === 'ReplayWalk it yourselfNext journey'), 'Replay · Walk it yourself · Next journey, and no "End of episode"')
+    ok(await map.evaluate(() => !document.querySelector('.pod-tl').getClientRects().length && !document.querySelector('.pod-b.play').getClientRects().length), 'no timeline, no transport at the end')
     await map.click('.pod-walk')
     await until('Walk it yourself: asked of the extension', () => st.ends.includes('walk'))
-    const { x, y } = await xAt(map, 10)
-    await map.mouse.click(x, y)
-    await until('a seek after the end plays from there', async () => { const a = await audioState(host); return !a.paused && a.t >= 9.9 && a.t < 12 })
+    // A seek after the end (← with nothing focused: 15 s back) plays on from there.
+    await map.evaluate(() => document.activeElement && document.activeElement.blur())
+    await map.keyboard.press('ArrowLeft')
+    const back = ep.duration - 15
+    await until('a seek after the end plays from there', async () => { const a = await audioState(host); return !a.paused && a.t >= back - 0.5 && a.t < back + 2 })
     await map.click('.pod-b.play')
     await until('paused', async () => (await audioState(host)).paused)
   }

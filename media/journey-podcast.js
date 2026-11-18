@@ -15,7 +15,7 @@
 // page (podcastUnlocked), and the extension plays the episode where that happened: a ▶ in the journey panel plays in
 // the panel, with the Listen view as its remote, until the Listen view is unlocked too or the panel goes.
 //
-// Needs common.js. JourneyPodcast({ post, mode, stepTitle(n), stepCount(), keyPrefix(), onShown(h), onListening(on),
+// Needs common.js. JourneyPodcast({ post, mode, stepTitle(n), stepCount(), onShown(h), onListening(on),
 // onTick(t), onEnd(action), mount? }) — `mount`: where the player goes (default: fixed at the window's bottom).
 //
 // The audio is loaded whole (fetch, then a blob: URL) before it plays: a server that ignores HTTP Range (VS Code for
@@ -50,15 +50,15 @@
 
   /** Back / forward (s): the keys (← →) and the commands; no buttons (the units of a walk are steps). */
   const SKIP_S = 15
+  /** The speeds (< > step through them); the speed button cycles through the usual ones. */
   const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2]
+  const CYCLE = [1, 1.25, 1.5, 2]
   /** A seek that lands further than this from where it was asked to go (s) did not get there. */
   const MISS_S = 0.75
   /** Playing, the clock not moving for this long (ms): it is not playing (a broken or cut file); it pauses and says so. */
   const FROZEN_MS = 3000
   /** A step's mark on the timeline is at least this wide (px): a target a pointer can hit. */
   const MARK_MIN_PX = 8
-  /** A mark shows its number when it is this wide (px). */
-  const MARK_NUM_PX = 13
   /** Remote: after asking for a seek, the host's reports of the time before it are ignored this long (ms). */
   const ASK_STALE_MS = 700
   /** The audio is shorter than the episode by more than this (s): the rest of the timeline can't be reached. */
@@ -69,13 +69,10 @@
     pause: 'M5 3h3.5v14H5zM11.5 3H15v14h-3.5z',
     prev: 'M4 3h2v14H4zM16 3v14L7 10z',
     next: 'M14 3h2v14h-2zM4 3v14l9-7z',
-    vol: 'M3 7.5h3l4.5-4v13l-4.5-4H3zM13 6.5a5 5 0 0 1 0 7M14.8 4.3a8 8 0 0 1 0 11.4',
-    muted: 'M3 7.5h3l4.5-4v13l-4.5-4H3zM13 7.5l5 5M18 7.5l-5 5',
   }
   function icon(name) {
     const s = svgEl('svg', { viewBox: '0 0 20 20', width: 16, height: 16, 'aria-hidden': 'true' })
-    const stroke = name === 'vol' || name === 'muted'
-    s.append(svgEl('path', stroke ? { d: PATHS[name], fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' } : { d: PATHS[name], fill: 'currentColor' }))
+    s.append(svgEl('path', { d: PATHS[name], fill: 'currentColor' }))
     return s
   }
   function clock(t) {
@@ -92,6 +89,8 @@
   }
   const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const rateText = (r) => `${r}×`
+  /** The speed after `r` on the speed button: the next usual one up, from 2× back to 1×. */
+  const nextRate = (r) => CYCLE.find((x) => x > r + 0.001) || CYCLE[0]
   const cap1 = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
   /** A segment's sentences with their times: the file's (`sentences`, checked by the extension), else estimated by
@@ -104,7 +103,8 @@
     const text = seg.text || ''
     const clock = charClock(seg, end)
     const out = []
-    const re = /[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)\s*/g
+    // A sentence ends at . ! ? … followed by a space or the end: never at the dot inside `repo.ReadTestFile`.
+    const re = /[\s\S]*?(?:[.!?…]+["'”’)\]]*(?=\s|$)|$)\s*/g
     let m
     while ((m = re.exec(text)) && m[0]) {
       const lead = m[0].length - m[0].trimStart().length
@@ -205,11 +205,11 @@
     const timeNow = el('span', 'pod-now')
     const timeTotal = el('span', 'pod-total')
     time.append(timeNow, timeTotal)
-    const where = el('span', 'pod-where')
+    // The speed: "1×", a click goes to the next (1 → 1.25 → 1.5 → 2 → 1). No mute button (M mutes; the system's volume
+    // is the volume).
     const rateB = el('button', 'pod-rate', '1×')
-    rateB.setAttribute('aria-haspopup', 'menu')
-    rateB.onclick = () => (menu.hidden ? openMenu() : closeMenu())
-    const muteB = btn('mute pod-mute', 'Mute (M)', icon('vol'), () => setMuted(!S().muted))
+    rateB.title = 'Speed'
+    rateB.onclick = () => setRate(nextRate(S().rate || 1))
     // An error, or a note ("not in the podcast"): one short line under the controls.
     const err = el('div', 'pod-err')
     err.hidden = true
@@ -218,17 +218,12 @@
     const ctl = el('div', 'pod-ctl')
     ctl.append(prevB, playB, nextB)
     const opt = el('div', 'pod-opt')
-    opt.append(rateB, muteB)
-    row.append(ctl, time, where, opt)
-    // The speed menu (fixed: never cut by the player's edges).
-    const menu = el('div', 'pod-menu')
-    menu.setAttribute('role', 'menu')
-    menu.setAttribute('aria-label', 'Playback speed')
-    menu.hidden = true
+    opt.append(rateB)
+    row.append(ctl, time, opt)
     // Said once per step change (a screen reader's polite announcement), never per frame.
     const live = el('div', 'pod-sr')
     live.setAttribute('aria-live', 'polite')
-    root.append(note, cap, endBox, tl, row, err, menu, live)
+    root.append(note, cap, endBox, tl, row, err, live)
     root.append(audio)
     ;(opts.mount || document.body).append(root)
 
@@ -275,7 +270,8 @@
     let R = { t: 0, playing: false, held: false, rate: 1, muted: false, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false, sent: 0 }
     let rAt = 0
     let asked
-    /** Remote: what was just asked (speed, muting) shows at once; the host's reports from before it don't undo it. */
+    /** Remote: what was just asked (play, pause, speed, muting) shows at once; the host's reports from before it don't
+     *  undo it. */
     let pend = {}
     const pending = (k, v) => { pend[k] = { v, at: performance.now() } }
 
@@ -340,7 +336,6 @@
       const t = stepTitle(c.step)
       return `${short ? `Step ${c.step}` : `Step ${c.step} of ${stepCount() || '?'}`}${t ? ` · ${t}` : ''}`
     }
-    const keyPrefix = () => (opts.keyPrefix && opts.keyPrefix()) || "Ctrl+'"
 
     // ---------- host: the audio ----------
 
@@ -442,7 +437,7 @@
     }
     function play(at, upTo) {
       if (!ep) return
-      if (!host) { ask('play', { ...(at !== undefined ? { at } : {}), ...(upTo !== undefined ? { until: upTo } : {}) }); R.playing = true; rAt = performance.now(); draw(); return }
+      if (!host) { ask('play', { ...(at !== undefined ? { at } : {}), ...(upTo !== undefined ? { until: upTo } : {}) }); R.playing = true; pending('playing', true); rAt = performance.now(); draw(); return }
       held = false
       if (at !== undefined) seek(at, true)
       until = upTo
@@ -471,7 +466,7 @@
       })
     }
     function pause() {
-      if (!host) { ask('pause'); R.playing = false; R.t = remoteNow(); rAt = performance.now(); draw(); return }
+      if (!host) { ask('pause'); R.t = remoteNow(); R.playing = false; pending('playing', false); rAt = performance.now(); draw(); return }
       wantPlay = false
       until = undefined
       endedSelf = false
@@ -555,50 +550,6 @@
       })
     }
 
-    // ---------- the speed menu ----------
-
-    function openMenu() {
-      menu.textContent = ''
-      const cur = S().rate
-      for (const r of RATES) {
-        const it = el('button', `pod-mi${r === cur ? ' on' : ''}`, rateText(r))
-        it.setAttribute('role', 'menuitemradio')
-        it.setAttribute('aria-checked', String(r === cur))
-        it.onclick = () => { setRate(r); closeMenu(true) }
-        menu.append(it)
-      }
-      menu.hidden = false
-      // Above the button when there is room, else below; inside the window.
-      const b = rateB.getBoundingClientRect()
-      const h = menu.offsetHeight, w = menu.offsetWidth
-      const top = b.top - h - 4 >= 0 ? b.top - h - 4 : Math.min(window.innerHeight - h, b.bottom + 4)
-      menu.style.top = `${Math.max(0, top)}px`
-      menu.style.left = `${Math.max(0, Math.min(window.innerWidth - w, b.right - w))}px`
-      rateB.setAttribute('aria-expanded', 'true')
-      const on = menu.querySelector('.on') || menu.firstChild
-      if (on) on.focus({ preventScroll: true })
-    }
-    function closeMenu(refocus) {
-      if (menu.hidden) return
-      menu.hidden = true
-      rateB.setAttribute('aria-expanded', 'false')
-      if (refocus) rateB.focus({ preventScroll: true })
-    }
-    menu.addEventListener('keydown', (e) => {
-      const items = [...menu.querySelectorAll('.pod-mi')]
-      const i = items.indexOf(document.activeElement)
-      runKey(e, {
-        ArrowDown: () => items[Math.min(items.length - 1, i + 1)].focus(),
-        ArrowUp: () => items[Math.max(0, i - 1)].focus(),
-        Home: () => items[0].focus(),
-        End: () => items[items.length - 1].focus(),
-        Escape: () => closeMenu(true),
-        Tab: () => closeMenu(true),
-      }, true)
-    })
-    document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== rateB && !rateB.contains(e.target)) closeMenu() }, true)
-    window.addEventListener('blur', () => closeMenu())
-
     // ---------- drawing ----------
 
     function build() {
@@ -632,8 +583,9 @@
       layoutMarks()
     }
 
-    /** The step marks under the bar: at their part's start, each at least MARK_MIN_PX wide, pushed apart where parts
-     *  are narrower than that (then back from the end, so the last stays inside). */
+    /** The step marks under the bar, ticks (the hover tip names the step): at their part's start, each at least
+     *  MARK_MIN_PX wide, pushed apart where parts are narrower than that (then back from the end, so the last stays
+     *  inside). */
     function layoutMarks() {
       const W = track.clientWidth
       if (!W || !markEls.length) return
@@ -648,9 +600,6 @@
       for (const [k, m] of markEls.entries()) {
         m.el.style.left = `${want[k].x}px`
         m.el.style.width = `${want[k].w}px`
-        const num = want[k].w >= MARK_NUM_PX
-        m.el.textContent = num ? String(m.c.step) : ''
-        m.el.classList.toggle('dot', !num)
       }
     }
 
@@ -679,8 +628,8 @@
       timeNow.textContent = clock(t)
       timeTotal.textContent = ` / ${clock(d)}`
       const nameNow = ci >= 0 ? partName(ci) : ''
-      if (where.textContent !== nameNow) { where.textContent = nameNow; where.title = nameNow }
       const on = !!s.playing
+      root.classList.toggle('ended', !!s.ended)
       if (playB.dataset.on !== String(on)) {
         playB.dataset.on = String(on)
         playB.textContent = ''
@@ -689,19 +638,10 @@
         if (opts.onListening) opts.onListening(on)
       }
       const playLabel = s.ended ? 'Replay' : on ? 'Pause' : 'Play'
-      playB.title = `${playLabel} (Space or K · ${keyPrefix()} Space from the editor)`
+      playB.title = `${playLabel} (Space)`
       playB.setAttribute('aria-label', playLabel)
       rateB.textContent = rateText(s.rate || 1)
-      rateB.title = `Playback speed (< >)`
-      rateB.setAttribute('aria-label', `Playback speed, ${rateText(s.rate || 1)}`)
-      if (muteB.dataset.on !== String(!!s.muted)) {
-        muteB.dataset.on = String(!!s.muted)
-        muteB.textContent = ''
-        muteB.append(icon(s.muted ? 'muted' : 'vol'))
-        muteB.title = s.muted ? 'Unmute (M)' : 'Mute (M)'
-        muteB.setAttribute('aria-label', s.muted ? 'Unmute' : 'Mute')
-        muteB.setAttribute('aria-pressed', String(!!s.muted))
-      }
+      rateB.setAttribute('aria-label', `Speed, ${rateText(s.rate || 1)}`)
       // The slider: its value text with the total, said again only when the second or the part changes (F57).
       const sec = Math.floor(t)
       if (sec !== drawnSec || tl.dataset.part !== String(ci)) {
@@ -711,7 +651,6 @@
         tl.setAttribute('aria-valuemax', String(Math.round(d)))
         tl.setAttribute('aria-valuenow', String(sec))
         tl.setAttribute('aria-valuetext', `${spoken(t)} of ${spoken(d)}${nameNow ? `, ${nameNow}` : ''}`)
-        tl.title = 'Position (← → 15 s · Shift+← → or Page Up / Page Down: a step · Home / End)'
       }
       // The step said once when it changes while playing (polite), never per frame.
       if (on && nameNow && nameNow !== saidWhere) live.textContent = nameNow
@@ -798,12 +737,11 @@
       })
     }
 
-    /** The end of the episode: what it was, and what next. */
+    /** The end of the episode: what next, and nothing else (no timeline, no transport: Replay is the ▶). */
     function drawEnd() {
       if (endBox.dataset.key === ep.key + (ep.next ? ep.next.key : '')) return
       endBox.dataset.key = ep.key + (ep.next ? ep.next.key : '')
       endBox.textContent = ''
-      endBox.append(el('span', 'pod-end-t', 'End of episode'))
       const acts = el('span', 'pod-end-a')
       const a = (cls, text, f) => { const b = el('button', `link ${cls}`, text); b.onclick = f; acts.append(b) }
       a('pod-replay', 'Replay', () => play(0))
@@ -863,8 +801,9 @@
     function showTip(t, x, i) {
       if (!ep) return
       const ci = i !== undefined ? i : chapterAt(t)
+      // "Step 6 · title · 5:23"
       tip.textContent = ''
-      tip.append(el('span', 'pod-tip-time', clock(t)), el('span', 'pod-tip-part', partName(ci)))
+      tip.append(el('span', 'pod-tip-part', `${partName(ci, true)} · ${clock(t)}`))
       if (reach() && t > reach() + 0.05) tip.append(el('span', 'pod-tip-cut', 'the audio ends before this'))
       tip.hidden = false
       const r = tl.getBoundingClientRect()
@@ -925,9 +864,9 @@
       }, true)
     })
 
-    // Space / K play and pause anywhere in the view but where you type; M mutes; < > change the speed. A button the
-    // keyboard went to (Tab) presses itself with Space; one clicked with the mouse doesn't keep Space (after a beat's
-    // ‹ ›, Space pauses; it doesn't step back again). ← → skip, Shift+← → a step: in the player, or with nothing else
+    // Space / K play and pause anywhere in the view but where you type; M mutes; < > change the speed (K, M, < >,
+    // Page Up / Down: unadvertised). A button the keyboard went to (Tab) presses itself with Space; one clicked with
+    // the mouse doesn't keep Space (after a beat's ‹ ›, Space pauses; it doesn't step back again). ← → skip, Shift+← → a step: in the player, or with nothing else
     // focused (the animation and the map keep their own arrows). K and M by the key's place (Caps Lock, any layout).
     const typing = (t) => !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)
     const CONTROL = 'button, a, [role="button"], [role="link"], summary'
@@ -938,7 +877,7 @@
     document.addEventListener('keydown', (e) => {
       if (!ep || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
       const target = e.target
-      if (typing(target) || menu.contains(target)) return
+      if (typing(target)) return
       const inBar = root.contains(target)
       const free = target === document.body || target === document.documentElement || !target
       const control = target && target.closest && target.closest(CONTROL)

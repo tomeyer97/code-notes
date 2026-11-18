@@ -53,3 +53,16 @@ export function panelShare(total: number, o: ShareOptions): number {
   // Rounded to a thousandth (the share is stored and compared).
   return total * share < (o.panelMin ?? PANEL_MIN_PX) ? 0 : Math.round(share * 1000) / 1000
 }
+
+/** While an episode plays, the panel holds the step's animation and the player: this wide (px), the code the rest. */
+const LISTENING_MIN_PX = 360
+const LISTENING_MAX_PX = 420
+const LISTENING_SHARE = 0.3
+
+/** The panel's share of an editor area `total` px wide while an episode is on: 360–420 px (30 % of the area in
+ *  between), never more than half of it. */
+export function listeningShare(total: number): number {
+  if (total <= 0) return 0
+  const px = Math.min(LISTENING_MAX_PX, Math.max(LISTENING_MIN_PX, total * LISTENING_SHARE), total / 2)
+  return Math.round((px / total) * 1000) / 1000
+}

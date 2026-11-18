@@ -49,6 +49,14 @@
   - Accessibility: the timeline is an ARIA slider (↑ ↓ Home End Page Up/Down) whose value text gives the time, the
     total and the step; step changes are announced once; controls have names and keys. Media keys and the system's
     "now playing" work (Media Session).
+- **Listen: the panel, calmer.** One player: while the journey panel shows the episode the Listen view is one line
+  (the journey, ⏸ / ▶, the time). While it plays the panel is the one-line header and the step's animation alone, in
+  the same box every step (the map where there is none, names only at the intro and the recap); the chapter list
+  comes back on pause, as number and title (▶ on hover) with one **Transcript** switch. The header stays one line
+  until the episode ends. The player: plain ⏸, ticks for the steps (hover "Step 6 · title · 5:23"), a "1×" that
+  cycles 1×–2×, no mute button (M stays), neutral greys; the end is Replay · Walk it yourself · Next journey only.
+  Beside the code the panel is 360–420 px while an episode is on. A caption or transcript sentence no longer splits
+  at the dot inside `repo.ReadTestFile`; the animation draws no wire stub to an actor out of view.
 - **Listen: the editor while it plays.** The editor is calmer: a view is held at least 8 s (a shorter part in
   another file stays in the view before; beats in the same file just move the highlight). Scroll or click in the
   narrated code and it stops following until the next step; **Follow along** on the step card snaps back. While it

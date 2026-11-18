@@ -29,6 +29,7 @@
 .scn-wires { position: absolute; left: 0; top: 0; overflow: visible; }
 .scn-wires line { stroke: var(--border); stroke-width: 1.5; }
 .scn-wires line.lit { stroke: var(--accent); }
+.scn-wires line.out { visibility: hidden; }
 .scn-packet {
   position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; padding: 3px 9px; border-radius: 4px;
   background: var(--accent); color: var(--bg); font-family: var(--vscode-editor-font-family, monospace); font-size: 13px; font-weight: 600; z-index: 2;

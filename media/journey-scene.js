@@ -446,8 +446,8 @@
 
   // ---------- a request on a wire ----------
 
-  /** A pill from the sender into the receiver: it starts inside the sender and ends just inside the receiver's
-   *  border, never resting on a border, then fades. */
+  /** A pill from the sender to the receiver: it starts inside the sender and ends just before the receiver's border
+   *  (never over what the receiver shows, never resting on a border), then fades. */
   function sendPacket(packet, wires, rects, p) {
     const w = wires.find((x) => (x.f === p.from && x.t === p.to) || (x.f === p.to && x.t === p.from))
     if (!w || !rects[p.from] || !rects[p.to]) return
@@ -456,7 +456,7 @@
     packet.className = 'scn-packet'
     const half = packet.offsetWidth / 2 + 8
     const a = ltr ? w.x1 - half : w.x2 + half
-    const z = ltr ? w.x2 + half : w.x1 - half
+    const z = ltr ? w.x2 - half : w.x1 + half
     packet.style.transform = `translate(${a}px, ${w.y}px) translate(-50%, -50%)`
     void packet.getBoundingClientRect()
     packet.className = 'scn-packet go'
@@ -570,7 +570,11 @@
       if (!r) return
       const s = Math.min(vw / (r.w + CAMERA_PAD_W), vh / (r.h + CAMERA_PAD_H), CAMERA_MAX_SCALE)
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2
-      world.style.transform = `translate(${vw / 2 - cx * s}px, ${vh / 2 - cy * s}px) scale(${s})`
+      const tx = vw / 2 - cx * s, ty = vh / 2 - cy * s
+      world.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`
+      // A wire with an end out of view would be a stub from the box to the view's edge, joined to nothing: hidden.
+      const left = -tx / s - 1, right = (vw - tx) / s + 1, top = -ty / s, bottom = (vh - ty) / s
+      for (const x of wires) x.ln.classList.toggle('out', x.x1 < left || x.x2 > right || x.y < top || x.y > bottom)
     }
 
     function layout() {

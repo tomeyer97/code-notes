@@ -6,8 +6,11 @@
 // The player starts as the audio's host; the extension makes it a remote while the journey panel plays the audio
 // (podcastRole: journey-podcast.js's header says why).
 //
+// One player on screen: while the journey panel shows this episode (its player is the player), this view is one line,
+// the journey, ⏸ / ▶ and the time; the whole player shows here only when the panel is closed.
+//
 // In: { type: 'podcast', episode? }  { type: 'podcastCmd', … }  { type: 'podcastRole', … }  { type: 'podcastState', … }
-//     (journey-podcast.js)  { type: 'hello' }
+//     (journey-podcast.js)  { type: 'panel', key? } (the journey the panel shows; none: closed)  { type: 'hello' }
 // Out: { type: 'ready' }  journey-podcast.js's messages  { type: 'podcastOpen' } (the journey's map)
 ;(function () {
   const { el, connect, onMessages } = window.common
@@ -25,11 +28,17 @@
   app.append(head, empty, mount)
 
   let ep
+  /** The journey the panel shows ('' : closed). */
+  let panelKey = ''
+  function compact() {
+    const on = !!ep && panelKey === ep.key
+    document.body.classList.toggle('compact', on)
+    title.title = on ? 'Open the journey (its panel has the player)' : 'Open the journey'
+  }
   const player = window.JourneyPodcast({
     post,
     mode: 'host',
     mount,
-    keyPrefix: () => (ep && ep.keyPrefix) || "Ctrl+'",
     onTick: (_t, step) => {
       const n = ep && ep.steps ? ep.steps.length : 0
       const s = step && ep && ep.steps[step - 1]
@@ -44,6 +53,7 @@
     empty.hidden = !!e
     if (!ep) where.textContent = ''
     player.set(e)
+    compact()
   }
   show(undefined)
 
@@ -52,6 +62,7 @@
     podcastCmd(m) { player.cmd(m) },
     podcastRole(m) { player.setRole(m) },
     podcastState(m) { player.hostState(m) },
+    panel(m) { panelKey = m.key || ''; compact() },
     hello() { post({ type: 'ready' }) },
     test(m) {
       if (m.click) { const t = document.querySelector(m.click); if (t) t.dispatchEvent(new MouseEvent('click', { bubbles: true })) }

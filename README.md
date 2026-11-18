@@ -47,7 +47,7 @@ write one.
 - **Listen:** a journey with an audio episode next to it (`<journey>.podcast.json`) has ▶ Listen on its row. The walk
   follows the voice: each step's code opens, the animation moves beat by beat, the caption shows the sentence being
   said. The timeline is marked by step; click or drag anywhere and the walk is exactly where it is at that time. The
-  storyline becomes the chapter list (start times, ▶ for one step, a transcript per step). The audio plays in the
+  storyline becomes the chapter list (▶ for one step, the transcript of the step being said). The audio plays in the
   Listen view, so it goes on when the journey panel is closed or VS Code is in the background.
   [docs/podcast-format.md](docs/podcast-format.md) describes the format and its checks: problems show in the
   Problems view, and a podcast that can't play keeps a greyed ▶ that says why.
