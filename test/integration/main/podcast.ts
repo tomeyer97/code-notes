@@ -1,4 +1,5 @@
-// Podcast mode: a journey with a podcast file next to it plays in the journey panel, and the walk follows the voice
+// Listening: a journey with a podcast file next to it plays in the Listen view (the panel's player is its remote, so
+// closing the panel never stops it), and the walk follows the voice
 // (the step's code opens, the animation's beat lights its line); seeking anywhere puts the walk exactly where it is at
 // that time, backwards too, the last of quick seeks only, and the extension is told where the audio really is; Next
 // while it plays moves the audio; the audio goes on in a background tab; a step the podcast skips keeps the walk there
@@ -19,7 +20,7 @@ import { ui } from '../devtools'
 const pod = () => ctx.api.podcast() as any
 /** The suite's wait, printing the podcast's state (and the walk's) on a timeout. */
 const until = waiter({ dump: () => ({ podcast: pod(), step: tour().step, map: tour().map, beat: tour().beat, file: codeFile() }) })
-const send = (m: object) => ctx.api.mapSend({ type: 'podcastCmd', ...m })
+const send = (m: object) => ctx.api.listenSend({ type: 'podcastCmd', ...m })
 const seek = (to: number) => send({ action: 'seek', to })
 const codeEditor = () => vscode.window.visibleTextEditors.find((e) => e.viewColumn !== tour().mapColumn && e.document.uri.scheme === 'file')
 const codeFile = () => path.basename(codeEditor()?.document.uri.fsPath ?? '')
@@ -30,14 +31,23 @@ const litLine = () => { const b = tour().beat; return b ? b.line + 1 : 0 }
 async function panelFrame(): Promise<import('playwright').Frame> {
   const page = await ui()
   return until('the journey panel\'s frame', async () => {
-    for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).document.querySelector('.pod'))) return f } catch { /* detached */ } }
+    for (const f of page.frames()) { try { if (await f.evaluate(() => { const d = (globalThis as any).document; return !!d.querySelector('.pod') && !d.querySelector('.ls-player') })) return f } catch { /* detached */ } }
     return undefined
   }, 10000)
 }
 
-/** What the panel's audio itself says: its time, paused, the bar's note or error. */
+/** The Listen view's frame (where the audio is). */
+async function listenFrame(): Promise<import('playwright').Frame> {
+  const page = await ui()
+  return until('the Listen view\'s frame', async () => {
+    for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).document.querySelector('.ls-player .pod audio'))) return f } catch { /* detached */ } }
+    return undefined
+  }, 10000)
+}
+
+/** What the audio itself says (in the Listen view): its time, paused, the player's note or error. */
 async function panelAudio(): Promise<{ t: number; paused: boolean; note: string; blob: boolean }> {
-  const f = await panelFrame()
+  const f = await listenFrame()
   return f.evaluate(() => {
     const d = (globalThis as any).document
     const a = d.querySelector('.pod audio')
@@ -103,10 +113,12 @@ export const podcastTests = [
     console.log(`    (VS Code window focused: ${vscode.window.state.focused})`)
     await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
     await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
-    // VS Code's webviews play audio only after a click or key in them: the first Play asks for one, ▶ focused.
-    await until('the first Play, from a command: refused until a click in the panel', () => pod().error === 'NotAllowedError' || pod().playing, 10000)
+    await until('the Listen view has its audio', () => pod().hostAlive && pod().hostKey !== undefined, 10000)
+    // VS Code's webviews play audio only after a click or key in them: the first Play asks for one in the Listen
+    // view, its ▶ focused.
+    await until('the first Play, from a command: refused until a click in the Listen view', () => pod().error === 'NotAllowedError' || pod().playing, 10000)
     if (!pod().playing) {
-      const f = await panelFrame()
+      const f = await listenFrame()
       await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
       assert.match(await f.evaluate(() => (globalThis as any).document.querySelector('.pod-err').textContent), /Space/)
       await windowShot('podcast-first-play', { wait: 300 })
@@ -114,17 +126,17 @@ export const podcastTests = [
     }
     await until('playing, the time moving', () => pod().playing && pod().t > 0.6, 10000)
     assert.equal(tour().step, 0, 'the intro: no step open')
-    assert.match(pod().item, /^\$\(debug-pause\) Intro · 0:0\d$/, `the status bar: ${pod().item}`)
+    assert.match(pod().item, /^\$\(unmute\) Listening · Intro · 0:0\d$/, `the status bar: ${pod().item}`)
     // The voice reaches step 1: its code opens, the animation lights beat 1's line.
     await until('3 s: step 1 opened on its first beat', at(1, 'pod.ts', 1), 8000)
     await windowShot('podcast-playing', { wait: 300 })
-    assert.match(pod().item, /^\$\(debug-pause\) 0:0\d$/, `the status bar: the time (the walk's item beside it says 1/3): ${pod().item}`)
+    assert.match(pod().item, /^\$\(unmute\) Listening · 0:0\d$/, `the status bar: the time (the walk's item beside it says 1/3): ${pod().item}`)
     // Space for the podcast (Ctrl+' Space): paused, and the walk stays.
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
     await sleep(500)
     assert.equal(tour().step, 1, 'pausing the podcast does not end the walk')
-    assert.match(pod().item, /^\$\(play\) 0:0\d$/)
+    assert.match(pod().item, /^\$\(debug-pause\) Paused · 0:0\d$/, `paused: ${pod().item}`)
   }),
 
   test('podcast: a seek anywhere, forwards or backwards, puts the walk exactly where it is at that time', async () => {
@@ -324,11 +336,30 @@ export const podcastTests = [
     assert.ok(!shown.includes('pod.ts'), `the step's own file was never shown first: ${shown.join(' → ')}`)
   }),
 
-  test('podcast: closing the panel stops it; the status item goes', async () => {
+  test('podcast: closing the panel keeps it playing; the status item opens the map again, its player where the audio is', async () => {
     await vscode.commands.executeCommand('codeNotes.showMap')
     await until('the panel', () => pod().mapVisible)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing, 5000)
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor')
-    await until('the panel closed: no podcast, no status item', () => !pod().mapVisible && !pod().itemShown && !pod().playing, 5000)
+    await until('the panel closed', () => !pod().mapVisible && tour().map === undefined, 5000)
+    const t0 = pod().t
+    await sleep(1500)
+    assert.ok(pod().playing && pod().t > t0 + 0.8, `still playing without the panel: ${t0} → ${pod().t}`)
+    assert.ok(pod().itemShown && /Listening/.test(pod().item), `the status item stays: ${pod().item}`)
+    assert.equal((await panelAudio()).paused, false, 'the audio itself plays on')
+    // The status item's click: the map again, its player showing the audio's time and that it plays.
+    await vscode.commands.executeCommand('codeNotes.podcastOpen')
+    await until('the map back', () => pod().mapVisible, 8000)
+    const f = await panelFrame()
+    await until('the panel\'s player shows it playing, at the audio\'s time', async () => {
+      const s = await f.evaluate(() => { const d = (globalThis as any).document; return { on: d.querySelector('.pod-b.play')?.dataset.on, time: d.querySelector('.pod-now')?.textContent } })
+      const [m, sec] = String(s.time ?? '0:0').split(':').map(Number)
+      return s.on === 'true' && Math.abs(m * 60 + sec - pod().t) <= 1.5
+    }, 8000)
+    // The panel's ▶ pauses the audio in the Listen view.
+    await f.click('.pod-b.play')
+    await until('paused from the panel', () => !pod().playing, 5000)
   }),
 
   // ---------- broken podcast files (src/podcast/validate.ts, load.ts) ----------
@@ -457,10 +488,10 @@ async function panelVisible(sel: string): Promise<boolean> {
 async function playPod(): Promise<void> {
   await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
   await until('the panel shows it', () => tour().map === 'pod' && pod().mapVisible, 10000)
-  // A new panel may need one click on ▶ (the webview plays only after one); `error` may be a stale NotAllowedError, so
-  // playing on its own is waited for first. One click only: a second would pause it.
+  // A new Listen view may need one click on ▶ (the webview plays only after one); `error` may be a stale
+  // NotAllowedError, so playing on its own is waited for first. One click only: a second would pause it.
   if (!(await until('playing on its own', () => pod().playing, 3000).catch(() => false))) {
-    const f = await panelFrame()
+    const f = await listenFrame()
     await until('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', 5000)
     await f.click('.pod-b.play')
   }
