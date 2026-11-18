@@ -1,0 +1,37 @@
+/* "Claude asks" (src/webview/clarify.html, src/write/clarify.ts). */
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  max-width: 720px;
+  padding: 8px 16px;
+}
+.q {
+  color: var(--vscode-descriptionForeground);
+}
+.answer {
+  margin: 12px 0;
+}
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  padding: 6px;
+}
+button {
+  font: inherit;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: 0;
+  padding: 4px 12px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+.hint {
+  color: var(--vscode-descriptionForeground);
+  margin-left: 8px;
+}
