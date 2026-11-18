@@ -70,6 +70,12 @@ export class MarkLights implements vscode.Disposable {
     this.paint()
   }
 
+  /** The next `show` lights its marks afresh: its newest is brought on screen again (the walk put back where the audio
+   *  is). Nothing is cleared meanwhile. */
+  again(): void {
+    this.sig = ''
+  }
+
   /**
    * Lights `plan`'s marks that are lit at `t` (the rest of the segment's are not): the newest as the focus. `sig`
    * names the segment (a new one clears the marks before). `bring(m, range)`: called for a mark that just lit

@@ -16,7 +16,8 @@ export class FollowLock implements vscode.Disposable {
   /** The editor follows the voice. */
   locked = true
   private ownUntil = 0
-  /** The first visible line of each editor, as last seen (to see a scroll). */
+  /** The first visible line of each editor where the extension last left it (to see a scroll: the reader's scroll
+   *  is measured from there, so a slow scroll in small steps counts too). */
   private tops = new WeakMap<vscode.TextEditor, number>()
   private readonly subs: vscode.Disposable[] = []
 
@@ -33,8 +34,10 @@ export class FollowLock implements vscode.Disposable {
       vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
         const top = e.visibleRanges[0]?.start.line ?? 0
         const was = this.tops.get(e.textEditor)
-        this.tops.set(e.textEditor, top)
-        if (was !== undefined && Math.abs(top - was) >= SCROLL_LINES) this.readerMoved(e.textEditor, 'scrolled')
+        // The extension's own moves (and the first sight of an editor, or any scroll while it does not follow) set where
+        // it was left; the reader's scroll is measured from there.
+        if (was === undefined || Date.now() < this.ownUntil || !this.locked || !this.active() || !this.narrated(e.textEditor)) { this.tops.set(e.textEditor, top); return }
+        if (Math.abs(top - was) >= SCROLL_LINES) { this.tops.set(e.textEditor, top); this.readerMoved(e.textEditor, 'scrolled') }
       }),
     )
   }

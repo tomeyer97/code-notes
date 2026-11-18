@@ -198,7 +198,8 @@ While it plays:
 - `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or
   down (nearer first, up before down; `nth` counts within the shifted lines), said once in the output; not found
   there either: the whole `lines` light (each line from its text, never its indentation). Lines past the end of the file: nothing.
-- A mark that lights while it plays and is off screen is scrolled to (centred); one on screen never moves the editor.
+- A mark that lights while it plays and is off screen is scrolled to (centred), with column 1 kept in view: the code
+  scrolls right only when the mark starts past the right edge. One on screen never moves the editor.
   A reader looking around on their own (the follow lock) is never scrolled: marks still light where they are.
 - A mark in another file than the one on screen is a view change: it opens that file only once the view has been on
   screen at least `VIEW_HOLD_S` (8 s); sooner, it is skipped (the output says so at debug level).
@@ -213,8 +214,13 @@ whose code is out of view. Quick moves leave no time to read what was just lit, 
 - **Time to read before leaving**: what the view on screen lit last (a mark, a beat, a step arriving) stays at least
   `codeNotes.listen.readBeforeMove` seconds (2.5) before the code moves; the audio waits for the rest.
 - **A moment after arriving**: the audio waits `codeNotes.listen.settleAfterMove` seconds (0.8) more, the new mark lit.
-- While it waits the player says so in its quiet line ("Waiting to move ↓ 340 · ▶ goes on"); the time stays the
-  audio's. ▶ or Space plays on at once (the move is made first). 0 turns a wait off.
+- A wait is a hold, not a pause: the audio stops, but the player, the status item, the Journeys row and the step
+  card go on showing it playing; the edge cue is all that shows it. The time stays the audio's. ⏸ or Space during a
+  wait pauses (the move is dropped). 0 turns a wait off.
+- The walk never lags the voice. Whether the audio stopped is what it reports itself: still moving 0.25 s after the
+  hold was asked, the wait is dropped, the log says so once, the walk goes to what the audio says now (its view and
+  marks at that time, no late moves), and waits stay off for 30 s. Playing on during a wait (another ▶, a headset
+  key) or scrolling the code (the follow lock) also drops it the same way.
 - No waits when nothing moves (its code is on screen), under the follow lock (nothing moves then), for the reader's
   own seeks and skips (the moves in the 1.5 s of audio after one), and at the map's moments (to the map, or from it).
 - Generators: the moves are where the script makes the editor jump; merging or reordering marks avoids most waits.

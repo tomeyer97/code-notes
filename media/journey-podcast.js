@@ -19,13 +19,18 @@
 //   { type: 'podcast', episode? }  the episode ({ key, src, title, journey, duration, at, play?, rate, muted, chapters,
 //                                  segments, steps, notice?, next? }), or { unavailable: why } (one line saying so), or
 //                                  none (the player goes). Host: `at` where it starts, `play` plays once loaded.
-//   { type: 'podcastCmd', action, … }   (host) play { at?, until? } | pause { note?, resumeAt? } | note { text } | toggle | skip { by } |
-//                                  seek { to } | part { dir } | rate { rate } | mute { muted? }
-//   { type: 'podcastState', … }    (remote) the host's state: { of, t, playing, rate, muted, ready, loading, ended, dur,
-//                                  reach, err, note, until, seek? }
+//   { type: 'podcastCmd', action, … }   (host) play { at?, until? } | pause { note?, resumeAt?, hold? } | unhold |
+//                                  note { text } | toggle | skip { by } | seek { to } | part { dir } | rate { rate } |
+//                                  mute { muted? }
+//                                  A pause with `hold` is the extension's own short wait (the code moving: camera.ts):
+//                                  the audio stops, but the player keeps showing it as playing; `unhold` plays on
+//                                  (nothing if the reader paused, sought or played meanwhile).
+//   { type: 'podcastState', … }    (remote) the host's state: { of, t, playing, held?, rate, muted, ready, loading,
+//                                  ended, dur, reach, err, note, until, seek?, sent }
 // Out:
-//   host:   { type: 'podcastTime', of, t, playing, rate, seek? }  where the audio is (seek: moved by a seek); said each
-//                                                                  time the shown second changes too
+//   host:   { type: 'podcastTime', of, t, playing, held?, rate, seek?, sent }  where the audio is (seek: moved by a
+//                                  seek; playing: the audio itself; held: in a hold; sent: Date.now() when said); said
+//                                  each time the shown second changes too
 //           { type: 'podcastState', of, … }  everything the player shows (for the remotes), on every change
 //           { type: 'podcastError', of, message }  { type: 'podcastMeta', of, duration }
 //   remote: { type: 'podcastAsk', of, action, … }  the actions above, for the host
@@ -86,16 +91,44 @@
     if (Array.isArray(seg.sentences) && seg.sentences.length) {
       return seg.sentences.map((x, i, a) => ({ start: x.start, end: i + 1 < a.length ? a[i + 1].start : end, text: x.text }))
     }
-    const parts = (seg.text || '').match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)\s*/g) || []
-    const texts = parts.map((p) => p.trim()).filter(Boolean)
-    const total = texts.reduce((n, p) => n + p.length, 0) || 1
-    let t = seg.start
-    return texts.map((text) => {
-      const d = ((end - seg.start) * text.length) / total
-      const s = { start: t, end: t + d, text }
-      t += d
-      return s
-    })
+    const text = seg.text || ''
+    const clock = charClock(seg, end)
+    const out = []
+    const re = /[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)\s*/g
+    let m
+    while ((m = re.exec(text)) && m[0]) {
+      const lead = m[0].length - m[0].trimStart().length
+      const t = m[0].trim()
+      if (!t) continue
+      const off = m.index + lead
+      out.push({ start: clock(off), end: clock(off + t.length), text: t, clock, off })
+    }
+    return out
+  }
+  /**
+   * When character `i` of segment `seg`'s text is said (s): the marks' phrases are said at their times (word-timed by
+   * the script), so they anchor it; in between, and with no marks, the time is shared by the characters.
+   */
+  function charClock(seg, end) {
+    const text = seg.text || ''
+    const pts = [[0, seg.start]]
+    let from = 0
+    for (const mk of Array.isArray(seg.marks) ? seg.marks : []) {
+      if (!mk || typeof mk.phrase !== 'string' || !mk.phrase || typeof mk.at !== 'number') continue
+      const i = text.indexOf(mk.phrase, from)
+      const t = seg.start + mk.at
+      const [pi, pt] = pts[pts.length - 1]
+      if (i < 0 || i <= pi || t <= pt || t >= end) continue
+      pts.push([i, t])
+      from = i + mk.phrase.length
+    }
+    pts.push([Math.max(text.length, pts[pts.length - 1][0] + 1), end])
+    return (c) => {
+      let k = 1
+      while (k < pts.length - 1 && pts[k][0] < c) k++
+      const [a, ta] = pts[k - 1], [b, tb] = pts[k]
+      return ta + ((tb - ta) * Math.max(0, Math.min(b - a, c - a))) / (b - a)
+    }
   }
 
   window.JourneyPodcast = function (opts) {
@@ -214,6 +247,8 @@
     let errNote = false
     /** The episode ended by itself (not paused by the reader): a seek then plays on (F96). */
     let endedSelf = false
+    /** In a hold (the extension's own short wait): the audio stopped, the player still shows it playing. */
+    let held = false
     let boundaryTimer = 0
     let saidSec = -1
     let movedT = -1
@@ -223,7 +258,7 @@
     if (host) window.addEventListener('focus', () => { if (askFocus) playB.focus({ preventScroll: true }) })
 
     /** Remote: the host's last state, when it came (performance.now()), and a seek asked meanwhile. */
-    let R = { t: 0, playing: false, rate: 1, muted: false, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false }
+    let R = { t: 0, playing: false, held: false, rate: 1, muted: false, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false, sent: 0 }
     let rAt = 0
     let asked
     /** Remote: what was just asked (speed, muting) shows at once; the host's reports from before it don't undo it. */
@@ -246,14 +281,17 @@
     function remoteNow() {
       if (dragT !== undefined) return dragT
       if (asked) return asked.t
-      const t = R.playing ? R.t + ((performance.now() - rAt) / 1000) * (R.rate || 1) : R.t
+      // From when the host said it (its own clock: the same machine's), not when the relay brought it: a slow relay
+      // never puts this player behind the audio. In a hold the audio stands still.
+      const since = R.sent ? Math.max(0, Date.now() - R.sent) : performance.now() - rAt
+      const t = R.playing && !R.held ? R.t + (since / 1000) * (R.rate || 1) : R.t
       return Math.min(t, reach() || t)
     }
     /** Everything the player shows. */
     function S() {
       if (host) {
         return {
-          t: hostNow(), playing: hostPlaying() || (loading && wantPlay), rate: audio.playbackRate, muted: audio.muted,
+          t: hostNow(), playing: hostPlaying() || (loading && wantPlay) || held, held, rate: audio.playbackRate, muted: audio.muted,
           ready: !loading && audio.readyState >= 1, loading, ended: endedSelf, dur: total(), reach: reach(), err: errText,
           note: errNote, until,
         }
@@ -299,7 +337,7 @@
       if (t === undefined && (loading || audio.readyState < 1)) { postState(); return }
       const at = t !== undefined ? t : audio.currentTime || 0
       saidSec = Math.floor(at)
-      post({ type: 'podcastTime', of: ep.key, t: at, playing: hostPlaying(), rate: audio.playbackRate, ...(seek ? { seek: true } : {}) })
+      post({ type: 'podcastTime', of: ep.key, t: at, playing: hostPlaying(), ...(held ? { held: true } : {}), rate: audio.playbackRate, sent: Date.now(), ...(seek ? { seek: true } : {}) })
       postState(seek, at)
       scheduleBoundary()
       mediaPosition()
@@ -308,7 +346,7 @@
     function postState(seek, t) {
       if (!host || !ep) return
       const s = S()
-      post({ type: 'podcastState', of: ep.key, ...s, t: t !== undefined ? t : s.t, ...(seek ? { seek: true } : {}) })
+      post({ type: 'podcastState', of: ep.key, ...s, t: t !== undefined ? t : s.t, sent: Date.now(), ...(seek ? { seek: true } : {}) })
     }
     /** A line for the extension's log. */
     const say = (message) => post({ type: 'podcastError', message, ...(ep ? { of: ep.key } : {}) })
@@ -340,9 +378,11 @@
       if (!host) { ask('seek', { to }); asked = { t: to, at: performance.now() }; draw(); return }
       resumeAt = undefined
       if (errNote) showError('')
-      // A seek after the episode ended by itself plays on from there (the reader didn't pause it).
-      const playOn = endedSelf && !byExtension
+      // A seek after the episode ended by itself plays on from there (the reader didn't pause it); so does the reader's
+      // seek in a hold (it looked like playing).
+      const playOn = (endedSelf || held) && !byExtension
       endedSelf = false
+      if (!byExtension) held = false
       if (!byExtension) until = undefined
       if (audio.readyState < 1) {
         // Not loaded yet: it goes there once it is (loadedmetadata), and says so then.
@@ -389,6 +429,7 @@
     function play(at, upTo) {
       if (!ep) return
       if (!host) { ask('play', { ...(at !== undefined ? { at } : {}), ...(upTo !== undefined ? { until: upTo } : {}) }); R.playing = true; rAt = performance.now(); draw(); return }
+      held = false
       if (at !== undefined) seek(at, true)
       until = upTo
       // Still fetching: it plays once it is there.
@@ -418,9 +459,31 @@
       wantPlay = false
       until = undefined
       endedSelf = false
+      // Paused in a hold: the audio stood still already (no pause event), so it is said here.
+      const wasHeld = held
+      held = false
       audio.pause()
       draw()
-      postState()
+      if (wasHeld) report(false)
+      else postState()
+    }
+    /** The extension's short wait (the code moving): the audio stops, the player shows it playing. */
+    function hold() {
+      if (!hostPlaying() && !(loading && wantPlay)) return
+      held = true
+      wantPlay = false
+      audio.pause()
+      draw()
+      report(false)
+    }
+    /** The wait over: plays on (one step played still stops at its end). Nothing if the reader paused, sought or
+     *  played meanwhile (the hold is gone then). */
+    function unhold() {
+      if (!held) return
+      held = false
+      const p = audio.play()
+      if (p && p.catch) p.catch((e) => { if (!(e && e.name === 'AbortError')) { say(String(e && (e.name || e.message))); draw(); report(false) } })
+      draw()
     }
     const toggle = () => (S().playing ? pause() : play())
     function setRate(r) {
@@ -694,7 +757,7 @@
       }
       return out
     }
-    /** A sentence in parts that fit two lines at width `w` (measured), each timed by its share of the characters. */
+    /** A sentence in parts that fit two lines at width `w` (measured), each timed from when its first word is said. */
     function fitTwoLines(sen, lead, w) {
       const words = sen.text.split(/\s+/).filter(Boolean)
       if (!w) return [{ start: sen.start, end: sen.end, html: lead + escHtml(sen.text) }]
@@ -710,12 +773,13 @@
       }
       if (cur.length) groups.push(cur)
       const chars = words.join(' ').length || 1
-      let t = sen.start
+      // Each part from when its first word is said (the segment's clock: the marks anchor it), else by its share.
+      const at = (c) => (sen.clock ? sen.clock(sen.off + c) : sen.start + ((sen.end - sen.start) * c) / chars)
+      let c = 0
       return groups.map((g, k) => {
         const text = g.join(' ')
-        const d = ((sen.end - sen.start) * text.length) / chars
-        const part = { start: t, end: t + d, html: (k === 0 ? lead : '') + escHtml(text) }
-        t += d
+        const part = { start: at(c), end: at(c + text.length), html: (k === 0 ? lead : '') + escHtml(text) }
+        c += text.length + 1
         return part
       })
     }
@@ -901,7 +965,7 @@
       })
       audio.addEventListener('play', () => { askFocus = false; endedSelf = false; if (!errNote) showError(''); movedT = -1; draw(); tick(); report(false) })
       audio.addEventListener('pause', () => { draw(); report(false) })
-      audio.addEventListener('ended', () => { endedSelf = true; until = undefined; draw(); report(false) })
+      audio.addEventListener('ended', () => { endedSelf = true; held = false; until = undefined; draw(); report(false) })
       audio.addEventListener('ratechange', () => { draw(); report(false) })
       audio.addEventListener('volumechange', () => { draw(); postState() })
       audio.addEventListener('error', () => {
@@ -985,9 +1049,9 @@
         const same = ep && ep.key === e.key && ep.src === e.src
         if (host) {
           // Another episode: where the one leaving was is said first (kept for next time).
-          if (ep && !same) { audio.pause(); report(false) }
+          if (ep && !same) { held = false; audio.pause(); report(false) }
         } else if (!same) {
-          R = { t: e.at || 0, playing: false, rate: e.rate || 1, muted: !!e.muted, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false }
+          R = { t: e.at || 0, playing: false, held: false, rate: e.rate || 1, muted: !!e.muted, ready: false, loading: false, ended: false, dur: 0, reach: 0, err: '', note: false, sent: 0 }
           rAt = performance.now()
           asked = undefined
         }
@@ -1021,11 +1085,13 @@
           toggle,
           // With a note: the walk is on a step the podcast skips; ▶ goes on from `resumeAt`.
           pause: () => {
+            if (m.hold) { hold(); return }
             pause()
             if (m.note) showError(String(m.note), true)
             if (typeof m.resumeAt === 'number') resumeAt = m.resumeAt
           },
           // A quiet line in the player (the camera waiting before the code moves); '' clears it.
+          unhold,
           note: () => showError(String(m.text || ''), true),
           skip: () => skip(Number(m.by) || 0),
           seek: () => seek(Number(m.to) || 0, !m.reader),
@@ -1042,7 +1108,7 @@
         // A report from before the seek just asked for: the time asked stays until the host says it moved.
         if (asked && !m.seek && performance.now() - asked.at < ASK_STALE_MS) return
         asked = undefined
-        R = { t: m.t || 0, playing: !!m.playing, rate: m.rate || 1, muted: !!m.muted, ready: !!m.ready, loading: !!m.loading, ended: !!m.ended, dur: m.dur || 0, reach: m.reach || 0, err: m.err || '', note: !!m.note }
+        R = { t: m.t || 0, playing: !!m.playing, held: !!m.held, rate: m.rate || 1, muted: !!m.muted, ready: !!m.ready, loading: !!m.loading, ended: !!m.ended, dur: m.dur || 0, reach: m.reach || 0, err: m.err || '', note: !!m.note, sent: Number(m.sent) || 0 }
         for (const k of Object.keys(pend)) {
           if (R[k] === pend[k].v || performance.now() - pend[k].at > ASK_STALE_MS) delete pend[k]
           else R[k] = pend[k].v
@@ -1073,7 +1139,7 @@
       /** For tests: the audio's state (host). */
       get state() {
         const s = S()
-        return { ...s, paused: host ? audio.paused : !s.playing, duration: s.dur, error: err.hidden ? '' : err.textContent, note: note.hidden ? '' : noteText.textContent, blob: blobbed }
+        return { ...s, paused: host ? audio.paused : !s.playing, currentTime: host ? audio.currentTime : undefined, duration: s.dur, error: err.hidden ? '' : err.textContent, note: note.hidden ? '' : noteText.textContent, blob: blobbed, caption: cap.hidden ? '' : capText.textContent }
       },
       get shown() { return !!ep },
       /** The journey's titles changed (another journey of the same id, a rename): the tip and labels follow. */

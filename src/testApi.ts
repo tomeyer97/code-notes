@@ -154,6 +154,8 @@ export function testApi() {
     mapSend: (m: unknown) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
     listenSend: (m: unknown) => podcasts.listen.send(m),
+    /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
+    listenIgnorePauses: (on: boolean) => { podcasts.listen.ignorePauses = on },
     /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */
     mapMessage: (m: MapMessage) => { if (mapPanel.journey) onMapMessage(mapPanel.journey, m) },
     /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */

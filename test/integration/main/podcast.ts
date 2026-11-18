@@ -15,6 +15,7 @@ import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { ctx, journeysDir, tour, wsPath } from './context'
 import { waiter } from '../helpers'
 import { ui } from '../devtools'
+import { markTimes, marksAt } from '../../../src/podcast/model'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const pod = () => ctx.api.podcast() as any
@@ -808,15 +809,18 @@ export const podcastTests = [
     const before = pod().camera.waits.length
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     // Watched every 30 ms: the cue, the wait, line 200 on screen.
-    const seen: { cueAt?: number; waitAt?: number; shownAt?: number; note?: string; pausedInWait?: boolean } = {}
+    const seen: { cueAt?: number; waitAt?: number; shownAt?: number; note?: string; pausedInWait?: boolean; shownPlaying?: boolean } = {}
     const t0 = Date.now()
     await until('the move to line 200 made, the wait over', async () => {
       const c = pod().camera
       if (c.cue === '↓ 200' && seen.cueAt === undefined) seen.cueAt = Date.now() - t0
       if (c.waiting && seen.waitAt === undefined) {
         seen.waitAt = Date.now() - t0
-        seen.pausedInWait = !pod().playing || !!(await panelAudio()).paused
-        seen.note = (await panelAudio()).note
+        await sleep(300)
+        const a = await panelAudio()
+        seen.pausedInWait = a.paused && pod().camera.waiting !== undefined
+        seen.note = a.note
+        seen.shownPlaying = pod().playing && /Listening/.test(pod().item)
       }
       if (shows(199) && seen.shownAt === undefined) seen.shownAt = Date.now() - t0
       return c.waits.length > before && c.waits[before].ended === 'time' && pod().playing
@@ -824,18 +828,18 @@ export const podcastTests = [
     const w = pod().camera.waits[before]
     assert.equal(w.where, '↓ 200', `the first wait is the move to line 200 (line 5, in view, never waited): ${JSON.stringify(pod().camera.waits.slice(before))}`)
     // Line 5 lit at 5.88 s; line 200 due at 6.88 s: 1.5 s of the 2.5 s read time left, then 0.8 s settle.
-    assert.ok(w.read >= 1.0 && w.read <= 2.2, `read wait ${w.read}`)
+    assert.ok(w.read >= 1.0 && w.read <= 2.2, `read wait ${JSON.stringify(pod().camera.waits.slice(before))} ${JSON.stringify(seen)}`)
     assert.ok(w.settle >= 0.7 && w.settle <= 1.3, `settle ${w.settle}`)
     assert.ok(seen.cueAt !== undefined && seen.shownAt !== undefined && seen.cueAt < seen.shownAt, `the heads-up before the move: ${JSON.stringify(seen)}`)
     assert.ok(seen.pausedInWait, 'the audio waits')
-    assert.match(seen.note ?? '', /Waiting to move ↓ 200/, 'the player says it is waiting')
+    assert.equal(seen.note, '', 'no line under the player: the edge cue says it')
+    assert.ok(seen.shownPlaying, 'a wait is no pause: still Listening')
     assert.ok(shows(199), 'line 200 on screen')
-    assert.equal((await panelAudio()).note, '', 'the waiting line goes once it plays on')
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
   }),
 
-  test('camera: no wait after the reader\'s own seek, none under the follow lock; ▶ skips a wait', async () => {
+  test('camera: no wait after the reader\'s own seek, none under the follow lock; playing on ends a wait, Space in one pauses', async () => {
     const shows = (line: number) => !!codeEditor()?.visibleRanges.some((r) => r.contains(new vscode.Position(line, 0)))
     // A seek right before the far mark: it moves without waiting.
     await seek(6.5)
@@ -861,19 +865,201 @@ export const podcastTests = [
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
     await vscode.commands.executeCommand('codeNotes.podcastFollow')
-    // ▶ during a wait: it plays on at once.
+    // Played on during a wait (a headset key, another ▶): it plays on at once, the walk at the audio's time.
     await seek(4.3)
     await until('back on the beat', () => litLine() === 3 && !pod().applying && shows(2), 8000)
     await sleep(1600)
     n = pod().camera.waits.length
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('a wait', () => pod().camera.waiting === 'read', 6000)
-    await vscode.commands.executeCommand('codeNotes.podcastToggle')
-    await until('▶ skipped it: playing, no wait, moved', () => pod().playing && !pod().camera.waiting && shows(199), 3000)
+    await send({ action: 'play' })
+    await until('played on: no wait, line 200 on screen', () => pod().audible && !pod().camera.waiting && shows(199), 3000)
     assert.equal(pod().camera.waits[n]?.ended, 'skip')
+    // Space in a wait is the reader's pause (the player showed ⏸): paused, the move dropped.
+    await seek(4.3)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying && shows(2), 8000)
+    await sleep(1600)
+    n = pod().camera.waits.length
+    await until('a wait', () => pod().camera.waiting === 'read', 6000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused by the reader', () => !pod().playing && !pod().camera.waiting, 3000)
+    assert.equal(pod().camera.waits[n]?.ended, 'cancel')
+    await sleep(600)
+    assert.ok((await panelAudio()).paused && !pod().playing, 'it stays paused: the wait does not resume it')
+    await cameraWaits(0, 0)
+  }),
+
+  // ---------- the walk keeps time with the voice: waits hold the audio wherever the Listen view is; never a lag ----------
+
+  test('camera: playing on through out-of-view moves with the Listen view collapsed and the panel closed: the audio holds in each wait, nothing says paused, the marks are the audio\'s after each move', async () => {
+    await cameraWaits(1.2, 0.6)
+    writeWalkJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podwalk'), 10000)
+    await closeAllButPanel()
+    await playIt('podwalk')
     await vscode.commands.executeCommand('codeNotes.podcastToggle')
     await until('paused', () => !pod().playing)
+    await seek(WALK_FROM)
+    await until('step 1 on its beat', () => tour().journey === 'podwalk' && litLine() === 3 && !pod().applying, 8000)
+    // The map panel closed (the audio plays on in the Listen view), the Listen view collapsed.
+    await closePanel()
+    await setListenCollapsed(true)
+    await sleep(1600)
+    const before = pod().camera.waits.length
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    const ticks = await watchPlay(() => pod().camera.waits.length - before >= 4 && !pod().camera.waiting, 30000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await setListenCollapsed(false)
+    checkWaits(ticks, pod().camera.waits.slice(before), 4)
+  }),
+
+  test('camera: a hold the audio ignores is dropped within ~300 ms and the walk goes to what is said now; waits are off for a while after', async () => {
+    await cameraWaits(2.5, 0.8)
+    await seek(WALK_FROM)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying, 8000)
+    await sleep(2600)
+    const before = pod().camera.waits.length
+    ctx.api.listenIgnorePauses(true)
+    try {
+      await vscode.commands.executeCommand('codeNotes.podcastToggle')
+      const ticks = await watchPlay(() => pod().marks.some((m: any) => m.line === WALK_LINES[3] - 1 && m.style === 'focus') && !pod().camera.waiting, 20000)
+      const waits = pod().camera.waits.slice(before)
+      assert.equal(waits[0]?.ended, 'abandon', `the first wait is dropped: ${JSON.stringify(waits)}`)
+      assert.equal(waits.length, 1, `then no more waits (they stay off): ${JSON.stringify(waits)}`)
+      assert.ok(ticks.every((k) => !k.paused), 'the audio never stopped')
+      // From the moment the wait began, the walk is the audio's again within ~300 ms, and stays so.
+      const start = ticks.findIndex((k) => k.waiting)
+      assert.ok(start >= 0, 'a wait began')
+      const late = ticks.filter((k, i) => i > start && k.ms - ticks[start].ms > 350 && !k.marksMatch)
+      assert.equal(late.length, 0, `the marks lag the audio after the wait was dropped: ${JSON.stringify(late.slice(0, 3))}`)
+      const lag = ticks.filter((k) => Math.abs(k.audioNow - k.t) > 0.3)
+      assert.equal(lag.length, 0, `the extension's time is the audio's (±0.3 s): ${JSON.stringify(lag.slice(0, 3))}`)
+    } finally {
+      ctx.api.listenIgnorePauses(false)
+    }
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('camera: a wait is no pause (card one line, status Listening, ⏸ in the players, no line under them); the reader scrolling in small steps opens the follow lock and ends the wait; the card changing size does not', async () => {
+    await vscode.commands.executeCommand('codeNotes.podcastFollow')
+    // A long read time: the wait starts before the code moves (the reader's scroll is theirs then).
+    await cameraWaits(6, 0.8)
+    await openPanel('podwalk')
+    await seek(WALK_FROM)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying, 8000)
+    await sleep(1600)
+    const n = pod().camera.waits.length
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('a wait', () => pod().camera.waiting === 'read', 8000)
+    await sleep(300)
+    const a = await panelAudio()
+    assert.ok(a.paused, 'the audio holds')
+    assert.equal(a.note, '', 'no line under the player')
+    assert.match(pod().item, /^\$\(unmute\) Listening/, `the status item: ${pod().item}`)
+    assert.match(tour().card?.body ?? '', /narrating/, 'the step card stays one line')
+    assert.equal(await playButtonOn(await listenFrame()), 'true', 'the Listen view shows ⏸')
+    assert.equal(await playButtonOn(await panelFrame()), 'true', 'the panel shows ⏸')
+    assert.equal(await panelText('.pod-err'), '', 'no line under the panel\'s player')
+    // The reader scrolls one line at a time: together it is a scroll.
+    const ed = codeEditor()!
+    const top0 = ed.visibleRanges[0].start.line
+    await vscode.window.showTextDocument(ed.document, { viewColumn: ed.viewColumn, preserveFocus: false })
+    for (let i = 1; i <= 5; i++) {
+      await vscode.commands.executeCommand('editorScroll', { to: 'down', by: 'line', value: 1 })
+      await sleep(120)
+    }
+    await until('not following; the wait ended, playing on', () => pod().follow === false && !pod().camera.waiting && pod().audible, 3000)
+    assert.equal(pod().camera.waits[n]?.ended, 'release')
+    assert.ok(ed.visibleRanges[0].start.line >= top0 + 3, `the reader stays where they scrolled (${top0} → ${ed.visibleRanges[0].start.line})`)
+    await vscode.commands.executeCommand('codeNotes.podcastFollow')
+    // Pause and play with the card on screen: its size changes, nobody scrolled.
+    await sleep(1700)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await until('the full card', () => !/narrating/.test(tour().card?.body ?? ''), 3000)
+    await sleep(1700)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await sleep(800)
+    assert.equal(pod().follow, true, `the card changing size is not the reader (${pod().unlock})`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('camera: a mark brought on screen keeps column 1 in view; the code scrolls right only for a mark that starts past the edge', async () => {
     await cameraWaits(0, 0)
+    writeWideJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podwide'), 10000)
+    await playIt('podwide')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(4.2)
+    await until('step 1 on its beat', () => tour().journey === 'podwide' && litLine() === 2 && !pod().applying, 8000)
+    await sleep(1600)
+    // The reader's editor scrolled right before (as after an earlier long line).
+    const ed = codeEditor()!
+    ed.revealRange(new vscode.Range(1, 250, 1, 251), vscode.TextEditorRevealType.Default)
+    await until('scrolled right', async () => (await scrollLeft('wide1')) > 100, 3000)
+    await sleep(1600)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    // A long mark starting at column 9 on line 150: shown from column 1.
+    await until('line 150 lit and on screen', () => pod().marks.some((m: any) => m.line === 149) && ed.visibleRanges.some((r) => r.contains(new vscode.Position(149, 0))), 6000)
+    await sleep(1000)
+    assert.equal(await scrollLeft('wide150'), 0, `column 1 in view: ${JSON.stringify(await editorBox('wide150'))}`)
+    // A mark starting at column 260 on line 300: scrolled right just enough to show its start.
+    await until('line 300 lit and on screen', () => pod().marks.some((m: any) => m.line === 299) && ed.visibleRanges.some((r) => r.contains(new vscode.Position(299, 0))), 6000)
+    await until('scrolled right to it', async () => (await scrollLeft('wide300')) > 0, 3000).catch(() => undefined)
+    await sleep(400)
+    const left = await scrollLeft('wide300')
+    const view = await editorBox('wide300')
+    assert.ok(left > 0 && view.markLeft >= view.left && view.markLeft < view.right, `the mark's start is shown (scrollLeft ${left}, ${JSON.stringify(view)})`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('long run: 10 minutes at 2× with camera waits and out-of-view moves: the extension\'s time, the captions and the marks are the audio\'s at the end', async () => {
+    await cameraWaits(1.0, 0.4)
+    writeLongJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podlong'), 10000)
+    // Ten minutes of audio take a moment to load (it is fetched whole) before it plays on its own; from the start.
+    await vscode.commands.executeCommand('codeNotes.playPodcast', 'podlong')
+    await until('the panel shows it', () => tour().map === 'podlong' && pod().mapVisible, 10000)
+    if (!(await until('playing on its own', () => pod().playing && pod().session === 'podlong', 12000).catch(() => false))) await (await listenFrame()).click('.pod-b.play')
+    await until('playing', () => pod().playing && pod().session === 'podlong', 10000)
+    await seek(0)
+    await until('from the start', () => pod().t < 3 && pod().playing, 8000)
+    await send({ action: 'rate', rate: 2 })
+    await until('at 2×', () => pod().playing, 5000)
+    const before = pod().camera.waits.length
+    const drift: { at: number; ext: number }[] = []
+    await until('near the end', async () => {
+      const a = await panelAudio()
+      drift.push({ at: a.t, ext: pod().audioNow })
+      return a.t > LONG_S - 25
+    }, (LONG_S / 2) * 1000 + 60000)
+    const waits = pod().camera.waits.slice(before)
+    assert.ok(waits.filter((w: any) => w.ended === 'time').length >= 5, `camera waits made: ${JSON.stringify(waits.slice(0, 8))}`)
+    // At the end, playing: one moment, read together.
+    const f = await listenFrame()
+    const pf = await panelFrame()
+    const a = await f.evaluate(() => { const d = (globalThis as any).document; return { t: d.querySelector('.pod audio').currentTime, cap: d.querySelector('.pod-cap-t').textContent } })
+    const ext = pod().audioNow
+    const pcap = await pf.evaluate(() => (globalThis as any).document.querySelector('.pod-cap-t').textContent)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await sleep(400)
+    const worst = Math.max(...drift.slice(20).map((d) => Math.abs(d.at - d.ext)))
+    console.log(`    (long run: ${waits.length} waits; extension time vs audio at the end ${(ext - a.t).toFixed(3)} s, worst while playing ${worst.toFixed(3)} s)`)
+    assert.ok(Math.abs(ext - a.t) < 0.3, `the extension's time ${ext} vs the audio's ${a.t}`)
+    const seg = LONG_SEGS.find((x) => a.t >= x.start && a.t < x.end)!
+    assert.ok(seg && a.cap && seg.text.includes(a.cap.trim()), `the Listen view's caption is the segment at ${a.t}: "${a.cap}" in "${seg?.text}"`)
+    assert.ok(pcap && seg.text.includes(pcap.trim()), `the panel's caption too: "${pcap}"`)
+    const paused = await f.evaluate(() => (globalThis as any).document.querySelector('.pod audio').currentTime)
+    const want = expectedFocus(LONG_SEGS, paused)
+    const got = pod().marks.filter((m: any) => m.style === 'focus').map((m: any) => m.line + 1)
+    assert.deepEqual(got, want, `the lit marks are the audio's at ${paused}`)
   }),
 ]
 
@@ -1062,4 +1248,205 @@ async function playIt(id: string): Promise<void> {
     await f.click('.pod-b.play')
   }
   await until('playing', () => pod().playing && pod().session === id, 10000)
+}
+
+// ---------- the walk keeping time with the voice: fixtures and watching ----------
+
+interface TSeg { id: string; start: number; end: number; text: string; marks?: { phrase: string; at: number; lines: [number, number]; match?: string }[] }
+
+/** The focus marks' lines (1-based) lit at second `t` of `segs` (the segment's marks timed as the player times them). */
+function expectedFocus(segs: TSeg[], t: number): number[] {
+  const seg = [...segs].reverse().find((x) => t >= x.start)
+  if (!seg?.marks || t >= seg.end) return []
+  const times = markTimes(seg)
+  const { lit, focusFrom } = marksAt(times, t)
+  return seg.marks.slice(focusFrom, lit).map((m) => m.lines[0])
+}
+/** Second `t` is this close to a mark lighting (s): what is lit then may be either side of it. */
+const nearMark = (segs: TSeg[], t: number, by = 0.2) => segs.some((x) => markTimes(x).some((m) => Math.abs(m - t) < by))
+
+/** "podwalk": one step (src/walk.ts, its beat on line 3) whose part (4-38 s) lights marks far apart: line 5 (in view),
+ *  then 300, 20, 350, 40, 380 (each out of view of the one before). */
+const WALK_LINES = [5, 300, 20, 350, 40, 380]
+const WALK_FROM = 4.3
+const WALK_SEGS: TSeg[] = [
+  { id: 'intro', start: 0, end: 3.8, text: 'Hello.' },
+  { id: 'w1', start: 4, end: 38, text: 'Alpha here, beta far down, gamma up, delta down, epsilon up, zeta down.', marks: [
+    { phrase: 'Alpha', at: 1, lines: [5, 5] }, { phrase: 'beta', at: 4, lines: [300, 300] }, { phrase: 'gamma', at: 8, lines: [20, 20] },
+    { phrase: 'delta', at: 12, lines: [350, 350] }, { phrase: 'epsilon', at: 16, lines: [40, 40] }, { phrase: 'zeta', at: 20, lines: [380, 380] },
+  ] },
+  { id: 'outro', start: 38.2, end: 40, text: 'Bye.' },
+]
+function writeWalkJourney() {
+  writeLines(wsPath('src', 'walk.ts'), Array.from({ length: 420 }, (_, i) => `export const walk${i + 1} = ${i + 1}`))
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'walk()', checks: ['a'] }]
+  writeJourney(journeysDir(), journey('podwalk', [step('src/walk.ts', 1, 10, { id: 'W1', title: 'walk one', scene: { actors, wires: [], beats: [
+    { focus: 'svc', caption: 'Here.', code: { file: 'src/walk.ts', line: 3, text: 'export const walk3 = 3' } },
+  ] } })], { title: 'Pod walk' }))
+  writePodcast('podwalk', 'Pod walk', WALK_SEGS.map((x) => ({ ...x, at: x.marks ? { step: 'W1', beat: 1 } : null })), 40, tonePath())
+}
+
+/** "podwide": src/wide.ts of long lines (each starts with its tag, "/* wide<n> *\/"); marks on line 150 (a short match
+ *  at column 15) and line 300 (FARMARK, past column 260). */
+function writeWideJourney() {
+  writeLines(wsPath('src', 'wide.ts'), Array.from({ length: 320 }, (_, i) => `/* wide${i + 1} */ export const w${i + 1} = '${'x'.repeat(240)}${i + 1 === 300 ? 'FARMARK' : 'yyyyyyy'}${'z'.repeat(60)}'`))
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'wide()', checks: ['a'] }]
+  const l2 = `/* wide2 */ export const w2 = '${'x'.repeat(240)}yyyyyyy${'z'.repeat(60)}'`
+  writeJourney(journeysDir(), journey('podwide', [step('src/wide.ts', 1, 5, { id: 'X1', title: 'wide one', scene: { actors, wires: [], beats: [
+    { focus: 'svc', caption: 'Here.', code: { file: 'src/wide.ts', line: 2, text: l2 } },
+  ] } })], { title: 'Pod wide' }))
+  writePodcast('podwide', 'Pod wide', [
+    { id: 'intro', at: null, start: 0, end: 3.8, text: 'Hello.' },
+    { id: 'x1', at: { step: 'X1', beat: 1 }, start: 4, end: 38, text: 'This constant, and that far mark.', marks: [
+      { phrase: 'This constant', at: 3.5, lines: [150, 150], match: 'export const w150' },
+      { phrase: 'that far mark', at: 6.5, lines: [300, 300], match: 'FARMARK' },
+    ] },
+    { id: 'outro', at: null, start: 38.2, end: 40, text: 'Bye.' },
+  ], 40, tonePath())
+}
+
+/** "podlong": ten minutes (the tone fifteen times), one step (src/long.ts), a part every 20 s whose two marks are far
+ *  apart (lines 10 and 300, then 350 and 30, …). */
+const LONG_S = 601
+const LONG_SEGS: TSeg[] = [{ id: 'intro', start: 0, end: 3.8, text: 'Hello.' }]
+for (let k = 0, t = 4; t + 20 <= 585; k++, t += 20) {
+  const [a, b] = k % 2 ? [350, 30] : [10, 300]
+  LONG_SEGS.push({ id: `p${k}`, start: t, end: t + 19.8, text: `Part ${k + 1}. Here is one thing, and then another thing far away, said slowly.`, marks: [
+    { phrase: 'one thing', at: 2, lines: [a, a] }, { phrase: 'another thing', at: 10, lines: [b, b] },
+  ] })
+}
+LONG_SEGS.push({ id: 'outro', start: 585, end: LONG_S - 0.5, text: 'That was all.' })
+function writeLongJourney() {
+  writeLines(wsPath('src', 'long.ts'), Array.from({ length: 420 }, (_, i) => `export const long${i + 1} = ${i + 1}`))
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'long()', checks: ['a'] }]
+  writeJourney(journeysDir(), journey('podlong', [step('src/long.ts', 1, 10, { id: 'G1', title: 'long one', scene: { actors, wires: [], beats: [
+    { focus: 'svc', caption: 'Here.', code: { file: 'src/long.ts', line: 3, text: 'export const long3 = 3' } },
+  ] } })], { title: 'Pod long' }))
+  const mp3 = path.join(journeysDir(), 'podlong.mp3')
+  if (!fs.existsSync(mp3)) fs.writeFileSync(mp3, longTone(15))
+  writePodcast('podlong', 'Pod long', LONG_SEGS.map((x) => ({ ...x, at: x.marks ? { step: 'G1', beat: 1 } : null })), LONG_S, mp3)
+}
+
+const tonePath = () => path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3')
+/** The tone `n` times over: its MPEG frames repeated (its first frame, the length header, left out: the player
+ *  measures the stream itself). */
+function longTone(n: number): Buffer {
+  const d = fs.readFileSync(tonePath())
+  let i = d.subarray(0, 3).toString() === 'ID3' ? 10 + ((d[6] << 21) | (d[7] << 14) | (d[8] << 7) | d[9]) : 0
+  const BR = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+  const SR = [22050, 24000, 16000]
+  const frames: Buffer[] = []
+  while (i + 4 <= d.length && d[i] === 0xff && (d[i + 1] & 0xe0) === 0xe0) {
+    const len = Math.floor((72 * BR[(d[i + 2] >> 4) & 15] * 1000) / SR[(d[i + 2] >> 2) & 3]) + ((d[i + 2] >> 1) & 1)
+    frames.push(d.subarray(i, i + len))
+    i += len
+  }
+  const body = Buffer.concat(frames.slice(1))
+  return Buffer.concat(Array.from({ length: n }, () => body))
+}
+
+/** A podcast file for journey `id`, its audio a copy of `audio` (kept if there). */
+function writePodcast(id: string, title: string, segments: object[], duration: number, audio: string) {
+  const mp3 = path.join(journeysDir(), `${id}.mp3`)
+  if (audio !== mp3 && !fs.existsSync(mp3)) fs.copyFileSync(audio, mp3)
+  fs.writeFileSync(path.join(journeysDir(), `${id}.podcast.json`), JSON.stringify({
+    version: 1, title, journey: { id }, audio: `${id}.mp3`, duration,
+    segments: segments.map((x: any) => ({ speaker: 'host', ...x })),
+  }))
+}
+
+/** The journey panel closed (the audio plays on in the Listen view). */
+async function closePanel(): Promise<void> {
+  const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input instanceof vscode.TabInputWebview && /codeNotes\.journey/.test(t.input.viewType))
+  if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
+  await until('the panel closed', () => !pod().mapVisible, 5000)
+}
+/** The panel open on the journey listened to. */
+async function openPanel(id: string): Promise<void> {
+  await vscode.commands.executeCommand('codeNotes.podcastOpen')
+  await until('the panel shows it', () => tour().map === id && pod().mapVisible, 10000)
+}
+/** The Listen view's section collapsed (or open again) in the side bar, as a click on its header does. */
+async function setListenCollapsed(collapsed: boolean): Promise<void> {
+  await vscode.commands.executeCommand('codeNotes.listen.focus')
+  const page = await ui()
+  const h = page.locator('.pane-header', { hasText: /^\s*listen/i }).first()
+  if (((await h.getAttribute('aria-expanded')) === 'true') === collapsed) await h.click()
+  await until(`the Listen view ${collapsed ? 'collapsed' : 'open'}`, async () => ((await h.getAttribute('aria-expanded')) === 'true') !== collapsed, 3000)
+  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')
+}
+/** The play button's state in a player (its data-on: 'true' shows ⏸). */
+async function playButtonOn(f: import('playwright').Frame): Promise<string> {
+  return f.evaluate(() => (globalThis as any).document.querySelector('.pod-b.play').dataset.on)
+}
+/** The workbench's code editor showing a line tagged `tag`: how far it is scrolled right (px). */
+async function scrollLeft(tag: string): Promise<number> {
+  return (await editorBox(tag)).scrollLeft
+}
+async function editorBox(tag: string): Promise<{ scrollLeft: number; left: number; right: number; markLeft: number }> {
+  const page = await ui()
+  return page.evaluate((tg) => {
+    const d = (globalThis as any).document
+    for (const ed of d.querySelectorAll('.monaco-editor')) {
+      const lines = ed.querySelector('.view-lines')
+      if (!lines || !lines.textContent.includes(tg)) continue
+      const box = ed.querySelector('.overflow-guard').getBoundingClientRect()
+      const mini = ed.querySelector('.minimap')
+      const right = box.right - (mini ? mini.getBoundingClientRect().width : 0) - 14
+      let markLeft = -1
+      const w = d.createTreeWalker(lines, 4)
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const k = n.textContent.indexOf('FARMARK')
+        if (k < 0) continue
+        const r = d.createRange()
+        r.setStart(n, k)
+        r.setEnd(n, k + 1)
+        markLeft = r.getBoundingClientRect().left
+      }
+      return { scrollLeft: -parseFloat(ed.querySelector('.lines-content').style.left || '0'), left: box.left, right, markLeft }
+    }
+    return { scrollLeft: -1, left: 0, right: 0, markLeft: -1 }
+  }, tag)
+}
+
+/** One look while it plays: the audio's own time and state (Listen view), the extension's, the marks. */
+interface Tick { ms: number; t: number; paused: boolean; waiting: string | undefined; playing: boolean; item: string; audioNow: number; focus: number[]; marksMatch: boolean }
+/** Plays on until `done()`, looking every ~40 ms. */
+async function watchPlay(done: () => boolean, ms: number, segs = WALK_SEGS): Promise<Tick[]> {
+  const f = await listenFrame()
+  const out: Tick[] = []
+  const t0 = Date.now()
+  while (!done()) {
+    if (Date.now() - t0 > ms) throw new Error(`watching it play: not done in ${ms} ms: ${JSON.stringify(pod().camera.waits)}`)
+    const a = await f.evaluate(() => { const x = (globalThis as any).document.querySelector('.pod audio'); return { t: x.currentTime, paused: x.paused } })
+    const p = pod()
+    const focus = p.marks.filter((m: any) => m.style === 'focus').map((m: any) => m.line + 1).sort((x: number, y: number) => x - y)
+    const want = expectedFocus(segs, a.t).sort((x, y) => x - y)
+    out.push({ ms: Date.now() - t0, t: a.t, paused: a.paused, waiting: p.camera.waiting, playing: p.playing, item: p.item, audioNow: p.audioNow,
+      focus, marksMatch: JSON.stringify(focus) === JSON.stringify(want) || nearMark(segs, a.t) })
+    await sleep(40)
+  }
+  return out
+}
+/** The waits watched: at least `min` made in full; in each, after its first 300 ms, the audio stood still and nothing
+ *  said paused; after each, the marks lit are those at the audio's time. */
+function checkWaits(ticks: Tick[], waits: any[], min: number): void {
+  assert.ok(waits.filter((w) => w.ended === 'time').length >= min, `waits made: ${JSON.stringify(waits)}`)
+  const runs: Tick[][] = []
+  let cur: Tick[] | undefined
+  for (const k of ticks) {
+    if (k.waiting) { if (!cur) runs.push(cur = []); cur.push(k) } else cur = undefined
+  }
+  assert.ok(runs.length >= min, `waits seen while playing: ${runs.length}`)
+  for (const run of runs) {
+    const held = run.filter((k) => k.ms - run[0].ms > 300)
+    if (!held.length) continue
+    const ts = held.map((k) => k.t)
+    assert.ok(Math.max(...ts) - Math.min(...ts) < 0.05 && held.every((k) => k.paused), `the audio stood still in the wait from ${run[0].t.toFixed(2)} s: ${JSON.stringify(held.map((k) => [k.t.toFixed(2), k.paused]))}`)
+    assert.ok(run.every((k) => k.playing && /Listening/.test(k.item)), `nothing said paused in the wait: ${JSON.stringify(run.map((k) => [k.playing, k.item]))}`)
+    const end = run[run.length - 1].ms
+    const after = ticks.filter((k) => k.ms > end + 150 && k.ms < end + 1500)
+    const off = after.filter((k) => !k.marksMatch)
+    assert.equal(off.length, 0, `after the wait at ${run[0].t.toFixed(2)} s the marks are the audio's: ${JSON.stringify(off.slice(0, 3))}`)
+  }
 }

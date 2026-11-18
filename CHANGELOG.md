@@ -71,8 +71,19 @@
 - **Listen: camera moves give you time to read.** When the next mark, beat or step is out of view, a cue at the
   editor's edge says where the code goes ("↓ 340", "↑ 212", "→ main.ts") 0.8 s before; the code moves only once what
   was just lit has been on screen 2.5 s (`codeNotes.listen.readBeforeMove`), and the audio then waits 0.8 s with the
-  new mark lit (`codeNotes.listen.settleAfterMove`). The player says it is waiting; ▶ or Space plays on at once. No
-  waits when the code is on screen, under the follow lock, after your own seeks, or on the map.
+  new mark lit (`codeNotes.listen.settleAfterMove`). A wait is not a pause: the player, the status bar, the Journeys
+  row and the step card stay as they are; the cue is all that shows it. No waits when the code is on screen, under the
+  follow lock, after your own seeks, or on the map. The walk never lags the voice: if the audio doesn't stop for a
+  wait (checked against the audio's own time), or you play on or scroll during one, the wait is dropped and the code
+  goes to what is being said now; waits then stay off for 30 s.
+- **Listen: the player and the walk keep time with the audio.** The panel's player (a remote of the Listen view)
+  counts from when the audio said its time, not from when the message arrived, so a busy extension never puts its
+  caption behind the voice; a run of time reports that piled up is applied once, its newest. Captions of a long
+  sentence change part when its words are said (the marks' phrases are word-timed) instead of by character count.
+- **Listen: the follow lock sees the reader.** A slow scroll in small steps now counts (measured from where the
+  extension left the code), and the step card growing or shrinking on pause and play no longer counts as the reader
+  scrolling. A mark brought on screen keeps column 1 in view; the code scrolls right only when the mark starts past
+  the right edge.
 - **Listen: more checks of the podcast file.** A step the journey doesn't have is said once with its segments and times; a beat written
   as a string, a reused segment id (with both times), and narration in another order than the journey's are warnings;
   a podcast recorded for an older commit whose steps' code changed since gets a quiet note; a podcast file not named

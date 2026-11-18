@@ -93,9 +93,13 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   /** A file as the view loads it (undefined: no view yet). */
   toUri(u: vscode.Uri): string | undefined { return this.view?.webview.asWebviewUri(u).toString() }
 
+  /** Tests: the page ignores the extension's pauses (as a page that can't act on them would). */
+  ignorePauses = false
+
   /** A message for the page: sent once it is ready (dropped while there is no view: `ensure()` first). */
   send(m: unknown): void {
     if (!this.view) return
+    if (this.ignorePauses && (m as { action?: string })?.action === 'pause') return
     if (this.ready) void this.view.webview.postMessage(m)
     else this.queue.push(m)
   }

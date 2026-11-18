@@ -64,7 +64,7 @@ interface Broken { file: vscode.Uri; reason: string }
 const LAST_GOOD = 'The podcast file has errors: playing the last good version'
 
 /** What the panel sends about the audio (MapMessage podcastTime): `of`, the journey (key) whose audio it is. */
-export interface TimeReport { t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
+export interface TimeReport { t: number; playing: boolean; held?: boolean; rate?: number; seek?: boolean; of?: string; sent?: number }
 /** What the audio's player shows (journey-podcast.js S()), as the Listen view says it; relayed to the panel's remote. */
 export interface HostState { of: string; t: number; playing: boolean; rate?: number; muted?: boolean; ready?: boolean; ended?: boolean; dur?: number; reach?: number; err?: string; note?: boolean; seek?: boolean }
 /** What the panel's player (a remote) asks of the audio. */
@@ -133,6 +133,15 @@ class Podcasts {
   /** Where the audio was last sought to (s): the code moves in the next NO_WAIT_AFTER_SEEK_S of audio are the
    *  reader's own (no camera wait). */
   private lastSeekT = -Infinity
+  /** The audio itself is playing (not in a camera hold), as last reported; that report and when it came (ms). */
+  private audible = false
+  private lastReport: { key: string; t: number; playing: boolean; rate: number; at: number } | undefined
+  /** The quickest report's (arrival − sent) (ms), and when it was measured: what a report is late by is beyond it. */
+  private clockCur = Infinity
+  private clockPrev = Infinity
+  private clockOffAt = 0
+  /** A time report waiting for the others that came with it (only the newest of a run is applied). */
+  private queued: { shown: LoadedJourney; m: TimeReport; at: number } | undefined
 
   init(context: vscode.ExtensionContext): void {
     this.item = vscode.window.createStatusBarItem('codeNotes.listen', vscode.StatusBarAlignment.Left, 49.25)
@@ -155,9 +164,10 @@ class Podcasts {
     beats.follow = walk.following
     this.lights = new MarkLights(log)
     this.camera = new Camera({
-      pause: () => { this.reason = 'waiting for the code to move'; this.command('pause') },
-      resume: () => this.command('play'),
-      note: (text) => this.command('note', { text }),
+      hold: () => this.listen.send({ type: 'podcastCmd', action: 'pause', hold: true }),
+      resume: () => this.listen.send({ type: 'podcastCmd', action: 'unhold' }),
+      audio: () => ({ t: this.audioNow(), playing: this.audible }),
+      resync: () => this.resync(),
       log: (line) => log.info(line),
     })
     context.subscriptions.push(this.camera, this.follow, this.lights, { dispose: () => { clearTimeout(this.seekTimer); clearTimeout(this.markTimer) } })
@@ -180,6 +190,8 @@ class Podcasts {
   private followChanged(): void {
     const lj = this.sessionJourney()
     if (!this.follow.locked) {
+      // In a camera wait: it plays on at once (nothing of the reader's is moved).
+      this.camera.release()
       log.info(`podcast: not following the voice (the reader ${this.follow.lastUnlock} in the code) until the next step`)
       vscode.window.setStatusBarMessage('$(eye) Reading on your own: the code stays put until the next step (Follow along on the step card)', 5000)
     }
@@ -381,7 +393,7 @@ class Podcasts {
   private onHost(m: ListenMessage): void {
     const shown = (m as { of?: string }).of ? journeys.list.get((m as { of: string }).of) : undefined
     switch (m.type) {
-      case 'podcastTime': if (shown) this.onTime(shown, m); break
+      case 'podcastTime': if (shown) this.timeReport(shown, m); break
       case 'podcastState': this.onState(m as unknown as HostState); break
       case 'podcastError': this.onError(shown, String(m.message), m.of); break
       case 'podcastMeta': if (shown) this.onAudioMeta(shown, Number(m.duration), m.of); break
@@ -394,6 +406,70 @@ class Podcasts {
         this.hostState = undefined
         break
     }
+  }
+
+  /**
+   * A time report from the audio. Reports come four or five times a second; when the extension is slow to take them
+   * (a busy extension host, a remote window) they pile up, and taking each in turn would keep the walk behind the
+   * voice. So a run of reports that only say "playing on, here" is applied once, its newest; a seek, or a change of
+   * playing, is applied as it comes (after the run before it).
+   */
+  private timeReport(shown: LoadedJourney, m: TimeReport): void {
+    const at = Date.now()
+    // How long it took to come: its age beyond the quickest report's (the two clocks may differ: a remote window).
+    // Playing, the audio is that much further on now.
+    if (typeof m.sent === 'number' && m.playing && !m.seek) {
+      // The quickest of the last 30 to 60 s: a clock that jumped is followed within a minute.
+      const off = at - m.sent
+      if (at - this.clockOffAt > 30000) { this.clockPrev = this.clockCur; this.clockCur = off; this.clockOffAt = at }
+      this.clockCur = Math.min(this.clockCur, off)
+      const late = Math.min(10000, off - Math.min(this.clockCur, this.clockPrev))
+      if (late > 20) m = { ...m, t: m.t + (late / 1000) * (m.rate || 1) }
+    }
+    const q = this.queued
+    const plain = (x: TimeReport) => !x.seek
+    if (q && (!plain(m) || q.m.playing !== m.playing || !!q.m.held !== !!m.held || q.m.of !== m.of)) this.flushTime()
+    if (!plain(m)) { this.onTime(shown, m, at); return }
+    const first = !this.queued
+    this.queued = { shown, m, at }
+    if (first) setImmediate(() => this.flushTime())
+  }
+  private flushTime(): void {
+    const q = this.queued
+    this.queued = undefined
+    if (q) this.onTime(q.shown, q.m, q.at)
+  }
+
+  /** Where the audio is now (s): its last report, moved on by the time since when it is playing. */
+  private audioNow(): number {
+    const r = this.lastReport
+    if (!r || r.key !== this.session) return this.t
+    return r.playing ? r.t + ((Date.now() - r.at) / 1000) * (r.rate || 1) : r.t
+  }
+
+  /**
+   * The walk put where the audio is now (a camera wait dropped: the audio did not hold, or the reader played on or
+   * looked around): its view and its marks at that time, at once and without waits (as after a seek), never the
+   * moves that waited.
+   */
+  private resync(): void {
+    const lj = this.sessionJourney()
+    const l = lj && this.eps.get(lj.key)
+    if (!lj || !l) return
+    this.asked = undefined
+    const t = this.audioNow()
+    // The next moments of audio are as after a seek: the code goes there without waits.
+    this.lastSeekT = Math.min(t, this.posOf(lj))
+    const v = viewAt(l.ep, t)
+    const view = this.calmView(lj, l, v.seg)
+    this.lastSeg = v.seg
+    // The walk there already (a mark's move dropped): only the marks again.
+    if (!(sameView(view, this.want) && this.shows(lj, view))) {
+      this.want = this.withId(lj, view)
+      this.mover.push({ lj, view, still: true })
+    }
+    this.lights.again()
+    this.showMarks(lj, l, t, false, this.playing, this.lastReport?.rate)
   }
 
   /** The audio's state: kept (a reopened panel draws it), the muting remembered, and passed on to the panel. */
@@ -530,7 +606,7 @@ class Podcasts {
   // ---------- audio → journey ----------
 
   /** The panel says where the audio is. Playing (or seeking), the walk goes where the podcast is at that time. */
-  onTime(shown: LoadedJourney, m: TimeReport): void {
+  onTime(shown: LoadedJourney, m: TimeReport, at = Date.now()): void {
     // The journey the audio is of (the panel may have moved on to another one since it said it).
     const lj = (m.of && journeys.list.get(m.of)) || shown
     const l = this.eps.get(lj.key)
@@ -543,23 +619,30 @@ class Podcasts {
       if (!answers && Date.now() - asked.at < STALE_MS) return
       this.asked = undefined
     }
+    // Listening: the audio plays, or it is held for a camera wait (camera.ts: that is no pause, and nothing says one).
+    const on = m.playing || !!m.held
     const wasPlaying = lj.key === this.session && this.playing
-    // A seek drops a camera wait (the reader went elsewhere); ▶ during one skips it; a pause takes the heads-up away.
-    if (m.seek) { this.lastSeekT = m.t; this.camera.cancel() }
-    else if (m.playing && !wasPlaying) this.camera.played()
-    else if (!m.playing && !this.camera.waiting) this.camera.clearCue()
+    const wasAudible = lj.key === this.session && this.audible
+    // A seek drops a camera wait (the reader went elsewhere); the reader's pause too; the audio playing again by
+    // itself during one (the reader played on) ends it; a pause takes the heads-up away.
+    if (m.seek) { this.lastSeekT = m.t; this.camera.cancel(); this.camera.reset() }
+    else if (!on) this.camera.cancel()
+    else if (m.playing && !wasAudible) this.camera.played()
     if (m.rate && m.rate !== gstate.get<number>(RATE_KEY)) void gstate.update(RATE_KEY, m.rate)
-    this.savePos(lj, m.t, (wasPlaying && !m.playing) || !!m.seek)
-    if (m.playing) this.session = lj.key
+    this.savePos(lj, m.t, (wasPlaying && !on) || !!m.seek)
+    if (on) this.session = lj.key
     if (this.session !== lj.key) return
+    this.lastReport = { key: lj.key, t: m.t, playing: m.playing, rate: m.rate || 1, at }
+    this.audible = m.playing
     // The Journeys row says listening or paused.
-    if (this.playing !== m.playing || this.rowSession !== lj.key) { this.rowSession = lj.key; setTimeout(() => journeysTree?.refresh(), 0) }
-    this.playing = m.playing
-    if (wasPlaying !== m.playing) this.saidState(lj, m.t)
+    if (this.playing !== on || this.rowSession !== lj.key) { this.rowSession = lj.key; setTimeout(() => journeysTree?.refresh(), 0) }
+    this.playing = on
+    if (wasPlaying !== on) this.saidState(lj, m.t)
     this.renderItem()
     this.redrawCard(lj)
+    // In a hold the marks stand where they are (the audio stands still).
     this.showMarks(lj, l, m.t, !!m.seek, m.playing, m.rate)
-    // Paused and not moved: the walk is the reader's.
+    // Paused (or held) and not moved: the walk is the reader's (or the camera's).
     if (!m.playing && !m.seek) return
     const v = viewAt(l.ep, m.t)
     if (m.seek) {
@@ -669,7 +752,7 @@ class Podcasts {
       this.follow.ourMove()
       const e = shown() ?? await showInCodeGroup(doc, walk.codeColumn, { keepFocus: true })
       this.follow.ourMove()
-      e.revealRange(r, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+      await revealKeepingIndent(e, r, () => this.follow.locked)
     }, where, !onMap && !this.justSought())
   }
 
@@ -1003,6 +1086,8 @@ class Podcasts {
     const sig = n ? `${n.playing}|${n.following}|${n.beat}` : ''
     if (!always && sig === this.cardSig) return
     this.cardSig = sig
+    // The card growing or shrinking (paused: the full card) scrolls the code: the extension's, not the reader's.
+    this.follow.ourMove()
     card.show(lj, tourState.step)
   }
 
@@ -1080,7 +1165,7 @@ class Podcasts {
       vscode.window.setStatusBarMessage(`$(play) ${lj.j.title}: on from ${clock(at!)}${v.step ? ` · step ${v.step}` : ''}`, 4000)
     }
     this.session = lj.key
-    if (fresh) this.lastSeg = -1
+    if (fresh) { this.lastSeg = -1; this.camera.reset() }
     // Where the walk is now (the walk telling of a move that isn't one pauses nothing).
     this.want = { step: walkStep }
     const until = typeof o.until === 'number' ? { until: o.until } : {}
@@ -1128,8 +1213,6 @@ class Podcasts {
    *  without a podcast it says so: never another journey's podcast, ending this walk (F120). */
   async toggle(): Promise<void> {
     if (this.sessionJourney() && this.hostKey === this.session && this.listen.alive) {
-      // Waiting for the code to move (camera.ts): Space plays on, whatever the last report said.
-      if (this.camera.waiting) { this.command('play'); return }
       if (this.playing) this.reason = 'paused by the reader'
       this.command(this.playing ? 'pause' : 'play')
       return
@@ -1213,12 +1296,35 @@ class Podcasts {
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
       item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostAlive: this.listen.alive, hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
       why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor, marks: this.lights.lit(),
-      camera: { waiting: this.camera.waiting, cue: this.camera.cue, waits: [...this.camera.waits] },
+      camera: { waiting: this.camera.waiting, cue: this.camera.cue, waits: [...this.camera.waits] }, audible: this.audible, audioNow: this.audioNow(),
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
       notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
       links: Object.fromEntries([...this.eps].map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, brokenLinks(l.problems)])),
     }
   }
+}
+
+/**
+ * A mark brought on screen without scrolling the code sideways: its line is shown with column 1 (the indentation, the
+ * keywords) in view; only when the mark's start is beyond the editor's right edge does it scroll right, just enough
+ * to show it. The reader taking over meanwhile (`following()` false), or the code moved elsewhere, stops it.
+ */
+async function revealKeepingIndent(e: vscode.TextEditor, r: vscode.Range, following: () => boolean): Promise<void> {
+  const line = r.start.line
+  const drawn = (ms: number) => new Promise((res) => setTimeout(res, ms))
+  // Moved elsewhere meanwhile (a seek, the next step), or the reader took over: the rest is not done.
+  const still = () => following() && e.visibleRanges.some((v) => v.start.line <= line && line <= v.end.line)
+  // VS Code scrolls sideways only to a line it has drawn, and an extension's reveal scrolls smoothly (a few frames):
+  // first the line on screen, then column 1 with the mark's first character (both, if they fit), then that character
+  // alone (if it didn't: the least scroll right that shows it; nothing when it is shown already).
+  e.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+  await drawn(200)
+  if (!still()) return
+  e.revealRange(new vscode.Range(line, 0, line, r.start.character + 1), vscode.TextEditorRevealType.Default)
+  if (r.start.character === 0) return
+  await drawn(350)
+  if (!still()) return
+  e.revealRange(new vscode.Range(line, r.start.character, line, r.start.character + 1), vscode.TextEditorRevealType.Default)
 }
 
 /** The pause command's `resumeAt` for a step the podcast skips (none when nothing comes after it). */

@@ -1546,7 +1546,7 @@
           "type": "number",
           "default": 0.8,
           "minimum": 0,
-          "description": "Listening: after the code scrolled or switched files, the audio waits this many seconds with the new highlight lit, so you can find it. 0: no wait. ▶ or Space skips a wait."
+          "description": "Listening: after the code scrolled or switched files, the audio waits this many seconds with the new highlight lit, so you can find it. 0: no wait."
         },
         "codeNotes.journeys.folder": {
           "type": "string",
