@@ -19,6 +19,24 @@
   - A beat whose code is in another file opens that file directly; a part on the map closes the walk's code tab.
   - Space and K play and pause anywhere in the panel, also after clicking the animation's ‹ ›. An audio that can't
     play stays paused and says why.
+- **Podcasts: listening while the walk moves.** The editor is calmer: a view is held at least 8 s (a shorter part in
+  another file stays in the view before; beats in the same file just move the highlight). Scroll or click in the
+  narrated code and it stops following until the next step; **Follow along** on the step card snaps back. While it
+  plays the step card is one line ("narrating · beat 2/6", ⏸, ⏮ ⏭) and its ⏮ ⏭, Ctrl+' A / D and the player's are one
+  transport (⏮ is always the part before; in the Intro and Recap the keys move the episode). The Intro and Recap close
+  the walk's code so the map has the editor; the code comes back in one group beside the panel, never on your own
+  unsaved or untitled file. The first play says "The walk follows the voice: code opens beside the map". A note or a
+  question being written pauses it. The panel no longer changes width on its own: focusing it, ‹ Journeys and the row
+  of the journey you're in keep its width (VS Code widening a panel focused at its minimum is undone), a reload never
+  closes it, and the journey you're in is focused, not reopened; Ctrl+' V gives a narrow panel room for the map. A
+  journey edited under the podcast keeps the step (by id); a removed step shows what the podcast says at its time;
+  quick ⏭ ⏭ open only the last target; a beat it doesn't narrate pauses it; End Journey ends the listening (▶ says
+  where it goes on); Ctrl+' Space in a journey without a podcast says so instead of starting another one. Reopened,
+  the panel shows the beat it was at; the output logs plays, pauses and stops with why.
+- **Podcasts: more checks.** A step the journey doesn't have is said once with its segments and times; a beat written
+  as a string, a reused segment id (with both times), and narration in another order than the journey's are warnings;
+  a podcast recorded for an older commit whose steps' code changed since gets a quiet note; a podcast file not named
+  after its journey says in the output why it's ignored. `journey.py podcast` stays in step.
 - **Podcasts: broken files are explained.** One check of the podcast file, with errors (it can't be played) and
   warnings (a part is not what the file says: a step or beat the journey doesn't have, overlapping or out-of-order
   times, an end before its start or past the audio, a cut-off audio, written for another journey). Every problem is
