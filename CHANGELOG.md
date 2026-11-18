@@ -68,6 +68,11 @@
   looking around; a mark in another file opens it only after the view hold (8 s). The check (extension and
   `journey.py podcast`) says marks that can't be used, phrases not in the text, marks out of order, and, reading the
   code, a missing file, lines past its end, or a `match` not where it says (and whether it is found nearby).
+- **Listen: camera moves give you time to read.** When the next mark, beat or step is out of view, a cue at the
+  editor's edge says where the code goes ("↓ 340", "↑ 212", "→ main.ts") 0.8 s before; the code moves only once what
+  was just lit has been on screen 2.5 s (`codeNotes.listen.readBeforeMove`), and the audio then waits 0.8 s with the
+  new mark lit (`codeNotes.listen.settleAfterMove`). The player says it is waiting; ▶ or Space plays on at once. No
+  waits when the code is on screen, under the follow lock, after your own seeks, or on the map.
 - **Listen: more checks of the podcast file.** A step the journey doesn't have is said once with its segments and times; a beat written
   as a string, a reused segment id (with both times), and narration in another order than the journey's are warnings;
   a podcast recorded for an older commit whose steps' code changed since gets a quiet note; a podcast file not named

@@ -108,6 +108,8 @@ const at = (step: number, file?: string, line = 0) => () =>
 
 export const podcastTests = [
   test('podcast: a journey with a podcast file can be played; Play opens the panel and the mp3 plays in VS Code', async () => {
+    // The walk's own timing is tested with the camera's waits off; the camera tests (at the end) turn them on.
+    await cameraWaits(0, 0)
     writePodJourney()
     await until('the podcast is found next to its journey (and not listed as a journey)', () => pod().journeys.includes('pod') && !ctx.api.snapshot().journeys.some((j: any) => /podcast/.test(j.id)), 10000)
     console.log(`    (VS Code window focused: ${vscode.window.state.focused})`)
@@ -789,6 +791,90 @@ export const podcastTests = [
     await until('paused', () => !pod().playing)
     await vscode.commands.executeCommand('codeNotes.podcastFollow')
   }),
+  // ---------- camera moves: time to read before the code moves, a heads-up, a moment after (src/podcast/camera.ts) ----------
+
+  test('camera: a mark out of view waits for the read time, shows a heads-up first, settles after; one in view never waits', async () => {
+    await cameraWaits(2.5, 0.8)
+    writeCamJourney()
+    await until('its podcast is found', () => pod().journeys.includes('podcam'), 10000)
+    await closeAllButPanel()
+    await playIt('podcam')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await seek(4.3)
+    await until('step 1, its beat on line 3', () => tour().journey === 'podcam' && litLine() === 3 && !pod().applying, 8000)
+    await sleep(1600)
+    const shows = (line: number) => !!codeEditor()?.visibleRanges.some((r) => r.contains(new vscode.Position(line, 0)))
+    const before = pod().camera.waits.length
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    // Watched every 30 ms: the cue, the wait, line 200 on screen.
+    const seen: { cueAt?: number; waitAt?: number; shownAt?: number; note?: string; pausedInWait?: boolean } = {}
+    const t0 = Date.now()
+    await until('the move to line 200 made, the wait over', async () => {
+      const c = pod().camera
+      if (c.cue === '↓ 200' && seen.cueAt === undefined) seen.cueAt = Date.now() - t0
+      if (c.waiting && seen.waitAt === undefined) {
+        seen.waitAt = Date.now() - t0
+        seen.pausedInWait = !pod().playing || !!(await panelAudio()).paused
+        seen.note = (await panelAudio()).note
+      }
+      if (shows(199) && seen.shownAt === undefined) seen.shownAt = Date.now() - t0
+      return c.waits.length > before && c.waits[before].ended === 'time' && pod().playing
+    }, 12000)
+    const w = pod().camera.waits[before]
+    assert.equal(w.where, '↓ 200', `the first wait is the move to line 200 (line 5, in view, never waited): ${JSON.stringify(pod().camera.waits.slice(before))}`)
+    // Line 5 lit at 5.88 s; line 200 due at 6.88 s: 1.5 s of the 2.5 s read time left, then 0.8 s settle.
+    assert.ok(w.read >= 1.0 && w.read <= 2.2, `read wait ${w.read}`)
+    assert.ok(w.settle >= 0.7 && w.settle <= 1.3, `settle ${w.settle}`)
+    assert.ok(seen.cueAt !== undefined && seen.shownAt !== undefined && seen.cueAt < seen.shownAt, `the heads-up before the move: ${JSON.stringify(seen)}`)
+    assert.ok(seen.pausedInWait, 'the audio waits')
+    assert.match(seen.note ?? '', /Waiting to move ↓ 200/, 'the player says it is waiting')
+    assert.ok(shows(199), 'line 200 on screen')
+    assert.equal((await panelAudio()).note, '', 'the waiting line goes once it plays on')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+  }),
+
+  test('camera: no wait after the reader\'s own seek, none under the follow lock; ▶ skips a wait', async () => {
+    const shows = (line: number) => !!codeEditor()?.visibleRanges.some((r) => r.contains(new vscode.Position(line, 0)))
+    // A seek right before the far mark: it moves without waiting.
+    await seek(6.5)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying && shows(2), 8000)
+    let n = pod().camera.waits.length
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('line 200 lit and on screen', () => pod().marks.some((m: any) => m.line === 199) && shows(199), 5000)
+    assert.equal(pod().camera.waits.length, n, `no wait after a seek: ${JSON.stringify(pod().camera.waits.slice(n))}`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    // The follow lock: the reader scrolls away; the far mark lights where it is, nothing waits, nothing moves.
+    await seek(4.3)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying && shows(2), 8000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('playing', () => pod().playing)
+    await sleep(1600)
+    codeEditor()!.revealRange(new vscode.Range(100, 0, 100, 0), vscode.TextEditorRevealType.AtTop)
+    await until('not following', () => pod().follow === false, 5000)
+    n = pod().camera.waits.length
+    await until('line 200 lit', () => pod().marks.some((m: any) => m.line === 199), 6000)
+    await sleep(600)
+    assert.ok(pod().playing && pod().camera.waits.length === n && !shows(199), `under the follow lock: no wait, no move (${JSON.stringify(pod().camera)})`)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await vscode.commands.executeCommand('codeNotes.podcastFollow')
+    // ▶ during a wait: it plays on at once.
+    await seek(4.3)
+    await until('back on the beat', () => litLine() === 3 && !pod().applying && shows(2), 8000)
+    await sleep(1600)
+    n = pod().camera.waits.length
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('a wait', () => pod().camera.waiting === 'read', 6000)
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('▶ skipped it: playing, no wait, moved', () => pod().playing && !pod().camera.waiting && shows(199), 3000)
+    assert.equal(pod().camera.waits[n]?.ended, 'skip')
+    await vscode.commands.executeCommand('codeNotes.podcastToggle')
+    await until('paused', () => !pod().playing)
+    await cameraWaits(0, 0)
+  }),
 ]
 
 const podFile = () => path.join(journeysDir(), 'pod.podcast.json')
@@ -913,6 +999,39 @@ function writeMarksJourney() {
         { phrase: 'at the end', at: 6, lines: [180, 180], match: 'done()' },
       ] },
       { id: 'outro', at: null, speaker: 'host', text: 'Bye.', start: 20, end: 40 },
+    ],
+  }))
+}
+
+/** The camera's waits (codeNotes.listen.readBeforeMove, settleAfterMove; 0: off). */
+async function cameraWaits(read: number, settle: number): Promise<void> {
+  const c = vscode.workspace.getConfiguration('codeNotes.listen')
+  await c.update('readBeforeMove', read, vscode.ConfigurationTarget.Global)
+  await c.update('settleAfterMove', settle, vscode.ConfigurationTarget.Global)
+}
+
+/** The journey "podcam": one step (src/cam.ts, its beat on line 3) whose part (4-30 s) has marks on line 3 (4.88 s),
+ *  line 5 (5.88 s, in view), line 200 (6.88 s, far below) and line 3 again (7.88 s, far above by then). */
+function writeCamJourney() {
+  const lines = Array.from({ length: 220 }, (_, i) => `export const c${i + 1} = ${i + 1}`)
+  writeLines(wsPath('src', 'cam.ts'), lines)
+  const actors = [{ id: 'svc', type: 'service', col: 0, label: 'Server', fn: 'cam()', checks: ['a'] }]
+  writeJourney(journeysDir(), journey('podcam', [step('src/cam.ts', 1, 10, { id: 'C1', title: 'camera one', scene: { actors, wires: [], beats: [
+    { focus: 'svc', caption: 'Here.', code: { file: 'src/cam.ts', line: 3, text: lines[2] } },
+  ] } })], { title: 'Pod cam' }))
+  const mp3 = path.join(journeysDir(), 'podcam.mp3')
+  if (!fs.existsSync(mp3)) fs.copyFileSync(path.join(__dirname, '../../../../test/fixtures/podcast/tone.mp3'), mp3)
+  fs.writeFileSync(path.join(journeysDir(), 'podcam.podcast.json'), JSON.stringify({
+    version: 1, title: 'Pod cam', journey: { id: 'podcam' }, audio: 'podcam.mp3', duration: 40,
+    segments: [
+      { id: 'intro', at: null, speaker: 'host', text: 'Hello.', start: 0, end: 3.8 },
+      { id: 'c1', at: { step: 'C1', beat: 1 }, speaker: 'host', text: 'Three, five, far down, and back up.', start: 4, end: 30, marks: [
+        { phrase: 'Three', at: 1, lines: [3, 3] },
+        { phrase: 'five', at: 2, lines: [5, 5] },
+        { phrase: 'far down', at: 3, lines: [200, 200] },
+        { phrase: 'back up', at: 4, lines: [3, 3] },
+      ] },
+      { id: 'outro', at: null, speaker: 'host', text: 'Bye.', start: 30, end: 40 },
     ],
   }))
 }

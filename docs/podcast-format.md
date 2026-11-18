@@ -203,6 +203,22 @@ While it plays:
 - A mark in another file than the one on screen is a view change: it opens that file only once the view has been on
   screen at least `VIEW_HOLD_S` (8 s); sooner, it is skipped (the output says so at debug level).
 
+## Camera moves: time to read before the code moves
+
+A camera move is the narrated editor scrolling or switching files while it plays: a new step or beat, or a mark,
+whose code is out of view. Quick moves leave no time to read what was just lit, so:
+
+- **A heads-up**: 0.8 s before a move, a quiet cue at the editor's edge says where it goes: "↓ 340" on the last line
+  on screen, "↑ 212" on the first, "→ main.ts" for another file. It goes when its code comes into view anyway.
+- **Time to read before leaving**: what the view on screen lit last (a mark, a beat, a step arriving) stays at least
+  `codeNotes.listen.readBeforeMove` seconds (2.5) before the code moves; the audio waits for the rest.
+- **A moment after arriving**: the audio waits `codeNotes.listen.settleAfterMove` seconds (0.8) more, the new mark lit.
+- While it waits the player says so in its quiet line ("Waiting to move ↓ 340 · ▶ goes on"); the time stays the
+  audio's. ▶ or Space plays on at once (the move is made first). 0 turns a wait off.
+- No waits when nothing moves (its code is on screen), under the follow lock (nothing moves then), for the reader's
+  own seeks and skips (the moves in the 1.5 s of audio after one), and at the map's moments (to the map, or from it).
+- Generators: the moves are where the script makes the editor jump; merging or reordering marks avoids most waits.
+
 ## Validation
 
 The extension checks the file every time it, the journey or the audio file changes. The code-journey skill's

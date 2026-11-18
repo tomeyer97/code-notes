@@ -1536,6 +1536,18 @@
           "default": [],
           "description": "Names of Claude Code skills (folders in ~/.claude/skills) that Ask Claude may use. Claude may run only those skills' own scripts; editing files and other commands stay blocked."
         },
+        "codeNotes.listen.readBeforeMove": {
+          "type": "number",
+          "default": 2.5,
+          "minimum": 0,
+          "description": "Listening: before the code scrolls or switches files to show the next highlight, what is highlighted now stays on screen at least this many seconds (the audio waits). 0: no wait."
+        },
+        "codeNotes.listen.settleAfterMove": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "description": "Listening: after the code scrolled or switched files, the audio waits this many seconds with the new highlight lit, so you can find it. 0: no wait. ▶ or Space skips a wait."
+        },
         "codeNotes.journeys.folder": {
           "type": "string",
           "default": "journeys",

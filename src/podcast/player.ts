@@ -29,6 +29,7 @@ import { pickJourney } from '../tour/pick'
 import { journeysTree } from '../sidebar/journeysTree'
 import { calmViews, clock, Episode, LatestWins, markTimes, planMarks, podcastFileOf, PodcastProblem, sameView, segmentAt, timeOf, View, viewAt } from './model'
 import { MarkLights, PlannedMark } from './marks'
+import { Camera, CUE_LEAD_S, cueText } from './camera'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
 import { baseName } from '../paths'
 import { podcastReports, PodcastRead, readPodcast, strayPodcasts } from './load'
@@ -48,6 +49,8 @@ const SKIP_S = 15
 const STALE_MS = 1500
 /** A seek's move waits this long for another seek (⏭ ⏭ pressed quickly: only the last target opens, F86). */
 export const SEEK_SETTLE_MS = 250
+/** For this much audio after a seek (s) the code moves without a camera wait (the reader moved it). */
+const NO_WAIT_AFTER_SEEK_S = 1.5
 /** Global state: the one-line hint on the first play was shown. */
 const HINT_KEY = 'codeNotes.listenHintShown'
 
@@ -125,6 +128,11 @@ class Podcasts {
   private markMode: 'calm' | 'exact' = 'calm'
   private markTimer: NodeJS.Timeout | undefined
   private plans = new Map<string, PlannedMark[]>()
+  /** Camera moves (camera.ts): the read time before the code moves, the settle after, the heads-up. */
+  camera!: Camera
+  /** Where the audio was last sought to (s): the code moves in the next NO_WAIT_AFTER_SEEK_S of audio are the
+   *  reader's own (no camera wait). */
+  private lastSeekT = -Infinity
 
   init(context: vscode.ExtensionContext): void {
     this.item = vscode.window.createStatusBarItem('codeNotes.listen', vscode.StatusBarAlignment.Left, 49.25)
@@ -146,7 +154,13 @@ class Podcasts {
     walk.following = () => this.follow.locked || !this.drives()
     beats.follow = walk.following
     this.lights = new MarkLights(log)
-    context.subscriptions.push(this.follow, this.lights, { dispose: () => { clearTimeout(this.seekTimer); clearTimeout(this.markTimer) } })
+    this.camera = new Camera({
+      pause: () => { this.reason = 'waiting for the code to move'; this.command('pause') },
+      resume: () => this.command('play'),
+      note: (text) => this.command('note', { text }),
+      log: (line) => log.info(line),
+    })
+    context.subscriptions.push(this.camera, this.follow, this.lights, { dispose: () => { clearTimeout(this.seekTimer); clearTimeout(this.markTimer) } })
   }
 
   /** The podcast is playing and the walk on its journey follows it. */
@@ -530,6 +544,10 @@ class Podcasts {
       this.asked = undefined
     }
     const wasPlaying = lj.key === this.session && this.playing
+    // A seek drops a camera wait (the reader went elsewhere); ▶ during one skips it; a pause takes the heads-up away.
+    if (m.seek) { this.lastSeekT = m.t; this.camera.cancel() }
+    else if (m.playing && !wasPlaying) this.camera.played()
+    else if (!m.playing && !this.camera.waiting) this.camera.clearCue()
     if (m.rate && m.rate !== gstate.get<number>(RATE_KEY)) void gstate.update(RATE_KEY, m.rate)
     this.savePos(lj, m.t, (wasPlaying && !m.playing) || !!m.seek)
     if (m.playing) this.session = lj.key
@@ -581,10 +599,12 @@ class Podcasts {
     const k = segmentAt(l.ep.segments, t)
     if (seek) this.markMode = 'exact'
     else if (k !== this.markSeg) this.markMode = 'calm'
+    if (k !== this.markSeg && !this.camera.waiting) this.camera.clearCue()
     this.markSeg = k
     const seg = l.ep.segments[k]
+    const plan = seg?.marks && t >= seg.start ? this.planOf(lj, l, k, this.markMode) : []
+    if (playing) this.headsUp(lj, l, k, plan, t, rate)
     if (!seg?.marks || t < seg.start) { this.lights.clear(); return }
-    const plan = this.planOf(lj, l, k, this.markMode)
     void this.lights.show(`${lj.key}|${l.sig}|${k}|${this.markMode}`, plan, t, (p, r, doc) => this.bringMark(p, r, doc))
     const next = plan.find((p) => !p.skip && p.time > t)
     if (!playing || !next || next.time >= seg.end) return
@@ -601,6 +621,7 @@ class Podcasts {
     this.markTimer = undefined
     this.markSeg = -1
     this.lights?.clear()
+    this.camera?.cancel()
   }
 
   /** Segment `k`'s marks as played (`mode`: how the segment was reached): each one's file, time, and whether the view
@@ -629,21 +650,71 @@ class Podcasts {
     return plan
   }
 
-  /** A mark that just lit while it plays: on screen if it isn't (centred), never under a reader looking around (the
-   *  follow lock); in another file, that file opens only when the plan lets it (the view hold). */
+  /**
+   * A mark that just lit while it plays: on screen if it isn't (centred), never under a reader looking around (the
+   * follow lock); in another file, that file opens only when the plan lets it (the view hold). Leaving the view on
+   * screen is a camera move (camera.ts): the read time first, then the settle, unless the reader just sought.
+   */
   private async bringMark(p: PlannedMark, r: vscode.Range, doc: vscode.TextDocument): Promise<void> {
-    if (!this.follow.locked || !this.drives()) return
+    if (!this.follow.locked || !this.drives()) { this.camera.lit(); return }
     const uri = doc.uri.toString()
-    let ed = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri && e.viewColumn !== mapPanel.viewColumn)
-    if (!ed) {
-      if (!p.opens) return
+    const shown = () => vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri && e.viewColumn !== mapPanel.viewColumn)
+    const ed = shown()
+    if (ed ? ed.visibleRanges.some((v) => v.contains(r.start) && v.contains(r.end)) : !p.opens) { this.camera.lit(); return }
+    const from = ed ?? this.narratedEditor()
+    const where = (from && cueText(from, uri, r.start.line)?.text) ?? `→ ${p.file.split('/').pop()}`
+    const onMap = (this.sessionJourney() && this.eps.get(this.session!)?.ep.segments[this.markSeg]?.step === 0) ?? false
+    await this.camera.move(async () => {
+      if (!this.follow.locked) return
       this.follow.ourMove()
-      ed = await showInCodeGroup(doc, walk.codeColumn, { keepFocus: true })
+      const e = shown() ?? await showInCodeGroup(doc, walk.codeColumn, { keepFocus: true })
+      this.follow.ourMove()
+      e.revealRange(r, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    }, where, !onMap && !this.justSought())
+  }
+
+  /** The reader sought a moment ago (their own move: never a camera wait). */
+  private justSought(): boolean {
+    const lj = this.sessionJourney()
+    const t = lj ? this.posOf(lj) : 0
+    return t >= this.lastSeekT - 0.05 && t - this.lastSeekT < NO_WAIT_AFTER_SEEK_S
+  }
+
+  /** The editor showing the narrated code (the walk's group, the step's file, the lit beat's). */
+  private narratedEditor(): vscode.TextEditor | undefined {
+    return vscode.window.visibleTextEditors.find((e) => this.narrated(e))
+  }
+
+  /** Where view `v` puts the code: its beat's line, else its step's first line (file uri, 0-based line). */
+  private viewTarget(lj: LoadedJourney, v: View): { uri: string; line: number } | undefined {
+    const st = lj.j.steps[v.step - 1]
+    if (!v.step || !st) return undefined
+    const code = v.beat === undefined ? undefined : st.scene?.beats?.[v.beat]?.code
+    const file = code && typeof code.file === 'string' ? code.file : fileOf(lj, v.step)
+    const line = (code && Number.isInteger(code.line) ? code.line : st.range?.start ?? 1) - 1
+    return { uri: stepFileUri(lj.folder.uri, journeys.renames(lj), file).toString(), line: Math.max(0, line) }
+  }
+
+  /**
+   * The heads-up (camera.ts): CUE_LEAD_S before the next mark of this segment, or the next segment's view, whichever
+   * comes first, a cue at the editor's edge if its code is out of view then.
+   */
+  private headsUp(lj: LoadedJourney, l: Loaded, k: number, plan: PlannedMark[], t: number, rate?: number): void {
+    const segs = l.ep.segments
+    const mark = plan.find((p) => !p.skip && p.time > t)
+    let at: number | undefined, target: { uri: string; line: number } | undefined
+    if (mark && mark.time < (segs[k]?.end ?? Infinity)) {
+      at = mark.time
+      target = { uri: mark.uri.toString(), line: mark.mark.lines[0] - 1 }
+    } else if (k + 1 < segs.length && segs[k + 1].start > t) {
+      const v = this.calmViewsOf(lj, l)[k + 1]
+      if (v && v.step && !sameView(v, this.want)) { at = segs[k + 1].start; target = this.viewTarget(lj, v) }
     }
-    const seen = ed.visibleRanges.some((v) => v.contains(r.start) && v.contains(r.end))
-    if (seen) return
-    this.follow.ourMove()
-    ed.revealRange(r, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    if (at === undefined || !target) return
+    const ms = ((at - CUE_LEAD_S - t) / (rate || 1)) * 1000
+    if (ms > 5000) return
+    const tg = target
+    this.camera.scheduleCue(ms, () => this.narratedEditor(), tg.uri, tg.line, () => this.follow.locked && this.drives() && !this.justSought())
   }
 
   /** The view a playing episode shows for segment `seg` (the view hold, model.ts calmViews). */
@@ -699,17 +770,24 @@ class Podcasts {
       }
       const stepId = lj.j.steps[view.step - 1]?.id
       const onStep = walk.touring() && tourState.isAt(lj, view.step) && tourState.stepId === stepId
+      // Playing into a view whose code is out of view: a camera move (camera.ts), the read time and the settle.
+      const where = this.cameraMove(lj, view, m.still)
       if (!onStep) this.follow.relock()
-      this.beatShown = view.beat
-      mapPanel.send({ type: 'podcastBeat', n: view.step, i: view.beat ?? -1, ...(m.still ? { still: true } : {}) })
-      if (!onStep) {
-        const groups = vscode.window.tabGroups.all.length
-        // On a beat whose code is in another file, that file opens (the beat's), not the step's first.
-        await walk.goToStep(lj, view.step, { focus: false, beat: view.beat })
-        // The code group came back (the map had the editor to itself): beside the panel at the reader's width.
-        if (vscode.window.tabGroups.all.length > groups) await codeGetsMoreRoom()
+      const go = async () => {
+        this.beatShown = view.beat
+        mapPanel.send({ type: 'podcastBeat', n: view.step, i: view.beat ?? -1, ...(m.still ? { still: true } : {}) })
+        if (!onStep) {
+          const groups = vscode.window.tabGroups.all.length
+          // On a beat whose code is in another file, that file opens (the beat's), not the step's first.
+          await walk.goToStep(lj, view.step, { focus: false, beat: view.beat })
+          // The code group came back (the map had the editor to itself): beside the panel at the reader's width.
+          if (vscode.window.tabGroups.all.length > groups) await codeGetsMoreRoom()
+        }
+        if (view.beat !== undefined && current()) await showBeat(lj, view.step, view.beat)
+        this.follow.ourMove()
       }
-      if (view.beat !== undefined && current()) await showBeat(lj, view.step, view.beat)
+      if (where) await this.camera.move(go, where, true)
+      else { await go(); this.camera.lit() }
     } catch (e) {
       log.error(`podcast: ${e}`)
     } finally {
@@ -722,6 +800,15 @@ class Podcasts {
     this.redrawCard(lj)
     // A move of the reader's that came in meanwhile (ignored then): the audio goes there now.
     if (current()) this.walkMoved(true)
+  }
+
+  /** Where a move of the walk to `view` goes when it is a camera move that waits ("↓ 340", "→ main.ts"); undefined:
+   *  none (a seek, paused, the map, from the map, not following, its code on screen already). */
+  private cameraMove(lj: LoadedJourney, view: View, still: boolean): string | undefined {
+    if (still || !this.playing || !view.step || !this.follow.locked || this.justSought()) return undefined
+    const tg = this.viewTarget(lj, view)
+    const ed = this.narratedEditor()
+    return tg && ed ? cueText(ed, tg.uri, tg.line)?.text : undefined
   }
 
   /** `v` against the journey as it is now: its step found by id (the episode may be from before the journey was
@@ -740,6 +827,8 @@ class Podcasts {
    *  place is kept, and Play says where it goes on: F119). */
   private walkMoved(afterMove = false): void {
     const lj = this.sessionJourney()
+    // The walk ended, or another journey, while a camera wait holds a move: the move is dropped (it would reopen it).
+    if (lj && this.camera.waiting && (!walk.touring() || tourState.key !== lj.key)) this.camera.cancel()
     if (!lj || this.applying || (this.mover.busy && !afterMove)) return
     const l = this.eps.get(lj.key)!
     const step = walk.touring() && tourState.key === lj.key ? tourState.step : 0
@@ -1039,6 +1128,8 @@ class Podcasts {
    *  without a podcast it says so: never another journey's podcast, ending this walk (F120). */
   async toggle(): Promise<void> {
     if (this.sessionJourney() && this.hostKey === this.session && this.listen.alive) {
+      // Waiting for the code to move (camera.ts): Space plays on, whatever the last report said.
+      if (this.camera.waiting) { this.command('play'); return }
       if (this.playing) this.reason = 'paused by the reader'
       this.command(this.playing ? 'pause' : 'play')
       return
@@ -1122,6 +1213,7 @@ class Podcasts {
       session: lj?.j.id, t: this.t, playing: this.playing, want: this.want, beatShown: this.beatShown, applying: this.applying,
       item: this.item?.text, itemShown: !!lj, hostKey: this.hostKey, hostAlive: this.listen.alive, hostVisible: this.listen.visible, ended: this.ended, error: this.lastError, moves: this.moves, mapVisible: mapPanel.visible,
       why: this.whyShown, follow: this.follow.locked, unlock: this.follow.lastUnlock, held: this.heldFor, marks: this.lights.lit(),
+      camera: { waiting: this.camera.waiting, cue: this.camera.cue, waits: [...this.camera.waits] },
       broken: Object.fromEntries([...this.broken].map(([k, b]) => [journeys.list.get(k)?.j.id ?? k, b.reason])),
       notices: Object.fromEntries([...this.eps].filter(([, l]) => l.notice).map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, l.notice])),
       links: Object.fromEntries([...this.eps].map(([k, l]) => [journeys.list.get(k)?.j.id ?? k, brokenLinks(l.problems)])),

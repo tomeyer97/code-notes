@@ -19,7 +19,7 @@
 //   { type: 'podcast', episode? }  the episode ({ key, src, title, journey, duration, at, play?, rate, muted, chapters,
 //                                  segments, steps, notice?, next? }), or { unavailable: why } (one line saying so), or
 //                                  none (the player goes). Host: `at` where it starts, `play` plays once loaded.
-//   { type: 'podcastCmd', action, … }   (host) play { at?, until? } | pause { note?, resumeAt? } | toggle | skip { by } |
+//   { type: 'podcastCmd', action, … }   (host) play { at?, until? } | pause { note?, resumeAt? } | note { text } | toggle | skip { by } |
 //                                  seek { to } | part { dir } | rate { rate } | mute { muted? }
 //   { type: 'podcastState', … }    (remote) the host's state: { of, t, playing, rate, muted, ready, loading, ended, dur,
 //                                  reach, err, note, until, seek? }
@@ -1025,6 +1025,8 @@
             if (m.note) showError(String(m.note), true)
             if (typeof m.resumeAt === 'number') resumeAt = m.resumeAt
           },
+          // A quiet line in the player (the camera waiting before the code moves); '' clears it.
+          note: () => showError(String(m.text || ''), true),
           skip: () => skip(Number(m.by) || 0),
           seek: () => seek(Number(m.to) || 0, !m.reader),
           part: () => part(m.dir < 0 ? -1 : 1),
