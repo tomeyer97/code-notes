@@ -64,7 +64,8 @@ export function createMoveItem(): void {
   moveItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
 }
 
-export const keepHere = async (arg?: any) => {
+/** codeNotes.acceptCode ("Keep here" on a stale note): the note takes the code at its lines now as its anchor. */
+export const acceptCode = async (arg?: any) => {
   const [n] = notesFrom(arg)
   if (!n || missing.has(n.data.id)) return
   const doc = await vscode.workspace.openTextDocument(docUri(n))

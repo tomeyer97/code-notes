@@ -1,36 +1,39 @@
 // Code Notes: notes on code that agents answer in threads, and code journeys. This file starts the extension: it makes
 // the shared services (app.ts), hands each part what it watches, and registers the commands (each one a call into the
-// module that does it).
+// module that does it). activate reads as the boot order; each step runs in the order its parts need each other.
 
 import * as vscode from 'vscode'
 import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, gstate, journeys, KEY, log, mapPanel, PREFIX_KEY, provide, setCtx, setKey, state, store, tourItems, tutorialSpot, understanding, valueHints } from './app'
 import { askClaudeCommand, cancelClaudeCommand } from './ask/commands'
-import { createAskStatusItem, askStatusItem, loadAskErrors } from './ask/run'
+import { askStatusItem, createAskStatusItem, loadAskErrors } from './ask/run'
 import { watchClaudeCli } from './ask/settings'
 import { Beats } from './beats'
+import { answerCheck, checkConcern, createUnderstanding, gradeCheck } from './check/wiring'
 import { next, prefixUsed, previous, resolveNext } from './chords'
 import { ClaudeLinks } from './claudeLinks'
+import { codeLinkBack, openCodeLink } from './codeLinkClick'
 import { CodeLinks } from './codeLinks'
 import { devReload } from './devReload'
 import { initIdentity, me, rememberMe } from './identity'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
-import { codeLinkBack, openCodeLink } from './codeLinkClick'
+import { openBroken, restoreBroken } from './notes/broken'
+import { followNotesOnDisk, notesChangedOnDisk } from './notes/changedOnDisk'
 import { rangeProvider } from './notes/commentRanges'
 import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS } from './notes/create'
+import { createDecorations, deco } from './notes/decorations'
 import { findNote } from './notes/find'
 import { rememberFolder } from './notes/folder'
-import { cancelMove, completeMove, createMoveItem, keepHere, moveItem, moveToSelection } from './notes/move'
-import { copyAgentPrompt, copyNotePrompt } from './notes/prompt'
+import { acceptCode, cancelMove, completeMove, createMoveItem, moveItem, moveToSelection } from './notes/move'
 import { registerPages } from './notes/pages'
-import { openBroken, restoreBroken } from './notes/broken'
-import { openAt, openNoteFile, openNoteId, revealCommand } from './notes/reveal'
+import { copyAgentPrompt, copyNotePrompt } from './notes/prompt'
 import { replyAndResolve, replyTo } from './notes/reply'
+import { openAt, openNoteFile, openNoteId, revealCommand } from './notes/reveal'
 import { deleteSession, hideSession, resolveSession, showAllSessions, showOnlySession, showSession } from './notes/sessions'
 import { deleteNotes, deleteResolved, offerRestore, reopenNotes, resolve, resolveAll, resolveChecked } from './notes/status'
+import { applySuggestion } from './notes/suggestion'
 import { undo } from './notes/undo'
 import { markAllRead, markUnread, stepUnread } from './notes/unread'
-import { applySuggestion } from './notes/suggestion'
 import { pickNotes } from './notes/which'
 import { refreshAll } from './refresh'
 import { markJourneysSeen, migrateSeen } from './seen'
@@ -40,8 +43,6 @@ import { createNotesView, rowsSelected, treeView } from './sidebar/notesTree'
 import { Store } from './store'
 import { testApi } from './testApi'
 import { collapseThread, expandThread } from './threads/comments'
-import { followNotesOnDisk, notesChangedOnDisk } from './notes/changedOnDisk'
-import { createDecorations, deco } from './notes/decorations'
 import { askStep, askUpdate } from './tour/askStep'
 import { authorModeOff, mapState, onMapMessage, toggleAnimation } from './tour/map'
 import { backToStep, endTour, openJourney, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney } from './tour/open'
@@ -49,7 +50,6 @@ import { pickJourneyStep, registerRefPages } from './tour/refs'
 import { createCard, createTourItems, toggleStepDetails, walk } from './tour/tour'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tutorialSpot'
-import { answerCheck, checkConcern, createUnderstanding, gradeCheck } from './check/wiring'
 import { ValueHints } from './valueHints'
 import { reloadAll, watchBranches, watchEditors, watchEdits, watchFiles, watchJourneys } from './watch'
 import { refreshJourney } from './write/refreshJourney'
@@ -59,7 +59,22 @@ import { writingChanged } from './write/writer'
 const CONTROLLER_ID = 'codeNotes'
 
 export async function activate(context: vscode.ExtensionContext) {
-  // The services, in the order they need each other (app.ts).
+  await startNotes(context)
+  createNotesUi(context)
+  startJourneys(context)
+  const journeysLoaded = createTourUi(context)
+  startWatching(context)
+  createUnderstanding(context)
+  registerCommands(context)
+  await watchBranches(context)
+  await loadAndShow(context, journeysLoaded)
+  return testApi()
+}
+
+export function deactivate(): void { /* disposables clean up */ }
+
+/** The stored state, the log, who you are, the notes and their comment controller (app.ts's services, in this order). */
+async function startNotes(context: vscode.ExtensionContext): Promise<void> {
   provide({ state: context.workspaceState })
   loadAskErrors()
   provide({ extVersion: String(context.extension.packageJSON?.version ?? extVersion) })
@@ -72,6 +87,10 @@ export async function activate(context: vscode.ExtensionContext) {
   await initIdentity(vscode.workspace.workspaceFolders?.[0])
   provide({ store: new Store(log, me) })
   provide({ controller: vscode.comments.createCommentController(CONTROLLER_ID, 'Code Notes') })
+}
+
+/** The note box, both views and the status bar items. */
+function createNotesUi(context: vscode.ExtensionContext): void {
   // No commenting-range bar on every line (–): the whole file is commentable only while Add Note opens its
   // box (Ctrl+' C, the command); VS Code asks again when the provider is set.
   controller.commentingRangeProvider = rangeProvider
@@ -81,6 +100,11 @@ export async function activate(context: vscode.ExtensionContext) {
   createAskStatusItem()
   createMoveItem()
   createTourItems()
+}
+
+/** The journeys, what lights code (beats, the tutorial's spot, code links, Claude's links, value hints), the chord
+ *  prefix and the map panel. */
+function startJourneys(context: vscode.ExtensionContext): void {
   provide({ journeys: new Journeys(log, context.workspaceState) })
   devReload(context, log)
   provide({ beats: new Beats(log), tutorialSpot: new TutorialSpot(), codeLinks: new CodeLinks(log) })
@@ -90,6 +114,11 @@ export async function activate(context: vscode.ExtensionContext) {
   provide({ gstate: context.globalState })
   setKey(gstate.get<string>(PREFIX_KEY) ?? KEY)
   provide({ mapPanel: new MapPanel(context.extensionUri, log, onMapMessage, mapState, state) })
+}
+
+/** The step card, the step pages, the map panel restored after a reload (it waits for the journeys: call the function
+ *  returned once they are read), and the notes' marks. */
+function createTourUi(context: vscode.ExtensionContext): () => void {
   createCard(context)
   registerRefPages(context)
   const journeysLoaded = restoreMapPanel(context)
@@ -97,8 +126,11 @@ export async function activate(context: vscode.ExtensionContext) {
   setCtx('codeNotes.showResolved', false)
   rememberMe()
   context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
+  return journeysLoaded
+}
 
-  // What each part follows (watch.ts and the parts' own).
+/** What each part follows (watch.ts and the parts' own). */
+function startWatching(context: vscode.ExtensionContext): void {
   watchJourneys(context)
   registerPages(context)
   context.subscriptions.push(store.onDidDeleteOnDisk(offerRestore), store.onDidChange(notesChangedOnDisk))
@@ -106,93 +138,10 @@ export async function activate(context: vscode.ExtensionContext) {
   watchFiles(context)
   watchEditors(context)
   context.subscriptions.push(treeView.onDidChangeSelection(rowsSelected))
+}
 
-  // The commands (package.json names them; menus and keys call them).
-  const cmd = (id: string, fn: (...a: any[]) => any) => context.subscriptions.push(vscode.commands.registerCommand(id, fn))
-  cmd('codeNotes.codeLink', openCodeLink)
-  cmd('codeNotes.codeLinkBack', codeLinkBack)
-  cmd('codeNotes.add', (a?: unknown) => { prefixUsed(a); return addNote() })
-  cmd('codeNotes.toggleAnimation', (a?: unknown) => { prefixUsed(a); toggleAnimation() })
-  cmd('codeNotes.addQuick', addQuickNote)
-  cmd('codeNotes.askFromThread', askFromThread)
-  cmd('codeNotes.createFromThread', createFromThread)
-  cmd('codeNotes.askClaude', askClaudeCommand)
-  cmd('codeNotes.cancelClaude', cancelClaudeCommand)
-  cmd('codeNotes.reply', replyTo)
-  cmd('codeNotes.replyReopen', replyTo) // the same, labelled for resolved threads
-  cmd('codeNotes.replyResolve', replyAndResolve)
-  cmd('codeNotes.hideSession', hideSession)
-  cmd('codeNotes.showSession', showSession)
-  cmd('codeNotes.showOnlySession', showOnlySession)
-  cmd('codeNotes.showAllSessions', showAllSessions)
-  cmd('codeNotes.resolveSession', resolveSession)
-  cmd('codeNotes.deleteSession', deleteSession)
-  cmd('codeNotes.openAt', openAt)
-  cmd('codeNotes.expandThread', expandThread)
-  cmd('codeNotes.collapseThread', collapseThread)
-  cmd('codeNotes.undo', undo)
-  cmd('codeNotes.openBroken', openBroken)
-  cmd('codeNotes.restoreBroken', restoreBroken)
-  cmd('codeNotes.markUnread', markUnread)
-  cmd('codeNotes.reveal', revealCommand)
-  cmd('codeNotes.resolve', async (arg?: any, many?: any[]) => resolve(await pickNotes(arg, many)))
-  cmd('codeNotes.reopen', reopenNotes)
-  cmd('codeNotes.delete', deleteNotes)
-  cmd('codeNotes.acceptCode', keepHere)
-  cmd('codeNotes.moveToSelection', moveToSelection)
-  cmd('codeNotes.completeMove', completeMove)
-  cmd('codeNotes.cancelMove', cancelMove)
-  cmd('codeNotes.openNoteFile', openNoteFile)
-  cmd('codeNotes.resolveChecked', resolveChecked)
-  cmd('codeNotes.resolveAll', resolveAll)
-  cmd('codeNotes.deleteResolved', deleteResolved)
-  cmd('codeNotes.markAllRead', markAllRead)
-  cmd('codeNotes.openJourney', openJourney)
-  cmd('codeNotes.showMap', showMap)
-  cmd('codeNotes.startJourney', startJourney)
-  cmd('codeNotes.nextStep', () => walk.stepBy(1))
-  cmd('codeNotes.previousStep', () => walk.stepBy(-1))
-  cmd('codeNotes.endJourney', endTour)
-  cmd('codeNotes.openStepLink', openStepLink)
-  cmd('codeNotes.toggleAuthorMode', authorModeOff)
-  cmd('codeNotes.askQuestion', askQuestion)
-  cmd('codeNotes.backToStep', backToStep)
-  cmd('codeNotes.askStep', (text?: string) => askStep(text))
-  cmd('codeNotes.askStepUpdate', () => askUpdate())
-  cmd('codeNotes.openNoteId', openNoteId)
-  cmd('codeNotes.tutorial', tutorial)
-  cmd('codeNotes.stepDetails', toggleStepDetails)
-  cmd('codeNotes.nextUnread', () => stepUnread(1))
-  cmd('codeNotes.previousUnread', () => stepUnread(-1))
-  cmd('codeNotes.showResolved', showResolvedNotes)
-  cmd('codeNotes.hideResolved', hideResolvedNotes)
-  cmd('codeNotes.filter', pickFilter)
-  cmd('codeNotes.filterActive', () => vscode.commands.executeCommand('codeNotes.filter'))
-  cmd('codeNotes.find', findNote)
-  cmd('codeNotes.refresh', reloadAll)
-  cmd('codeNotes.copyAgentPrompt', copyAgentPrompt)
-  cmd('codeNotes.copyNotePrompt', copyNotePrompt)
-  cmd('codeNotes.next', next)
-  cmd('codeNotes.nextCheckQuestion', () => understanding?.step(1))
-  cmd('codeNotes.previous', previous)
-  cmd('codeNotes.resolveNext', resolveNext)
-  cmd('codeNotes.groupByFile', groupByFile)
-  cmd('codeNotes.groupBySession', groupBySession)
-  cmd('codeNotes.addPathNote', (uri?: vscode.Uri, text?: string) => addPathNote(uri, text))
-  cmd('codeNotes.applySuggestion', (id: string, mi: number, k: number) => applySuggestion(id, mi, k))
-  createUnderstanding(context)
-  cmd('codeNotes.checkUnderstanding', () => understanding!.run())
-  cmd('codeNotes.searchJourneys', (a?: unknown) => { prefixUsed(a); return searchJourneys() })
-  cmd('codeNotes.refreshJourney', refreshJourney)
-  cmd('codeNotes.journeysHereAll', showAllHere)
-  cmd('codeNotes.sortJourneys', sortJourneys)
-  cmd('codeNotes.answerCheck', answerCheck)
-  cmd('codeNotes.pickJourneyStep', pickJourneyStep)
-  cmd('codeNotes.checkConcern', checkConcern)
-  cmd('codeNotes.gradeCheck', gradeCheck)
-  await watchBranches(context)
-
-  // Everything read, then shown; the walk and the check where they were.
+/** Everything read, then shown; the walk and the check where they were. */
+async function loadAndShow(context: vscode.ExtensionContext, journeysLoaded: () => void): Promise<void> {
   rememberFolder()
   await store.load()
   await journeys.load()
@@ -204,7 +153,120 @@ export async function activate(context: vscode.ExtensionContext) {
   await restoreTour()
   await understanding!.init().catch((e) => log.error(`understanding check: ${e}`))
   watchRequests(context)
-  return testApi()
 }
 
-export function deactivate(): void { /* disposables clean up */ }
+type Handler = (...a: any[]) => any
+
+/** A chord key's command: says which prefix was pressed (hints show it), then runs. */
+const chord = (fn: () => unknown) => (a?: unknown) => { prefixUsed(a); return fn() }
+
+/** The commands (package.json names them; menus and keys call them), by area. Handler names follow the ids, except
+ *  where the id's name is taken (reveal, refresh) or the handler lives in another area (see each group). */
+function registerCommands(context: vscode.ExtensionContext): void {
+  const groups: Record<string, Handler>[] = [
+    // Notes: adding, replying, Claude.
+    {
+      'codeNotes.add': chord(addNote),
+      'codeNotes.addQuick': addQuickNote,
+      'codeNotes.addPathNote': (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
+      'codeNotes.askFromThread': askFromThread,
+      'codeNotes.createFromThread': createFromThread,
+      'codeNotes.askClaude': askClaudeCommand,
+      'codeNotes.cancelClaude': cancelClaudeCommand,
+      'codeNotes.reply': replyTo,
+      'codeNotes.replyReopen': replyTo, // the same, labelled for resolved threads
+      'codeNotes.replyResolve': replyAndResolve,
+      'codeNotes.applySuggestion': (id: string, mi: number, k: number) => applySuggestion(id, mi, k),
+    },
+    // Notes: resolving, deleting, moving, reading.
+    {
+      'codeNotes.resolve': async (arg?: any, many?: any[]) => resolve(await pickNotes(arg, many)),
+      'codeNotes.reopen': reopenNotes,
+      'codeNotes.delete': deleteNotes,
+      'codeNotes.resolveChecked': resolveChecked,
+      'codeNotes.resolveAll': resolveAll,
+      'codeNotes.deleteResolved': deleteResolved,
+      'codeNotes.undo': undo,
+      'codeNotes.acceptCode': acceptCode,
+      'codeNotes.moveToSelection': moveToSelection,
+      'codeNotes.completeMove': completeMove,
+      'codeNotes.cancelMove': cancelMove,
+      'codeNotes.markUnread': markUnread,
+      'codeNotes.markAllRead': markAllRead,
+      'codeNotes.nextUnread': () => stepUnread(1),
+      'codeNotes.previousUnread': () => stepUnread(-1),
+    },
+    // Notes: opening, threads, the list.
+    {
+      'codeNotes.reveal': revealCommand,
+      'codeNotes.openAt': openAt,
+      'codeNotes.openNoteFile': openNoteFile,
+      'codeNotes.openNoteId': openNoteId,
+      'codeNotes.openBroken': openBroken,
+      'codeNotes.restoreBroken': restoreBroken,
+      'codeNotes.expandThread': expandThread,
+      'codeNotes.collapseThread': collapseThread,
+      'codeNotes.find': findNote,
+      'codeNotes.refresh': reloadAll,
+      'codeNotes.copyAgentPrompt': copyAgentPrompt,
+      'codeNotes.copyNotePrompt': copyNotePrompt,
+    },
+    // The Code Notes view: sessions, filter, grouping (sidebar/).
+    {
+      'codeNotes.hideSession': hideSession,
+      'codeNotes.showSession': showSession,
+      'codeNotes.showOnlySession': showOnlySession,
+      'codeNotes.showAllSessions': showAllSessions,
+      'codeNotes.resolveSession': resolveSession,
+      'codeNotes.deleteSession': deleteSession,
+      'codeNotes.showResolved': showResolvedNotes,
+      'codeNotes.hideResolved': hideResolvedNotes,
+      'codeNotes.filter': pickFilter,
+      'codeNotes.filterActive': () => vscode.commands.executeCommand('codeNotes.filter'),
+      'codeNotes.groupByFile': groupByFile,
+      'codeNotes.groupBySession': groupBySession,
+    },
+    // Chord keys: Ctrl+' then a letter (chords.ts).
+    {
+      'codeNotes.next': next,
+      'codeNotes.previous': previous,
+      'codeNotes.resolveNext': resolveNext,
+    },
+    // Journeys and their tour (tour/, sidebar/journeysTree.ts, write/).
+    {
+      'codeNotes.codeLink': openCodeLink,
+      'codeNotes.codeLinkBack': codeLinkBack,
+      'codeNotes.openJourney': openJourney,
+      'codeNotes.showMap': showMap,
+      'codeNotes.startJourney': startJourney,
+      'codeNotes.nextStep': () => walk.stepBy(1),
+      'codeNotes.previousStep': () => walk.stepBy(-1),
+      'codeNotes.endJourney': endTour,
+      'codeNotes.openStepLink': openStepLink,
+      'codeNotes.toggleAuthorMode': authorModeOff,
+      'codeNotes.toggleAnimation': chord(toggleAnimation),
+      'codeNotes.askQuestion': askQuestion,
+      'codeNotes.backToStep': backToStep,
+      'codeNotes.askStep': (text?: string) => askStep(text),
+      'codeNotes.askStepUpdate': () => askUpdate(),
+      'codeNotes.tutorial': tutorial,
+      'codeNotes.stepDetails': toggleStepDetails,
+      'codeNotes.searchJourneys': chord(searchJourneys),
+      'codeNotes.refreshJourney': refreshJourney,
+      'codeNotes.journeysHereAll': showAllHere,
+      'codeNotes.sortJourneys': sortJourneys,
+      'codeNotes.pickJourneyStep': pickJourneyStep,
+    },
+    // The understanding check (check/wiring.ts).
+    {
+      'codeNotes.checkUnderstanding': () => understanding!.run(),
+      'codeNotes.nextCheckQuestion': () => understanding?.step(1),
+      'codeNotes.answerCheck': answerCheck,
+      'codeNotes.checkConcern': checkConcern,
+      'codeNotes.gradeCheck': gradeCheck,
+    },
+  ]
+  for (const group of groups) {
+    for (const [id, fn] of Object.entries(group)) context.subscriptions.push(vscode.commands.registerCommand(id, fn))
+  }
+}
