@@ -5,11 +5,17 @@
 //
 // Grading happens only locally (`grade`, or the extension). `ci` never calls a model: it checks that the check was
 // done for this change and that its recorded verdicts meet the threshold.
-import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+//
+// Built from cli/understanding/*.mjs by cli/bundle.mjs (npm run cli): edit those, not this file.
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+
+// ---------- constants.mjs ----------
+
+// The check's names, limits and links: what every other module (and the extension) shares.
 
 export const DIR = 'understanding'
 export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
@@ -40,7 +46,14 @@ export const withoutVsCode = (installed) => installed ? 'Without VS Code: type /
 /** The repository has the skill (`init` put it there). */
 export const hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
 
-// ---------- git ----------
+/** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
+export const SKILL_DIR = '.claude/skills/understanding-check'
+
+// ---------- git.mjs ----------
+
+// Running git: `git`/`gitOk` (synchronous, for reading), `gitRun` (asynchronous, for commit and push: no credential
+// prompt, a timeout); the branch, its base, a stack's parent, a stash. The extension has its own runner for its own
+// git calls (src/git.ts); what it reads through this file runs these on a worker thread (src/check/cliWorker.ts).
 
 export function git(repo, args, opts = {}) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'], ...opts })
@@ -49,14 +62,7 @@ const gitOk = (repo, args) => { try { return git(repo, args).trim() } catch { re
 export const hasCommit = (repo, sha) => !!sha && gitOk(repo, ['cat-file', '-e', `${sha}^{commit}`]) !== undefined
 export const repoRoot = (dir) => gitOk(dir, ['rev-parse', '--show-toplevel'])
 
-/** `feat/discount-codes` -> `feat-discount-codes` (the file name). */
-export function slugOf(branch) {
-  return String(branch).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'branch'
-}
-export const fileFor = (branch) => `${DIR}/${slugOf(branch)}.json`
-/** Where a branch's check waits while another branch is checked out (git-ignored): put in place on its return. */
-export const CACHE = '.code-notes/.cache/checks'
-export const cachedFor = (branch) => `${CACHE}/${slugOf(branch)}.json`
+
 
 /** The branch a merge request's pipeline runs for (GitLab, GitHub): CI checks out a detached HEAD. Else undefined. */
 export const ciBranch = (env = process.env) => env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.GITHUB_HEAD_REF || undefined
@@ -112,6 +118,36 @@ export function stackBase(repo, base, head, ownFile) {
   return best
 }
 
+
+/** The newest stash that holds `rel` (its untracked part or its changes): "stash@{0}", or undefined. */
+export function stashedIn(repo, rel) {
+  // The stash's reflog (what `git stash list` reads).
+  const refs = (gitOk(repo, ['log', '-g', '--format=%gd', 'refs/stash', '--']) ?? '').split('\n').filter(Boolean)
+  return refs.find((r) => gitOk(repo, ['cat-file', '-e', `${r}^3:${rel}`]) !== undefined || gitOk(repo, ['cat-file', '-e', `${r}:${rel}`]) !== undefined)
+}
+
+
+/** Runs git with an argument list (never a shell): `{ code, out, err }`; code -1 when it timed out. */
+export function gitRun(repo, args, { timeoutMs = 60_000, env = process.env } = {}) {
+  return new Promise((resolve) => {
+    // No credential prompt can be answered here: git fails at once instead of waiting for one.
+    const p = spawn('git', args, { cwd: repo, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = '', err = '', done = false
+    const t = setTimeout(() => { if (!done) { done = true; p.kill('SIGTERM'); resolve({ code: -1, out, err }) } }, timeoutMs)
+    p.stdout.on('data', (b) => { out += b })
+    p.stderr.on('data', (b) => { if (err.length < 8000) err += b })
+    p.on('error', (e) => { if (!done) { done = true; clearTimeout(t); resolve({ code: 127, out, err: e.message }) } })
+    p.on('close', (code) => { if (!done) { done = true; clearTimeout(t); resolve({ code: code ?? 1, out, err }) } })
+  })
+}
+
+/** git's error in one line: the first line that says something (no hints, no "To <url>"). */
+const gitError = (err) => err.split('\n').map((l) => l.replace(/^(error|fatal|remote):\s*/i, '').trim()).find((l) => l && !/^(hint:|To |!\s*\[|Everything up-to-date)/.test(l)) ?? 'git failed'
+
+// ---------- changeFiles.mjs ----------
+
+// Which changed files count: never the check's own files, nor an `exempt` glob; documentation files.
+
 /** A glob as a RegExp: `**` any path, `*` and `?` within a name; a pattern without "/" matches the name in any folder. */
 export function globRe(glob) {
   const g = String(glob).replace(/^\.?\//, '')
@@ -127,58 +163,17 @@ export function globRe(glob) {
 }
 /** Documentation files: a change made only of these gets one question about what a reader sees differently. */
 export const isDoc = (file) => /\.(md|mdx|markdown|rst|adoc|txt)$/i.test(file) || /(^|\/)docs?\//i.test(file)
-/**
- * The two sides of a text with git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`): [ours, theirs], each the text
- * outside the conflicts plus that side's lines.
- */
-export function conflictSides(text) {
-  const lines = String(text).split('\n')
-  const side = (keep) => {
-    let at = 'both'
-    const out = []
-    for (const l of lines) {
-      if (/^<{7}( |$)/.test(l)) at = 'ours'
-      else if (/^={7}$/.test(l) && at === 'ours') at = 'theirs'
-      else if (/^>{7}( |$)/.test(l)) at = 'both'
-      else if (at === 'both' || at === keep) out.push(l)
-    }
-    return out.join('\n')
-  }
-  return [side('ours'), side('theirs')]
-}
 
-/**
- * Git conflict markers in a check file: the first marker's line, and (when both sides read as checks) the two merged:
- * every question once, each with the side that has more graded attempts (the newer one when even). Else undefined.
- */
-export function conflictOf(text) {
-  const first = String(text).split('\n').findIndex((l) => /^<{7}( |$)/.test(l))
-  if (first < 0) return undefined
-  const [oursText, theirsText] = conflictSides(text)
-  let ours, theirs
-  try { ours = JSON.parse(oursText); theirs = JSON.parse(theirsText) } catch { return { line: first + 1 } }
-  const graded = (q) => (q?.attempts ?? []).filter((a) => a.verdict).length
-  const last = (q) => String((q?.attempts ?? []).at(-1)?.gradedAt ?? (q?.attempts ?? []).at(-1)?.at ?? '')
-  const byId = new Map((theirs.questions ?? []).map((q) => [q.id, q]))
-  const questions = (ours.questions ?? []).map((q) => { const t = byId.get(q.id); byId.delete(q.id); return !t || graded(q) > graded(t) || (graded(q) === graded(t) && last(q) >= last(t)) ? q : t })
-  return { line: first + 1, merged: { ...ours, questions: [...questions, ...byId.values()] } }
-}
-
-/** The newest stash that holds `rel` (its untracked part or its changes): "stash@{0}", or undefined. */
-export function stashedIn(repo, rel) {
-  // The stash's reflog (what `git stash list` reads).
-  const refs = (gitOk(repo, ['log', '-g', '--format=%gd', 'refs/stash', '--']) ?? '').split('\n').filter(Boolean)
-  return refs.find((r) => gitOk(repo, ['cat-file', '-e', `${r}^3:${rel}`]) !== undefined || gitOk(repo, ['cat-file', '-e', `${r}:${rel}`]) !== undefined)
-}
-
-/** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
-export const SKILL_DIR = '.claude/skills/understanding-check'
 /** Files that never count: the check itself, Code Notes' notes, and what `init` writes for them (its lines, the skill). */
 export const own = (file) => file.startsWith(`${DIR}/`) || file.startsWith('.code-notes/') || file === '.gitattributes' || file === '.ignore' || file.startsWith(`${SKILL_DIR}/`)
 /** Whether a changed file counts: not the check itself, not one of the config's `exempt` globs (none by default). */
 export function counted(file, exempt = []) {
   return !own(file) && !exempt.some((g) => globRe(g).test(file))
 }
+
+// ---------- comments.mjs ----------
+
+// Comment syntax by file type, and whether a line is code (not blank, not a whole-line comment).
 
 // Comment syntax by file extension (pragmatic: whole-line comments only; a block comment is followed within a hunk).
 const C_LIKE = { line: ['//'], block: [['/*', '*/']], star: true }
@@ -236,6 +231,11 @@ export function isCode(line, file, state = {}) {
   if (st.star && /^\*(\/|\s|$)/.test(t)) return false
   return true
 }
+
+// ---------- diff.mjs ----------
+
+// Unified diffs: the change's code lines and size, the lines added or changed, where code was removed, and the line
+// numbers a merge request's diff pairs.
 
 /**
  * The code lines of a change between two commits (or a commit and the working tree when `to` is undefined): counted
@@ -310,87 +310,6 @@ export function rangesOf(lines) {
   }
   return map
 }
-
-/**
- * How many questions a change gets, by its size in code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5.
- * Config `questions` bounds it: `{ "min": 3, "max": 5 }`, or a number for always that many.
- */
-export function questionsFor(lines, cfg = DEFAULTS) {
-  const n = lines < 20 ? 1 : lines < 60 ? 2 : lines < 150 ? 3 : lines < 300 ? 4 : 5
-  const { min = 1, max = 5 } = cfg.questions ?? {}
-  return Math.max(1, Math.min(max, Math.max(min, n)))
-}
-
-/**
- * What kind of change it is, for its size rules: `docs` (only documentation), `removal` (only removes code), else
- * `code`. `st`: codeStat's shape (`docsOnly`, `added`, `removed`).
- */
-export function changeKind(st) {
-  return st?.docsOnly ? 'docs' : st && st.added === 0 && st.removed > 0 ? 'removal' : 'code'
-}
-
-/** How many questions a change gets: one for documentation or a removal, else by its size (questionsFor). */
-export function questionsForChange(st, cfg = DEFAULTS) {
-  return changeKind(st) === 'code' ? questionsFor(linesOf(st), cfg) : 1
-}
-
-/**
- * How many steps a check's tour has, `[min, max]`: 2-3 for documentation, a removal or a change under 10 code lines;
- * 2-4 under 20; 4-7 under 60; else 6-10. A tour of documentation may have none (its text describes no code).
- */
-export function tourSize(kind, lines) {
-  if (kind === 'docs' || kind === 'removal' || lines < 10) return [2, 3]
-  return lines < 20 ? [2, 4] : lines < 60 ? [4, 7] : [6, 10]
-}
-
-/** A check's kind (changeKind), from the file: its questions say docs; its recorded size says a removal. */
-export function checkKind(check) {
-  const qs = check?.questions ?? []
-  if (qs.length && qs.every((q) => q.docs)) return 'docs'
-  return changeKind(check?.diffStat)
-}
-
-const NOT_NAMES = new Set(['if', 'for', 'while', 'switch', 'catch', 'case', 'default', 'return', 'function', 'else', 'new', 'typeof', 'await', 'async', 'export', 'import', 'from', 'const', 'let', 'var', 'this', 'true', 'false', 'null', 'undefined', 'self', 'super', 'constructor', 'module', 'exports', 'require'])
-/**
- * The names a removal took away (functions, classes, constants, keys), from its removed code lines: at most 5, in
- * order. Pragmatic: definitions by their usual shape in common languages.
- */
-export function removedNames(lines) {
-  const out = []
-  const shapes = [
-    /\b(?:function\*?|class|def|fn|interface|type|enum|struct|trait|sub)\s+([A-Za-z_$][\w$]*)/,
-    /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/,
-    /\b(?:const|let|var|val)\s+([A-Za-z_$][\w$]*)/,
-    /^(?:(?:export|public|private|protected|static|async)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{]+)?\{\s*$/,
-    /^["']?([A-Za-z_$][\w$]*)["']?\s*:\s*\S/,
-    /^([A-Za-z_]\w*)\s*=[^=]/,
-  ]
-  for (const x of lines) {
-    if (x.sign !== '-') continue
-    for (const re of shapes) {
-      const m = re.exec(x.text)
-      if (!m) continue
-      if (m[1].length >= 3 && !NOT_NAMES.has(m[1]) && !out.includes(m[1])) out.push(m[1])
-      break
-    }
-  }
-  return out.slice(0, 5)
-}
-
-/**
- * Where each name still appears in the repository at commit `at` (whole words; the check's own files left out):
- * `[{ name, hits: [{ file, line }] }]`. The evidence a removal's question starts from.
- */
-export function searchNames(repo, at, names) {
-  return names.map((name) => {
-    const out = gitOk(repo, ['grep', '-n', '-I', '-w', '-F', '-e', name, at, '--', '.', `:!${DIR}`, ':!.code-notes']) ?? ''
-    const hits = out.split('\n').map((l) => /^[^:]+:(.+?):(\d+):/.exec(l)).filter(Boolean).map((m) => ({ file: m[1], line: Number(m[2]) }))
-    return { name, hits }
-  })
-}
-
-/** One search result in words: "refundReport: 0 hits", "SAVE15: 1 hit (src/use.js:2)". */
-export const evidenceText = (e) => `${e.name}: ${e.hits.length} hit${e.hits.length === 1 ? '' : 's'}${e.hits.length ? ` (${e.hits.slice(0, 3).map((h) => `${h.file}:${h.line}`).join(', ')}${e.hits.length > 3 ? `, +${e.hits.length - 3} more` : ''})` : ''}`
 
 /** `git diff --numstat` between two commits (or a commit and the working tree when `to` is undefined). */
 export function numstat(repo, from, to) {
@@ -478,7 +397,192 @@ export function removalPoints(diff) {
   return map
 }
 
-// ---------- config and the file ----------
+/**
+ * The old-side line GitLab pairs with new-side line `n` of `file` in a unified diff (its diff line codes are
+ * `sha1(path)_old_new`; an added line carries the old counter where it was added). Undefined when the file is not in it.
+ */
+export function oldLineOf(diff, file, n) {
+  let inFile = false, seen = false, o = 0, w = 0, offset = 0
+  for (const l of diff.split('\n')) {
+    if (l.startsWith('diff --git')) { if (inFile) return n + offset; inFile = false; continue }
+    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; seen ||= inFile; continue }
+    if (!inFile || l.startsWith('--- ')) continue
+    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
+    if (h) { o = Number(h[1]); w = Number(h[2]); if (n < w) return n + offset; continue }
+    if (l.startsWith('+')) { if (w === n) return o; w++ }
+    else if (l.startsWith('-')) o++
+    else if (l.startsWith(' ')) { if (w === n) return o; w++; o++ }
+    offset = o - w
+  }
+  return seen ? n + offset : undefined
+}
+
+/**
+ * The new-side line of `file` to put a thread on: `line` itself when the diff changed it, else the nearest changed line
+ * of its hunk, else the nearest changed line of the file within 20 lines (a thread can only go on a line of the diff).
+ * Undefined when there is none.
+ */
+export function nearestChanged(diff, file, line) {
+  const added = [], hunks = []
+  let inFile = false, n = 0
+  for (const l of String(diff ?? '').split('\n')) {
+    if (l.startsWith('diff --git')) { inFile = false; continue }
+    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; continue }
+    if (!inFile || l.startsWith('--- ')) continue
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l)
+    if (h) { n = Number(h[1]); hunks.push([n, n + Number(h[2] ?? 1) - 1]); continue }
+    if (l.startsWith('+')) added.push(n++)
+    else if (l.startsWith(' ')) n++
+  }
+  if (added.includes(line)) return line
+  const near = (xs) => xs.reduce((a, b) => (a === undefined || Math.abs(b - line) < Math.abs(a - line) ? b : a), undefined)
+  const hunk = hunks.find(([x, y]) => line >= x && line <= y)
+  return near(hunk ? added.filter((x) => x >= hunk[0] && x <= hunk[1]) : []) ?? near(added.filter((x) => Math.abs(x - line) <= 20))
+}
+
+// ---------- size.mjs ----------
+
+// How big a change is, and what that asks for: the number of questions and tour steps, the names a removal took
+// away and where they still appear, how long a check takes.
+
+/**
+ * How many questions a change gets, by its size in code lines: 1 under 20, 2 under 60, 3 under 150, 4 under 300, else 5.
+ * Config `questions` bounds it: `{ "min": 3, "max": 5 }`, or a number for always that many.
+ */
+export function questionsFor(lines, cfg = DEFAULTS) {
+  const n = lines < 20 ? 1 : lines < 60 ? 2 : lines < 150 ? 3 : lines < 300 ? 4 : 5
+  const { min = 1, max = 5 } = cfg.questions ?? {}
+  return Math.max(1, Math.min(max, Math.max(min, n)))
+}
+
+/**
+ * What kind of change it is, for its size rules: `docs` (only documentation), `removal` (only removes code), else
+ * `code`. `st`: codeStat's shape (`docsOnly`, `added`, `removed`).
+ */
+export function changeKind(st) {
+  return st?.docsOnly ? 'docs' : st && st.added === 0 && st.removed > 0 ? 'removal' : 'code'
+}
+
+/** How many questions a change gets: one for documentation or a removal, else by its size (questionsFor). */
+export function questionsForChange(st, cfg = DEFAULTS) {
+  return changeKind(st) === 'code' ? questionsFor(linesOf(st), cfg) : 1
+}
+
+/**
+ * How many steps a check's tour has, `[min, max]`: 2-3 for documentation, a removal or a change under 10 code lines;
+ * 2-4 under 20; 4-7 under 60; else 6-10. A tour of documentation may have none (its text describes no code).
+ */
+export function tourSize(kind, lines) {
+  if (kind === 'docs' || kind === 'removal' || lines < 10) return [2, 3]
+  return lines < 20 ? [2, 4] : lines < 60 ? [4, 7] : [6, 10]
+}
+
+/** A check's kind (changeKind), from the file: its questions say docs; its recorded size says a removal. */
+export function checkKind(check) {
+  const qs = check?.questions ?? []
+  if (qs.length && qs.every((q) => q.docs)) return 'docs'
+  return changeKind(check?.diffStat)
+}
+
+const NOT_NAMES = new Set(['if', 'for', 'while', 'switch', 'catch', 'case', 'default', 'return', 'function', 'else', 'new', 'typeof', 'await', 'async', 'export', 'import', 'from', 'const', 'let', 'var', 'this', 'true', 'false', 'null', 'undefined', 'self', 'super', 'constructor', 'module', 'exports', 'require'])
+/**
+ * The names a removal took away (functions, classes, constants, keys), from its removed code lines: at most 5, in
+ * order. Pragmatic: definitions by their usual shape in common languages.
+ */
+export function removedNames(lines) {
+  const out = []
+  const shapes = [
+    /\b(?:function\*?|class|def|fn|interface|type|enum|struct|trait|sub)\s+([A-Za-z_$][\w$]*)/,
+    /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/,
+    /\b(?:const|let|var|val)\s+([A-Za-z_$][\w$]*)/,
+    /^(?:(?:export|public|private|protected|static|async)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{]+)?\{\s*$/,
+    /^["']?([A-Za-z_$][\w$]*)["']?\s*:\s*\S/,
+    /^([A-Za-z_]\w*)\s*=[^=]/,
+  ]
+  for (const x of lines) {
+    if (x.sign !== '-') continue
+    for (const re of shapes) {
+      const m = re.exec(x.text)
+      if (!m) continue
+      if (m[1].length >= 3 && !NOT_NAMES.has(m[1]) && !out.includes(m[1])) out.push(m[1])
+      break
+    }
+  }
+  return out.slice(0, 5)
+}
+
+/**
+ * Where each name still appears in the repository at commit `at` (whole words; the check's own files left out):
+ * `[{ name, hits: [{ file, line }] }]`. The evidence a removal's question starts from.
+ */
+export function searchNames(repo, at, names) {
+  return names.map((name) => {
+    const out = gitOk(repo, ['grep', '-n', '-I', '-w', '-F', '-e', name, at, '--', '.', `:!${DIR}`, ':!.code-notes']) ?? ''
+    const hits = out.split('\n').map((l) => /^[^:]+:(.+?):(\d+):/.exec(l)).filter(Boolean).map((m) => ({ file: m[1], line: Number(m[2]) }))
+    return { name, hits }
+  })
+}
+
+/** One search result in words: "refundReport: 0 hits", "SAVE15: 1 hit (src/use.js:2)". */
+export const evidenceText = (e) => `${e.name}: ${e.hits.length} hit${e.hits.length === 1 ? '' : 's'}${e.hits.length ? ` (${e.hits.slice(0, 3).map((h) => `${h.file}:${h.line}`).join(', ')}${e.hits.length > 3 ? `, +${e.hits.length - 3} more` : ''})` : ''}`
+
+
+/** How long a check takes, honestly, by its number of questions: "3 questions, ~2 min". */
+export const minutesFor = (n) => Math.max(1, Math.round(n * 0.6))
+export const sizeText = (n) => `${n} question${n === 1 ? '' : 's'}, ~${minutesFor(n)} min`
+/** The same for the merge request and the CI log: "about 2 min" (GitLab reads "~2" as a label). */
+export const sizeWords = (n) => sizeText(n).replace('~', 'about ')
+
+// ---------- checkFile.mjs ----------
+
+// The check file (understanding/<branch>.json): where it is, its settings, reading and writing it, a conflict in
+// it, and what an answer or a flag adds to it.
+
+/** `feat/discount-codes` -> `feat-discount-codes` (the file name). */
+export function slugOf(branch) {
+  return String(branch).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'branch'
+}
+export const fileFor = (branch) => `${DIR}/${slugOf(branch)}.json`
+/** Where a branch's check waits while another branch is checked out (git-ignored): put in place on its return. */
+export const CACHE = '.code-notes/.cache/checks'
+export const cachedFor = (branch) => `${CACHE}/${slugOf(branch)}.json`
+
+/**
+ * The two sides of a text with git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`): [ours, theirs], each the text
+ * outside the conflicts plus that side's lines.
+ */
+export function conflictSides(text) {
+  const lines = String(text).split('\n')
+  const side = (keep) => {
+    let at = 'both'
+    const out = []
+    for (const l of lines) {
+      if (/^<{7}( |$)/.test(l)) at = 'ours'
+      else if (/^={7}$/.test(l) && at === 'ours') at = 'theirs'
+      else if (/^>{7}( |$)/.test(l)) at = 'both'
+      else if (at === 'both' || at === keep) out.push(l)
+    }
+    return out.join('\n')
+  }
+  return [side('ours'), side('theirs')]
+}
+
+/**
+ * Git conflict markers in a check file: the first marker's line, and (when both sides read as checks) the two merged:
+ * every question once, each with the side that has more graded attempts (the newer one when even). Else undefined.
+ */
+export function conflictOf(text) {
+  const first = String(text).split('\n').findIndex((l) => /^<{7}( |$)/.test(l))
+  if (first < 0) return undefined
+  const [oursText, theirsText] = conflictSides(text)
+  let ours, theirs
+  try { ours = JSON.parse(oursText); theirs = JSON.parse(theirsText) } catch { return { line: first + 1 } }
+  const graded = (q) => (q?.attempts ?? []).filter((a) => a.verdict).length
+  const last = (q) => String((q?.attempts ?? []).at(-1)?.gradedAt ?? (q?.attempts ?? []).at(-1)?.at ?? '')
+  const byId = new Map((theirs.questions ?? []).map((q) => [q.id, q]))
+  const questions = (ours.questions ?? []).map((q) => { const t = byId.get(q.id); byId.delete(q.id); return !t || graded(q) > graded(t) || (graded(q) === graded(t) && last(q) >= last(t)) ? q : t })
+  return { line: first + 1, merged: { ...ours, questions: [...questions, ...byId.values()] } }
+}
 
 /**
  * The check's settings: understanding/config.json in the working tree, or (`at`) as committed there (CI judges a merge
@@ -545,6 +649,25 @@ export function pruneAttempts(q) {
 export function attemptHash(question, attempt) {
   return createHash('sha256').update(`${question.text}\0${attempt.answer}\0${attempt.verdict}`, 'utf8').digest('hex').slice(0, 12)
 }
+
+
+/**
+ * Flags a question's concern for the reviewer (the merge request lists it), as Flag for reviewer does in VS Code. A
+ * question asked as "may be a bug" can be flagged once answered. Returns false when there is nothing to flag.
+ */
+export function flagConcern(check, q, who) {
+  const answered = (q.attempts ?? []).some((a) => a.verdict)
+  const text = q.concern?.text ?? (q.suspect && answered ? q.text : undefined)
+  if (!text || q.concern?.dismissed || q.concern?.fixed) return false
+  q.concern = { ...(q.concern ?? {}), text, flagged: true }
+  if (who && check.answeredBy && !sameWho(who, check.answeredBy)) q.concern.by = who
+  else delete q.concern.by
+  return true
+}
+
+// ---------- validate.mjs ----------
+
+// What is wrong with a check file: its format, its tour's, and answers changed after grading.
 
 const isHex = (s, min = 7) => typeof s === 'string' && new RegExp(`^[0-9a-f]{${min},64}$`).test(s)
 
@@ -646,11 +769,23 @@ export function tourProblems(j) {
   return errs
 }
 
-/** The tour as numbered lines for the grader: "3. The API refuses a used code (api/discounts.ts:40-52)". */
-export function tourText(check) {
-  const steps = Array.isArray(check?.journey?.steps) ? check.journey.steps : []
-  return steps.map((s, i) => `${i + 1}. ${s.title} (${s.file}:${s.range?.start}-${s.range?.end})`).join('\n')
+
+/** Graded attempts whose hash doesn't match (or is missing): "q2 attempt 1". */
+export function hashProblems(check) {
+  // Only each question's last attempt keeps its answer, so only it can be verified; earlier hashes are not checked.
+  const out = []
+  for (const q of check.questions) {
+    const as = q.attempts ?? []
+    const a = as[as.length - 1]
+    if (a?.verdict && a.hash !== attemptHash(q, a)) out.push(`${q.id} attempt ${as.length}`)
+  }
+  return out
 }
+
+// ---------- state.mjs ----------
+
+// Where the check stands: each question's state, the pass rule, the branch's status (localStatus), the one
+// state every surface shows (checkState) and its words (stateWords).
 
 /**
  * One question's state, from its attempts: todo (no answer), ungraded, retry (try again), pass, explained (answered
@@ -690,115 +825,6 @@ export function summarize(check, cfg = DEFAULTS) {
 /** The rule in one phrase, the same everywhere. */
 export const ruleText = (s) => `Answer all ${s.total} · ${s.needed} must pass`
 
-/** Graded attempts whose hash doesn't match (or is missing): "q2 attempt 1". */
-export function hashProblems(check) {
-  // Only each question's last attempt keeps its answer, so only it can be verified; earlier hashes are not checked.
-  const out = []
-  for (const q of check.questions) {
-    const as = q.attempts ?? []
-    const a = as[as.length - 1]
-    if (a?.verdict && a.hash !== attemptHash(q, a)) out.push(`${q.id} attempt ${as.length}`)
-  }
-  return out
-}
-
-// ---------- compact anchors (the same format as the extension's src/compact.ts) ----------
-
-const norm = (s) => s.replace(/\s+/g, '').replace(/['`]/g, '"').replace(/[;,]+$/, '')
-const blank = (s) => norm(s) === ''
-const sha12 = (s) => createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 12)
-/** The compact anchor of lines [start, end] (1-based, inclusive) of a file's lines. */
-export function compactOf(lines, start, end) {
-  const s = start - 1, e = end - 1
-  const block = lines.slice(s, e + 1)
-  const solid = block.filter((l) => !blank(l))
-  if (!solid.length) return undefined
-  let b = s - 1
-  while (b >= 0 && blank(lines[b])) b--
-  let a = e + 1
-  while (a < lines.length && blank(lines[a])) a++
-  return { v: 3, head: solid.slice(0, 3).join('\n'), tail: solid.slice(-2).join('\n'), lines: block.length, hash: sha12(block.map(norm).filter(Boolean).join('\n')),
-    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '' }
-}
-
-const weak = (s) => norm(s).length < 3
-/** Non-blank lines from `i` on match `want` (normalized) in order: the index of the last one, else undefined. */
-function forward(lines, i, want) {
-  let k = i
-  for (let w = 0; w < want.length; w++) {
-    while (k < lines.length && blank(lines[k])) k++
-    if (k >= lines.length || norm(lines[k]) !== want[w]) return undefined
-    if (w < want.length - 1) k++
-  }
-  return k
-}
-function backward(lines, e, want, floor) {
-  let k = e
-  for (let w = want.length - 1; w >= 0; w--) {
-    while (k >= floor && blank(lines[k])) k--
-    if (k < floor || norm(lines[k]) !== want[w]) return false
-    k--
-  }
-  return true
-}
-/**
- * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
- * it was. The same rules as the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
- * first, then the closest length, then the context lines, then the nearest place.
- */
-export function findAnchor(lines, a, hint = 0) {
-  const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
-  const tail = String(a?.tail ?? '').split('\n').map(norm).filter(Boolean)
-  if (!head.length) return undefined
-  if (!tail.length) tail.push(...head.slice(-2))
-  const L = Math.max(1, a.lines || 1)
-  const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
-  const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
-  const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
-  const better = (c, b) => (c.fresh !== b.fresh ? c.fresh : c.dLen !== b.dLen ? c.dLen < b.dLen : c.ctx !== b.ctx ? c.ctx > b.ctx : c.dist < b.dist)
-  let best
-  for (let i = 0; i < lines.length; i++) {
-    if (norm(lines[i]) !== head[0]) continue
-    const headEnd = forward(lines, i, head)
-    if (headEnd === undefined) continue
-    let b = i - 1
-    while (b >= 0 && blank(lines[b])) b--
-    const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
-    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
-      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
-      let f = e + 1
-      while (f < lines.length && blank(lines[f])) f++
-      const c = { start: i, end: e, fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash, dLen: Math.abs(e - i + 1 - L),
-        ctx: ctxBefore + (after && f < lines.length && norm(lines[f]) === after ? 1 : 0), dist: Math.abs(i - hint) }
-      if (!best || better(c, best)) best = c
-    }
-  }
-  return best && { start: best.start, end: best.end, fresh: best.fresh }
-}
-
-/**
- * Moves each question's lines (and its `also` ranges) to where their anchored code is now in the working tree, so
- * the panel, the file and the merge request comment show today's line numbers. Returns how many ranges moved.
- */
-export function relocate(repo, check) {
-  const cache = new Map()
-  const linesOfFile = (f) => {
-    if (!cache.has(f)) { try { cache.set(f, fs.readFileSync(path.join(repo, f), 'utf8').split(/\r?\n/)) } catch { cache.set(f, undefined) } }
-    return cache.get(f)
-  }
-  let moved = 0
-  const move = (r) => {
-    if (!r || r.target === 'file' || !r.anchor || !Number.isInteger(r.start)) return
-    const lines = linesOfFile(r.file)
-    const at = lines && findAnchor(lines, r.anchor, r.start - 1)
-    if (!at || (at.start + 1 === r.start && at.end + 1 === r.end)) return
-    r.start = at.start + 1; r.end = at.end + 1; moved++
-  }
-  for (const q of check.questions ?? []) { move(q); for (const x of q.also ?? []) move(x) }
-  return moved
-}
-
-// ---------- local status ----------
 
 /** Where the branch stands: what changed, the check file, whether it is still valid, where it stands (checkState). */
 export function localStatus(repo, { base, cfg = loadConfig(repo), env = process.env } = {}) {
@@ -900,7 +926,123 @@ export function driftOf(repo, check, to, nowStat, exempt = [], base) {
   return { lines: nowStat ? Math.abs(linesOf(nowStat) - was) : 0, approx: true }
 }
 
-// ---------- grading (local only) ----------
+
+/**
+ * The question to answer next: the first one not done (to answer, try again, or not graded yet). An explained one is
+ * done; saying it back is optional.
+ */
+export const nextQuestion = (check) => (check.questions ?? []).find((q) => !isDone(stateOf(q)))
+
+
+/** Records the informational result in the file. */
+export function stamp(check, cfg) {
+  const s = summarize(check, cfg)
+  check.result = { done: s.done, passed: s.passed, total: s.total, needed: s.needed, verdict: s.met ? 'pass' : 'fail', at: new Date().toISOString() }
+  return check
+}
+
+// ---------- anchors.mjs ----------
+
+// Compact anchors: a question's lines found again after the code moved. The same format and rules as the
+// extension's src/compact.ts (written in another language; test/compact.test.ts and test/cli check each side).
+
+const norm = (s) => s.replace(/\s+/g, '').replace(/['`]/g, '"').replace(/[;,]+$/, '')
+const blank = (s) => norm(s) === ''
+const sha12 = (s) => createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 12)
+/** The compact anchor of lines [start, end] (1-based, inclusive) of a file's lines. */
+export function compactOf(lines, start, end) {
+  const s = start - 1, e = end - 1
+  const block = lines.slice(s, e + 1)
+  const solid = block.filter((l) => !blank(l))
+  if (!solid.length) return undefined
+  let b = s - 1
+  while (b >= 0 && blank(lines[b])) b--
+  let a = e + 1
+  while (a < lines.length && blank(lines[a])) a++
+  return { v: 3, head: solid.slice(0, 3).join('\n'), tail: solid.slice(-2).join('\n'), lines: block.length, hash: sha12(block.map(norm).filter(Boolean).join('\n')),
+    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '' }
+}
+
+const weak = (s) => norm(s).length < 3
+/** Non-blank lines from `i` on match `want` (normalized) in order: the index of the last one, else undefined. */
+function forward(lines, i, want) {
+  let k = i
+  for (let w = 0; w < want.length; w++) {
+    while (k < lines.length && blank(lines[k])) k++
+    if (k >= lines.length || norm(lines[k]) !== want[w]) return undefined
+    if (w < want.length - 1) k++
+  }
+  return k
+}
+function backward(lines, e, want, floor) {
+  let k = e
+  for (let w = want.length - 1; w >= 0; w--) {
+    while (k >= floor && blank(lines[k])) k--
+    if (k < floor || norm(lines[k]) !== want[w]) return false
+    k--
+  }
+  return true
+}
+/**
+ * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
+ * it was. The same rules as the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
+ * first, then the closest length, then the context lines, then the nearest place.
+ */
+export function findAnchor(lines, a, hint = 0) {
+  const head = String(a?.head ?? '').split('\n').map(norm).filter(Boolean)
+  const tail = String(a?.tail ?? '').split('\n').map(norm).filter(Boolean)
+  if (!head.length) return undefined
+  if (!tail.length) tail.push(...head.slice(-2))
+  const L = Math.max(1, a.lines || 1)
+  const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5)
+  const before = weak(a.before ?? '') ? '' : norm(a.before), after = weak(a.after ?? '') ? '' : norm(a.after)
+  const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join('\n'))
+  const better = (c, b) => (c.fresh !== b.fresh ? c.fresh : c.dLen !== b.dLen ? c.dLen < b.dLen : c.ctx !== b.ctx ? c.ctx > b.ctx : c.dist < b.dist)
+  let best
+  for (let i = 0; i < lines.length; i++) {
+    if (norm(lines[i]) !== head[0]) continue
+    const headEnd = forward(lines, i, head)
+    if (headEnd === undefined) continue
+    let b = i - 1
+    while (b >= 0 && blank(lines[b])) b--
+    const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0
+    for (let e = Math.max(headEnd, i + minLen - 1); e <= Math.min(lines.length - 1, i + maxLen - 1); e++) {
+      if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, i)) continue
+      let f = e + 1
+      while (f < lines.length && blank(lines[f])) f++
+      const c = { start: i, end: e, fresh: !a.hash || hashOf(lines.slice(i, e + 1)) === a.hash, dLen: Math.abs(e - i + 1 - L),
+        ctx: ctxBefore + (after && f < lines.length && norm(lines[f]) === after ? 1 : 0), dist: Math.abs(i - hint) }
+      if (!best || better(c, best)) best = c
+    }
+  }
+  return best && { start: best.start, end: best.end, fresh: best.fresh }
+}
+
+/**
+ * Moves each question's lines (and its `also` ranges) to where their anchored code is now in the working tree, so
+ * the panel, the file and the merge request comment show today's line numbers. Returns how many ranges moved.
+ */
+export function relocate(repo, check) {
+  const cache = new Map()
+  const linesOfFile = (f) => {
+    if (!cache.has(f)) { try { cache.set(f, fs.readFileSync(path.join(repo, f), 'utf8').split(/\r?\n/)) } catch { cache.set(f, undefined) } }
+    return cache.get(f)
+  }
+  let moved = 0
+  const move = (r) => {
+    if (!r || r.target === 'file' || !r.anchor || !Number.isInteger(r.start)) return
+    const lines = linesOfFile(r.file)
+    const at = lines && findAnchor(lines, r.anchor, r.start - 1)
+    if (!at || (at.start + 1 === r.start && at.end + 1 === r.end)) return
+    r.start = at.start + 1; r.end = at.end + 1; moved++
+  }
+  for (const q of check.questions ?? []) { move(q); for (const x of q.also ?? []) move(x) }
+  return moved
+}
+
+// ---------- grading.mjs ----------
+
+// Grading an answer (local only): what the grader sees, its prompt, reading its reply, recording the grade.
 
 const MAX_DIFF = 60_000
 
@@ -1062,6 +1204,55 @@ export function gradeMode(q) {
   return { attempt: before.length + 1, ...(ex ? { explanation: ex.feedback ?? '' } : {}) }
 }
 
+
+/** The tour as numbered lines for the grader: "3. The API refuses a used code (api/discounts.ts:40-52)". */
+export function tourText(check) {
+  const steps = Array.isArray(check?.journey?.steps) ? check.journey.steps : []
+  return steps.map((s, i) => `${i + 1}. ${s.title} (${s.file}:${s.range?.start}-${s.range?.end})`).join('\n')
+}
+
+
+/** Grades the latest attempt of `q` in place (verdict, feedback, hint, hash). */
+export async function gradeQuestion(repo, check, q, { backend, model, env, diff } = {}) {
+  const as = q.attempts ?? []
+  const a = as[as.length - 1]
+  if (!a) throw new Error(`${q.id} has no answer`)
+  const d = diff ?? diffText(repo, check.base ?? check.head, undefined)
+  const mode = gradeMode(q)
+  const prompt = graderPrompt({ q, answer: a.answer, ...mode, diff: diffForGrader(d, q.file), code: codeWindow(repo, q), canRead: backend === 'claude', tour: tourText(check), others: openOthers(check, q) })
+  const text = await runGrader(backend, { prompt, repo, model, env })
+  return applyGrade(repo, q, a, text)
+}
+
+/**
+ * The grader's reply (`text`) recorded on attempt `a` of `q`, as the extension records it: the verdict fixed by the
+ * attempt (parseVerdict), links to lines that are there, the time, the hash; a concern kept on the question (its flag
+ * survives a later grade).
+ */
+export function applyGrade(repo, q, a, text) {
+  const mode = gradeMode(q)
+  const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
+  if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
+  Object.assign(a, v, { gradedAt: new Date().toISOString() })
+  a.hash = attemptHash(q, a)
+  if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
+  return a
+}
+
+/** The grader's prompt for an answer to `q` (not recorded): what Claude Code follows when it grades in a chat. */
+export function promptFor(repo, check, q, answer) {
+  const c = structuredClone(check)
+  const cq = c.questions.find((x) => x.id === q.id)
+  addAttempt(c, cq, answer)
+  let diff = ''
+  try { diff = diffText(repo, check.base ?? check.head, undefined) } catch { /* the grader reads the code */ }
+  return graderPrompt({ q: cq, answer, ...gradeMode(cq), diff: diffForGrader(diff, cq.file), code: codeWindow(repo, cq), canRead: true, tour: tourText(c), others: openOthers(c, cq) })
+}
+
+// ---------- graderBackends.mjs ----------
+
+// The grader's two backends: Claude Code (the `claude` CLI, which can read the repository) or the Anthropic API.
+
 function onPath(cmd) {
   if (cmd.includes('/')) return fs.existsSync(cmd) ? cmd : undefined
   for (const d of (process.env.PATH ?? '').split(path.delimiter)) {
@@ -1118,88 +1309,10 @@ export async function runGrader(backend, { prompt, repo, model, env = process.en
   })
 }
 
-/** Grades the latest attempt of `q` in place (verdict, feedback, hint, hash). */
-export async function gradeQuestion(repo, check, q, { backend, model, env, diff } = {}) {
-  const as = q.attempts ?? []
-  const a = as[as.length - 1]
-  if (!a) throw new Error(`${q.id} has no answer`)
-  const d = diff ?? diffText(repo, check.base ?? check.head, undefined)
-  const mode = gradeMode(q)
-  const prompt = graderPrompt({ q, answer: a.answer, ...mode, diff: diffForGrader(d, q.file), code: codeWindow(repo, q), canRead: backend === 'claude', tour: tourText(check), others: openOthers(check, q) })
-  const text = await runGrader(backend, { prompt, repo, model, env })
-  return applyGrade(repo, q, a, text)
-}
+// ---------- push.mjs ----------
 
-/**
- * The grader's reply (`text`) recorded on attempt `a` of `q`, as the extension records it: the verdict fixed by the
- * attempt (parseVerdict), links to lines that are there, the time, the hash; a concern kept on the question (its flag
- * survives a later grade).
- */
-export function applyGrade(repo, q, a, text) {
-  const mode = gradeMode(q)
-  const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== undefined })
-  if (v.links) { v.links = codeLinksIn(repo, v.links); if (!v.links.length) delete v.links }
-  Object.assign(a, v, { gradedAt: new Date().toISOString() })
-  a.hash = attemptHash(q, a)
-  if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
-  return a
-}
-
-/** The grader's prompt for an answer to `q` (not recorded): what Claude Code follows when it grades in a chat. */
-export function promptFor(repo, check, q, answer) {
-  const c = structuredClone(check)
-  const cq = c.questions.find((x) => x.id === q.id)
-  addAttempt(c, cq, answer)
-  let diff = ''
-  try { diff = diffText(repo, check.base ?? check.head, undefined) } catch { /* the grader reads the code */ }
-  return graderPrompt({ q: cq, answer, ...gradeMode(cq), diff: diffForGrader(diff, cq.file), code: codeWindow(repo, cq), canRead: true, tour: tourText(c), others: openOthers(c, cq) })
-}
-
-/**
- * The question to answer next: the first one not done (to answer, try again, or not graded yet). An explained one is
- * done; saying it back is optional.
- */
-export const nextQuestion = (check) => (check.questions ?? []).find((q) => !isDone(stateOf(q)))
-
-/**
- * Flags a question's concern for the reviewer (the merge request lists it), as Flag for reviewer does in VS Code. A
- * question asked as "may be a bug" can be flagged once answered. Returns false when there is nothing to flag.
- */
-export function flagConcern(check, q, who) {
-  const answered = (q.attempts ?? []).some((a) => a.verdict)
-  const text = q.concern?.text ?? (q.suspect && answered ? q.text : undefined)
-  if (!text || q.concern?.dismissed || q.concern?.fixed) return false
-  q.concern = { ...(q.concern ?? {}), text, flagged: true }
-  if (who && check.answeredBy && !sameWho(who, check.answeredBy)) q.concern.by = who
-  else delete q.concern.by
-  return true
-}
-
-/** Records the informational result in the file. */
-export function stamp(check, cfg) {
-  const s = summarize(check, cfg)
-  check.result = { done: s.done, passed: s.passed, total: s.total, needed: s.needed, verdict: s.met ? 'pass' : 'fail', at: new Date().toISOString() }
-  return check
-}
-
-// ---------- commit and push (the extension's Commit & push) ----------
-
-/** Runs git with an argument list (never a shell): `{ code, out, err }`; code -1 when it timed out. */
-export function gitRun(repo, args, { timeoutMs = 60_000, env = process.env } = {}) {
-  return new Promise((resolve) => {
-    // No credential prompt can be answered here: git fails at once instead of waiting for one.
-    const p = spawn('git', args, { cwd: repo, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    let out = '', err = '', done = false
-    const t = setTimeout(() => { if (!done) { done = true; p.kill('SIGTERM'); resolve({ code: -1, out, err }) } }, timeoutMs)
-    p.stdout.on('data', (b) => { out += b })
-    p.stderr.on('data', (b) => { if (err.length < 8000) err += b })
-    p.on('error', (e) => { if (!done) { done = true; clearTimeout(t); resolve({ code: 127, out, err: e.message }) } })
-    p.on('close', (code) => { if (!done) { done = true; clearTimeout(t); resolve({ code: code ?? 1, out, err }) } })
-  })
-}
-
-/** git's error in one line: the first line that says something (no hints, no "To <url>"). */
-const gitError = (err) => err.split('\n').map((l) => l.replace(/^(error|fatal|remote):\s*/i, '').trim()).find((l) => l && !/^(hint:|To |!\s*\[|Everything up-to-date)/.test(l)) ?? 'git failed'
+// Commit and push: the check file (and only the files named) committed, the branch pushed (the extension's Commit
+// & push, and `commit`).
 
 /**
  * Commits `files` (only those) with `message` when they have changes, then pushes the branch: to its upstream, or with
@@ -1240,7 +1353,29 @@ export async function commitAndPush(repo, files, message, { env = process.env, t
   return { ok: false, committed, pushed: false, line: `${was}failed: ${gitError(p.err)}` }
 }
 
-// ---------- CI ----------
+
+/**
+ * Commits this branch's check file and pushes (`push: false`: only the commit), as Commit & push does in VS Code: the
+ * first check of a repository takes the `.gitattributes` line along. Nothing else the person changed is committed.
+ */
+export async function commitCheck(repo, { env = process.env, push = true } = {}) {
+  const branch = currentBranch(repo, env)
+  const rel = fileFor(branch)
+  if (!fs.existsSync(path.join(repo, rel))) return { ok: false, line: `No check yet: ${rel} doesn't exist.` }
+  const files = [rel]
+  if (foldMissing(repo)) { foldDiffs(repo); files.push('.gitattributes') }
+  const message = `Understanding check: ${branch}`
+  if (push) return { ...(await commitAndPush(repo, files, message, { env })), files }
+  const g = (args) => gitRun(repo, args, { env })
+  if ((await g(['add', '--', ...files])).code) return { ok: false, files, line: "Couldn't stage the check file." }
+  if ((await g(['diff', '--cached', '--quiet', '--', ...files])).code !== 1) return { ok: true, committed: false, files, line: 'Nothing to commit.' }
+  const c = await g(['commit', '-q', '-m', message, '--', ...files])
+  return c.code ? { ok: false, files, line: `Commit failed: ${(c.err || c.out).trim().split('\n')[0]}` } : { ok: true, committed: true, files, line: 'Committed.' }
+}
+
+// ---------- platform.mjs ----------
+
+// CI on GitLab or GitHub: where the job runs, and the platform's API (the merge request, approvals, the comment).
 
 /** Where CI runs and what it is checking: platform, branch, base and head commits, the merge request. */
 export function ciContext(env = process.env) {
@@ -1316,6 +1451,10 @@ export async function upsertComment(ctx, body) {
   return 'created'
 }
 
+// ---------- mrComment.mjs ----------
+
+// The merge request comment: the result, what a reviewer can act on, the answers; text made safe to post.
+
 const MARK = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungraded: '?', todo: '○' }
 /**
  * Makes @mentions inert (`@carol`, `@all`, `@group/sub`, `@org/team`): a word joiner after the "@" keeps the text as it
@@ -1338,25 +1477,7 @@ export function literal(s) {
 const quote = (s) => literal(inert(String(s).trim())).split('\n').map((l) => (l.trim() ? `> ${l}` : '>')).join('\n')
 const loc = (q) => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
 
-/**
- * The old-side line GitLab pairs with new-side line `n` of `file` in a unified diff (its diff line codes are
- * `sha1(path)_old_new`; an added line carries the old counter where it was added). Undefined when the file is not in it.
- */
-export function oldLineOf(diff, file, n) {
-  let inFile = false, seen = false, o = 0, w = 0, offset = 0
-  for (const l of diff.split('\n')) {
-    if (l.startsWith('diff --git')) { if (inFile) return n + offset; inFile = false; continue }
-    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; seen ||= inFile; continue }
-    if (!inFile || l.startsWith('--- ')) continue
-    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l)
-    if (h) { o = Number(h[1]); w = Number(h[2]); if (n < w) return n + offset; continue }
-    if (l.startsWith('+')) { if (w === n) return o; w++ }
-    else if (l.startsWith('-')) o++
-    else if (l.startsWith(' ')) { if (w === n) return o; w++; o++ }
-    offset = o - w
-  }
-  return seen ? n + offset : undefined
-}
+
 
 /** A link to a question's lines in the merge request's diff (GitLab, GitHub); the file at the head commit when it isn't in the diff. */
 export function refLink(ctx, q, diff) {
@@ -1539,11 +1660,6 @@ export function missingBody(rel, cfg = DEFAULTS, rerun = ', then re-run the job'
     ...(quiet ? [] : [`<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`])].join('\n')
 }
 
-/** How long a check takes, honestly, by its number of questions: "3 questions, ~2 min". */
-export const minutesFor = (n) => Math.max(1, Math.round(n * 0.6))
-export const sizeText = (n) => `${n} question${n === 1 ? '' : 's'}, ~${minutesFor(n)} min`
-/** The same for the merge request and the CI log: "about 2 min" (GitLab reads "~2" as a label). */
-export const sizeWords = (n) => sizeText(n).replace('~', 'about ')
 
 /**
  * What this change does to the check's own settings (understanding/config.json at `base` vs `head`), as one sentence
@@ -1567,6 +1683,10 @@ export function noCheckLine(change) {
   }
   return '✓ No check needed: no code lines changed (only comments or blank lines).'
 }
+
+// ---------- ci.mjs ----------
+
+// The CI job (`ci`): never calls a model; checks that the check was done for this change and meets the rule.
 
 /**
  * The CI job (no model calls). No code lines changed (or only exempt files) → pass. Skip label + an approval by
@@ -1675,7 +1795,67 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag }
   return finish(done)
 }
 
-// ---------- flagged concerns as diff threads ----------
+
+/** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
+async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet = false }) {
+  const abs = path.join(repo, rel)
+  if (!fs.existsSync(abs)) {
+    const size = sizeWords(questionsForChange(change, cfg))
+    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+      `  ${withoutVsCode(hasSkill(repo))}`,
+      // Advisory, or the label is there already: no skip instructions.
+      ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
+  }
+  const short = (line, head) => ({ code: 1, lines: [line], body: `${MARKER}\n${head}` })
+  let check
+  try { check = readCheck(abs) } catch (e) { return short(`✗ ${rel} is not valid JSON (${e.message}).`, `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.`) }
+  const errs = validateCheck(check, { repo })
+  if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
+
+  const drift = driftOf(repo, check, head, change, cfg.exempt, base)
+  relocate(repo, check) // the lines as they are in this commit
+  const sum = summarize(check, cfg)
+  const state = checkState({ exists: true, summary: sum, drift }, cfg)
+  let diff = ''
+  try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
+  const link = (q) => refLink({ ...ctx, head }, q, diff)
+  // Concerns whose line changed since the questions' commit: "lines changed in <sha> · fixed?".
+  const changed = new Map()
+  for (const q of check.questions) { if (!liveConcern(q)) continue; const sha = concernChangedIn(repo, q, check.head, head); if (sha !== undefined) changed.set(q.id, sha) }
+  // The comment, and the same again once the threads are known (`remake(threads)`); its items go on the code as threads.
+  const made = (line, o = {}) => {
+    const items = reviewItems(check, sum, { qa: !!o.qa })
+    return { items, body: commentBody(check, sum, line, link, { ...o, changed, items }), remake: (threads) => commentBody(check, sum, line, link, { ...o, changed, items, threads }) }
+  }
+  // The check and its links go along: runCi posts the review items on their lines.
+  const out = (r) => Object.assign(r, { check, link, diff, changed })
+  if (state.phase === 'drift') {
+    return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
+      ...made(`**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, { qa: sum.met }) })
+  }
+  const bad = hashProblems(check)
+  if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
+
+  const plainQ = (q) => q.text.replace(/`/g, '').trim()
+  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
+  const rule = ruleText(sum)
+  if (state.phase === 'answering') {
+    return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
+      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (about ${minutesFor(sum.total - sum.done)} min left).`) })
+  }
+  if (state.phase === 'short') {
+    return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
+      ...made(`**Understanding check in progress:** all ${sum.total} answered, not finished yet.`) })
+  }
+  // How much room is left before a top-up is needed.
+  const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
+  return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
+    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
+}
+
+// ---------- threads.mjs ----------
+
+// Review items (flagged concerns, "may be a bug", "Worth discussing") as threads on the merge request's diff.
 
 const concernMarker = (id) => `<!-- understanding-concern:${id} -->`
 const closedMarker = (id) => `<!-- understanding-concern-closed:${id} -->`
@@ -1704,28 +1884,7 @@ export function concernPlace(q, lines) {
   return l && typeof l.file === 'string' && Number.isInteger(l.start) ? { file: l.file, line: l.start } : undefined
 }
 
-/**
- * The new-side line of `file` to put a thread on: `line` itself when the diff changed it, else the nearest changed line
- * of its hunk, else the nearest changed line of the file within 20 lines (a thread can only go on a line of the diff).
- * Undefined when there is none.
- */
-export function nearestChanged(diff, file, line) {
-  const added = [], hunks = []
-  let inFile = false, n = 0
-  for (const l of String(diff ?? '').split('\n')) {
-    if (l.startsWith('diff --git')) { inFile = false; continue }
-    if (l.startsWith('+++ ')) { inFile = l.slice(4).replace(/^b\//, '') === file; continue }
-    if (!inFile || l.startsWith('--- ')) continue
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l)
-    if (h) { n = Number(h[1]); hunks.push([n, n + Number(h[2] ?? 1) - 1]); continue }
-    if (l.startsWith('+')) added.push(n++)
-    else if (l.startsWith(' ')) n++
-  }
-  if (added.includes(line)) return line
-  const near = (xs) => xs.reduce((a, b) => (a === undefined || Math.abs(b - line) < Math.abs(a - line) ? b : a), undefined)
-  const hunk = hunks.find(([x, y]) => line >= x && line <= y)
-  return near(hunk ? added.filter((x) => x >= hunk[0] && x <= hunk[1]) : []) ?? near(added.filter((x) => Math.abs(x - line) <= 20))
-}
+
 
 /**
  * A thread's text: short, mentions inert, the marker hidden. A concern: who flagged it (or "May be a bug"), the
@@ -1870,64 +2029,9 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
   return lines
 }
 
-/** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
-async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet = false }) {
-  const abs = path.join(repo, rel)
-  if (!fs.existsSync(abs)) {
-    const size = sizeWords(questionsForChange(change, cfg))
-    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
-      `  ${withoutVsCode(hasSkill(repo))}`,
-      // Advisory, or the label is there already: no skip instructions.
-      ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
-  }
-  const short = (line, head) => ({ code: 1, lines: [line], body: `${MARKER}\n${head}` })
-  let check
-  try { check = readCheck(abs) } catch (e) { return short(`✗ ${rel} is not valid JSON (${e.message}).`, `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.`) }
-  const errs = validateCheck(check, { repo })
-  if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
+// ---------- init.mjs ----------
 
-  const drift = driftOf(repo, check, head, change, cfg.exempt, base)
-  relocate(repo, check) // the lines as they are in this commit
-  const sum = summarize(check, cfg)
-  const state = checkState({ exists: true, summary: sum, drift }, cfg)
-  let diff = ''
-  try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
-  const link = (q) => refLink({ ...ctx, head }, q, diff)
-  // Concerns whose line changed since the questions' commit: "lines changed in <sha> · fixed?".
-  const changed = new Map()
-  for (const q of check.questions) { if (!liveConcern(q)) continue; const sha = concernChangedIn(repo, q, check.head, head); if (sha !== undefined) changed.set(q.id, sha) }
-  // The comment, and the same again once the threads are known (`remake(threads)`); its items go on the code as threads.
-  const made = (line, o = {}) => {
-    const items = reviewItems(check, sum, { qa: !!o.qa })
-    return { items, body: commentBody(check, sum, line, link, { ...o, changed, items }), remake: (threads) => commentBody(check, sum, line, link, { ...o, changed, items, threads }) }
-  }
-  // The check and its links go along: runCi posts the review items on their lines.
-  const out = (r) => Object.assign(r, { check, link, diff, changed })
-  if (state.phase === 'drift') {
-    return out({ code: 1, lines: [`✗ Your change grew by ${drift.lines} code lines since the check${drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`],
-      ...made(`**Understanding check: needs a top-up.** The change grew by ${drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`, { qa: sum.met }) })
-  }
-  const bad = hashProblems(check)
-  if (bad.length) return out(short(`✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? 'it' : 'them'} again in VS Code, then commit and push.`, '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.'))
-
-  const plainQ = (q) => q.text.replace(/`/g, '').trim()
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
-  const rule = ruleText(sum)
-  if (state.phase === 'answering') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.done} of ${sum.total} done (${rule}). Finish in VS Code, commit ${rel} and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** ${sum.done} of ${sum.total} done (about ${minutesFor(sum.total - sum.done)} min left).`) })
-  }
-  if (state.phase === 'short') {
-    return out({ code: 1, lines: [`✗ Understanding check: ${sum.passed} passed, ${sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`, ...qLines],
-      ...made(`**Understanding check in progress:** all ${sum.total} answered, not finished yet.`) })
-  }
-  // How much room is left before a top-up is needed.
-  const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-  return out({ code: 0, lines: [`✓ Understanding check done: ${sum.passed} of ${sum.total} passed (${rule}).${room}`, ...qLines],
-    ...made(`**✓ Understanding check done** · ${sum.total} question${sum.total === 1 ? '' : 's'}`, { qa: true }) })
-}
-
-// ---------- init ----------
+// `init`: the repository set up for checks (check files out of diffs and search), and the skill put in it.
 
 /**
  * What `init` makes sure of: the check files collapsed in merge request diffs (GitLab reads `gitlab-generated`, GitHub
@@ -1987,24 +2091,6 @@ export const foldDiffs = (repo) => initRepo(repo, { only: '.gitattributes' })
 /** What a check commit says it also does, beside the file: "also folds check files in diffs (.gitattributes)". */
 export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
 
-/**
- * Commits this branch's check file and pushes (`push: false`: only the commit), as Commit & push does in VS Code: the
- * first check of a repository takes the `.gitattributes` line along. Nothing else the person changed is committed.
- */
-export async function commitCheck(repo, { env = process.env, push = true } = {}) {
-  const branch = currentBranch(repo, env)
-  const rel = fileFor(branch)
-  if (!fs.existsSync(path.join(repo, rel))) return { ok: false, line: `No check yet: ${rel} doesn't exist.` }
-  const files = [rel]
-  if (foldMissing(repo)) { foldDiffs(repo); files.push('.gitattributes') }
-  const message = `Understanding check: ${branch}`
-  if (push) return { ...(await commitAndPush(repo, files, message, { env })), files }
-  const g = (args) => gitRun(repo, args, { env })
-  if ((await g(['add', '--', ...files])).code) return { ok: false, files, line: "Couldn't stage the check file." }
-  if ((await g(['diff', '--cached', '--quiet', '--', ...files])).code !== 1) return { ok: true, committed: false, files, line: 'Nothing to commit.' }
-  const c = await g(['commit', '-q', '-m', message, '--', ...files])
-  return c.code ? { ok: false, files, line: `Commit failed: ${(c.err || c.out).trim().split('\n')[0]}` } : { ok: true, committed: true, files, line: 'Committed.' }
-}
 
 /** Where the skill ships beside this file (in the extension and in its repository), if it does. */
 const skillSource = () => {
@@ -2039,7 +2125,9 @@ export function installSkill(repo) {
   return out
 }
 
-// ---------- the command line ----------
+// ---------- main.mjs ----------
+
+// The command line: `node understanding.mjs <command>` (see HELP).
 
 const HELP = `understanding.mjs: an understanding check for a change (docs: ${DOCS_URL})
 

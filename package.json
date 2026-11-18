@@ -1412,7 +1412,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p . && npm run -s vendor && npm run -s pages",
+    "build": "tsc -p . && npm run -s cli && npm run -s vendor && npm run -s pages",
+    "cli": "node cli/bundle.mjs",
     "vendor": "node -e \"const f=require('fs');f.mkdirSync('out/vendor',{recursive:true});f.copyFileSync('node_modules/elkjs/lib/elk.bundled.js','out/vendor/elk.bundled.js');f.copyFileSync('node_modules/elkjs/LICENSE.md','out/vendor/elk-LICENSE.md')\"",
     "pages": "node -e \"const f=require('fs');f.mkdirSync('out/src/webview',{recursive:true});for(const n of f.readdirSync('src/webview'))if(n.endsWith('.html'))f.copyFileSync('src/webview/'+n,'out/src/webview/'+n)\"",
     "test": "tsc -p . && node --test out/test/*.test.js test/cli/*.test.mjs",
