@@ -19,7 +19,7 @@ import { card, tour, walk } from './tour/tour'
 import { resetTutorial, TUTORIAL_KEY, tutorialMark, tutorialSeen } from './tour/tutorial'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
-import { explainLog } from './write/requests'
+import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
 
@@ -109,7 +109,7 @@ export function testApi() {
     choosing: () => choosing?.titles,
     choose: (title: string) => choosing?.accept(title),
     /** What each request did. */
-    explainLog: () => explainLog.map((x) => ({ ...x })),
+    explainLog: () => requestLog.map((x) => ({ ...x })),
     /** Reads every journey file again, as after a window reload. */
     reloadJourneys: () => journeys.load(),
   }
