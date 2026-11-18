@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import * as U from '../../cli/understanding.mjs'
-import { FAKE, repo, root } from './helpers.mjs'
+import { FAKE, repo, root, smallRepo, gitIn, commitAll } from './helpers.mjs'
 
 test('slugs, counted paths, thresholds', () => {
   assert.equal(U.slugOf('feat/Discount codes!'), 'feat-discount-codes')
@@ -179,6 +179,35 @@ test('size rules: documentation, a removal and a change of a few lines get 1 que
 
 test('hunksOf: each hunk\'s new-side lines (a deletion: the line it happened at); the extension asks it about a concern\'s lines', () => {
   assert.deepEqual(U.hunksOf('diff\n@@ -1,2 +3,4 @@ x\n+a\n@@ -9 +12 @@\n@@ -20,3 +19,0 @@'), [{ start: 3, end: 6 }, { start: 12, end: 12 }, { start: 19, end: 19 }])
+})
+
+test('diff walkers: a removed "-- x" or an added "++ x" inside a hunk is a line, not a file header', () => {
+  // A SQL comment removed ("--- note") and a Haskell line added ("+++ rest") in q.sql / m.hs.
+  const diff = [
+    'diff --git a/q.sql b/q.sql', '--- a/q.sql', '+++ b/q.sql', '@@ -1,2 +1,2 @@',
+    '--- note', '+select 2;', ' select 3;',
+    'diff --git a/m.hs b/m.hs', '--- a/m.hs', '+++ b/m.hs', '@@ -4,0 +5,2 @@',
+    '+++ rest', '+main = go',
+    '',
+  ].join('\n')
+  const ranges = U.changedRanges(diff)
+  assert.deepEqual([...ranges.keys()], ['q.sql', 'm.hs'])
+  assert.deepEqual(ranges.get('m.hs'), [[5, 6]])
+  assert.deepEqual(U.oldLineOf(diff, 'q.sql', 2), 2)
+  assert.equal(U.nearestChanged(diff, 'm.hs', 6), 6)
+  assert.match(U.numberDiff(diff), /^ {4}1 \+select 2;$/m)
+  assert.match(U.numberDiff(diff), /^ {4}5 \+\+\+ rest$/m)
+  // Removing code ("-- x" in a language where -- is not a comment) is a removal point in that file.
+  const lua = ['diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -3,1 +2,0 @@', '--- i', ''].join('\n')
+  assert.deepEqual(Object.fromEntries(U.removalPoints(lua)), { 'a.js': [[2, 2]] })
+})
+
+test('codeLines: a removed SQL comment line does not move the lines after it to another file', () => {
+  const d = smallRepo(['-- old note', 'select 1;'], 'q.sql')
+  gitIn(d, 'checkout', '-q', '-b', 'later')
+  fs.writeFileSync(path.join(d, 'q.sql'), fs.readFileSync(path.join(d, 'q.sql'), 'utf8').replace('-- old note\nselect 1;', 'select 2;'))
+  commitAll(d)
+  assert.deepEqual(U.codeLines(d, 'HEAD~1', 'HEAD').map((x) => `${x.file} ${x.sign}${x.text}`), ['q.sql -select 1;', 'q.sql +select 2;'])
 })
 
 // The extension's findCompact runs the same cases (test/compact.test.ts): both sides relocate alike.
