@@ -25,7 +25,7 @@ const tour = (x) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, pro
 const failures = []
 const fail = (m) => { failures.push(m); console.log(`  ✗ ${m}`) }
 
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+const b = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--mute-audio'] })
 for (const width of [320, 600, 1000]) for (const theme of ['dark', 'light']) {
   const tag = `${width}-${theme}`
   const page = await (await b.newContext({ viewport: { width, height: 760 }, deviceScaleFactor: 1 })).newPage()

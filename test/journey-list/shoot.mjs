@@ -27,7 +27,7 @@ const ACTIVE = 'api/store.js'
 const SELF = 'k30'
 const tour = (home) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list: [{ key: SELF, title: 'x', question: 'x', steps: 6, resume: 0, here: true }], moved: {}, home })
 const fails = []
-const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+const browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--mute-audio'] })
 for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   const tag = `${w}px ${theme}`
   const page = await browser.newPage({ viewport: { width: w, height: 760 } })
