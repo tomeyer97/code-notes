@@ -2,11 +2,12 @@
 // while it has some, else unread replies.
 
 import { gstate, KEY, mapPanel, notes, PREFIX_KEY, setKey, understanding } from './app'
-import { checkStepping, stepUnread } from './notes/reveal'
 import { resolve } from './notes/status'
-import { target } from './notes/target'
+import { stepUnread } from './notes/unread'
+import { pickNotes } from './notes/which'
 import { unread } from './seen'
 import { walk } from './tour/tour'
+import { checkStepping } from './check/wiring'
 
 /** A chord key passes which prefix was pressed: hints then show that one. */
 export const prefixUsed = (a: unknown) => {
@@ -41,7 +42,7 @@ export const previous = (a?: unknown) => {
 /** R: resolve the note at the cursor, then on to the next unread one. */
 export const resolveNext = async (a?: unknown) => {
   prefixUsed(a)
-  const list = await target(undefined)
+  const list = await pickNotes(undefined)
   if (!list.length) return
   await resolve(list)
   if (notes().some((n) => unread(n) > 0)) await stepUnread(1)

@@ -9,7 +9,6 @@ import { CodeLinks } from './codeLinks'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
 import { Store } from './store'
-import { label } from './tour/stepText'
 import { TourItems } from './tour/walk'
 import { TutorialSpot } from './tutorialSpot'
 import { ValueHints } from './valueHints'
@@ -35,13 +34,30 @@ export let claudeLinks: ClaudeLinks
 export let valueHints: ValueHints
 export let tourItems: TourItems
 
+/**
+ * What `provide` takes: the services above. They are `let`s, so every module reads the one made in activate by its
+ * bare name (an import is a live binding); a module can only assign its own `let`s, hence this list and provide's.
+ */
 interface Services {
-  store: Store; state: vscode.Memento; gstate: vscode.Memento; log: vscode.LogOutputChannel; controller: vscode.CommentController
-  extUri: vscode.Uri; extVersion: string; journeys: Journeys; understanding: Understanding; mapPanel: MapPanel; beats: Beats
-  tutorialSpot: TutorialSpot; codeLinks: CodeLinks; claudeLinks: ClaudeLinks; valueHints: ValueHints; tourItems: TourItems
+  store: Store
+  state: vscode.Memento
+  gstate: vscode.Memento
+  log: vscode.LogOutputChannel
+  controller: vscode.CommentController
+  extUri: vscode.Uri
+  extVersion: string
+  journeys: Journeys
+  understanding: Understanding
+  mapPanel: MapPanel
+  beats: Beats
+  tutorialSpot: TutorialSpot
+  codeLinks: CodeLinks
+  claudeLinks: ClaudeLinks
+  valueHints: ValueHints
+  tourItems: TourItems
 }
 
-/** Hands over services as activate makes them. */
+/** Hands over services as activate (extension.ts) makes them: the only place they are set. */
 export function provide(s: Partial<Services>): void {
   if (s.store) store = s.store
   if (s.state) state = s.state
@@ -84,7 +100,7 @@ export const setCtx = (k: string, v: unknown): Thenable<unknown> => {
 export const notes = () => store.all().filter((n) => !understanding?.offBranch(n))
 export const byId = (id: string) => store.get(id)
 /** The first workspace folder. */
-export const n0 = () => vscode.workspace.workspaceFolders![0]
+export const firstFolder = () => vscode.workspace.workspaceFolders![0]
 
 /** an error the person is shown also goes to the Output channel as [error]. */
 export function showError(text: string, ...items: string[]): Thenable<string | undefined> {
@@ -92,10 +108,41 @@ export function showError(text: string, ...items: string[]): Thenable<string | u
   return vscode.window.showWarningMessage(text, ...items)
 }
 
-/** Markdown the extension writes itself, allowed to run its own commands. */
-export function systemMarkdown(text: string): vscode.MarkdownString {
+/**
+ * The commands Markdown may run, by who wrote it. Rows the extension writes in a thread (Claude answering, a failure,
+ * the check's grading):
+ */
+export const SYSTEM_COMMANDS = [
+  'codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck',
+  'codeNotes.checkConcern', 'codeNotes.openStepLink',
+]
+/** A note's messages (anyone's words): links to code and steps, Apply on a suggestion, show the whole thread. */
+export const MESSAGE_COMMANDS = ['codeNotes.openAt', 'codeNotes.expandThread', 'codeNotes.applySuggestion', 'codeNotes.openStepLink', 'codeNotes.codeLink']
+/** A stale note's banner: Keep here, Move. */
+export const BANNER_COMMANDS = ['codeNotes.acceptCode', 'codeNotes.moveToSelection']
+
+/** Markdown allowed to run `commands`. */
+export function trustedMarkdown(text: string, commands: string[]): vscode.MarkdownString {
   const md = new vscode.MarkdownString(text)
-  md.isTrusted = { enabledCommands: ['codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck', 'codeNotes.checkConcern', 'codeNotes.openStepLink'] }
+  md.isTrusted = { enabledCommands: [...commands] }
   return md
 }
-export const cmdLink = (label: string, command: string, ...args: unknown[]) => `[${label}](command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''})`
+
+/** Markdown the extension writes itself, allowed to run its own commands. */
+export const systemMarkdown = (text: string) => trustedMarkdown(text, SYSTEM_COMMANDS)
+
+/** `md` may also run `command`. */
+export function alsoAllow(md: vscode.MarkdownString, command: string): void {
+  md.isTrusted = { enabledCommands: [...(typeof md.isTrusted === 'object' ? md.isTrusted.enabledCommands : []), command] }
+}
+
+/** A command: link target, its arguments in the query. */
+export const commandUri = (command: string, ...args: unknown[]) =>
+  `command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''}`
+
+/** A Markdown link that runs `command` with `args`. */
+export const cmdLink = (label: string, command: string, ...args: unknown[]) => `[${label}](${commandUri(command, ...args)})`
+
+/** The same with a tooltip (`title`). */
+export const titledCmdLink = (label: string, title: string, command: string, ...args: unknown[]) =>
+  `[${label}](${commandUri(command, ...args)} "${title}")`

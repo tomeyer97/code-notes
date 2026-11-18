@@ -1,3 +1,5 @@
+// Sending decorations to the window: only what changed. What notes draw is in notes/decorations.ts.
+
 import * as vscode from 'vscode'
 
 // Decorations go to the window as a message per editor and type, each time they are set, also when they are the same

@@ -2,18 +2,19 @@
 
 import * as vscode from 'vscode'
 import { Loc } from '../anchor'
-import { cfg, controller, KEY, log, now, showError, store } from '../app'
-import { askClaude, claudeMode } from '../ask'
-import { findCli } from '../claude'
-import { commitInfo, me } from '../identity'
+import { KEY, log, now, showError, store } from '../app'
+import { askClaude } from '../ask/run'
+import { askAlways, askOnQuestion } from '../ask/settings'
+import { me } from '../identity'
 import { refreshAll } from '../refresh'
 import { setSeen } from '../seen'
 import { captureAnchor, NoteData } from '../noteModel'
 import { folderName, Note } from '../store'
-import { inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from '../threads/anchoring'
-import { shape, shapeOf } from '../threads/threads'
+import { anchorAt, inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from './location'
 import { card } from '../tour/tour'
 import { diskLines, docLines, wfs } from '../wfs'
+import { shape, shapeOf } from './changedOnDisk'
+import { allowComments } from './commentRanges'
 import { reveal } from './reveal'
 
 /** The note box's words. */
@@ -33,28 +34,55 @@ export function partialSelection(doc: vscode.TextDocument, r: vscode.Range): Not
   return text.trim() ? { text, startCol: r.start.character, endCol: r.end.character } : undefined
 }
 
-export async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, selection?: NoteData['selection'], extra?: Record<string, unknown>): Promise<Note | undefined> {
-  const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
-  if (!folder) { void showError('Code Notes: save the file inside the open folder to add notes to it.'); return undefined }
-  if (inNotesFolder(doc.uri)) { vscode.window.setStatusBarMessage('$(info) No notes on Code Notes\' own files', 3000); return undefined }
+/** Where a new note is: its file and lines with their anchor, and the exact text or whole file/folder it is about. */
+type Place = Pick<NoteData, 'file' | 'range' | 'anchor'> & Partial<Pick<NoteData, 'selection' | 'target'>>
+
+/**
+ * A new open note in `folder`, your `body` its first message. `place()` says where (it may ask git: its id and time
+ * are taken first); `extra`: what the caller keeps with it. The fields are in the order they are written to the file.
+ */
+async function newNote(folder: vscode.WorkspaceFolder, body: string, place: () => Place | Promise<Place>, extra?: Record<string, unknown>): Promise<Note> {
   const at = now()
   const id = newId()
-  const n: Note = {
+  return {
     folder, uri: store.uriFor(folder, id),
     data: {
-      id, file: relPath(folder, doc.uri), range: { start: loc.start + 1, end: loc.end + 1 },
-      anchor: { ...captureAnchor(docLines(doc), loc.start, loc.end), ...(await commitInfo(folder)) },
-      ...(selection ? { selection } : {}), status: 'open', stale: false, createdAt: at,
+      id, ...(await place()), status: 'open', stale: false, createdAt: at,
       messages: [{ author: me(), role: 'human', body, at }],
       ...(extra ? { extra } : {}),
     },
   }
+}
+
+/** How long a "no note here" message stays in the status bar. */
+const SAY_MS = 3000
+
+/** A short "no" in the status bar. */
+const say = (text: string) => vscode.window.setStatusBarMessage(`$(info) ${text}`, SAY_MS)
+
+const SAVE_INSIDE = 'Code Notes: save the file inside the open folder to add notes to it.'
+
+/** Code Notes' own files (the notes, their README) take no notes: says so. True when `refused`. */
+function ownFiles(refused: boolean): boolean {
+  if (refused) say("No notes on Code Notes' own files")
+  return refused
+}
+
+export async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, selection?: NoteData['selection'], extra?: Record<string, unknown>): Promise<Note | undefined> {
+  const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
+  if (!folder) { void showError(SAVE_INSIDE); return undefined }
+  if (ownFiles(inNotesFolder(doc.uri))) return undefined
+  const n = await newNote(folder, body, async () => ({
+    file: relPath(folder, doc.uri), range: { start: loc.start + 1, end: loc.end + 1 },
+    anchor: await anchorAt(docLines(doc), loc.start, loc.end, folder),
+    ...(selection ? { selection } : {}),
+  }), extra)
   // Written on unsaved text (a typo being fixed): the saved lines count too, so undoing the typo isn't "stale".
   if (doc.isDirty && doc.uri.scheme === 'file') {
     const disk = await diskLines(doc.uri)
     if (disk && disk.length === doc.lineCount && loc.end < disk.length) {
       const a = captureAnchor(disk, loc.start, loc.end)
-      if (a.text !== n.data.anchor.text) otherAnchor.set(id, { ...n.data.anchor, ...a })
+      if (a.text !== n.data.anchor.text) otherAnchor.set(n.data.id, { ...n.data.anchor, ...a })
     }
   }
   if (!(await save(n))) return undefined
@@ -72,43 +100,13 @@ async function save(n: Note): Promise<boolean> {
   return true
 }
 
-/** Commenting ranges: none, except while a note box is being opened (`addingUntil`). */
-let addingUntil = 0
-
-/** When VS Code last asked for a file's commenting ranges: an editor that has just opened asks before it draws its threads. */
-export const rangesAskedAt = new Map<string, number>()
-
-export const rangeProvider: vscode.CommentingRangeProvider = {
-  provideCommentingRanges: (doc) => {
-    rangesAskedAt.set(doc.uri.toString(), Date.now())
-    const adding = Date.now() < addingUntil && vscode.workspace.getWorkspaceFolder(doc.uri) && doc.lineCount && !inNotesFolder(doc.uri)
-    return adding ? [new vscode.Range(0, 0, doc.lineCount - 1, 0)] : []
-  },
-}
-
-let rangesOff: NodeJS.Timeout | undefined
-
-async function allowComments(ms = 1500): Promise<void> {
-  addingUntil = Date.now() + ms
-  controller.commentingRangeProvider = rangeProvider
-  const t0 = Date.now()
-  clearTimeout(rangesOff)
-  rangesOff = setTimeout(() => { controller.commentingRangeProvider = rangeProvider }, ms + 50)
-  // At least 120 ms (the comment widgets settle), and until the window has asked for the file's ranges again: over a
-  // slow link that round trip takes longer, and the box would not open.
-  const u = vscode.window.activeTextEditor?.document.uri.toString()
-  for (let k = 0; k < 100 && u && (rangesAskedAt.get(u) ?? 0) < t0; k++) await new Promise((r) => setTimeout(r, 10))
-  const left = 120 - (Date.now() - t0)
-  if (left > 0) await new Promise((r) => setTimeout(r, left))
-}
-
 /** Ctrl+< C: VS Code's inline comment box at the selection (multi-line, markdown, Ctrl+Enter saves). */
 export async function addNote(): Promise<void> {
   const editor = vscode.window.activeTextEditor
   if (!editor) return noEditor()
-  if (inNotesFolder(editor.document.uri)) { vscode.window.setStatusBarMessage('$(info) No notes on Code Notes\' own files', 3000); return }
+  if (ownFiles(inNotesFolder(editor.document.uri))) return
   if (!vscode.workspace.getWorkspaceFolder(editor.document.uri) || editor.document.isUntitled) {
-    void showError('Code Notes: save the file inside the open folder to add notes to it.')
+    void showError(SAVE_INSIDE)
     return
   }
   await allowComments()
@@ -137,26 +135,20 @@ async function noEditor(): Promise<void> {
 export async function addPathNote(uri?: vscode.Uri, text?: string): Promise<Note | undefined> {
   uri = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri
   const folder = uri && vscode.workspace.getWorkspaceFolder(uri)
-  if (!uri || !folder) { vscode.window.setStatusBarMessage('$(info) Pick a file or folder in the Explorer first', 3000); return undefined }
-  if (inNotesFolder(uri) || uri.path.endsWith(`/${folderName()}`)) { vscode.window.setStatusBarMessage('$(info) No notes on Code Notes\' own files', 3000); return undefined }
+  if (!uri || !folder) { say('Pick a file or folder in the Explorer first'); return undefined }
+  if (ownFiles(inNotesFolder(uri) || uri.path.endsWith(`/${folderName()}`))) return undefined
   const file = relPath(folder, uri)
-  if (!file || file === '.') { vscode.window.setStatusBarMessage('$(info) Notes go on a file or a folder inside the workspace', 3000); return undefined }
+  if (!file || file === '.') { say('Notes go on a file or a folder inside the workspace'); return undefined }
   let isDir = false
   try { isDir = !!((await wfs.stat(uri)).type & vscode.FileType.Directory) } catch { return undefined }
-  const body = text ?? (await vscode.window.showInputBox({ title: `Note on ${isDir ? 'folder' : 'file'} ${file}${isDir ? '/' : ''}`, placeHolder: 'Your note or question', ignoreFocusOut: true }))?.trim()
+  const title = `Note on ${isDir ? 'folder' : 'file'} ${file}${isDir ? '/' : ''}`
+  const body = text ?? (await vscode.window.showInputBox({ title, placeHolder: 'Your note or question', ignoreFocusOut: true }))?.trim()
   if (!body) return undefined
-  const at = now()
-  const id = newId()
-  const n: Note = {
-    folder, uri: store.uriFor(folder, id),
-    data: {
-      id, file, range: { start: 1, end: 1 }, anchor: { text: '', before: '', after: '' }, target: isDir ? 'folder' : 'file',
-      status: 'open', stale: false, createdAt: at, messages: [{ author: me(), role: 'human', body, at }],
-    },
-  }
+  // No lines: range 1-1, no anchor (neither is written to the file).
+  const n = await newNote(folder, body, () => ({ file, range: { start: 1, end: 1 }, anchor: { text: '', before: '', after: '' }, target: isDir ? 'folder' : 'file' }))
   if (!(await save(n))) return undefined
   await reveal(n)
-  if (claudeMode() === 'always') await askClaude(n)
+  if (askAlways()) await askClaude(n)
   return n
 }
 
@@ -190,23 +182,25 @@ export const noteFromNewThread = async (reply: vscode.CommentReply): Promise<Not
   if (creating.has(t)) return undefined
   creating.add(t)
   const body = reply.text.trim()
-  if (!body) { t.dispose(); vscode.window.setStatusBarMessage('$(info) Empty note: not saved', 3000); return undefined } // no empty shell
+  if (!body) { t.dispose(); say('Empty note: not saved'); return undefined } // no empty shell
   const doc = await vscode.workspace.openTextDocument(t.uri)
   const r = t.range ?? new vscode.Range(0, 0, 0, 0)
   // From "Ask about this step": the note says which step it is about.
   const ask = card.asks.get(t)
   card.asks.delete(t)
   t.dispose()
-  return createNote(doc, rangeLines(doc, r), ask ? `${body}\n\n${ask.about}` : body, ask ? undefined : partialSelection(doc, r), ask ? { journey: ask.link } : undefined)
+  if (ask) return createNote(doc, rangeLines(doc, r), `${body}\n\n${ask.about}`, undefined, { journey: ask.link })
+  return createNote(doc, rangeLines(doc, r), body, partialSelection(doc, r))
 }
 
-/** A question from a step: one button, "Ask"; Claude answers when it is set up, else the agent reads the note. */
+/** A question from a step: one button, "Ask"; Claude answers when it can (not only when set to always: see askOnQuestion). */
 export const askFromThread = async (reply: vscode.CommentReply) => {
   const n = await noteFromNewThread(reply)
-  if (n && claudeMode() !== 'off' && findCli(cfg().get<string>('claude.path') || undefined)) await askClaude(n)
+  if (n && askOnQuestion()) await askClaude(n)
 }
 
+/** A note from the editor's comment box (Ctrl+Enter): Claude answers it when set to always. */
 export const createFromThread = async (reply: vscode.CommentReply) => {
   const n = await noteFromNewThread(reply)
-  if (n && claudeMode() === 'always') await askClaude(n)
+  if (n && askAlways()) await askClaude(n)
 }

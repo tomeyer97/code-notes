@@ -10,7 +10,7 @@ import { unread } from '../seen'
 import { Severity } from '../noteModel'
 import { Note } from '../store'
 import { setCollapse } from '../threads/settle'
-import { revealed, threads } from '../threads/threads'
+import { revealed, threads } from '../threads/sync'
 import { journeyOfNote } from './journeyRows'
 
 export type Node =

@@ -48,15 +48,30 @@ export function settling(t: vscode.CommentThread): number {
   return b === undefined ? 0 : Math.max(0, b + SETTLE_MS - Date.now())
 }
 
-/** Runs `fn` now, or once the thread has settled (the last call per key wins). */
+/** Calls waiting for a thread or an editor to settle, by key: the last call per key wins. (Exported for tour/card's
+ *  host, which does what afterEditorSettles does with the key 'card'.) */
 export const settleLater = new Map<string, NodeJS.Timeout>()
 
+/** `fn` runs in `ms` (this key's earlier call, if still waiting, is dropped). */
+function later(key: string, ms: number, fn: () => void): void {
+  clearTimeout(settleLater.get(key))
+  settleLater.set(key, setTimeout(() => { settleLater.delete(key); fn() }, ms))
+}
+
+/** While the file's editor is settling (editorSettling), `fn` runs once it has: true. Settled: false, nothing runs. */
+export function afterEditorSettles(uri: vscode.Uri, key: string, fn: () => void): boolean {
+  const wait = editorSettling(uri)
+  if (wait) later(key, wait, fn)
+  return wait > 0
+}
+
+/** Runs `fn` now, or once the thread has settled (the last call per key wins). */
 export function whenSettled(t: vscode.CommentThread, key: string, fn: () => void): void {
   const wait = settling(t)
   clearTimeout(settleLater.get(key))
   settleLater.delete(key)
-  if (!wait) { fn(); return }
-  settleLater.set(key, setTimeout(() => { settleLater.delete(key); fn() }, wait))
+  if (wait) later(key, wait, fn)
+  else fn()
 }
 
 /** Sets a thread property only when it differs (each set restarts the extension host's update wait). */
