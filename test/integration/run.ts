@@ -15,6 +15,9 @@ import { writeSlowGit } from '../slowGit'
 // The CI job's own variables (GITHUB_HEAD_REF, CI_COMMIT_REF_NAME, …) must not reach VS Code: the extension host
 // passes its environment to the understanding CLI, which takes the branch from them. CI itself stays (helpers.ts: SCALE).
 for (const k of Object.keys(process.env)) if (/^(GITHUB_|GITLAB_|CI_|RUNNER_)/.test(k)) delete process.env[k]
+// The tests play audio (a podcast's tone): never out loud. No sound server (WSLg routes PulseAudio to the host), and
+// VS Code's Chromium muted (--mute-audio, baseLaunchArgs); muted media still plays and its time still moves.
+delete process.env.PULSE_SERVER
 
 /** The extension's folder (out/test/integration/ is three below it). */
 const ROOT = path.resolve(__dirname, '../../..')
@@ -24,7 +27,7 @@ const ROOT = path.resolve(__dirname, '../../..')
  * containers often can't set it up) and its own profile in `userData`.
  */
 function baseLaunchArgs(ws: string, userData: string): string[] {
-  return [ws, '--disable-extensions', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${userData}`]
+  return [ws, '--disable-extensions', '--skip-welcome', '--no-sandbox', '--disable-gpu-sandbox', '--mute-audio', `--user-data-dir=${userData}`]
 }
 
 /** A profile folder for the run `name`: under CODE_NOTES_PROFILE (kept) when set, else a new temp folder. */
@@ -63,10 +66,13 @@ async function main() {
   const appTs = ['import { readToken, use } from "./lib"', 'export function main() {', '  const token = readToken()', '  use(token)', '  return 0', '}', '']
   fs.writeFileSync(path.join(ws, 'src', 'app.ts'), appTs.join('\n'))
   const userData = roomyEditor(profileDir('main', ws))
+  // The DevTools port: the podcast's first Play needs a real click in the journey panel (main/podcast.ts).
+  const port = 9300 + Math.floor(Math.random() * 500)
   await runTests({
     extensionDevelopmentPath: ROOT,
     extensionTestsPath: path.join(__dirname, 'suite.js'),
-    launchArgs: [...baseLaunchArgs(ws, userData), '--disable-workspace-trust'],
+    launchArgs: [...baseLaunchArgs(ws, userData), '--disable-workspace-trust', `--remote-debugging-port=${port}`],
+    extensionTestsEnv: { CODE_NOTES_CDP: String(port) },
   })
   const tree = treeErrors(userData)
   if (tree.length) throw new Error(`tree view errors in the extension host log:\n${tree.join('\n')}`)

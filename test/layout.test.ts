@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { codeWidth, panelShare } from '../src/panelWidth'
+import { codeWidth, listeningShare, panelShare } from '../src/panelWidth'
 
 test('the code\'s 80 columns count the gutter, the scrollbar and the minimap', () => {
   // Measured in VS Code at 14 px: a 733 px editor (gutter 83 px, minimap on) showed 66 columns.
@@ -26,4 +26,13 @@ test('the reader\'s width is kept (also above 40 %), within the code\'s 80 colum
   assert.equal(panelShare(2000, { fontSize: 14, remembered: 0.5 }), 0.5)
   assert.equal(panelShare(2000, { fontSize: 14, remembered: 0.25 }), 0.25)
   assert.ok(panelShare(1300, { fontSize: 14, remembered: 0.6 }) < 0.4)
+})
+
+test('while an episode is on the panel is 360–420 px wide, never more than half the editor area', () => {
+  const px = (total: number) => Math.round(listeningShare(total) * total)
+  assert.ok(Math.abs(px(1000) - 360) <= 1)
+  assert.ok(Math.abs(px(1300) - 390) <= 1)
+  assert.ok(Math.abs(px(2400) - 420) <= 2)
+  assert.ok(Math.abs(px(600) - 300) <= 1)
+  assert.equal(listeningShare(0), 0)
 })

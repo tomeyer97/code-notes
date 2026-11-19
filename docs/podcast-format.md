@@ -1,0 +1,290 @@
+# Journey podcasts
+
+A journey can have a podcast: one audio file that talks through the journey, whose parts are linked to the journey's
+steps and animation beats. Code Notes plays it in the journey panel and moves the walk with the voice: each step's code
+opens as the voice reaches it, and its animation goes to the beat being talked about. The extension only plays
+podcasts; how you make one (a text-to-speech service, a recording) is up to you.
+
+## Where it goes
+
+Next to its journey, with the same name (a podcast file named otherwise is not played; the "Code Notes" output says
+why, and which journey its `journey.id` names):
+
+```
+journeys/
+  place-order.json            the journey
+  place-order.podcast.json    its podcast (this format)
+  place-order.mp3             the audio (any name: `audio` says which)
+```
+
+`audio` is a path relative to the podcast file. It must be inside the journeys folder (or a folder under it): the
+panel can only load files from there, so a path that leaves it (`../x.mp3`), an absolute path or a URL is refused
+("audio must be in the journeys folder (got ../x.mp3)"). mp3 plays in VS Code (tested); so do ogg/opus and wav. The
+Listen view loads the file whole before it plays (it is held in memory while it is loaded), so seeking works wherever
+VS Code runs: in the browser and in remote windows a webview's files are served without HTTP Range requests, and a
+streamed file can't be sought in.
+
+A journey with a podcast has ▶ Listen on its row in the Journeys view (and its length, "♪ 12:47"), and its panel has
+the player at the bottom.
+
+## The file
+
+```jsonc
+{
+  "version": 1,
+  "title": "Placing an order, end to end",
+  "journey": { "id": "place-order", "file": "journeys/place-order.json", "commit": "a1b2c3d" },
+  "audio": "place-order.mp3",
+  "duration": 767.88,
+  "segments": [
+    { "id": "s01", "at": null, "cue": "map", "speaker": "host", "text": "Welcome…", "start": 0, "end": 29.2 },
+    { "id": "s04", "at": { "step": "checks-first", "beat": 1 }, "cue": "open", "speaker": "host", "text": "First, the page…", "start": 57.22, "end": 71.14 },
+    { "id": "s05", "at": { "step": "checks-first", "beat": 3 }, "cue": "beat", "speaker": "host", "text": "Then it sends…", "start": 71.44, "end": 79.28 }
+  ]
+}
+```
+
+| Field | |
+|---|---|
+| `version` | `1` |
+| `title` | The episode's title |
+| `journey` | The journey it was written for: `id`, and optionally `file` and `commit`. The player uses the journey next to the file; a different `id` is a warning, and the player says "Written for “…”" |
+| `audio` | The audio file, relative to this file |
+| `duration` | Seconds (optional; the audio's own length wins, and a difference of more than 1 s, or 1 %, is a warning) |
+| `segments` | The parts, each with the fields below |
+
+A segment:
+
+| Field | |
+|---|---|
+| `id` | Stable when segments are edited or removed |
+| `at` | Where it belongs: `null` (the whole journey: the map, no step open), `{ "step": "<step id>" }` (the step, without its animation), or `{ "step": "<step id>", "beat": n }` (the step's animation at beat `n`, 1-based, counted in the step's `scene.beats`) |
+| `cue` | How the change of place is shown: `map`, `open` or `beat`. The player shows what `at` says; `cue: "map"` on a step shows the step without its animation |
+| `speaker`, `text` | Who says what. The caption shows the sentence being said, two lines at most (a long sentence in parts), and the speaker's name when the voice changes (in an episode with more than one) |
+| `say` | Optional: the spoken form a generator sent to text-to-speech (numbers, names spelled out). The player ignores it |
+| `start`, `end` | Seconds in the audio. Gaps between segments belong to the segment before them |
+| `sentences` | Optional: when each sentence of `text` starts, `[{ "start": <seconds in the audio>, "text": "<the sentence>" }]` (e.g. a text-to-speech service's alignment); the caption shows the current one. Used only when every item has a number `start` and a `text`, the starts go up, and each is within the segment (its `start` to its `end`, or the next segment's start); otherwise it is a warning, and, as without it, the player estimates each sentence's time by its share of the text |
+| `marks` | Optional: parts of the code that light up while the voice says a phrase ([Marks](#marks-highlights-as-words-are-said)) |
+
+Other fields, in the file or in a segment, are ignored: generators can keep their own data there.
+
+Steps are named by id, so reordering a journey's steps keeps the podcast right. Beats have no ids: they are linked by
+position.
+
+## What the player does
+
+- **At any time the walk is where the podcast is at that time**: the segment playing then (the last one started)
+  says the step and beat. Seeking anywhere, backwards too, applies that directly, never the parts in between; of quick
+  seeks (a drag, a key held down), only the last one moves the walk.
+- **Moving the walk yourself moves the audio**: a step in the storyline or a beat of the animation (‹ ›), and, while
+  paused, Next and Previous, jump the audio to the first segment about it. Ending the walk or opening another journey
+  pauses it and ends the listening (the status item and the Listen view go; ▶ goes on where it was). Pausing never
+  ends the walk.
+- **One transport while it plays**: the step card's ⏮ ⏭, Ctrl+' A / D and the player's ⏮ ⏭ do the same thing: the
+  part before or after, in the order of the audio. ⏮ always goes to the part before (it never restarts the one
+  playing). In the Intro and the Recap, Ctrl+' A / D move the episode too.
+- **A step the podcast never talks about**: the walk stays on it, the audio pauses, and the player says the step isn't
+  in the podcast. ▶ then goes on with the first segment after that step (the next step it talks about), not back to
+  where the audio was. A beat of the animation it doesn't narrate, picked while it plays, is the same: shown, the
+  audio paused ("Beat 4 isn't narrated"), ▶ goes on with the next part.
+- **The journey edited under it** keeps the step (by id), not its number: the walk and the audio stay where they are.
+  The step on screen removed: the walk shows what the podcast says at its time now (the view before a part about a
+  step that is gone). Quick ⏭ ⏭ open only the last target.
+- **On a beat whose code is in another file**, that file opens directly (never the step's own file first). A segment
+  on the map (`at: null`) ends the walk and closes the code tab the walk opened.
+- **Where it was is kept, per journey**: opening another journey, ending the walk, closing the Listen view or reloading the
+  window keeps the time, and ▶ goes on from there. When the walk is on another step than that time is about, ▶ starts
+  at that step's first segment.
+- **The podcast file saved again** while it plays keeps its place: the same time, or, when the segment playing then has
+  new times, the same moment of that segment (by `id`); it keeps playing if it was.
+- **The time shown is the audio's own**: after a seek, the walk, the player and the status bar show where the audio
+  actually is. If it could not get there, the player says so and the Code Notes output channel logs it, as it logs
+  audio errors.
+- **A link the journey can't show degrades**: a beat the step doesn't have (the journey was edited) shows the step
+  without its animation; a step id that isn't in the journey keeps the view of the segment before it. Each is a
+  warning (below), said by the step ("Step 3: no beat 9 (it has 5); showing the whole step"); marks on that beat's code
+  aren't checked against the step's file as well.
+
+## Listening
+
+- **▶ Listen** on the journey's row (not while it plays; paused, it goes on where it was), the ▶ on its row in
+  **Open Journey…** (a ♪ after the title; the one listened to says "listening"), the command **Code Notes: Listen to
+  Journey**, or the player's ▶ in the panel. The row says the length ("♪ 12:47") and nothing more.
+- **Where the audio lives**: in the **Listen** view (in the Code Notes side bar, under Journeys; there only while a
+  journey is listened to, playing or paused). It goes on when the journey panel is closed, behind another tab, or VS Code isn't focused. While the
+  journey panel shows the episode, its player is the player and the Listen view is one line (the journey, ⏸ / ▶, the
+  time); the whole player shows there when the panel is closed. Closing the Listen view itself stops it (where it was
+  is kept).
+- **The player**: the caption, the timeline with a tick where each step starts (click: that step's start; hover:
+  "Step 6 · title · 5:23"; the part a cut-off audio can't reach is greyed), ⏮ ⏸ ⏭, the time, and the speed ("1×": a
+  click goes 1× → 1.25× → 1.5× → 2×). In a narrow panel the total time, then the speed give way; ⏮ ▶ ⏭ stay. At the
+  end only **Replay**, **Walk it yourself** and **Next journey** (the next one with a podcast). A seek after the end
+  plays on.
+- **The panel while an episode is on**: its header is one line, "Step 6 of 14 · title" (or "Intro", "Recap"), until
+  the episode ends. While it plays the panel shows the step's animation alone, in the same box every step (the map
+  for a step without one, and at the intro and the recap, with the areas' and boxes' names only); the caption is the
+  one text. On pause the chapter list comes back, with ‹ and End. Beside the code the panel is 360–420 px wide while
+  the episode is on (the code gets the rest).
+- **The storyline is the chapter list**: number and title, the step being said in bold, a step the podcast skips
+  muted; ▶ on a row (under the pointer) plays that step alone and stops at its end. **Transcript** above the list shows
+  the transcript of the step being said under its row, following the voice (the sentence being said marked, a click
+  goes there; Ctrl+F finds words in shut transcripts too). The intro and the recap have rows.
+- **Keys in the panel**: Space or K play and pause (K by its place on the keyboard: Caps Lock and other layouts too;
+  anywhere but a text field, also after clicking a button such as the animation's ‹ ›; a button you reached with Tab
+  still presses with Space), M mutes, < > change the speed (0.75× to 2×), ← → go back and forward 15 s, Shift+← → the previous and
+  next step (⏮ is always the part before). On the timeline (a slider): ↑ → and ↓ ← 15 s, Home and End, Page Up
+  and Page Down a step.
+- **From anywhere** (the editor too): **Ctrl+' Space** plays and pauses, **Ctrl+' ←** / **→** go back and forward
+  15 s, **Ctrl+' Shift+←** / **→** the previous and next step (commands **Listen: Pause/Play**, **Listen: Back 15 s**,
+  **Listen: Forward 15 s**, **Listen: Previous Step**, **Listen: Next Step**, in the palette only while a journey is
+  listened to). While the journey panel is not on screen, the status bar says **Listening · 6:58** or **Paused ·
+  6:58** (it is the only Code Notes item then; gone after the end); a click opens the journey's map. Headphone and
+  media keys work too (the system's "now playing" names the journey and the step).
+- The speed and muting are remembered (every journey).
+
+## The editor while it plays
+
+- **The walk follows the voice: code opens beside the map.** The first play says so once. Step code always opens in
+  one group beside the panel: the group the walk used before (another journey, the map's moments and a reload keep
+  it), never a group holding your own unsaved or untitled file, never in two groups.
+- **A view is held at least 8 s** (`VIEW_HOLD_S`): a part shorter than that whose `at` would show another file stays in
+  the view before it; beats in the same file move the highlight. A seek shows exactly its time. (Generators: merge
+  brief beats by the same rule.)
+- **Reading around**: scroll or click in the narrated code yourself and the editor stops following (the beat is still
+  lit where it is); the step card says **Follow along** to snap back, and the next step follows again.
+- **The step card** is its header line while it plays ("3/14 · title"; **Follow along** under it while you read on
+  your own), above the signature of the function the step is in. Paused, the full card comes back above the step's
+  first line, with ▶ Play.
+- **Only the marks are coloured while it plays**: the step's lines have a thin grey bar (no tint), and the beat's box,
+  value hints, note bars and scrollbar ticks are off on the narrated code. They come back on pause.
+- **The map's moments** (Intro, Recap, `at: null`): the walk's code tabs close, so the map has the editor; the code
+  comes back beside it at the next step. The editor at a time depends only on that time.
+- **A note or a question** (Ctrl+' C, Ask on the card) pauses it: the code stays under your draft; ▶ (the card,
+  Ctrl+' Space) goes on.
+- **The panel keeps its width**: focusing it, ‹ Journeys, its row in the Journeys view or Open Journey… on the journey
+  you're in (which focus it, never close it) don't resize it, and a reload doesn't close it. Ctrl+' V in a panel too
+  narrow for the map gives it the room.
+- Reopened mid-episode, the panel shows the beat at the time it was left, paused there.
+  The output logs each play, pause and stop with why.
+- If the audio can't play (a broken or cut file), ▶ stays paused and the player says why; it never shows "playing"
+  with the clock standing still.
+- VS Code lets a view play sound only after a click or a key in it: the first time the Listen view plays, it takes
+  the keyboard and says "Press Space to play" (the panel says to click ▶ there). After that, the keys and commands
+  play it directly.
+- For screen readers: the timeline is a slider whose value says the time, the total and the step (once a second);
+  a step change while playing is announced once, politely; every control has a name and its keys in its tooltip.
+
+## Marks: highlights as words are said
+
+A segment may carry `marks`: parts of the code that light up while the voice says a phrase. The segment's `at` (its
+step and beat) decides the file and the view; marks light parts of it, down to a few characters. "If the test requires
+a model and the run is strict, it is rejected right there": on "requires a model" the check lights, on "right there"
+the line that rejects it.
+
+```jsonc
+"marks": [
+  { "phrase": "requires a model", "at": 2.8, "lines": [338, 338], "match": "spec.NeedsModel(steps)" },
+  { "phrase": "right there", "at": 11.36, "lines": [339, 340] },
+  { "phrase": "the replay file", "at": 13.0, "file": "runner/src/replay.ts", "lines": [40, 52] }
+]
+```
+
+A journey's steps and beats have marks of the same shape, without `phrase` and `at` (docs/journey-format.md,
+"Marks"); both are read and found by the same code (`src/marks/`).
+
+| Field | |
+|---|---|
+| `phrase` | The words in `text` the mark goes with (the first occurrence after the mark before's phrase). Marks with the same phrase one after the other light together (two places at once) |
+| `at` | Seconds from the segment's `start` when the phrase is said (its first character), within the segment |
+| `file` | Optional: the file, relative to the repository. Default: the segment's beat's file, else its step's. Required in a segment whose `at` is `null` |
+| `lines` | `[first, last]`, 1-based, inclusive, in the code at the journey's commit |
+| `match` | Optional: only this text within `lines` lights (whitespace as written; it may span the lines) |
+| `nth` | Optional, 1-based: which occurrence of `match` within `lines` (default 1) |
+
+While it plays:
+
+- A mark lights 0.12 s before `start + at` (the eye gets there as the word is said). Marks are fills only (no
+  borders, nothing in the scrollbar): a mark within a line tints its characters, a mark of whole lines tints the full
+  lines as one block. The newest mark is the one colour on the code (`codeNotes.markBackground`), the segment's
+  earlier marks stay, a lighter grey. The next segment clears them.
+- At any time T, exactly the marks lit by T in the segment playing at T show: a seek forward lights them, a seek back
+  takes them away, also while paused.
+- `match` not where `lines` say (the code moved): the nearest place with the same lines shifted up to 20 lines up or
+  down (nearer first, up before down; `nth` counts within the shifted lines), said once in the output; not found
+  there either: the whole `lines` light (each line from its text, never its indentation). Lines past the end of the file: nothing.
+- A mark that lights while it plays and is off screen is scrolled to (centred), with column 1 kept in view: the code
+  scrolls right only when the mark starts past the right edge. One on screen never moves the editor.
+  A reader looking around on their own (the follow lock) is never scrolled: marks still light where they are.
+- A mark in another file than the one on screen is a view change: it opens that file only once the view has been on
+  screen at least `VIEW_HOLD_S` (8 s); sooner, it is skipped (the output says so at debug level).
+
+## Camera moves: time to read before the code moves
+
+A camera move is the narrated editor scrolling or switching files while it plays: a new step or beat, or a mark,
+whose code is out of view. Quick moves leave no time to read what was just lit, so:
+
+- **A heads-up**: 0.8 s before a move, a quiet cue at the editor's edge says where it goes: "↓ 340" on the last line
+  on screen, "↑ 212" on the first, "→ main.ts" for another file. It goes when its code comes into view anyway.
+- **Time to read before leaving**: what the view on screen lit last (a mark, a beat, a step arriving) stays at least
+  `codeNotes.listen.readBeforeMove` seconds (2.5) before the code moves; the audio waits for the rest.
+- **A moment after arriving**: the audio waits `codeNotes.listen.settleAfterMove` seconds (0.8) more, the new mark lit.
+- A wait is a hold, not a pause: the audio stops, but the player, the status item and the step card go on
+  showing it playing; the edge cue is all that shows it. The time stays the audio's. ⏸ or Space during a
+  wait pauses (the move is dropped). 0 turns a wait off.
+- The walk never lags the voice. Whether the audio stopped is what it reports itself: still moving 0.25 s after the
+  hold was asked, the wait is dropped, the log says so once, the walk goes to what the audio says now (its view and
+  marks at that time, no late moves), and waits stay off for 30 s. Playing on during a wait (another ▶, a headset
+  key) or scrolling the code (the follow lock) also drops it the same way.
+- No waits when nothing moves (its code is on screen), under the follow lock (nothing moves then), for the reader's
+  own seeks and skips (the moves in the 1.5 s of audio after one), and at the map's moments (to the map, or from it).
+- Generators: the moves are where the script makes the editor jump; merging or reordering marks avoids most waits.
+
+## Validation
+
+The extension checks the file every time it, the journey or the audio file changes. The code-journey skill's
+`journey.py podcast <repo> <slug> [<audio seconds>]` runs the same checks for authors and agents (`journey.py check`
+runs them too when the podcast file exists).
+
+**Errors: the podcast can't be played.**
+
+| | |
+|---|---|
+| The file | not valid JSON (the message gives the line and column), not an object |
+| `version` | missing or not `1` |
+| `audio` | missing; a URL, an absolute path or a path out of the journeys folder; the file isn't there, or is empty |
+| `segments` | missing, not a list, empty, or no segment with a start time |
+
+**Warnings: it plays, but a part is not what the file says.** Each names its segment.
+
+| | |
+|---|---|
+| Links | `at` missing or not `null` / `{ step, beat }`; a step id the journey doesn't have (said once per step, with its segments and times: "step "x" isn't in the journey (segments s14–s21, 2:45–3:52)"); a beat the step doesn't have, or written as a string ("beat must be a number, got the string "2"") |
+| Order | the steps narrated in another order than the journey's (its steps were reordered since): one warning, at the first step out of order |
+| Times | `start` missing or not a number (the segment is skipped); `end` not a number; `end` before `start`; a segment that starts before the one above it in the file (out of order), or before the one before it in time ends (overlap); an end past `duration` |
+| The audio's length | `duration` differs from it; a segment ends after it; the audio is much shorter than the episode, with parts after its end: one warning, "The audio is 0:13 long but the episode is 12:47: the file looks cut off" |
+| Sentences | `sentences` not a non-empty list of `{ start, text }`; a start before the one above it; a start outside the segment. One warning per segment; the caption is estimated from the text instead |
+| Marks | `marks` not a list; a mark that isn't `{ phrase, at, lines }`, with `at` outside the segment, `lines` not `[first, last]`, `nth` under 1, or without `file` in a segment on the map (ignored); marks out of time order, a `phrase` not in `text` (kept). Against the code, when the file can be read (the extension: the workspace; `journey.py`: the repository): the file not there, `lines` past its end, `match` (its `nth`) not within `lines`: "found 2 lines down, lit there", or "nor within 20 lines: the whole lines light" |
+| Others | `journey.id` is another journey's; a segment that isn't an object; a duplicate `id` (with both times); a `cue` other than `map`, `open`, `beat`; a `duration` that isn't a length |
+
+**Notes: nothing wrong with the file.** `journey.commit` set and steps' code changed since that commit (git): "recorded
+for 609d0bb; 3 steps changed since (steps 2, 5, 9)", in the output at info level, the Problems view as information,
+and, when nothing else is said, the player's line. `journey.py podcast` prints it on its summary line.
+
+The audio's length is known once the panel has loaded the audio (for `journey.py podcast`: the argument, a WAV's
+header, or `ffprobe` when it is installed).
+
+## What you see when something is wrong
+
+- **A podcast that can't be played** keeps a trace: its row in the Journeys view has no ▶ and the row's tooltip
+  says why ("Podcast unavailable: version 2: this player reads version 1"); the panel shows one line, "Podcast
+  unavailable", with **Show why**; Listen to Journey says why too.
+- **One that plays with warnings**: the panel shows one short line above the timeline, as many problems as the
+  Problems view lists ("⚠ 3 problems"), with **Show why**. With no problem but steps whose code changed since it was
+  recorded, that line is "Code changed since recording: steps 2, 5, 9".
+- **Every problem** is in the Problems view, on the `.podcast.json` at the field or segment it is about, and in the
+  "Code Notes" output (at warning level, once per change).
+- **A file that breaks while it plays** (half-written by an agent or an editor) doesn't stop the audio: the last good
+  version plays on, the panel says "The podcast file has errors: playing the last good version", and the file is
+  read again as soon as it is valid. Paused or not playing, the file is shown as it is.
+- **The audio file** is watched like the podcast file: deleting it makes the podcast unavailable, putting it back
+  brings it back. An audio the panel can't decode says which file and that it looks cut off or damaged.

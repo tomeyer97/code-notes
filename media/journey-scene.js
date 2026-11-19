@@ -446,8 +446,8 @@
 
   // ---------- a request on a wire ----------
 
-  /** A pill from the sender into the receiver: it starts inside the sender and ends just inside the receiver's
-   *  border, never resting on a border, then fades. */
+  /** A pill from the sender to the receiver: it starts inside the sender and ends just before the receiver's border
+   *  (never over what the receiver shows, never resting on a border), then fades. */
   function sendPacket(packet, wires, rects, p) {
     const w = wires.find((x) => (x.f === p.from && x.t === p.to) || (x.f === p.to && x.t === p.from))
     if (!w || !rects[p.from] || !rects[p.to]) return
@@ -456,7 +456,7 @@
     packet.className = 'scn-packet'
     const half = packet.offsetWidth / 2 + 8
     const a = ltr ? w.x1 - half : w.x2 + half
-    const z = ltr ? w.x2 + half : w.x1 - half
+    const z = ltr ? w.x2 - half : w.x1 + half
     packet.style.transform = `translate(${a}px, ${w.y}px) translate(-50%, -50%)`
     void packet.getBoundingClientRect()
     packet.className = 'scn-packet go'
@@ -474,12 +474,16 @@
     root.setAttribute('aria-label', 'Animation of this step (← → beats, Esc: map)')
     const bar = el('div', 'scn-bar')
     const prev = el('button', 'icon scn-prev', '‹'), next = el('button', 'icon scn-next', '›'), pos = el('span', 'scn-pos')
+    // The beat as dots (up to DOTS_MAX beats): "6 / 6" next to "Next step ›" read as "step 6 of 6". The words stay for
+    // screen readers (and for more beats).
+    const dots = el('span', 'scn-dots')
+    dots.setAttribute('aria-hidden', 'true')
     prev.title = 'Previous (←)'
     // The beat's file when it is not the step's: muted, next to the counter.
     const file = el('span', 'scn-file')
     const close = el('button', 'link scn-close', 'Map')
     close.title = 'Back to the map (Esc)'
-    bar.append(prev, pos, next, file, el('span', 'scn-space'), close)
+    bar.append(prev, pos, dots, next, file, el('span', 'scn-space'), close)
     const view = el('div', 'scn-view')
     const world = el('div', 'scn-world')
     view.append(world)
@@ -491,8 +495,10 @@
     const codeEl = el('div', 'scn-code')
     codeEl.hidden = true
     root.append(bar, view, cap, codeEl)
-    return { root, prev, next, pos, file, close, view, world, cap, codeEl }
+    return { root, prev, next, pos, dots, file, close, view, world, cap, codeEl }
   }
+  /** At most this many beats show as dots. */
+  const DOTS_MAX = 12
 
 
   /** The camera's margin around the actor it looks at (scene px, both sides together), and its closest zoom. */
@@ -503,10 +509,11 @@
   /** play(): a beat is held READ_MS, and READ_MS_PER_CHAR for each character of its caption (videos). */
   const READ_MS = 1600, READ_MS_PER_CHAR = 55
 
-  /** opts: { onBeat(i), onClose(), onNextStep?(), height? }. `onNextStep`: at the last beat › becomes "Next step ›". */
+  /** opts: { onBeat(i, how), onClose(), onNextStep?(), height? }. `how`: 'go' when the beat was moved to (‹ ›, the keys,
+   *  go()), else it came with the scene shown. `onNextStep`: at the last beat › becomes "Next step ›". */
   function create(opts) {
     opts = opts || {}
-    const { root, prev, next, pos, file, close, view, world, cap, codeEl } = playerEl()
+    const { root, prev, next, pos, dots, file, close, view, world, cap, codeEl } = playerEl()
 
     /** The scene shown (a step's `scene`) and its key: the same key again keeps the beat. */
     let scene
@@ -563,7 +570,11 @@
       if (!r) return
       const s = Math.min(vw / (r.w + CAMERA_PAD_W), vh / (r.h + CAMERA_PAD_H), CAMERA_MAX_SCALE)
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2
-      world.style.transform = `translate(${vw / 2 - cx * s}px, ${vh / 2 - cy * s}px) scale(${s})`
+      const tx = vw / 2 - cx * s, ty = vh / 2 - cy * s
+      world.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`
+      // A wire with an end out of view would be a stub from the box to the view's edge, joined to nothing: hidden.
+      const left = -tx / s - 1, right = (vw - tx) / s + 1, top = -ty / s, bottom = (vh - ty) / s
+      for (const x of wires) x.ln.classList.toggle('out', x.x1 < left || x.x2 > right || x.y < top || x.y > bottom)
     }
 
     function layout() {
@@ -597,6 +608,15 @@
       cap.append(el('span', '', b.caption || ''))
       if (b.muted) cap.append(el('span', 'scn-muted', ` ${b.muted}`))
       pos.textContent = `${beat + 1} / ${scene.beats.length}`
+      pos.setAttribute('aria-label', `Beat ${beat + 1} of ${scene.beats.length}`)
+      const asDots = scene.beats.length <= DOTS_MAX
+      pos.classList.toggle('sr', asDots)
+      dots.hidden = !asDots
+      if (asDots) {
+        dots.textContent = ''
+        for (let k = 0; k < scene.beats.length; k++) dots.append(el('i', k === beat ? 'on' : k < beat ? 'past' : ''))
+        dots.title = `Beat ${beat + 1} of ${scene.beats.length}`
+      }
       // A beat without code shows none; one with code keeps the last lines until its own arrive (no flicker).
       if (!b.code) showCode(codeEl, undefined)
       const f = b.code && b.code.file
@@ -625,14 +645,15 @@
       next.disabled = false
     }
 
-    function go(i, quiet) {
+    /** To beat i; `quiet`: drawn again even when it is the beat shown; `still`: without the beat's flight (a jump). */
+    function go(i, quiet, still) {
       if (!scene) return
       const n = Math.max(0, Math.min(scene.beats.length - 1, i))
-      const fwd = n === beat + 1
+      const fwd = !still && n === beat + 1
       if (n === beat && !quiet) return
       beat = n
       apply(fwd)
-      if (opts.onBeat) opts.onBeat(beat)
+      if (opts.onBeat) opts.onBeat(beat, 'go')
     }
 
     prev.onclick = () => go(beat - 1)
@@ -659,7 +680,8 @@
       code(c) { showCode(codeEl, c) },
       get count() { return scene ? scene.beats.length : 0 },
       /** Shows a scene; the same key again keeps the beat (a re-render), another starts at `o.beat` (or its first).
-       *  o: { file: the step's file (a beat in another file names it), next: there is a next step, beat }. */
+       *  o: { file: the step's file (a beat in another file names it), next: there is a next step, beat, still: shown
+       *  without its flight }. */
       show(s, k, o) {
         o = o || {}
         const same = k === key && !!scene
@@ -672,7 +694,7 @@
         showCode(codeEl, undefined)
         beat = Math.max(0, Math.min(s.beats.length - 1, o.beat || 0))
         build()
-        apply(true)
+        apply(!o.still)
         if (opts.onBeat) opts.onBeat(beat)
       },
       go,

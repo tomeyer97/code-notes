@@ -85,11 +85,12 @@ anchors, near-duplicate journeys): read its messages** after every write; fix ea
   how ("place order", "push"), never "calls", never the name of the box it points at; `async` when it is not a call
   (poll, watch, queue). Only calls and later events get an edge: shared code is a phrase in details.
 
-## Links, values, scenes
+## Links, values, marks, scenes
 
-Each step gets **3-6 code links** and **2-6 value hints** where something is worth showing, and a **scene** (a few
-beats played in the panel, each lighting one line) where a picture adds something: a request crossing parts, a record
-changing state, a worker starting. No scene for pure configuration or a list of rules.
+Each step gets **3-6 code links** and **2-6 value hints** where something is worth showing, **marks** where its point
+is a part of a line, and a **scene** (a few beats played in the panel, each lighting one line) where a picture adds
+something: a request crossing parts, a record changing state, a worker starting. No scene for pure configuration or a
+list of rules.
 
 1. **Link** = exact words of the lead or details (outside backticks), read as "this part", to the 1-8 lines doing
    it; never the step's own range. One in the lead when it names something concrete.
@@ -107,6 +108,11 @@ changing state, a worker starting. No scene for pure configuration or a list of 
    the names, actor ids and labels of the repo's finished journeys (read one scene first): the same part is always
    the same actor id and label (`api` "API"), a table is labelled by its collection with sub "database".
 8. **Nothing invented**: the script reads every line; terminal lines are what the code prints (shortened).
+9. **Mark the part, not the line**: when a step's or beat's point is ONE call, argument, condition or field, mark
+   just those characters (`$J mark … N <file> <line> "<match>"`, a beat `N.B`, or `"marks"` in the beat's JSON).
+   The reader's eye goes straight to `total <= 0`, not to a line of `if (…) throw …`; the step's lines then only get a
+   thin bar. Sparse: ≤ 3 per step or beat, only what its text (a beat: its caption) names, never the whole line or
+   the whole range. A step about a whole block gets none. Preview with `$J marks <repo> <slug> [N]`.
 
 | Actor `type` | Draws | Fields (all: `id`, `col` 0-3 left to right, same `col` stacks; `label`, `sub`) | A beat's `set` |
 |---|---|---|---|
@@ -129,7 +135,8 @@ document is a `file`.** An app screen or page shows only what that page of the r
 names `run-dialog`, `run-page`, `login`, flat fields (`test`, `env`, `status`, `findings`, `timeline`, `chat`,
 `provider`) and set keys (`findings`, `newFinding`, `ended`, `desktop`, pane `desktop`) still work. Beat:
 `focus`, `caption`, `muted?`, `set?`, `packet?` `{from, to, label}` (needs a wire), `code` `{file, line}` (the script
-adds the text). Example, `$J scene … 4 <<'EOF'`:
+adds the text), `marks?` `[{lines: [a, b], match?, nth?, file?}]` (file: the beat's code file unless given). Example,
+`$J scene … 4 <<'EOF'`:
 
 ```json
 {"actors": [{"id": "api", "type": "service", "col": 0, "label": "API", "sub": "orders", "fn": "createOrder()",
@@ -139,7 +146,8 @@ adds the text). Example, `$J scene … 4 <<'EOF'`:
  "beats": [{"focus": "api", "caption": "The API refuses an empty cart.", "muted": "The page shows the error.",
             "set": {"api": {"done": 1}}, "code": {"file": "api/orders.js", "line": 7}},
            {"focus": "orders", "caption": "The order is stored as pending.", "set": {"api": {"done": 2}, "orders": {"show": 1, "hi": 0}},
-            "packet": {"from": "api", "to": "orders", "label": "insert"}, "code": {"file": "api/orders.js", "line": 10}},
+            "packet": {"from": "api", "to": "orders", "label": "insert"}, "code": {"file": "api/orders.js", "line": 10},
+            "marks": [{"lines": [10, 10], "match": "status: 'pending'"}]},
            {"focus": "api", "caption": "A job for the worker is queued.", "muted": "Nothing is charged yet.",
             "set": {"api": {"done": 3}}, "code": {"file": "api/orders.js", "line": 11}}]}
 ```
@@ -163,8 +171,21 @@ write. Journeys are read from `<repo>/journeys/` (`.code-notes/journeys/` when o
 | `$J link <repo> <slug> N "<phrase>" <file> <a> [b]` | links a phrase of step N's text to those lines (same phrase: replaces) |
 | `$J value <repo> <slug> N <name> "<value>" <file> <line> ["<note>"]` | a value hint above that line (same name and line: replaces) |
 | `$J scene <repo> <slug> N <<'EOF'` … `EOF` | sets step N's scene from the JSON (replaces it) |
-| `$J rmlink … N "<phrase>"`, `rmvalue … N <name> [line]`, `rmscene … N` | removes one |
+| `$J mark <repo> <slug> N\|N.B <file> <a>[-b] ["<match>"] [nth]` | marks only `match` within those lines while step N (or its beat B) is open; refused when it isn't there |
+| `$J marks <repo> <slug> [N]` | prints every mark with `^^^` under what it lights, and its problems |
+| `$J rmlink … N "<phrase>"`, `rmvalue … N <name> [line]`, `rmscene … N`, `rmmark … N\|N.B <i>\|all` | removes one |
 | `$J set … <node> label\|blurb\|path\|kind\|at\|parent <v>`, `rmnode`, `setedge`, `rmedge`, `meta … title\|question\|summary <v>`, `meta … start true` (the journey to open first), `restore` | changes the map, the journey fields; puts back the last good copy |
+
+## Podcasts
+
+A journey may have an audio episode next to it: `journeys/<slug>.podcast.json` plus its audio file (format:
+`docs/podcast-format.md` in the Code Notes extension, also on its GitHub page). The extension plays it and moves the
+walk with the voice. Segments link to steps **by id** (`check … story` prints them) and to beats **by position**
+(1-based), so a podcast must be checked again after `rmstep`, `scene` or `rmscene` on its journey. After writing or
+editing one, run `$J podcast <repo> <slug> [<audio seconds>]` (`check` runs it too): fix every PROBLEM (the extension
+won't play the file) and WARNING (a part points at a step or beat that isn't there, times overlap or run past the
+audio). The audio goes inside `journeys/`, `audio` relative to the podcast file. Extra segment fields (`say`, the
+spoken form) are ignored.
 
 ## Notes on a step
 

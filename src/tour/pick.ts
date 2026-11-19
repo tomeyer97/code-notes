@@ -8,6 +8,10 @@ import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
 import { tourState, walk } from './instances'
+import { podcasts } from '../podcast/player'
+
+/** The ▶ on a picker row whose journey has a podcast. */
+const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('play'), tooltip: 'Listen to Journey' }
 
 /** A row of the picker: a journey, or (`ask`) writing one for the question typed. */
 type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJourney | undefined }
@@ -26,6 +30,8 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
   qp.matchOnDetail = false
   const update = () => { qp.items = pickerItems(all, qp.value, multi) }
   qp.onDidChangeValue(update)
+  // ▶ on a row with a podcast: that journey, listened to.
+  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); void podcasts.play(key) } })
   update()
   const pick = await pickOne(qp)
   if (pick?.ask) {
@@ -55,17 +61,24 @@ function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickI
 }
 
 /**
- * One line per journey: the short title; the step that matched (when only a step did), else the question when it
- * says more than the title; a ⚠ when its file can't be read; the folder when there are several.
+ * One line per journey: the short title (a ♪ after it when it has a podcast); the step that matched (when only a step
+ * did), else the question when it says more than the title; a ⚠ when its file can't be read; the folder when there
+ * are several. The journey listened to: "listening", and no ▶.
  */
 function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickItem {
   const step = words.length ? x.j.steps.find((st) => words.some((w) => st.title.toLowerCase().includes(w))) : undefined
   const onlyStepMatched = step && !words.every((w) => journeyHay(x).includes(w))
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
+  // A podcast: ♪ after the title, and a ▶ button on the row that opens it and listens.
+  const pod = podcasts.status(x)
+  const has = pod?.state === 'ok'
+  const listening = has && !!pod?.session
+  const walking = x.key === tourState.key && tourState.step && !listening
   return {
     ask: undefined,
-    label: `${x.key === tourState.key && tourState.step ? '$(play-circle) ' : ''}${x.j.title}`,
-    description: [about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
+    label: `${walking ? '$(play-circle) ' : ''}${x.j.title}${has ? ' ♪' : ''}`,
+    description: [listening ? 'listening' : about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
+    ...(has && !listening ? { buttons: [LISTEN_BUTTON] } : {}),
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,
   }

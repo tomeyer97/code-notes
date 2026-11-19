@@ -18,6 +18,8 @@ import { activeRel, listModel, listState, staleCount, staleLine } from './listMo
 import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode, order } from './nodes'
 import { matchesFilter } from './notesFilter'
 import { fileName } from '../jsonFolder'
+import { podcasts } from '../podcast/player'
+import { clock } from '../podcast/model'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
@@ -113,7 +115,9 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   item.tooltip = journeyTooltip(lj, s)
   // The name read is the title and its state; the question is only the tooltip.
   item.accessibilityInformation = { label: journeyLabel(lj, s) }
-  item.contextValue = staleCount(lj) ? 'journey;stale' : 'journey'
+  // A podcast: ▶ Listen on the row unless it plays (paused, ▶ goes on where it was); one that can't be played: no ▶
+  // (the tooltip says why).
+  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + podcastContext(lj)
   item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
   return item
 }
@@ -126,11 +130,14 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
  */
 function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | undefined): string | undefined {
   const row = listState.last?.rows[lj.key]
-  if (group === 'here' && row && !(row.walking || row.resume > 1)) return [row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
+  const pod = podcastText(lj)
+  if (group === 'here' && row && !(row.walking || row.resume > 1)) return [pod, row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
   const groupArea = group?.startsWith('area:') ? group.slice(5) : ''
   const areaAndAge = row ? [groupArea && row.area === groupArea ? '' : row.area, row.age].filter(Boolean).join(' · ') : ''
   return [
-    s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
+    pod,
+    // Listened to: no step (the player has where it is).
+    podcasts.status(lj)?.session ? '' : s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
     refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '',
     s.newReplies ? replies(s.newReplies) : '',
     lj.readError ? '⚠ unreadable' : '',
@@ -139,7 +146,7 @@ function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | 
 }
 
 /** The icon says state only: walking, or new replies; a plain row otherwise (no stale ⚠: the step card says it, the
- *  storyline marks the step). */
+ *  storyline marks the step; nothing for listening: the player says it). */
 function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
   if (s.active) return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('codeNotes.noteRuler'))
   if (s.newReplies) return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('codeNotes.unreadForeground'))
@@ -150,7 +157,27 @@ function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
  *  unread answer is said in full here). */
 function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
   const unreadReplies = s.newReplies ? `${plural(s.newReplies, 'unread reply', 'unread replies')} from Claude` : ''
-  return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies].filter(Boolean).join('\n')
+  return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies, podcastLine(lj)].filter(Boolean).join('\n')
+}
+
+/** The podcast's line in the tooltip: only for one that can't be played, and why (the row offers no ▶ then). */
+function podcastLine(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  return pod?.state === 'broken' ? `Podcast unavailable: ${pod.text}` : ''
+}
+
+/** The row's quiet podcast mark: its length, always (listening or not: the player has the state and the time). */
+function podcastText(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  return pod?.state === 'ok' ? `♪ ${clock(pod.duration ?? 0)}` : ''
+}
+
+/** Whether the row offers ▶ Listen: a podcast that plays, unless it is playing (paused, ▶ goes on where it was). */
+function podcastContext(lj: LoadedJourney): string {
+  const pod = podcasts.status(lj)
+  if (!pod) return ''
+  if (pod.state !== 'ok') return ';podcastBroken'
+  return pod.playing ? ';podcastPlaying' : ';podcast'
 }
 
 /** What a screen reader says: the title, then where the walk is, unread replies, new. */
@@ -158,7 +185,9 @@ function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
   const total = lj.j.steps.length
   const where = s.active ? `walking, step ${tourState.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
   const unreadReplies = s.newReplies ? plural(s.newReplies, 'unread reply', 'unread replies') : ''
-  return [lj.j.title, where, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
+  const pod = podcasts.status(lj)
+  const listen = pod?.state === 'ok' ? `podcast ${clock(pod.duration ?? 0)}` : ''
+  return [lj.j.title, where, listen, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }
 
 /** The notes asked from a journey's steps: one row, open, with how many are new. */

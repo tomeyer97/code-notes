@@ -12,6 +12,9 @@
 //   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
 //   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts
 //   main/roundTrips.ts     calls into the window per action (remote performance), on the journey animation.ts leaves
+//   main/journeyMarks.ts   a walked step's marks and its beats'    tour/stepMarks.ts, marks/lights.ts, card.ts, beats.ts
+//   main/podcast.ts        a journey's podcast: the walk follows the audio, seeks, the audio while hidden   podcast/
+//   main/listenEditor.ts   the editor while a podcast plays: the card, the marks, what goes quiet   tour/card.ts, podcast/marks.ts
 // The pure modules have unit tests next to this folder, named after the module: src/<module>.ts in
 // test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
 // journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
@@ -31,7 +34,10 @@ import { writeJourneyTests } from './main/writeJourney'
 import { repoJourneysTests } from './main/repoJourneys'
 import { requestsTests } from './main/requests'
 import { animationTests } from './main/animation'
+import { journeyMarksTests } from './main/journeyMarks'
 import { roundTripsTests } from './main/roundTrips'
+import { podcastTests } from './main/podcast'
+import { listenEditorTests } from './main/listenEditor'
 
 /** The entry point run.ts starts VS Code with (extensionTestsPath). */
 export async function run(): Promise<void> {
@@ -40,6 +46,12 @@ export async function run(): Promise<void> {
   ctx.ws = ctx.folder.uri.fsPath
   ctx.notesDir = path.join(ctx.ws, '.code-notes')
   ctx.api = await activate()
+  // ONLY_PODCAST=1: main/podcast.ts and listenEditor.ts alone (they build on nothing before them); =editor: the latter.
+  if (process.env.ONLY_PODCAST) {
+    await runTests(process.env.ONLY_PODCAST === 'editor' ? listenEditorTests : [...podcastTests, ...listenEditorTests])
+    console.log('all passed')
+    return
+  }
   await runTests([
     ...notesTests,
     ...journeyTourTests,
@@ -51,6 +63,9 @@ export async function run(): Promise<void> {
     ...requestsTests,
     ...animationTests,
     ...roundTripsTests,
+    ...journeyMarksTests,
+    ...podcastTests,
+    ...listenEditorTests,
   ])
   console.log('all passed')
 }

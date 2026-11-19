@@ -22,6 +22,7 @@ import { provenance } from './provenance'
 import { openRef } from './refs'
 import { card, tourState, walk } from './instances'
 import { onTutorial, TUTORIAL_KEY } from './tutorial'
+import { podcasts } from '../podcast/player'
 
 /** The map column's width in wide panels, as last dragged (0.21.1): every panel, every journey. */
 const MAP_WIDTH_KEY = 'codeNotes.mapWidth'
@@ -41,8 +42,17 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   openPath: (lj, m) => void openBoxPath(lj, m.path),
   // The list over the walk: the walk keeps its place, card and status item.
   home: () => undefined,
-  beat: (lj, m) => void showBeat(lj, m.n, m.i),
-  closed: () => beats.clear(),
+  beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); void showBeat(lj, m.n, m.i) },
+  closed: () => { beats.clear(); card.refreshDecorations(); podcasts.onClosed() },
+  // The panel's player as the audio's host, or unlocked (src/podcast/player.ts).
+  podcastTime: (_lj, m) => podcasts.fromPanel(m),
+  podcastState: (_lj, m) => podcasts.fromPanel(m),
+  podcastError: (_lj, m) => podcasts.fromPanel(m),
+  podcastMeta: (_lj, m) => podcasts.fromPanel(m),
+  podcastUnlocked: (_lj, m) => podcasts.fromPanel(m),
+  podcastWhy: (lj) => void podcasts.showWhy(lj),
+  podcastAsk: (lj, m) => void podcasts.onAsk(lj, m),
+  podcastEnd: (lj, m) => void podcasts.endAction(lj, m.action, m.of),
   panelWidth: () => void rememberPanelWidth(),
   mapWidth: (_lj, m) => void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined),
   list: (_lj, m) => homeQueryChanged(m),
@@ -113,13 +123,16 @@ function showRuleBreaks(lj: LoadedJourney): void {
  * A beat of the step's animation (i < 0: the scene is gone). Its line is lit; when the scene stops driving the editor
  * (Map, ■, Esc, a beat without code) the editor is given back to the step: its lines and its card.
  */
-async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
+export async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
   // A beat of a step left just now (the map learns of the move after its scene drew): nothing.
   if (i >= 0 && (lj.key !== tourState.key || n !== tourState.step)) return
   const was = beats.lit
   // The caret goes to the lit line: arriving is not reading a note there.
   tourState.cursorUntil = Date.now() + 1500
+  beats.index = i >= 0 ? i : undefined
   const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), walk.codeColumn)
+  // The beat's marks, and the step's dimmed (stepMarks.ts).
+  if (shown !== 'superseded') card.refreshDecorations()
   // The panel shows those lines itself, under the caption, when it has the room.
   if (shown !== 'superseded' && i >= 0) mapPanel.send({ type: 'code', n, i, code: shown === 'lit' ? beats.preview : undefined })
   const givenBack = shown === 'none' && was && !tourState.stepping && walk.touring() && tourState.key === lj.key && tourState.step
@@ -202,9 +215,20 @@ export function mapState(lj: LoadedJourney): TourInfo {
     prov: provenance(lj),
     ...(lj.check ? { stops: checkStops(lj) } : {}),
     list: journeys.all().map((x) => listRow(x, lj)),
-    home: listModel(listState.homeQuery),
+    home: withPodcasts(listModel(listState.homeQuery)),
     ...(done ? { done: true } : {}),
   }
+}
+
+/** The home's rows with their podcast (its length; listening, or where it was paused): `podcast` on each row that
+ *  has one (journey-home.js marks them). */
+function withPodcasts<M extends { rows: Record<string, object> }>(m: M): M {
+  for (const [key, row] of Object.entries(m.rows)) {
+    const lj = journeys.list.get(key)
+    const p = lj && podcasts.status(lj)
+    if (p?.state === 'ok') Object.assign(row, { podcast: { duration: p.duration ?? 0, playing: !!p.playing, at: p.session && !p.playing ? p.t ?? 0 : undefined } })
+  }
+  return m
 }
 
 /** A check's tour: its questions, the one the walk is at marked `cur`. */

@@ -10,6 +10,7 @@ import { reveal } from '../notes/reveal'
 import { refreshAll } from '../refresh'
 import { Note } from '../store'
 import { card, tourState, walk } from './instances'
+import { podcasts } from '../podcast/player'
 
 export const UPDATE_ASK = 'This step is out of date: its code changed or was deleted. Please update the step.'
 
@@ -28,7 +29,9 @@ export async function askStep(text?: string): Promise<Note | undefined> {
   const s = lj.j.steps[n - 1]
   const draftKey = `${lj.j.id}|${s.id}`
   const uri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))
-  const typed = await askWithDraft(`Ask about step ${n}/${lj.j.steps.length}: ${s.title}`, draftKey)
+  // A podcast playing pauses while the question is written: the step stays under the box (F126).
+  podcasts.hold('question')
+  const typed = await askWithDraft(`Ask about step ${n}/${lj.j.steps.length}: ${s.title}`, draftKey).finally(() => podcasts.released('question'))
   if (!typed?.trim()) return undefined
   // The walk moved on while typing: the question is still about the step it was asked on.
   if (walk.tourJourney() !== lj || tourState.step !== n) {
@@ -118,12 +121,13 @@ export async function askUpdate(): Promise<Note | undefined> {
   const lj = walk.tourJourney()
   if (!lj || !tourState.step) return undefined
   const n = tourState.step
+  podcasts.hold('question')
   const text = await vscode.window.showInputBox({
     title: `Ask the agent to update step ${n}/${lj.j.steps.length}: ${lj.j.steps[n - 1].title}`,
     value: UPDATE_ASK,
     valueSelection: [UPDATE_ASK.length, UPDATE_ASK.length],
     prompt: 'Add what you know (where it moved, what changed). Enter saves the note; Esc cancels.',
-  })
+  }).then((x) => { podcasts.released('question'); return x })
   if (!text?.trim() || tourState.step !== n || walk.tourJourney() !== lj) return undefined
   const note = await askStep(text)
   if (!note) return undefined

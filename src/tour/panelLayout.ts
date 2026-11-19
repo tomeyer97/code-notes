@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { gstate, KEY, log, mapPanel } from '../app'
 import { MAP_VIEW } from '../journeys/mapPanel'
-import { panelShare } from '../panelWidth'
+import { listeningShare, panelShare } from '../panelWidth'
 import { walk } from './instances'
 
 /** The panel's width as the reader left it (a share of the editor area), every journey. */
@@ -12,6 +12,9 @@ const PANEL_SHARE_KEY = 'codeNotes.panelShare'
 
 /** When the extension last set the layout (a resize right after is ours, not the reader's). */
 let layoutSetAt = 0
+
+/** An episode is on (src/podcast/player.ts says): the panel takes the listening width, the code the rest. */
+export const panelLayout = { episodeOn: (): boolean => false }
 
 type Layout = { orientation: number; groups: { size?: number }[] }
 
@@ -59,13 +62,16 @@ export async function panelFits(): Promise<boolean> {
 
 /**
  * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
- * 80 columns; a window too narrow for both walks with the step card in the editor only (no panel).
+ * 80 columns. A panel that is open is never closed from here (a reload, a row clicked again): too little room keeps
+ * the layout as it is; only opening a journey decides "the step card only" (openMapIfRoom). The layout never changes
+ * on its own mid-walk (F15, F51, F112, F128). While an episode is on, the panel is as wide as its animation and player
+ * need (listeningShare) and the code gets the rest; it is not remembered as the reader's width.
  */
 export async function codeGetsMoreRoom(): Promise<void> {
   const s = await sideBySide()
   if (!s) return
-  const share = shareFor(s.total)
-  if (!share) { cardOnly(); return }
+  const share = panelLayout.episodeOn() ? listeningShare(s.total) : shareFor(s.total)
+  if (!share) { log.info('journey panel: no room beside 80 columns of code; the layout stays as it is'); return }
   const want = s.layout.groups.map((_, i) => (i === s.panel ? share : 1 - share))
   const now = (s.layout.groups[s.panel].size ?? 0) / s.total
   if (Math.abs(now - share) < 0.02) return
@@ -74,9 +80,55 @@ export async function codeGetsMoreRoom(): Promise<void> {
   await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
 }
 
+/** VS Code's minimum width of an editor group (px). A group activated while exactly this wide is expanded by VS Code
+ *  to an even share of the editor area (EditorPart doRestoreGroup): focusing a panel dragged or squeezed to its
+ *  minimum (Ctrl+3, a click in it, ‹ Journeys, a row of the Journeys view) flipped it from ~220 to ~580 px mid-episode
+ *  (F112, F127, F128). */
+const GROUP_MIN_PX = 220
+/** A panel grown by more than this (px) on being activated was grown by VS Code, not dragged. */
+const EXPANDED_PX = 100
+
+/** The groups' widths (px) as last seen settled (side by side only). */
+let known: number[] | undefined
+
+async function flatWidths(): Promise<{ sizes: number[]; total: number } | undefined> {
+  const read = await readEditorLayout()
+  if (!read || read.layout.orientation !== 0 || read.layout.groups.some((g) => (g as { groups?: unknown[] }).groups?.length)) return undefined
+  return { sizes: read.layout.groups.map((g) => g.size ?? 0), total: read.total }
+}
+
+/** The layout as it is now is the one to keep (the reader dragged, groups opened or closed, the extension set it). */
+export async function noteLayout(): Promise<void> {
+  known = (await flatWidths())?.sizes
+}
+
+/**
+ * The panel was activated (focused, clicked, revealed). If VS Code expanded it from its minimum width just now, the
+ * widths it had come back: the layout changes only when the reader changes it.
+ */
+export async function keepWidthOnFocus(): Promise<void> {
+  const mapCol = mapPanel.viewColumn
+  const before = known
+  const now = await flatWidths()
+  if (mapCol === undefined || !now) return
+  // The extension set the layout just now (Ctrl+' V's room, a walk's width): that is the one to keep.
+  if (Date.now() - layoutSetAt < 1500) { known = now.sizes; return }
+  const i = mapCol - 1
+  const expanded = !!before && before.length === now.sizes.length && before[i] <= GROUP_MIN_PX + 0.5 && now.sizes[i] > before[i] + EXPANDED_PX
+  if (!expanded) { known = now.sizes; return }
+  layoutSetAt = Date.now()
+  log.info('journey panel: kept at its width (VS Code widened it when it was focused at its minimum)')
+  const total = before!.reduce((x, y) => x + y, 0)
+  // VS Code keeps an expanded group expanded through a new layout until the widths are evened: evened, then set.
+  await vscode.commands.executeCommand('workbench.action.evenEditorWidths').then(undefined, () => undefined)
+  await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: before!.map((w) => ({ size: w / total })) }).then(undefined, (e) => log.warn(`layout: ${e}`))
+}
+
 /** The panel was resized: by the reader (not just after we set it), so that width is kept for next time. */
 export async function rememberPanelWidth(): Promise<void> {
-  if (Date.now() - layoutSetAt < 1500) return
+  // Dragged, or set by the extension: the width to keep (an expansion by VS Code on focus is undone first).
+  if (Date.now() - layoutSetAt < 1500) { await noteLayout(); return }
+  await keepWidthOnFocus()
   const s = await sideBySide()
   if (!s) return
   const share = (s.layout.groups[s.panel].size ?? 0) / s.total
@@ -105,6 +157,35 @@ export async function keepOffMap(t: vscode.Tab): Promise<void> {
   if (!sel) return
   ed.selection = sel
   ed.revealRange(sel, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+}
+
+/** The panel needs this many px for its map's boxes (journey-splitter.js MAPMIN, with the panel's padding). */
+const MAP_ROOM_PX = 300
+
+/**
+ * The map asked for (Ctrl+' V) in a panel too narrow for its boxes: the panel gets the room, taken from the widest
+ * other group beside it (side by side only). Asked for, so the layout may change; never otherwise.
+ */
+export async function roomForMap(): Promise<void> {
+  const mapCol = mapPanel.viewColumn
+  const read = await readEditorLayout()
+  if (mapCol === undefined || !read || read.layout.orientation !== 0 || read.layout.groups.some((g) => (g as { groups?: unknown[] }).groups?.length)) return
+  let sizes = read.layout.groups.map((g) => g.size ?? 0)
+  const i = mapCol - 1
+  // Revealing the panel may just have had VS Code expand it (focused at its minimum): the widths before that count.
+  if (known && known.length === sizes.length && sizes[i] > known[i] + EXPANDED_PX) sizes = [...known]
+  if (i < 0 || i >= sizes.length || sizes[i] >= MAP_ROOM_PX) return
+  const from = sizes.map((w, k) => (k === i ? -1 : w)).reduce((best, w, k, a) => (w > a[best] ? k : best), i === 0 ? 1 : 0)
+  const give = Math.min(MAP_ROOM_PX - sizes[i], sizes[from] - MAP_ROOM_PX)
+  if (give <= 0) return
+  sizes[i] += give
+  sizes[from] -= give
+  layoutSetAt = Date.now()
+  const total = sizes.reduce((x, y) => x + y, 0)
+  await vscode.commands.executeCommand('workbench.action.evenEditorWidths').then(undefined, () => undefined)
+  const layout = { orientation: 0, groups: sizes.map((w) => ({ size: w / total })) }
+  await vscode.commands.executeCommand('vscode.setEditorLayout', layout).then(undefined, (e) => log.warn(`layout: ${e}`))
+  await noteLayout()
 }
 
 /** The walk goes on with the step card in the editor; the panel (if open) closes. Said once per walk. */

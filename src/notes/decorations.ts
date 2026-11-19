@@ -57,11 +57,12 @@ function exactRange(doc: vscode.TextDocument, n: Note): vscode.Range | undefined
   return new vscode.Range(doc.positionAt(from), doc.positionAt(from + sel.text.length))
 }
 
-/** Every visible editor's note marks (and the step card's), as the notes are now. */
+/** Every visible editor's note marks (and the step card's), as the notes are now. None on the code a podcast is
+ *  telling while it plays (they come back on pause). */
 export function refreshDecorations(): void {
   const on = cfg().get<boolean>('highlight', true)
   for (const editor of vscode.window.visibleTextEditors) {
-    const list = on ? lineNotesFor(editor.document.uri).filter((n) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)) : []
+    const list = on && !card.narrates(editor) ? lineNotesFor(editor.document.uri).filter((n) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)) : []
     setDecorations(editor, deco.openBar, list.filter((n) => !n.data.stale).map(linesOf))
     setDecorations(editor, deco.staleBar, list.filter((n) => n.data.stale).map(linesOf))
     setDecorations(editor, deco.unread, list.filter((n) => unread(n) > 0).map(linesOf))

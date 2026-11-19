@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "title": "Placing an order, in 40 seconds",
+  "journey": { "id": "place-order", "file": "test/journey-scene/sample.json" },
+  "audio": "tone.mp3",
+  "duration": 40,
+  "segments": [
+    { "id": "s01", "at": null, "cue": "map", "speaker": "host", "text": "Welcome. Today: an order, end to end.", "start": 0, "end": 2.8 },
+    { "id": "s02", "at": { "step": "add", "beat": 1 }, "cue": "open", "speaker": "host", "text": "Ana adds a lamp.", "start": 3, "end": 5.8 },
+    { "id": "s03", "at": { "step": "add", "beat": 3 }, "cue": "beat", "speaker": "host", "text": "The cart is saved.", "start": 6, "end": 8.8 },
+    { "id": "s04", "at": { "step": "confirm" }, "cue": "open", "speaker": "guest", "text": "And then she confirms?", "start": 9, "end": 11.8 },
+    { "id": "s05", "at": { "step": "confirm", "beat": 2 }, "cue": "beat", "speaker": "host", "text": "She does, in a dialog.", "start": 12, "end": 14.8 },
+    { "id": "s06", "at": { "step": "live", "beat": 1 }, "cue": "open", "speaker": "host", "text": "The page goes live.", "start": 15, "end": 17.8 },
+    { "id": "s07", "at": { "step": "queue", "beat": 4 }, "cue": "open", "speaker": "host", "text": "The order waits in the queue.", "start": 18, "end": 20.8 },
+    { "id": "s08", "at": { "step": "deploy", "beat": 2 }, "cue": "open", "speaker": "host", "text": "A worker takes it.", "start": 21, "end": 23.8 },
+    { "id": "s09", "at": { "step": "receipt", "beat": 1 }, "cue": "open", "speaker": "host", "text": "The receipt is written.", "start": 24, "end": 26.8 },
+    { "id": "s10", "at": { "step": "receipt", "beat": 9 }, "cue": "beat", "speaker": "host", "text": "A beat the step does not have: the step only.", "start": 27, "end": 29.8 },
+    { "id": "s11", "at": { "step": "session", "beat": 1 }, "cue": "open", "speaker": "host", "text": "The session is checked.", "start": 30, "end": 33.8 },
+    { "id": "s12", "at": null, "cue": "map", "speaker": "guest", "text": "So: cart, confirm, queue, worker, receipt.", "start": 34, "end": 39.5 }
+  ]
+}

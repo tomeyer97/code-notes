@@ -6,7 +6,8 @@
 // objects are made here.
 
 import * as vscode from 'vscode'
-import { provide, tourItems } from '../app'
+import { beats, log, provide, tourItems } from '../app'
+import { MarkPainter } from '../marks/lights'
 import { StepCard } from './card'
 import { stepLenses } from './lenses'
 import { STEP_SCHEME } from './refs'
@@ -61,12 +62,20 @@ export function createCard(context: vscode.ExtensionContext): void {
       backgroundColor: new vscode.ThemeColor('codeNotes.stepBackground'),
       overviewRulerColor: new vscode.ThemeColor('textLink.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
     }),
+    // While the voice tells the step: a thin grey bar, no tint, nothing in the scrollbar (the marks are the colour).
+    quiet: vscode.window.createTextEditorDecorationType({
+      isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorLineNumber.activeForeground'),
+    }),
     stale: vscode.window.createTextEditorDecorationType({
       isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'dashed', borderColor: new vscode.ThemeColor('editorWarning.foreground'),
       overviewRulerColor: new vscode.ThemeColor('editorWarning.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
     }),
   }
-  context.subscriptions.push(card.controller, card.deco.at, card.deco.stale, { dispose: () => card.clear() })
+  // A step's marks (stepMarks.ts): a match that can't be found lights nothing.
+  card.marks = new MarkPainter(log, 'drop')
+  context.subscriptions.push(card.controller, card.deco.at, card.deco.quiet, card.deco.stale, card.marks, { dispose: () => card.clear() })
+  // While the voice tells the step the marks show what is said: no beat box, no caret moved to it.
+  beats.quiet = () => card.narrating()
 }
 
 /** More / Less on the step card (`open`: which; none: the other). */

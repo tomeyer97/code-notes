@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 export async function launchChromium() {
   const pw = await import(process.env.PLAYWRIGHT ? pathToFileURL(path.resolve(process.env.PLAYWRIGHT)).href : 'playwright')
   const chromium = pw.chromium ?? pw.default.chromium
-  return chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+  return chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--mute-audio'] })
 }
 
 /**

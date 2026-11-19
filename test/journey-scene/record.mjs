@@ -12,7 +12,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const journey = JSON.parse(fs.readFileSync(file, 'utf8'))
 if (!journey.steps[Number(step) - 1]?.scene) { console.error(`step ${step} has no scene`); process.exit(2) }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scene-'))
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})
+const b = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--mute-audio'] })
 const ctx = await b.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, recordVideo: { dir, size: { width: 1280, height: 720 } } })
 const page = await ctx.newPage()
 const errors = []

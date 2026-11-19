@@ -1,19 +1,23 @@
 // The step card: the running step's text above its code (a read-only comment thread), or in the map when the step
 // has no code to sit on; the bar on the step's lines and the ref opened from the card.
 import * as vscode from 'vscode'
-import { cmdLink, codeLinks, journeys, mapPanel, valueHints } from '../app'
+import { beats, cmdLink, codeLinks, journeys, KEY, mapPanel, titledCmdLink, valueHints } from '../app'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../codeLinkText'
 import { setDecorations } from '../decorations'
 import { readLinks, readValues } from '../journeyModel'
 import { escapeTags } from '../journeys/textFormat'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { Asked, askedOf, askedText } from '../sidebar/journeyRows'
+import { refreshDecorations as refreshNoteDecorations } from '../notes/decorations'
 import { linesOfUri } from '../notes/location'
+import { MarkPainter } from '../marks/lights'
+import { blocksOf } from '../symbolBlocks'
 import { labelSafe } from '../text'
 import { afterEditorSettles, newThread, setThread, settling, whenSettled } from '../threads/settle'
 import { nextStop, seeAlsoLink } from './checkTour'
 import { TourState } from './state'
 import { cardLine, stepUri } from './stepPlace'
+import { paintStepMarks, stepMarks } from './stepMarks'
 import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
 import { walk } from './instances'
 import { tutorialMark } from './tutorial'
@@ -25,7 +29,12 @@ const TUTORIAL_HI = 'var(--vscode-editor-findMatchHighlightBackground)'
 const CARD_COMMANDS = [
   'codeNotes.codeLink', 'codeNotes.openAt', 'codeNotes.nextStep', 'codeNotes.previousStep', 'codeNotes.endJourney',
   'codeNotes.askStep', 'codeNotes.askStepUpdate', 'codeNotes.openNoteId', 'codeNotes.stepDetails', 'codeNotes.openStepLink',
+  'codeNotes.podcastToggle', 'codeNotes.podcastFollow',
 ]
+
+/** What the card shows of a podcast on its journey (src/podcast/player.ts): playing or paused, following the voice or
+ *  not (the follow lock), the beat being narrated (0-based, of `beats`). */
+export interface Narration { playing: boolean; following: boolean; beat?: number; beats: number; key: string }
 
 /** The card's buttons that stand out while the tutorial's card about the card is up (`askStep` also matches the
  *  stale banner's `askStepUpdate`). */
@@ -54,12 +63,39 @@ export class StepCard {
   /** The step card: read-only comment threads of their own controller (no menus, no reply box). */
   controller!: vscode.CommentController
   thread: vscode.CommentThread | undefined
-  deco!: { at: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
+  deco!: { at: vscode.TextEditorDecorationType; quiet: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
   refDeco: vscode.TextEditorDecorationType | undefined
+  /** The step's marks and its beats' (stepMarks.ts), drawn as a podcast's are. */
+  marks: MarkPainter | undefined
+  /** How the step's lines were drawn last (tests): the bar and tint, the thin grey bar, or nothing. */
+  look: 'tint' | 'quiet' | undefined
   /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
   readonly lensChanged = new vscode.EventEmitter<void>()
 
   constructor(private readonly tour: TourState) {}
+
+  /** The podcast on step n of `lj`, when one is in the panel for it (set by the player). */
+  narration: ((lj: LoadedJourney, n: number) => Narration | undefined) | undefined
+
+  /** The voice tells the walk's step now: the editor goes quiet (no step tint, beat box, value hints or note bars). */
+  narrating(): boolean {
+    const lj = walk.touring() ? walk.tourJourney() : undefined
+    return !!lj && !!this.narration?.(lj, this.tour.step)?.playing
+  }
+
+  /** `e` shows the narrated code (the walk's group, or the step's file) while the voice tells the step. */
+  narrates(e: vscode.TextEditor): boolean {
+    if (!this.narrating()) return false
+    const lj = walk.tourJourney()!
+    return (e.viewColumn !== undefined && e.viewColumn === this.tour.walkGroup?.viewColumn)
+      || e.document.uri.toString() === stepUri(lj, this.tour.step).toString()
+  }
+
+  /** What the editor was last painted for: playing or not (a change repaints the notes, the step and the beat). */
+  private paintedPlaying = false
+
+  /** While it plays, the line the header card hangs under, by document version and step start (see playingLine). */
+  private fnLines = new Map<string, number>()
 
   /**
    * One step card, inline above the code (no panel mode). Only a step with no code to sit on (its
@@ -151,6 +187,9 @@ export class StepCard {
     const { tour } = this
     const tutorial = tutorialMark
     const step = lj.j.steps[n - 1]
+    // While the voice tells this step: the header line only (the voice and the code are enough).
+    const nar = this.narration?.(lj, n)
+    if (nar?.playing) return this.narratingMarkdown(nar)
     const t = this.text(lj, n, (r) => commandRefLink(lj, n, r))
     const asked = askedOf(lj)[n]
     // Its code can't be found: say what happened first, and the one thing to do (ask: the note box opens
@@ -158,6 +197,8 @@ export class StepCard {
     const askUpdate = asked?.update ? cmdLink('Asked ›', 'codeNotes.openNoteId', asked.id) : cmdLink('Ask', 'codeNotes.askStepUpdate')
     const st = this.staleText(lj, n, askUpdate)
     const nav = this.navLinks(lj, n, t, asked, !!st)
+    // Paused: the full card, and the way to play on.
+    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${KEY} Space)`, 'codeNotes.podcastToggle'))
     // Code links: a phrase that is a link to the lines doing what it says. Placeholders here; the markup goes in
     // after escapeTags.
     const links = readLinks(step.links)
@@ -185,6 +226,19 @@ export class StepCard {
     // Only for the code links' colour; every other tag in the text was escaped above.
     md.supportHtml = links.length > 0 || tutorial === 'card'
     md.baseUri = lj.folder.uri
+    return md
+  }
+
+  /**
+   * The card while the voice tells the step: its header line ("3/14 · title") only, and "Follow along" under it once
+   * the reader looked around on their own (the follow lock). No value hints on the code meanwhile. The full card comes
+   * back on pause.
+   */
+  private narratingMarkdown(nar: Narration): vscode.MarkdownString {
+    valueHints.clear()
+    codeLinks.clear()
+    const md = new vscode.MarkdownString(nar.following ? '' : titledCmdLink('Follow along', 'Back to what the voice is showing', 'codeNotes.podcastFollow'))
+    md.isTrusted = { enabledCommands: CARD_COMMANDS }
     return md
   }
 
@@ -229,6 +283,12 @@ export class StepCard {
    */
   show(lj: LoadedJourney, n: number): void {
     this.lensChanged.fire()
+    const playing = !!this.narration?.(lj, n)?.playing
+    if (playing !== this.paintedPlaying) {
+      this.paintedPlaying = playing
+      refreshNoteDecorations()
+      beats.paint()
+    }
     if (this.inMap(lj, n)) {
       this.thread?.dispose()
       this.thread = undefined
@@ -236,7 +296,9 @@ export class StepCard {
       return
     }
     const uri = stepUri(lj, n)
-    const line = cardLine(lj, n)
+    const line = playing ? this.playingLine(lj, n, uri) : cardLine(lj, n)
+    // Its function not found yet: the card comes once it is.
+    if (line === undefined) return
     const range = new vscode.Range(line, 0, line, 0)
     // VS Code HTML-escapes a thread's label and then shows it as text ("&lt;script&gt;"): look-alikes instead.
     const label = `${n}/${lj.j.steps.length} · ${labelSafe(lj.j.steps[n - 1].title)}`
@@ -261,9 +323,39 @@ export class StepCard {
     // The card's first line is "3/14 · <title>": the position once, and the title, since the map may not be
     // in view from the code. A stale step says so in its text.
     setThread(t, 'label', label)
-    const shownBody = (t.comments[0]?.body as vscode.MarkdownString | undefined)?.value
+    const shownBody = (t.comments[0]?.body as vscode.MarkdownString | undefined)?.value ?? ''
     if (fresh || shownBody !== body.value) t.comments = [cardComment(body)]
     setThread(t, 'collapsibleState', vscode.CommentThreadCollapsibleState.Expanded)
+  }
+
+  /**
+   * While the voice tells the step, its header card sits above the signature of the function the step is in (not
+   * inside the function, over the code being read); a step in no function keeps the card's usual line. Undefined:
+   * the file's functions are being found (the card is shown once they are).
+   */
+  private playingLine(lj: LoadedJourney, n: number, uri: vscode.Uri): number | undefined {
+    const at = lj.at[n - 1]
+    if (at.removed) return cardLine(lj, n)
+    const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString())
+    const known = this.fnLines.get(fnKey(uri, doc, at.start))
+    if (known !== undefined) return known
+    void this.findFnLine(lj, n, uri)
+    return undefined
+  }
+
+  private async findFnLine(lj: LoadedJourney, n: number, uri: vscode.Uri): Promise<void> {
+    const at = lj.at[n - 1]
+    let line = cardLine(lj, n)
+    let doc: vscode.TextDocument | undefined
+    try {
+      doc = await vscode.workspace.openTextDocument(uri)
+      const first = at.start - 1
+      const fn = (await blocksOf(doc)).blocks.filter((b) => b.kind !== 'class' && b.start <= first && first <= b.end).pop()
+      if (fn) line = Math.max(0, fn.start - 1)
+    } catch { /* the file can't be read: the usual line */ }
+    if (this.fnLines.size > 50) this.fnLines.clear()
+    this.fnLines.set(fnKey(uri, doc, at.start), line)
+    this.showIfStillOn(lj, n)
   }
 
   /** The card's thread is the one for this file, line and label. */
@@ -316,14 +408,17 @@ export class StepCard {
     this.tour.refHere = undefined
     this.lensChanged.fire()
     for (const e of vscode.window.visibleTextEditors) if (this.refDeco) setDecorations(e, this.refDeco, [])
+    if (this.marks && !this.marks.empty) this.marks.show(new Map())
     if (!this.deco) return
     for (const e of vscode.window.visibleTextEditors) {
       setDecorations(e, this.deco.at, [])
+      setDecorations(e, this.deco.quiet, [])
       setDecorations(e, this.deco.stale, [])
     }
   }
 
-  /** The running step's lines: a quiet bar (a stale step's: none); the ref opened from the card, lit. */
+  /** The running step's lines: a bar and a faint tint (while the voice tells it, or while the step has marks: a thin
+   *  grey bar; a stale step's: none); its marks and its beat's (stepMarks.ts); the ref opened from the card, lit. */
   refreshDecorations(): void {
     const tour = this.tour
     const lj = walk.touring() ? walk.tourJourney() : undefined
@@ -331,19 +426,30 @@ export class StepCard {
     const stepFile = lj && s ? vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tour.step)).toString() : undefined
     const ref = tour.refHere
     tour.marked = []
+    this.look = undefined
+    // While the voice tells it, the podcast's own marks are the ones on the code.
+    const marks = lj && s && this.marks && !this.narrating() ? stepMarks(lj, tour.step, beats.index, (k, line) => this.marks!.once(k, line)) : []
+    if (this.marks) paintStepMarks(this.marks, marks)
     for (const e of vscode.window.visibleTextEditors) {
       const uri = e.document.uri.toString()
       const at = stepFile !== undefined && uri === stepFile ? lj!.at[tour.step - 1] : undefined
       // A stale step highlights nothing: what is there now is other code; the card says so.
       const lit = at && !at.stale
-      setDecorations(e, this.deco.at, lit ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : [])
-      if (lit) tour.marked.push(e.document.uri.path)
+      const lines = lit ? [new vscode.Range(at.start - 1, 0, at.end - 1, 0)] : []
+      // While the voice tells it, or the step has marks: a thin neutral bar only, the marks are the colour on the code.
+      const quiet = this.narrates(e) || marks.length > 0
+      setDecorations(e, this.deco.at, quiet ? [] : lines)
+      setDecorations(e, this.deco.quiet, quiet ? lines : [])
+      if (lit) { tour.marked.push(e.document.uri.path); this.look = quiet ? 'quiet' : 'tint' }
       setDecorations(e, this.deco.stale, [])
       const refLit = ref && lj && ref.uri === uri ? [new vscode.Range(ref.start, 0, ref.end, 0)] : []
       if (this.refDeco) setDecorations(e, this.refDeco, refLit)
     }
   }
 }
+
+/** Where a step starting at `start` is, in a version of its document (none: it can't be opened). */
+const fnKey = (uri: vscode.Uri, doc: vscode.TextDocument | undefined, start: number) => `${uri}@${doc?.version ?? 'none'}|${start}`
 
 /** The card's one comment: the text only (no author line). */
 function cardComment(body: vscode.MarkdownString): vscode.Comment {

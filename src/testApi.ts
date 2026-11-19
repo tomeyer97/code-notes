@@ -9,6 +9,7 @@ import { Note } from './store'
 import { applySuggestion } from './notes/suggestion'
 import { unread } from './seen'
 import { journeysTree } from './sidebar/journeysTree'
+import { journeyItem } from './sidebar/journeyRows'
 import { listModel } from './sidebar/listModel'
 import { cached, Node, order, sessionOf } from './sidebar/nodes'
 import { groupMode, matchesFilter } from './sidebar/notesFilter'
@@ -16,7 +17,7 @@ import { tree, treeView } from './sidebar/notesTree'
 import { missing } from './notes/location'
 import { threads } from './threads/sync'
 import { askDrafts, stepAskBox } from './tour/askStep'
-import { restoreTour } from './tour/commands'
+import { restorePanel, restoreTour } from './tour/commands'
 import { card, tourState, walk } from './tour/instances'
 import { resetTutorial, TUTORIAL_KEY, tutorialMark, tutorialSeen } from './tour/tutorial'
 import { answerClarify, clarify } from './write/clarify'
@@ -24,6 +25,9 @@ import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
+import { podcasts } from './podcast/player'
+import { onMapMessage } from './tour/mapMessages'
+import type { MapMessage } from './journeys/mapPanel'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
@@ -94,12 +98,17 @@ function tourSnapshot() {
     mapFocus: mapPanel.focus,
     beat: beats.lit,
     beatCode: beats.preview,
+    /** The step's marks and its beat's as lit (tour/stepMarks.ts). */
+    marks: card.marks?.lit() ?? [],
+    stepLook: card.look,
+    beatBoxed: beats.boxed,
     codeLinks: codeLinks.state,
     values: valueHints.state,
     mapColumn: mapPanel.viewColumn,
     codeColumn: tourState.doc?.column,
     status: tourItems.pos.text,
-    statusShown: !!tourItems.pos.text && walk.touring(),
+    // None while its journey is listened to (the podcast's item then).
+    statusShown: !!tourItems.pos.text && walk.touring() && !(lj && walk.podcastOn?.(lj)),
     tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark },
     key: KEY,
     lastLeft: tourState.lastLeft,
@@ -148,6 +157,23 @@ export function testApi() {
     mementos: () => [state, gstate],
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),
+    /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
+    listenSend: (m: unknown) => podcasts.listen.send(m),
+    /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
+    listenIgnorePauses: (on: boolean) => { podcasts.listen.ignorePauses = on },
+    /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */
+    mapMessage: (m: MapMessage) => { if (mapPanel.journey) onMapMessage(mapPanel.journey, m) },
+    /** A map panel as VS Code hands one over after a reload, drawn once `ready` resolves (tour/commands.ts). */
+    restorePanel: (panel: vscode.WebviewPanel, ready: Promise<void>) => restorePanel(panel, undefined, ready),
+    /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
+    podcast: () => podcasts.snapshot(),
+    /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */
+    journeyRow: (id: string) => {
+      const lj = journeys.all().find((x) => x.j.id === id)
+      const it = lj && journeyItem(lj)
+      const icon = it?.iconPath instanceof vscode.ThemeIcon ? it.iconPath.id : it?.iconPath ? 'other' : undefined
+      return it && { contextValue: it.contextValue, tooltip: typeof it.tooltip === 'string' ? it.tooltip : it.tooltip?.value, description: typeof it.description === 'string' ? it.description : undefined, icon }
+    },
     resetTutorial,
     /** Forgets the tour in memory and restores it from workspace state, as after a window reload. */
     reloadTour: async () => {

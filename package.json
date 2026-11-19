@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
-  "version": "0.24.0",
+  "version": "0.26.0",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -49,6 +49,7 @@
     "skills/understanding-check/SKILL.md",
     "skills/understanding-check/scripts/questions.mjs",
     "cli/understanding.mjs",
+    "docs/podcast-format.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -83,6 +84,12 @@
         {
           "id": "codeNotes.journeys",
           "name": "Journeys"
+        },
+        {
+          "type": "webview",
+          "id": "codeNotes.listen",
+          "name": "Listen",
+          "when": "codeNotes.listening"
         }
       ]
     },
@@ -450,6 +457,42 @@
         "category": "Code Notes"
       },
       {
+        "command": "codeNotes.playPodcast",
+        "title": "Listen to Journey",
+        "category": "Code Notes",
+        "icon": "$(play)"
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "title": "Listen: Pause/Play",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "title": "Listen: Back 15 s",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "title": "Listen: Forward 15 s",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "title": "Listen: Previous Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "title": "Listen: Next Step",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.podcastOpen",
+        "title": "Listen: Open the Map",
+        "category": "Code Notes"
+      },
+      {
         "command": "codeNotes.checkUnderstanding",
         "title": "Check my understanding",
         "category": "Code Notes",
@@ -599,6 +642,76 @@
         }
       },
       {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+[IntlBackslash] ctrl+space",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+[IntlBackslash] space",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+[IntlBackslash] ctrl+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+[IntlBackslash] left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+[IntlBackslash] ctrl+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+[IntlBackslash] right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+[IntlBackslash] ctrl+shift+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+[IntlBackslash] shift+left",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+[IntlBackslash] ctrl+shift+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+[IntlBackslash] shift+right",
+        "args": {
+          "prefix": "<"
+        }
+      },
+      {
         "command": "codeNotes.add",
         "key": "ctrl+' ctrl+c",
         "args": {
@@ -692,6 +805,76 @@
       {
         "command": "codeNotes.searchJourneys",
         "key": "ctrl+' j",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+' ctrl+space",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastToggle",
+        "key": "ctrl+' space",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+' ctrl+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastBack",
+        "key": "ctrl+' left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+' ctrl+right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastForward",
+        "key": "ctrl+' right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+' ctrl+shift+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastPrevStep",
+        "key": "ctrl+' shift+left",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+' ctrl+shift+right",
+        "args": {
+          "prefix": "'"
+        }
+      },
+      {
+        "command": "codeNotes.podcastNextStep",
+        "key": "ctrl+' shift+right",
         "args": {
           "prefix": "'"
         }
@@ -955,9 +1138,38 @@
           "command": "codeNotes.refreshJourney",
           "group": "inline@1",
           "when": "view == codeNotes.journeys && viewItem =~ /^journey;stale/"
+        },
+        {
+          "command": "codeNotes.playPodcast",
+          "group": "inline@0",
+          "when": "view == codeNotes.journeys && viewItem =~ /^journey.*;podcast($|;)/"
         }
       ],
       "commandPalette": [
+        {
+          "command": "codeNotes.podcastToggle",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastBack",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastForward",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastPrevStep",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastNextStep",
+          "when": "codeNotes.listening"
+        },
+        {
+          "command": "codeNotes.podcastOpen",
+          "when": "codeNotes.listening"
+        },
         {
           "command": "codeNotes.reply",
           "when": "false"
@@ -1302,6 +1514,18 @@
           "default": [],
           "description": "Names of Claude Code skills (folders in ~/.claude/skills) that Ask Claude may use. Claude may run only those skills' own scripts; editing files and other commands stay blocked."
         },
+        "codeNotes.listen.readBeforeMove": {
+          "type": "number",
+          "default": 2.5,
+          "minimum": 0,
+          "description": "Listening: before the code scrolls or switches files to show the next highlight, what is highlighted now stays on screen at least this many seconds (the audio waits). 0: no wait."
+        },
+        "codeNotes.listen.settleAfterMove": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "description": "Listening: after the code scrolled or switched files, the audio waits this many seconds with the new highlight lit, so you can find it. 0: no wait."
+        },
         "codeNotes.journeys.folder": {
           "type": "string",
           "default": "journeys",
@@ -1348,6 +1572,16 @@
           "light": "#006ab114",
           "highContrast": "#00000000",
           "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "codeNotes.markBackground",
+        "description": "Background of the code a journey's podcast is talking about now (the newest mark).",
+        "defaults": {
+          "dark": "#2bb3a24d",
+          "light": "#00a39033",
+          "highContrast": "#2bb3a280",
+          "highContrastLight": "#00a39040"
         }
       },
       {
@@ -1425,6 +1659,7 @@
     "test:checkpanel": "node test/check-panel/shoot.mjs",
     "test:checktour": "node test/check-tour/shoot.mjs",
     "test:journeylist": "node test/journey-list/shoot.mjs",
+    "test:podcast": "node test/journey-podcast/shoot.mjs",
     "test:grader": "node test/grader/eval.mjs"
   },
   "devDependencies": {

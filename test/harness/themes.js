@@ -53,6 +53,8 @@
       postMessage: (m) => {
         window.__posted.push(m)
         if (m.type === 'error') window.__errors.push(m)
+        // A harness playing the extension's part answers here (test/journey-podcast/shoot.mjs).
+        if (window.__onPost) window.__onPost(m)
       },
       getState: () => (keepState ? window.__state : undefined),
       setState: (s) => { if (keepState) window.__state = s },

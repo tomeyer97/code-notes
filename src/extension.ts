@@ -49,6 +49,7 @@ import { backToStep, endJourney, openJourney, openStepLink, restoreMapPanel, res
 import { pickJourneyStep } from './tour/lenses'
 import { registerRefPages } from './tour/refs'
 import { createCard, createTourItems, stepDetails, walk } from './tour/instances'
+import { podcasts } from './podcast/player'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tutorialSpot'
 import { ValueHints } from './valueHints'
@@ -127,6 +128,7 @@ function createTourUi(context: vscode.ExtensionContext): () => void {
   setCtx('codeNotes.showResolved', false)
   rememberMe()
   context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
+  podcasts.init(context)
   return journeysLoaded
 }
 
@@ -167,11 +169,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
   const groups: Record<string, Handler>[] = [
     // Notes: adding, replying, Claude.
     {
-      'codeNotes.add': chord(addNote),
+      // A note being written pauses a podcast playing (its code stays put under the draft: F52).
+      'codeNotes.add': chord(() => { podcasts.hold('note'); return addNote() }),
       'codeNotes.addQuick': addQuickNote,
       'codeNotes.addPathNote': (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
       'codeNotes.askFromThread': askFromThread,
-      'codeNotes.createFromThread': createFromThread,
+      'codeNotes.createFromThread': async (...a: Parameters<typeof createFromThread>) => {
+        try { return await createFromThread(...a) } finally { podcasts.released('note') }
+      },
       'codeNotes.askClaude': askClaudeCommand,
       'codeNotes.cancelClaude': cancelClaudeCommand,
       'codeNotes.reply': replyTo,
@@ -246,6 +251,17 @@ function registerCommands(context: vscode.ExtensionContext): void {
       'codeNotes.openStepLink': openStepLink,
       'codeNotes.toggleAuthorMode': toggleAuthorMode,
       'codeNotes.toggleAnimation': chord(toggleAnimation),
+      'codeNotes.playPodcast': (arg?: unknown) => podcasts.play(arg),
+      // The greyed ▶ of a podcast that can't be played (disabled in the menu): why, if it is ever run.
+      'codeNotes.podcastToggle': chord(() => podcasts.toggle()),
+      'codeNotes.podcastBack': chord(() => podcasts.back()),
+      'codeNotes.podcastForward': chord(() => podcasts.forward()),
+      'codeNotes.podcastPrevStep': chord(() => podcasts.part(-1)),
+      'codeNotes.podcastNextStep': chord(() => podcasts.part(1)),
+      'codeNotes.podcastOpen': () => podcasts.openSessionMap(),
+      // The row's ⏸ (listening) and ▶ Resume (paused there).
+      // "Follow along" on the step card: the editor follows the voice again (podcast/follow.ts).
+      'codeNotes.podcastFollow': () => podcasts.followAlong(),
       'codeNotes.askQuestion': askQuestion,
       'codeNotes.backToStep': backToStep,
       'codeNotes.askStep': (text?: string) => askStep(text),

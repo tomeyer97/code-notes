@@ -1,0 +1,147 @@
+/* The listening player (journey-podcast.js): in the journey panel fixed at its bottom; in the Listen view in the page
+   (.inline). Top to bottom: a notice, the caption (two lines), the timeline with its step ticks, the controls (⏮ ⏸ ⏭,
+   the time, the speed). Which show depends on the player's own width (a container query): ▶ first, then ⏮ ⏭, the
+   time, the speed. Neutral greys: the one accent colour while listening is the code's focus mark. Colours: the tokens
+   in common.css. */
+.pod {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+  background: var(--raised); border-top: 1px solid var(--border);
+  padding: 6px 16px 6px; display: grid; gap: 4px; container-type: inline-size; container-name: pod;
+}
+.pod.inline { position: static; border-top: 0; padding: 4px 0; background: transparent; }
+.pod[hidden] { display: none; }
+body.has-pod #app { padding-bottom: calc(20px + var(--podH, 0px)); }
+body.has-pod .body.wide .mapwrap { height: calc(100vh - var(--headH, 0px) - var(--podH, 0px) - 16px); }
+
+/* The caption: the sentence being said, two lines high always (the player never changes height as it speaks). */
+.pod-cap { position: relative; min-width: 0; }
+.pod-cap[hidden] { display: none; }
+.pod-cap-t { line-height: 1.35; height: calc(2 * 1.35em); overflow: hidden; overflow-wrap: anywhere; color: var(--fg); }
+.pod-cap-m { position: absolute; left: 0; top: 0; visibility: hidden; height: auto; pointer-events: none; }
+.pod-who { font-weight: 600; color: var(--muted); }
+
+/* The end of the episode: what next, nothing else (no timeline, no transport). */
+.pod-end { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; line-height: 1.35; }
+.pod-end[hidden] { display: none; }
+.pod-end-a { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.pod.ended .pod-tl, .pod.ended .pod-row { display: none; }
+
+/* The timeline: a 4 px track the whole width (one bar per part, the played part darker), the playhead always shown,
+   a tick under it where each step starts. */
+.pod-tl { position: relative; height: 20px; cursor: pointer; touch-action: none; outline: none; border-radius: 3px; }
+.pod-tl:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pod-track { position: absolute; left: 0; right: 0; top: 5px; height: 4px; }
+.pod-bar { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 20%, transparent); overflow: hidden; border-radius: 1px; }
+/* A gap between parts: where a step starts. */
+.pod-bar + .pod-bar { border-left: 2px solid var(--raised); }
+.pod.inline .pod-bar + .pod-bar { border-left-color: var(--vscode-sideBar-background, var(--bg)); }
+.pod-bar.map { background: color-mix(in srgb, var(--fg) 13%, transparent); }
+.pod-fill { height: 100%; width: 0; background: color-mix(in srgb, var(--fg) 60%, transparent); }
+.pod-tl:hover .pod-track, .pod.dragging .pod-track { top: 4px; height: 6px; }
+.pod-thumb {
+  position: absolute; top: 2px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
+  background: var(--fg); border: 2px solid var(--raised); box-sizing: border-box; pointer-events: none;
+}
+.pod-ghost { position: absolute; top: 0; width: 1px; height: 14px; background: var(--fg); opacity: 0.5; pointer-events: none; }
+.pod-ghost[hidden] { display: none; }
+/* The part a cut-off audio can't reach: greyed, striped. */
+.pod-reach {
+  position: absolute; top: 3px; height: 8px;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--fg) 22%, transparent) 0 2px, color-mix(in srgb, var(--raised) 85%, transparent) 2px 5px);
+}
+.pod-reach[hidden] { display: none; }
+.pod-marks { position: absolute; left: 0; right: 0; top: 11px; height: 9px; }
+.pod-mark {
+  position: absolute; top: 0; height: 9px; background: none; border: 0; padding: 0; cursor: pointer; box-sizing: border-box;
+  border-left: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+}
+.pod-mark:hover { background: var(--hover); border-left-color: var(--fg); }
+.pod-mark.cur { border-left-color: color-mix(in srgb, var(--fg) 70%, transparent); }
+.pod-tip {
+  position: absolute; bottom: 22px; left: 0; width: max-content; max-width: min(300px, 100%); padding: 3px 7px; border-radius: 3px;
+  background: var(--vscode-editorHoverWidget-background, var(--raised)); color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
+  font-size: 0.9em; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; pointer-events: none; display: grid; box-sizing: border-box;
+}
+.pod-tip[hidden] { display: none; }
+.pod-tip-part { font-variant-numeric: tabular-nums; }
+.pod-tip-cut { color: var(--warn); }
+
+.pod-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pod-ctl { display: flex; align-items: center; gap: 2px; flex: none; }
+.pod-b { width: 28px; height: 28px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer; flex: none; }
+.pod-b:hover { background: var(--hover); }
+.pod-b:focus-visible, .pod-rate:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pod-time { color: var(--muted); font-size: 0.9em; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+.pod-opt { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
+/* The speed: "1×", plain text; a click goes to the next. */
+.pod-rate {
+  font: inherit; font-size: 0.9em; padding: 0 4px; min-width: 3em; height: 22px; border-radius: 3px; color: var(--muted); cursor: pointer;
+  background: none; border: 0; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right;
+}
+.pod-rate:hover { background: var(--hover); color: var(--fg); }
+
+/* An error, or a note ("Step 12 isn't in the podcast"): one line under the controls. */
+.pod-err { color: var(--warn); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pod-err[hidden] { display: none; }
+.pod-err.note { color: var(--muted); }
+.pod-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Narrow to wide: what fits (priority ▶ > ⏮ ⏭ > time > speed). */
+@container pod (max-width: 220px) { .pod-total { display: none; } }
+@container pod (max-width: 180px) { .pod-rate { display: none; } }
+@media (max-width: 360px) { .pod:not(.inline) { padding: 6px 10px; } }
+
+/* What is wrong with the podcast (journey-podcast.js `notice`), or that it can't be played: one muted line and
+   "Show why". Unavailable: that line alone. */
+.pod-note { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 0.9em; color: var(--muted); }
+.pod-note[hidden] { display: none; }
+.pod-note-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pod-note::before { content: '⚠'; color: var(--warn); flex: none; }
+.pod-why { flex: none; }
+.pod.unavail .pod-tl, .pod.unavail .pod-row, .pod.unavail .pod-cap, .pod.unavail .pod-end, .pod.unavail .pod-err { display: none; }
+
+/* ---------- the journey panel while it has a podcast (journey-map.js) ---------- */
+
+/* The storyline as the chapter list: number and title, the row being said in bold; ▶ (that step alone) only on the
+   row under the pointer or the keyboard. One "Transcript" switch above the list. */
+.pod-story .strow { display: flex; align-items: flex-start; gap: 2px; min-width: 0; position: relative; }
+.pod-story .strow > .st { flex: 1 1 auto; min-width: 0; }
+.pod-story .unnarrated .st .t { color: var(--muted); }
+.pod-story .pnow .st .t { font-weight: 600; }
+.plisten {
+  flex: none; width: 24px; height: 24px; margin-top: 1px; border: 0; background: none; border-radius: 4px; padding: 0;
+  color: var(--muted); cursor: pointer; font-size: 0.85em; line-height: 24px; text-align: center;
+}
+.plisten:hover { background: var(--hover); color: var(--fg); }
+.plisten:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; }
+.pod-story .strow:not(:hover):not(:focus-within) .plisten { visibility: hidden; }
+.trhead { display: flex; justify-content: flex-end; margin: 0 0 2px; }
+.trtoggle { font-size: 0.9em; color: var(--muted); }
+.trtoggle[aria-pressed="true"] { color: var(--fg); }
+/* The transcript of the row being said: its sentences, the one being said marked; a click goes there. Shut, it is
+   still found by Ctrl+F. */
+.trx { margin: 2px 0 6px calc(1.6em + 14px); padding-left: 8px; border-left: 2px solid var(--border); font-size: 0.92em; line-height: 1.45; }
+.trp { margin: 0 0 4px; }
+.trw { font-weight: 600; color: var(--muted); }
+.trs { cursor: pointer; border-radius: 2px; }
+.trs:hover { background: var(--hover); }
+.trs.cur { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+
+/* The episode on: the header is one line ("Step 6 of 14 · title"); the animation's own sentence, its bar and the code
+   snippet give way to the caption (one text channel while you listen); all back on pause. */
+header.listening .top { align-items: center; gap: 6px; }
+header.listening h1.q { font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+header.listening .homeb { display: inline-block; margin: 0; flex: none; font-size: 1.1em; padding: 0 4px; }
+body.pod-on .scn-cap, body.pod-on .scn-code, body.pod-on .scn-bar { display: none; }
+/* Playing: the step's animation (or the map) alone, in the same box every step: the window's height under the header,
+   above the player. */
+.body.pbox { margin-top: 8px; }
+.body.pbox .mapwrap { margin: 0; }
+.body.pbox .gmap, .body.pbox .scn-view { height: max(220px, calc(100vh - var(--headH, 0px) - var(--podH, 0px) - 28px)) !important; }
+/* The map while playing: its zoom only under the pointer (the voice moves it); at the intro and the recap the areas
+   and the boxes' names only (no arrow labels, no step numbers). */
+body.pod-on .gctl { visibility: hidden; }
+body.pod-on .gmap:hover .gctl, body.pod-on .gctl:focus-within { visibility: visible; }
+body.pod-map .glabel, body.pod-map .gnums, body.pod-map .gfnums { display: none; }
+.body.wide > .storycol { align-self: start; min-width: 0; }

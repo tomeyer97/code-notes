@@ -9,7 +9,7 @@ import { fileOf, journeyById, LoadedJourney, posKey } from '../journeys/steps'
 import { markJourneysSeen } from '../seen'
 import { INTRO_KEY, showIntro } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
-import { cardOnly, codeGetsMoreRoom, panelFits } from './panelLayout'
+import { cardOnly, codeGetsMoreRoom, keepWidthOnFocus, noteLayout, panelFits, roomForMap } from './panelLayout'
 import { pickJourney } from './pick'
 import { card, tourState, walk } from './instances'
 import { MAP_KEY, POS_KEY, TOUR_KEY } from './state'
@@ -19,6 +19,13 @@ import { MAP_KEY, POS_KEY, TOUR_KEY } from './state'
  * or where it was left (the step being walked, else the resume point).
  */
 export async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean; keepFocus?: 'sidebar' | 'panel' } = {}): Promise<void> {
+  // The journey you're in (its row, Open Journey… on it): its panel to the front, the walk and the podcast as they
+  // are. Never closed or reopened, the layout untouched (F51, F129).
+  if (!opts.fromStart && isHere(lj)) {
+    if (!mapPanel.visible || opts.keepFocus !== 'sidebar') walk.showMap(lj, opts.keepFocus === 'sidebar')
+    if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand('codeNotes.journeys.focus').then(undefined, () => undefined)
+    return
+  }
   // A journey without steps: its map only.
   if (!lj.j.steps.length) {
     await openMap(lj)
@@ -32,12 +39,19 @@ export async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean
   if (room) await codeGetsMoreRoom()
 }
 
+/** `lj` is the journey on screen: its panel is open and its walk (or its podcast) is going on. */
+function isHere(lj: LoadedJourney): boolean {
+  if (mapPanel.journey?.key !== lj.key) return false
+  return (walk.touring() && tourState.key === lj.key) || !!walk.podcastOn?.(lj)
+}
+
 /**
  * The journey's map, when there is room for it beside 80 columns of code; else the step card only. Decided before
- * anything opens (the panel never squeezes the code, not even for a moment). Returns whether there was room.
+ * anything opens (the panel never squeezes the code, not even for a moment), and only then: a panel that is open
+ * stays (it shows this journey now), whatever its width. Returns whether the panel is shown.
  */
 async function openMapIfRoom(lj: LoadedJourney): Promise<boolean> {
-  const room = await panelFits()
+  const room = !!mapPanel.journey || (await panelFits())
   await openMap(lj, room)
   if (!room) cardOnly()
   return room
@@ -67,9 +81,7 @@ export async function finishTour(): Promise<void> {
   await endJourney()
   if (!lj) return
   await state.update(POS_KEY, Object.fromEntries(Object.entries(walk.positions()).filter(([k]) => k !== posKey(lj))))
-  // Only the walk's own preview tab (not one you kept open or edited).
-  const tabs = doc ? walkPreviewTabs(lj, doc.column) : []
-  if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
+  await closeWalkTabs(lj, doc?.column)
   tourState.finishedKey = lj.key
   // The panel says Done when it is open or has the room; else the status bar says it.
   if (mapPanel.journey || (await panelFits())) walk.showMap(lj)
@@ -78,9 +90,20 @@ export async function finishTour(): Promise<void> {
   tree.refresh()
 }
 
-/** Preview tabs in `column` showing one of the journey's step files, not edited. */
+/** The walk's own preview tab in `column` (the code group it used), not one you kept open or edited: closed. */
+export async function closeWalkTabs(lj: LoadedJourney, column: vscode.ViewColumn | undefined): Promise<void> {
+  const tabs = column ? walkPreviewTabs(lj, column) : []
+  if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
+}
+
+/** Preview tabs in `column` showing one of the journey's step files (or a file its animations show), not edited. */
 function walkPreviewTabs(lj: LoadedJourney, column: vscode.ViewColumn): vscode.Tab[] {
-  const stepFiles = new Set(lj.j.steps.map((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).toString()))
+  const renames = journeys.renames(lj)
+  const beatFiles = lj.j.steps.flatMap((s) => (s.scene?.beats ?? []).map((b) => b.code?.file).filter((f): f is string => typeof f === 'string'))
+  const stepFiles = new Set([
+    ...lj.j.steps.map((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).toString()),
+    ...beatFiles.map((f) => vscode.Uri.joinPath(lj.folder.uri, renames.get(f) ?? f).toString()),
+  ])
   return vscode.window.tabGroups.all.filter((g) => g.viewColumn === column).flatMap((g) => g.tabs)
     .filter((t) => t.isPreview && !t.isDirty && t.input instanceof vscode.TabInputText && stepFiles.has(t.input.uri.toString()))
 }
@@ -108,6 +131,7 @@ export async function restoreTour(): Promise<void> {
   const n = walk.resumeAt(lj) || 1
   if (!mapPanel.journey) { tourState.key = lj.key }
   await walk.goToStep(lj, n, { focus: false })
+  walk.onRestored?.(lj)
 }
 
 /**
@@ -117,26 +141,49 @@ export async function restoreTour(): Promise<void> {
  * ("OverlayWebview has been disposed").
  */
 export function restoreMapPanel(context: vscode.ExtensionContext): () => void {
+  mapPanel.layoutChanged = () => void noteLayout()
+  mapPanel.activated = () => void keepWidthOnFocus()
   let journeysLoaded!: () => void
   const journeysReady = new Promise<void>((r) => { journeysLoaded = r })
   context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(MAP_VIEW, {
-    deserializeWebviewPanel: async (panel, st) => {
-      mapPanel.placeholder(panel, st as { q?: string; cur?: number; n?: number } | undefined)
-      await journeysReady
-      const lj = await mapJourneyRead()
-      const afterRestore = (f: () => void) => setTimeout(f, AFTER_RESTORE_MS)
-      if (!lj) {
-        log.info('journey panel: its journey is gone; closed after the reload')
-        afterRestore(() => panel.dispose())
-        return
-      }
-      if (!tourState.key) tourState.key = lj.key
-      mapPanel.adopt(panel, lj)
-      walk.updateTour()
-      afterRestore(() => void codeGetsMoreRoom())
-    },
+    deserializeWebviewPanel: (panel, st) => restorePanel(panel, st as PanelState | undefined, journeysReady),
   }))
   return journeysLoaded
+}
+
+/** What a map panel keeps over a reload (media/journey-map.js setState). */
+type PanelState = { q?: string; cur?: number; n?: number }
+
+/**
+ * A map panel VS Code restored, drawn once `ready` (the journeys read). Closed meanwhile (VS Code still loading),
+ * it is left alone: nothing is drawn in it, and nothing here throws (the extension's activation waits on this).
+ */
+export async function restorePanel(panel: vscode.WebviewPanel, st: PanelState | undefined, ready: Promise<void>): Promise<void> {
+  let closed = false
+  const sub = panel.onDidDispose(() => { closed = true })
+  try {
+    mapPanel.placeholder(panel, st)
+    await ready
+    const lj = await mapJourneyRead()
+    if (closed) {
+      log.info('journey panel: closed while it was restored')
+      return
+    }
+    const afterRestore = (f: () => void) => setTimeout(f, AFTER_RESTORE_MS)
+    if (!lj) {
+      log.info('journey panel: its journey is gone; closed after the reload')
+      afterRestore(() => panel.dispose())
+      return
+    }
+    if (!tourState.key) tourState.key = lj.key
+    mapPanel.adopt(panel, lj)
+    walk.updateTour()
+    afterRestore(() => void codeGetsMoreRoom())
+  } catch (e) {
+    log.warn(`journey panel: not restored (${e instanceof Error ? e.message : e})`)
+  } finally {
+    sub.dispose()
+  }
 }
 
 /** How long after VS Code restored a panel it is closed or resized (closed while VS Code still restored it, it left an
@@ -171,8 +218,10 @@ export async function showMap(a?: unknown): Promise<void> {
   prefixUsed(a)
   const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? (await pickJourney())
   if (lj) await openMap(lj)
-  // "The map" means the map: an animation showing in its place goes.
+  // "The map" means the map: an animation showing in its place goes, and a panel too narrow for the boxes gets the
+  // room for them (asked for, so the layout may change: F123).
   mapPanel.send({ type: 'anim', action: 'off' })
+  if (lj) await roomForMap()
 }
 
 /** Start Journey: a journey (the argument, else the one whose map is open, else picked) from step 1. */
