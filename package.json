@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
-  "version": "0.24.0",
+  "version": "0.26.0",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",

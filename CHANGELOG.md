@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.26.0
 
 - **Journey podcasts (prototype).** A journey with an audio episode next to it (`<journey>.podcast.json` and its
   audio, [docs/podcast-format.md](docs/podcast-format.md)) gets a ▶ on its row and a player at the bottom of the
