@@ -217,7 +217,8 @@ editor.
 
 ```sh
 npm ci
-npm test                    # unit tests
+npm test                    # unit tests, golden tests included (test/README.md)
+npm run test:goldens        # only the golden tests; UPDATE_GOLDENS=1 rewrites them
 npm run test:integration    # the extension in a real VS Code (needs a display, or xvfb)
 npm run package             # code-notes-<version>.vsix
 ```

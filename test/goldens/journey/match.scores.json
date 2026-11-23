@@ -1,0 +1,702 @@
+[
+  {
+    "id": "place-order",
+    "search": [
+      {
+        "q": "retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "retr",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "How are charges retried?",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "charge",
+            "charges"
+          ]
+        }
+      },
+      {
+        "q": "the",
+        "all": {
+          "score": 3,
+          "hits": [
+            "the"
+          ]
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "the"
+          ]
+        }
+      },
+      {
+        "q": "zebra retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "cart refunds",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "api/store.js",
+        "all": {
+          "score": 6.5,
+          "hits": [
+            "api",
+            "stores",
+            "store",
+            "js"
+          ]
+        },
+        "any": {
+          "score": 6.5,
+          "hits": [
+            "api",
+            "stores",
+            "store",
+            "js"
+          ]
+        }
+      },
+      {
+        "q": "order_id",
+        "all": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        },
+        "any": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        }
+      },
+      {
+        "q": "Ünïcode café",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "",
+        "all": {
+          "score": 1,
+          "hits": []
+        },
+        "any": {
+          "score": 1,
+          "hits": []
+        }
+      }
+    ],
+    "questions": [
+      {
+        "q": "How does placing an order work?",
+        "matched": 2,
+        "total": 2,
+        "weight": 6,
+        "answers": true
+      },
+      {
+        "q": "What happens when a payment fails and is retried?",
+        "matched": 2,
+        "total": 3,
+        "weight": 4,
+        "answers": true
+      },
+      {
+        "q": "Why is the order cancelled after a timeout?",
+        "matched": 1,
+        "total": 4,
+        "weight": 3,
+        "answers": false
+      },
+      {
+        "q": "How does the worker pick up jobs from the queue?",
+        "matched": 3,
+        "total": 5,
+        "weight": 5,
+        "answers": true
+      },
+      {
+        "q": "explain the whole app",
+        "matched": 0,
+        "total": 0,
+        "weight": 0,
+        "answers": false
+      }
+    ]
+  },
+  {
+    "id": "place-order",
+    "search": [
+      {
+        "q": "retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "retr",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "How are charges retried?",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 2,
+          "hits": [
+            "charge",
+            "charging"
+          ]
+        }
+      },
+      {
+        "q": "the",
+        "all": {
+          "score": 3,
+          "hits": [
+            "the",
+            "then"
+          ]
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "the",
+            "then"
+          ]
+        }
+      },
+      {
+        "q": "zebra retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "cart refunds",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "cart"
+          ]
+        }
+      },
+      {
+        "q": "api/store.js",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 4.5,
+          "hits": [
+            "api",
+            "stores"
+          ]
+        }
+      },
+      {
+        "q": "order_id",
+        "all": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        },
+        "any": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        }
+      },
+      {
+        "q": "Ünïcode café",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "",
+        "all": {
+          "score": 1,
+          "hits": []
+        },
+        "any": {
+          "score": 1,
+          "hits": []
+        }
+      }
+    ],
+    "questions": [
+      {
+        "q": "How does placing an order work?",
+        "matched": 2,
+        "total": 2,
+        "weight": 6,
+        "answers": true
+      },
+      {
+        "q": "What happens when a payment fails and is retried?",
+        "matched": 1,
+        "total": 3,
+        "weight": 2,
+        "answers": false
+      },
+      {
+        "q": "Why is the order cancelled after a timeout?",
+        "matched": 1,
+        "total": 4,
+        "weight": 3,
+        "answers": false
+      },
+      {
+        "q": "How does the worker pick up jobs from the queue?",
+        "matched": 1,
+        "total": 5,
+        "weight": 2,
+        "answers": false
+      },
+      {
+        "q": "explain the whole app",
+        "matched": 0,
+        "total": 0,
+        "weight": 0,
+        "answers": false
+      }
+    ]
+  },
+  {
+    "id": "order-lifecycle",
+    "search": [
+      {
+        "q": "retry",
+        "all": {
+          "score": 1.5,
+          "hits": [
+            "retry"
+          ]
+        },
+        "any": {
+          "score": 1.5,
+          "hits": [
+            "retry"
+          ]
+        }
+      },
+      {
+        "q": "retr",
+        "all": {
+          "score": 1,
+          "hits": [
+            "retry"
+          ]
+        },
+        "any": {
+          "score": 1,
+          "hits": [
+            "retry"
+          ]
+        }
+      },
+      {
+        "q": "How are charges retried?",
+        "all": {
+          "score": 3,
+          "hits": [
+            "charge",
+            "retry"
+          ]
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "charge",
+            "retry"
+          ]
+        }
+      },
+      {
+        "q": "the",
+        "all": {
+          "score": 3,
+          "hits": [
+            "the",
+            "then"
+          ]
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "the",
+            "then"
+          ]
+        }
+      },
+      {
+        "q": "zebra retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 1.5,
+          "hits": [
+            "retry"
+          ]
+        }
+      },
+      {
+        "q": "cart refunds",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "api/store.js",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "api"
+          ]
+        }
+      },
+      {
+        "q": "order_id",
+        "all": {
+          "score": 6,
+          "hits": [
+            "order",
+            "ordered",
+            "orders"
+          ]
+        },
+        "any": {
+          "score": 6,
+          "hits": [
+            "order",
+            "ordered",
+            "orders"
+          ]
+        }
+      },
+      {
+        "q": "Ünïcode café",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "",
+        "all": {
+          "score": 1,
+          "hits": []
+        },
+        "any": {
+          "score": 1,
+          "hits": []
+        }
+      }
+    ],
+    "questions": [
+      {
+        "q": "How does placing an order work?",
+        "matched": 2,
+        "total": 2,
+        "weight": 5,
+        "answers": true
+      },
+      {
+        "q": "What happens when a payment fails and is retried?",
+        "matched": 1,
+        "total": 3,
+        "weight": 1,
+        "answers": false
+      },
+      {
+        "q": "Why is the order cancelled after a timeout?",
+        "matched": 4,
+        "total": 4,
+        "weight": 9,
+        "answers": true
+      },
+      {
+        "q": "How does the worker pick up jobs from the queue?",
+        "matched": 2,
+        "total": 5,
+        "weight": 3,
+        "answers": false
+      },
+      {
+        "q": "explain the whole app",
+        "matched": 0,
+        "total": 0,
+        "weight": 0,
+        "answers": false
+      }
+    ]
+  },
+  {
+    "id": "place-order",
+    "search": [
+      {
+        "q": "retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "retr",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "How are charges retried?",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 2.25,
+          "hits": [
+            "charges"
+          ]
+        }
+      },
+      {
+        "q": "the",
+        "all": {
+          "score": 3,
+          "hits": [
+            "the"
+          ]
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "the"
+          ]
+        }
+      },
+      {
+        "q": "zebra retry",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "cart refunds",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 3,
+          "hits": [
+            "cart"
+          ]
+        }
+      },
+      {
+        "q": "api/store.js",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 3.75,
+          "hits": [
+            "api",
+            "stores"
+          ]
+        }
+      },
+      {
+        "q": "order_id",
+        "all": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        },
+        "any": {
+          "score": 6,
+          "hits": [
+            "order",
+            "orders"
+          ]
+        }
+      },
+      {
+        "q": "Ünïcode café",
+        "all": {
+          "score": 0,
+          "hits": []
+        },
+        "any": {
+          "score": 0,
+          "hits": []
+        }
+      },
+      {
+        "q": "",
+        "all": {
+          "score": 1,
+          "hits": []
+        },
+        "any": {
+          "score": 1,
+          "hits": []
+        }
+      }
+    ],
+    "questions": [
+      {
+        "q": "How does placing an order work?",
+        "matched": 2,
+        "total": 2,
+        "weight": 6,
+        "answers": true
+      },
+      {
+        "q": "What happens when a payment fails and is retried?",
+        "matched": 0,
+        "total": 3,
+        "weight": 0,
+        "answers": false
+      },
+      {
+        "q": "Why is the order cancelled after a timeout?",
+        "matched": 1,
+        "total": 4,
+        "weight": 3,
+        "answers": false
+      },
+      {
+        "q": "How does the worker pick up jobs from the queue?",
+        "matched": 4,
+        "total": 5,
+        "weight": 8,
+        "answers": true
+      },
+      {
+        "q": "explain the whole app",
+        "matched": 0,
+        "total": 0,
+        "weight": 0,
+        "answers": false
+      }
+    ]
+  }
+]

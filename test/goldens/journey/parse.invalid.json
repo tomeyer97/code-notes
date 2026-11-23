@@ -1,0 +1,823 @@
+[
+  {
+    "name": "not json",
+    "result": "not valid JSON (Expected double-quoted property name in JSON at position 16 (line 1 column 17))"
+  },
+  {
+    "name": "an array",
+    "result": "not a JSON object"
+  },
+  {
+    "name": "null",
+    "result": "not a JSON object"
+  },
+  {
+    "name": "no version (v1)",
+    "result": "format v1 (steps as notes): not read; migrate it to v2"
+  },
+  {
+    "name": "version 1",
+    "result": "format v1 (steps as notes): not read; migrate it to v2"
+  },
+  {
+    "name": "version 4",
+    "result": "format v4 (steps as notes): not read; migrate it to v2"
+  },
+  {
+    "name": "nodes missing",
+    "result": "\"nodes\" must be a non-empty array"
+  },
+  {
+    "name": "nodes empty",
+    "result": "\"nodes\" must be a non-empty array"
+  },
+  {
+    "name": "steps not an array",
+    "result": "\"steps\" must be an array"
+  },
+  {
+    "name": "minimal, no title/question/id",
+    "result": {
+      "id": "named-by-file",
+      "question": "named-by-file",
+      "title": "named-by-file",
+      "summary": "",
+      "nodes": [
+        {
+          "id": "x",
+          "kind": "module",
+          "label": "x",
+          "summary": ""
+        }
+      ],
+      "edges": [],
+      "steps": [],
+      "problems": []
+    }
+  },
+  {
+    "name": "question only",
+    "result": {
+      "id": "named-by-file",
+      "question": "Why?",
+      "title": "Why?",
+      "summary": "",
+      "nodes": [
+        {
+          "id": "x",
+          "kind": "module",
+          "label": "x",
+          "summary": ""
+        }
+      ],
+      "edges": [],
+      "steps": [],
+      "problems": []
+    }
+  },
+  {
+    "name": "node without id, twice-defined node, unknown kind",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "a node without an id was left out",
+        "node \"a\" is defined twice (the second one was left out)"
+      ]
+    }
+  },
+  {
+    "name": "parent missing, parent loop",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        },
+        {
+          "id": "c",
+          "kind": "module",
+          "label": "C",
+          "summary": "c summary",
+          "parent": "b"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "node \"a\": parent \"zz\" doesn't exist",
+        "node \"b\": parent \"b\" makes a loop"
+      ]
+    }
+  },
+  {
+    "name": "edges: self, unknown ends, missing, generic, async",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [
+        {
+          "from": "a",
+          "to": "b",
+          "label": "calls",
+          "detail": "why",
+          "async": true
+        }
+      ],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "an arrow from \"A\" to itself is hidden",
+        "an arrow from \"A\" to a box that doesn't exist (\"nope\") is hidden",
+        "an arrow from a box that doesn't exist (\"?\") to \"B\" is hidden",
+        "an arrow from a box that doesn't exist (\"?\") to a box that doesn't exist (\"?\") is hidden"
+      ]
+    }
+  },
+  {
+    "name": "steps: unknown box, no file, no range, null, bad lines",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "fine",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 9,
+            "end": 9
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "step 1 (\"Lost\") is in an unknown box \"zz\": left out",
+        "step 2 (\"A step\") has no file: left out",
+        "step 3 (\"A step\") has no line range: left out",
+        "step 4 is empty: left out",
+        "step 5 (\"A step\") has no line range: left out"
+      ]
+    }
+  },
+  {
+    "name": "steps: too many refs, ids used twice, no id, blank title",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "x",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": [
+            "a.ts:1",
+            "b.ts:2",
+            "c.ts:3"
+          ]
+        },
+        {
+          "id": "#2",
+          "n": 2,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        },
+        {
+          "id": "#3",
+          "n": 3,
+          "title": "Step 3",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "step 1: 4 references (at most 3 are shown)",
+        "step 2: id \"x\" is used twice"
+      ]
+    }
+  },
+  {
+    "name": "long label, 8 boxes on one level, 8 inside one",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A label far longer than thirty characters",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        },
+        {
+          "id": "c",
+          "kind": "module",
+          "label": "C",
+          "summary": "c summary"
+        },
+        {
+          "id": "d",
+          "kind": "module",
+          "label": "D",
+          "summary": "d summary"
+        },
+        {
+          "id": "e",
+          "kind": "module",
+          "label": "E",
+          "summary": "e summary"
+        },
+        {
+          "id": "f",
+          "kind": "module",
+          "label": "F",
+          "summary": "f summary"
+        },
+        {
+          "id": "g",
+          "kind": "module",
+          "label": "G",
+          "summary": "g summary"
+        },
+        {
+          "id": "h",
+          "kind": "module",
+          "label": "H",
+          "summary": "h summary"
+        },
+        {
+          "id": "p",
+          "kind": "module",
+          "label": "P",
+          "summary": "p summary"
+        },
+        {
+          "id": "p1",
+          "kind": "module",
+          "label": "P1",
+          "summary": "p1 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p2",
+          "kind": "module",
+          "label": "P2",
+          "summary": "p2 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p3",
+          "kind": "module",
+          "label": "P3",
+          "summary": "p3 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p4",
+          "kind": "module",
+          "label": "P4",
+          "summary": "p4 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p5",
+          "kind": "module",
+          "label": "P5",
+          "summary": "p5 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p6",
+          "kind": "module",
+          "label": "P6",
+          "summary": "p6 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p7",
+          "kind": "module",
+          "label": "P7",
+          "summary": "p7 summary",
+          "parent": "p"
+        },
+        {
+          "id": "p8",
+          "kind": "module",
+          "label": "P8",
+          "summary": "p8 summary",
+          "parent": "p"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": [
+        "box \"A label far longer than …\": label longer than 30 characters",
+        "the top level: 9 boxes (at most 7 keep the map readable)",
+        "inside \"P\": 8 boxes (at most 7 keep the map readable)"
+      ]
+    }
+  },
+  {
+    "name": "optional fields: model, commit, createdAt, start, blurb, path, lane, at",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "model": "opus",
+      "commit": "abc",
+      "createdAt": "2026-01-02T03:04:05Z",
+      "start": true,
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary",
+          "blurb": "short",
+          "path": "src/",
+          "lane": "side",
+          "at": {
+            "file": "src/a.ts",
+            "start": 4,
+            "end": 4,
+            "anchor": {
+              "v": 3,
+              "head": "x\ny",
+              "tail": "y",
+              "lines": 2,
+              "hash": "",
+              "before": "",
+              "after": ""
+            }
+          }
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": []
+    }
+  },
+  {
+    "name": "start not true, commit empty",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": []
+    }
+  },
+  {
+    "name": "scene: kept only with actors and beats",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s1",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        },
+        {
+          "id": "s2",
+          "n": 2,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": [],
+          "scene": {
+            "actors": [
+              {
+                "id": "x"
+              }
+            ],
+            "beats": [
+              {
+                "focus": "x",
+                "caption": "c"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s3",
+          "n": 3,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": []
+    }
+  },
+  {
+    "name": "links, values and marks are kept as written",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "s",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": [],
+          "values": [
+            {
+              "name": "x"
+            }
+          ],
+          "marks": "not a list"
+        },
+        {
+          "id": "t",
+          "n": 2,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": [],
+          "links": [
+            {
+              "phrase": "p"
+            }
+          ],
+          "marks": []
+        }
+      ],
+      "problems": []
+    }
+  },
+  {
+    "name": "anchors: v2, v3, v3 without head, neither",
+    "result": {
+      "id": "bad",
+      "question": "Q?",
+      "title": "T",
+      "summary": "S",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "module",
+          "label": "A",
+          "summary": "a summary"
+        },
+        {
+          "id": "b",
+          "kind": "module",
+          "label": "B",
+          "summary": "b summary"
+        }
+      ],
+      "edges": [],
+      "steps": [
+        {
+          "id": "v2",
+          "n": 1,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "anchor": {
+            "text": "a",
+            "before": "",
+            "after": ""
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        },
+        {
+          "id": "v3",
+          "n": 2,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "anchor": {
+            "v": 3,
+            "head": "h1\nh2",
+            "tail": "h2",
+            "lines": 2,
+            "hash": "abc",
+            "before": "",
+            "after": ""
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        },
+        {
+          "id": "v3-empty",
+          "n": 3,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        },
+        {
+          "id": "none",
+          "n": 4,
+          "title": "A step",
+          "node": "a",
+          "file": "src/a.ts",
+          "range": {
+            "start": 3,
+            "end": 5
+          },
+          "lead": "It does a thing.",
+          "refs": []
+        }
+      ],
+      "problems": []
+    }
+  }
+]

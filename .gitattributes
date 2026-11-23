@@ -1,0 +1,2 @@
+# Golden files are compared byte for byte (test/README.md): never converted to CRLF on checkout.
+test/goldens/** -text

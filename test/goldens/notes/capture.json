@@ -1,0 +1,95 @@
+{
+  "anchors": [
+    {
+      "s": 0,
+      "e": 0,
+      "anchor": {
+        "text": "// The shop's HTTP API. The web app places and reads orders; the worker takes jobs and reports results.",
+        "before": "",
+        "after": "import { createServer } from 'node:http'\nimport { config } from '../config/load.js'"
+      }
+    },
+    {
+      "s": 0,
+      "e": 2,
+      "anchor": {
+        "text": "// The shop's HTTP API. The web app places and reads orders; the worker takes jobs and reports results.\nimport { createServer } from 'node:http'\nimport { config } from '../config/load.js'",
+        "before": "",
+        "after": "import { validateOrder } from './validate.js'\nimport { insertOrder, getOrder, markPaid, markFailed } from './store.js'"
+      }
+    },
+    {
+      "s": 5,
+      "e": 9,
+      "anchor": {
+        "text": "import { jobs } from './queue.js'\n\nexport async function createOrder(req, res) {\n  const checked = validateOrder(await readJson(req))\n  if (!checked.ok) return send(res, 400, { error: checked.error })",
+        "before": "import { validateOrder } from './validate.js'\nimport { insertOrder, getOrder, markPaid, markFailed } from './store.js'",
+        "after": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })\n"
+      }
+    },
+    {
+      "s": 70,
+      "e": 71,
+      "anchor": {
+        "text": "}\n",
+        "before": "  res.writeHead(status, { 'Content-Type': 'application/json' })\n  res.end(body ? JSON.stringify(body) : undefined)",
+        "after": ""
+      }
+    },
+    {
+      "s": 75,
+      "e": 77,
+      "anchor": {
+        "text": "",
+        "before": "",
+        "after": ""
+      }
+    }
+  ],
+  "folders": [
+    [
+      ".code-notes",
+      null
+    ],
+    [
+      "",
+      "it must be a sub-folder of its own, like .code-notes"
+    ],
+    [
+      ".",
+      "it must be a sub-folder of its own, like .code-notes"
+    ],
+    [
+      "./",
+      "it must be a sub-folder of its own, like .code-notes"
+    ],
+    [
+      " ./notes/ ",
+      null
+    ],
+    [
+      "/abs",
+      "it must be relative to the workspace folder"
+    ],
+    [
+      "C:\\x",
+      "it must be relative to the workspace folder"
+    ],
+    [
+      "..",
+      "it must stay inside the workspace folder"
+    ],
+    [
+      "a/../b",
+      "it must stay inside the workspace folder"
+    ],
+    [
+      "a\\..\\b",
+      "it must stay inside the workspace folder"
+    ],
+    [
+      "notes/sub",
+      null
+    ]
+  ]
+}

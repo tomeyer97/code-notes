@@ -1,0 +1,477 @@
+[
+  {
+    "id": "checks-first",
+    "files": [
+      "web/src/checkout/Checkout.vue",
+      "web/src/checkout/placeOrder.ts"
+    ],
+    "written": {
+      "lead": "The Place order button ([Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)) lands here; nothing is charged in the browser.",
+      "details": "Order matters: a **dry-run** create at [placeOrder.ts:33](web/src/checkout/placeOrder.ts:33-33) checks stock and prices before the customer is sent to their bank; only then the real create at :42. At the top of this range (:24-29) it first looks for an order already sent from this cart and just waits on that one.",
+      "refs": "[Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The Place order button ([Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)) lands here; nothing is charged in the browser.",
+      "details": "Order matters: a **dry-run** create at [placeOrder.ts:36](web/src/checkout/placeOrder.ts:36-36) checks stock and prices before the customer is sent to their bank; only then the real create at :42. At the top of this range (:24-29) it first looks for an order already sent from this cart and just waits on that one.",
+      "refs": "[Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The Place order button ([Checkout.vue:30 (moved)](moved/Checkout.vue:30-30)) lands here; nothing is charged in the browser.",
+      "details": "Order matters: a **dry-run** create at ~~placeOrder.ts:33~~ (file gone) checks stock and prices before the customer is sent to their bank; only then the real create at :42. At the top of this range (:24-29) it first looks for an order already sent from this cart and just waits on that one.",
+      "refs": "[Checkout.vue:30 (moved)](moved/Checkout.vue:30-30)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The Place order button ([Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)) lands here; nothing is charged in the browser.",
+      "details": "Order matters: a **dry-run** create at [placeOrder.ts:33](web/src/checkout/placeOrder.ts:33-33) checks stock and prices before the customer is sent to their bank; only then the real create at :42. At the top of this range (:24-29) it first looks for an order already sent from this cart and just waits on that one.",
+      "refs": "[Checkout.vue:30](web/src/checkout/Checkout.vue:30-30) · [placeOrder.ts:33](web/src/checkout/placeOrder.ts:33-33)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "order-request",
+    "files": [
+      "web/src/checkout/buildOrder.ts"
+    ],
+    "written": {
+      "lead": "The request is the cart's lines as the page showed them plus the shipping address: `buildOrder` ([buildOrder.ts:29](web/src/checkout/buildOrder.ts:29-29)) adds one idempotency key per cart.",
+      "details": "A gift note is trimmed to 500 characters and sent as text (:47-50): the server never renders it. So \"the price I saw\" is nothing more than `shownPrice` on each line, checked again by the server.",
+      "refs": "[buildOrder.ts:29](web/src/checkout/buildOrder.ts:29-29)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The request is the cart's lines as the page showed them plus the shipping address: `buildOrder` ([buildOrder.ts:32](web/src/checkout/buildOrder.ts:32-32)) adds one idempotency key per cart.",
+      "details": "A gift note is trimmed to 500 characters and sent as text (:47-50): the server never renders it. So \"the price I saw\" is nothing more than `shownPrice` on each line, checked again by the server.",
+      "refs": "[buildOrder.ts:32](web/src/checkout/buildOrder.ts:32-32)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The request is the cart's lines as the page showed them plus the shipping address: `buildOrder` ([buildOrder.ts:29 (moved)](moved/buildOrder.ts:29-29)) adds one idempotency key per cart.",
+      "details": "A gift note is trimmed to 500 characters and sent as text (:47-50): the server never renders it. So \"the price I saw\" is nothing more than `shownPrice` on each line, checked again by the server.",
+      "refs": "[buildOrder.ts:29 (moved)](moved/buildOrder.ts:29-29)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The request is the cart's lines as the page showed them plus the shipping address: `buildOrder` ([buildOrder.ts:29](web/src/checkout/buildOrder.ts:29-29)) adds one idempotency key per cart.",
+      "details": "A gift note is trimmed to 500 characters and sent as text (:47-50): the server never renders it. So \"the price I saw\" is nothing more than `shownPrice` on each line, checked again by the server.",
+      "refs": "[buildOrder.ts:29](web/src/checkout/buildOrder.ts:29-29)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "pending-record",
+    "files": [
+      "api/orders.go"
+    ],
+    "written": {
+      "lead": "After validation (JSON decode and line count at [orders.go:39-43](api/orders.go:39-43), prices, stock), the handler builds a `store.Order` with `Status: OrderPending`, the payment reference `ord_<id>` (:104), and…",
+      "details": "It returns 201 immediately. **No payment call happens in this request.** If the same idempotency key was sent before, the path forks earlier to the existing order (:52), which this journey does not follow.",
+      "refs": "[orders.go:39](api/orders.go:39-39)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "After validation (JSON decode and line count at [orders.go:42-46](api/orders.go:42-46), prices, stock), the handler builds a `store.Order` with `Status: OrderPending`, the payment reference `ord_<id>` (:104), and…",
+      "details": "It returns 201 immediately. **No payment call happens in this request.** If the same idempotency key was sent before, the path forks earlier to the existing order (:52), which this journey does not follow.",
+      "refs": "[orders.go:42](api/orders.go:42-42)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "After validation (JSON decode and line count at [orders.go:39-43 (moved)](moved/orders.go:39-43), prices, stock), the handler builds a `store.Order` with `Status: OrderPending`, the payment reference `ord_<id>` (:104), and…",
+      "details": "It returns 201 immediately. **No payment call happens in this request.** If the same idempotency key was sent before, the path forks earlier to the existing order (:52), which this journey does not follow.",
+      "refs": "[orders.go:39 (moved)](moved/orders.go:39-39)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "After validation (JSON decode and line count at [orders.go:39-43](api/orders.go:39-43), prices, stock), the handler builds a `store.Order` with `Status: OrderPending`, the payment reference `ord_<id>` (:104), and…",
+      "details": "It returns 201 immediately. **No payment call happens in this request.** If the same idempotency key was sent before, the path forks earlier to the existing order (:52), which this journey does not follow.",
+      "refs": "[orders.go:39](api/orders.go:39-39)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "poll-db",
+    "files": [
+      "worker/worker.go",
+      "cmd/shop/main.go"
+    ],
+    "written": {
+      "lead": "Nothing notifies the worker; it finds the new order on its next pass. `Run` starts one such loop per phase ([worker.go:28-38](worker/worker.go:28-38)); the interval is set to 2 s in [main.go:31](cmd/shop/main.go:31-31).",
+      "details": "The orders phase lists every open order and calls `processOrder` on each with its own timeout (:58-79). Each pass handles one state transition, so everything below is spread over many passes.",
+      "refs": "[worker.go:28](worker/worker.go:28-28) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Nothing notifies the worker; it finds the new order on its next pass. `Run` starts one such loop per phase ([worker.go:31-41](worker/worker.go:31-41)); the interval is set to 2 s in [main.go:31](cmd/shop/main.go:31-31).",
+      "details": "The orders phase lists every open order and calls `processOrder` on each with its own timeout (:58-79). Each pass handles one state transition, so everything below is spread over many passes.",
+      "refs": "[worker.go:31](worker/worker.go:31-31) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Nothing notifies the worker; it finds the new order on its next pass. `Run` starts one such loop per phase ([worker.go:28-38 (moved)](moved/worker.go:28-38)); the interval is set to 2 s in ~~main.go:31~~ (file gone).",
+      "details": "The orders phase lists every open order and calls `processOrder` on each with its own timeout (:58-79). Each pass handles one state transition, so everything below is spread over many passes.",
+      "refs": "[worker.go:28 (moved)](moved/worker.go:28-28) · ~~main.go:31~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Nothing notifies the worker; it finds the new order on its next pass. `Run` starts one such loop per phase ([worker.go:28-38](worker/worker.go:28-38)); the interval is set to 2 s in [main.go:31](cmd/shop/main.go:31-31).",
+      "details": "The orders phase lists every open order and calls `processOrder` on each with its own timeout (:58-79). Each pass handles one state transition, so everything below is spread over many passes.",
+      "refs": "[worker.go:28](worker/worker.go:28-28) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "charge-lines",
+    "files": [
+      "worker/worker.go",
+      "payments/charge.go"
+    ],
+    "written": {
+      "lead": "First pass on a pending order: `processOrder` calls `BuildCharge` ([worker.go:96](worker/worker.go:96-96)). The order's lines become charge items that must add up to its total ([charge.go:41-54](payments/charge.go:41-54)).",
+      "details": "A coupon becomes one negative line (:48); lines that do not add up fail the order before anything is charged. The customer's address never goes to the provider: only amounts, names and the order's reference.",
+      "refs": "[worker.go:96](worker/worker.go:96-96)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "First pass on a pending order: `processOrder` calls `BuildCharge` ([worker.go:96](worker/worker.go:96-96)). The order's lines become charge items that must add up to its total ([charge.go:44-57](payments/charge.go:44-57)).",
+      "details": "A coupon becomes one negative line (:48); lines that do not add up fail the order before anything is charged. The customer's address never goes to the provider: only amounts, names and the order's reference.",
+      "refs": "[worker.go:96](worker/worker.go:96-96)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "First pass on a pending order: `processOrder` calls `BuildCharge` ([worker.go:96 (moved)](moved/worker.go:96-96)). The order's lines become charge items that must add up to its total (~~charge.go:41-54~~ (file gone)).",
+      "details": "A coupon becomes one negative line (:48); lines that do not add up fail the order before anything is charged. The customer's address never goes to the provider: only amounts, names and the order's reference.",
+      "refs": "[worker.go:96 (moved)](moved/worker.go:96-96)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "First pass on a pending order: `processOrder` calls `BuildCharge` ([worker.go:96](worker/worker.go:96-96)). The order's lines become charge items that must add up to its total ([charge.go:41-54](payments/charge.go:41-54)).",
+      "details": "A coupon becomes one negative line (:48); lines that do not add up fail the order before anything is charged. The customer's address never goes to the provider: only amounts, names and the order's reference.",
+      "refs": "[worker.go:96](worker/worker.go:96-96) · [charge.go:48](payments/charge.go:48-48)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "one-request",
+    "files": [
+      "payments/charge.go"
+    ],
+    "written": {
+      "lead": "The amount, the order's reference and the return address go into one `ChargeRequest`, with the idempotency key `charge-<key>` ([charge.go:67](payments/charge.go:67-67)).",
+      "details": "Watch the key: it is made from the order's own key, so a create retried after a timeout is the same charge at the provider, never a second one. Orders of 500.00 or more always ask for 3-D Secure (:73-75).",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The amount, the order's reference and the return address go into one `ChargeRequest`, with the idempotency key `charge-<key>` ([charge.go:70](payments/charge.go:70-70)).",
+      "details": "Watch the key: it is made from the order's own key, so a create retried after a timeout is the same charge at the provider, never a second one. Orders of 500.00 or more always ask for 3-D Secure (:73-75).",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The amount, the order's reference and the return address go into one `ChargeRequest`, with the idempotency key `charge-<key>` ([charge.go:67 (moved)](moved/charge.go:67-67)).",
+      "details": "Watch the key: it is made from the order's own key, so a create retried after a timeout is the same charge at the provider, never a second one. Orders of 500.00 or more always ask for 3-D Secure (:73-75).",
+      "refs": "[charge.go:67 (moved)](moved/charge.go:67-67)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The amount, the order's reference and the return address go into one `ChargeRequest`, with the idempotency key `charge-<key>` ([charge.go:67](payments/charge.go:67-67)).",
+      "details": "Watch the key: it is made from the order's own key, so a create retried after a timeout is the same charge at the provider, never a second one. Orders of 500.00 or more always ask for 3-D Secure (:73-75).",
+      "refs": "[charge.go:67](payments/charge.go:67-67)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "create-charge",
+    "files": [
+      "worker/worker.go",
+      "cmd/shop/main.go"
+    ],
+    "written": {
+      "lead": "Before this, `Reserve` ([worker.go:90](worker/worker.go:90-90)) holds the stock; a sold-out line fails the order before anyone is charged.",
+      "details": "Then the charge is created at the provider (`Payments.Create`). A passing error puts it back to pending and retries later (:102-104); any other error releases the stock and fails it. On success the order becomes `charging`, message \"Confirm the payment with your bank\", and a deadline is set: the worker's `Timeout` is 20 min.",
+      "refs": "[worker.go:90](worker/worker.go:90-90) · [main.go:32](cmd/shop/main.go:32-32)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Before this, `Reserve` ([worker.go:93](worker/worker.go:93-93)) holds the stock; a sold-out line fails the order before anyone is charged.",
+      "details": "Then the charge is created at the provider (`Payments.Create`). A passing error puts it back to pending and retries later (:102-104); any other error releases the stock and fails it. On success the order becomes `charging`, message \"Confirm the payment with your bank\", and a deadline is set: the worker's `Timeout` is 20 min.",
+      "refs": "[worker.go:93](worker/worker.go:93-93) · [main.go:32](cmd/shop/main.go:32-32)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Before this, `Reserve` ([worker.go:90 (moved)](moved/worker.go:90-90)) holds the stock; a sold-out line fails the order before anyone is charged.",
+      "details": "Then the charge is created at the provider (`Payments.Create`). A passing error puts it back to pending and retries later (:102-104); any other error releases the stock and fails it. On success the order becomes `charging`, message \"Confirm the payment with your bank\", and a deadline is set: the worker's `Timeout` is 20 min.",
+      "refs": "[worker.go:90 (moved)](moved/worker.go:90-90) · ~~main.go:32~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Before this, `Reserve` ([worker.go:90](worker/worker.go:90-90)) holds the stock; a sold-out line fails the order before anyone is charged.",
+      "details": "Then the charge is created at the provider (`Payments.Create`). A passing error puts it back to pending and retries later (:102-104); any other error releases the stock and fails it. On success the order becomes `charging`, message \"Confirm the payment with your bank\", and a deadline is set: the worker's `Timeout` is 20 min.",
+      "refs": "[worker.go:90](worker/worker.go:90-90) · [main.go:32](cmd/shop/main.go:32-32)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "bank-check",
+    "files": [
+      "payments/status.go"
+    ],
+    "written": {
+      "lead": "No code in this repo talks to the bank. The provider sends the customer to their bank's 3-D Secure page and calls the shop's webhook when it knows the answer.",
+      "details": "How often that happens is set here: `threeDSecure: auto` (line 7: only when the bank asks for it). Note the charge expires on the provider's side after 15 minutes (line 12). I did not read the provider's code; the events are what `ChargeIssues` expects.",
+      "refs": "[status.go:43](payments/status.go:43-43)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "No code in this repo talks to the bank. The provider sends the customer to their bank's 3-D Secure page and calls the shop's webhook when it knows the answer.",
+      "details": "How often that happens is set here: `threeDSecure: auto` (line 7: only when the bank asks for it). Note the charge expires on the provider's side after 15 minutes (line 12). I did not read the provider's code; the events are what `ChargeIssues` expects.",
+      "refs": "[status.go:43](payments/status.go:43-43)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "No code in this repo talks to the bank. The provider sends the customer to their bank's 3-D Secure page and calls the shop's webhook when it knows the answer.",
+      "details": "How often that happens is set here: `threeDSecure: auto` (line 7: only when the bank asks for it). Note the charge expires on the provider's side after 15 minutes (line 12). I did not read the provider's code; the events are what `ChargeIssues` expects.",
+      "refs": "[status.go:43 (moved)](moved/status.go:43-43)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "No code in this repo talks to the bank. The provider sends the customer to their bank's 3-D Secure page and calls the shop's webhook when it knows the answer.",
+      "details": "How often that happens is set here: `threeDSecure: auto` (line 7: only when the bank asks for it). Note the charge expires on the provider's side after 15 minutes (line 12). I did not read the provider's code; the events are what `ChargeIssues` expects.",
+      "refs": "[status.go:43](payments/status.go:43-43)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "bank-answers",
+    "files": [
+      "worker/worker.go",
+      "payments/status.go"
+    ],
+    "written": {
+      "lead": "Once the customer confirms (or does not), the bank answers the provider, which marks the charge succeeded, failed or expired and posts a webhook to the shop.",
+      "details": "The shop has no handle on that exchange: per the comment at [status.go:41-42](payments/status.go:41-42) all it sees is what the provider reports, so it reads the charge's failure text and matches the bank's decline wording with regexes (:36-38). These are called from `processOrder`.",
+      "refs": "[worker.go:128](worker/worker.go:128-128)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Once the customer confirms (or does not), the bank answers the provider, which marks the charge succeeded, failed or expired and posts a webhook to the shop.",
+      "details": "The shop has no handle on that exchange: per the comment at [status.go:44-45](payments/status.go:44-45) all it sees is what the provider reports, so it reads the charge's failure text and matches the bank's decline wording with regexes (:36-38). These are called from `processOrder`.",
+      "refs": "[worker.go:128](worker/worker.go:128-128)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Once the customer confirms (or does not), the bank answers the provider, which marks the charge succeeded, failed or expired and posts a webhook to the shop.",
+      "details": "The shop has no handle on that exchange: per the comment at ~~status.go:41-42~~ (file gone) all it sees is what the provider reports, so it reads the charge's failure text and matches the bank's decline wording with regexes (:36-38). These are called from `processOrder`.",
+      "refs": "[worker.go:128 (moved)](moved/worker.go:128-128)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Once the customer confirms (or does not), the bank answers the provider, which marks the charge succeeded, failed or expired and posts a webhook to the shop.",
+      "details": "The shop has no handle on that exchange: per the comment at [status.go:41-42](payments/status.go:41-42) all it sees is what the provider reports, so it reads the charge's failure text and matches the bank's decline wording with regexes (:36-38). These are called from `processOrder`.",
+      "refs": "[worker.go:128](worker/worker.go:128-128)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "paid-check",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "For a charging order each pass asks the provider for the charge (`Payments.Get`, [worker.go:121](worker/worker.go:121-121)) and reads the webhook log the shop keeps.",
+      "details": "The browser coming back from the bank proves nothing: the status is asked of the provider (:120). Two extra gates: the stock must still be reserved (:133-135), and a passed deadline releases the stock and fails the order (:116-119).",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "For a charging order each pass asks the provider for the charge (`Payments.Get`, [worker.go:124](worker/worker.go:124-124)) and reads the webhook log the shop keeps.",
+      "details": "The browser coming back from the bank proves nothing: the status is asked of the provider (:120). Two extra gates: the stock must still be reserved (:133-135), and a passed deadline releases the stock and fails the order (:116-119).",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "For a charging order each pass asks the provider for the charge (`Payments.Get`, [worker.go:121 (moved)](moved/worker.go:121-121)) and reads the webhook log the shop keeps.",
+      "details": "The browser coming back from the bank proves nothing: the status is asked of the provider (:120). Two extra gates: the stock must still be reserved (:133-135), and a passed deadline releases the stock and fails the order (:116-119).",
+      "refs": "[worker.go:121 (moved)](moved/worker.go:121-121)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "For a charging order each pass asks the provider for the charge (`Payments.Get`, [worker.go:121](worker/worker.go:121-121)) and reads the webhook log the shop keeps.",
+      "details": "The browser coming back from the bank proves nothing: the status is asked of the provider (:120). Two extra gates: the stock must still be reserved (:133-135), and a passed deadline releases the stock and fails the order (:116-119).",
+      "refs": "[worker.go:121](worker/worker.go:121-121)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "stage-message",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "The stages a customer sees are deduced from the charge: a succeeded charge means \"packing\" ([worker.go:184](worker/worker.go:184-184)); a charge whose next action is a bank redirect means \"bank\"…",
+      "details": "So \"Confirm the payment with your bank\" really means \"the provider says the next action is a redirect to the bank\".",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The stages a customer sees are deduced from the charge: a succeeded charge means \"packing\" ([worker.go:187](worker/worker.go:187-187)); a charge whose next action is a bank redirect means \"bank\"…",
+      "details": "So \"Confirm the payment with your bank\" really means \"the provider says the next action is a redirect to the bank\".",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The stages a customer sees are deduced from the charge: a succeeded charge means \"packing\" ([worker.go:184 (moved)](moved/worker.go:184-184)); a charge whose next action is a bank redirect means \"bank\"…",
+      "details": "So \"Confirm the payment with your bank\" really means \"the provider says the next action is a redirect to the bank\".",
+      "refs": "[worker.go:184 (moved)](moved/worker.go:184-184)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The stages a customer sees are deduced from the charge: a succeeded charge means \"packing\" ([worker.go:184](worker/worker.go:184-184)); a charge whose next action is a bank redirect means \"bank\"…",
+      "details": "So \"Confirm the payment with your bank\" really means \"the provider says the next action is a redirect to the bank\".",
+      "refs": "[worker.go:184](worker/worker.go:184-184)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "paid",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "When nothing is left in `waiting`, the order flips to `OrderPaid` with `PaidAt` set ([worker.go:208-210](worker/worker.go:208-210)).",
+      "details": "The same function handles the other outcomes: a fatal issue fails it (:198-203), a passed deadline is handled earlier in `processOrder` (:116), and a charge still at the bank only changes the message. The receipt email is sent later, from the paid order, not from this pass.",
+      "refs": "[worker.go:116](worker/worker.go:116-116)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "When nothing is left in `waiting`, the order flips to `OrderPaid` with `PaidAt` set ([worker.go:211-213](worker/worker.go:211-213)).",
+      "details": "The same function handles the other outcomes: a fatal issue fails it (:198-203), a passed deadline is handled earlier in `processOrder` (:116), and a charge still at the bank only changes the message. The receipt email is sent later, from the paid order, not from this pass.",
+      "refs": "[worker.go:119](worker/worker.go:119-119)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "When nothing is left in `waiting`, the order flips to `OrderPaid` with `PaidAt` set ([worker.go:208-210 (moved)](moved/worker.go:208-210)).",
+      "details": "The same function handles the other outcomes: a fatal issue fails it (:198-203), a passed deadline is handled earlier in `processOrder` (:116), and a charge still at the bank only changes the message. The receipt email is sent later, from the paid order, not from this pass.",
+      "refs": "[worker.go:208 (moved)](moved/worker.go:208-208) · [worker.go:116 (moved)](moved/worker.go:116-116)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "When nothing is left in `waiting`, the order flips to `OrderPaid` with `PaidAt` set ([worker.go:208-210](worker/worker.go:208-210)).",
+      "details": "The same function handles the other outcomes: a fatal issue fails it (:198-203), a passed deadline is handled earlier in `processOrder` (:116), and a charge still at the bank only changes the message. The receipt email is sent later, from the paid order, not from this pass.",
+      "refs": "[worker.go:208](worker/worker.go:208-208) · [worker.go:116](worker/worker.go:116-116)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "page-polls",
+    "files": [
+      "web/src/checkout/waitForPayment.ts",
+      "web/src/api/orders.ts",
+      "web/src/checkout/Checkout.vue"
+    ],
+    "written": {
+      "lead": "The checkout learns about the payment by polling `GET /api/orders/{id}` every 3 s ([waitForPayment.ts:8](web/src/checkout/waitForPayment.ts:8-8)), showing the server's message when it changes, and returns on paid, failed or cancelled.",
+      "details": "The order page does the same with a 3 s refetch. Watch out: the page gives up after 10 minutes while the worker allows a charge 20 (step 7). When the page gives up first, the order keeps going on the server; the message says so (:34).",
+      "refs": "[waitForPayment.ts:8](web/src/checkout/waitForPayment.ts:8-8) · [orders.ts:6](web/src/api/orders.ts:6-6) · [Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The checkout learns about the payment by polling `GET /api/orders/{id}` every 3 s ([waitForPayment.ts:11](web/src/checkout/waitForPayment.ts:11-11)), showing the server's message when it changes, and returns on paid, failed or cancelled.",
+      "details": "The order page does the same with a 3 s refetch. Watch out: the page gives up after 10 minutes while the worker allows a charge 20 (step 7). When the page gives up first, the order keeps going on the server; the message says so (:34).",
+      "refs": "[waitForPayment.ts:11](web/src/checkout/waitForPayment.ts:11-11) · [orders.ts:6](web/src/api/orders.ts:6-6) · [Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The checkout learns about the payment by polling `GET /api/orders/{id}` every 3 s ([waitForPayment.ts:8 (moved)](moved/waitForPayment.ts:8-8)), showing the server's message when it changes, and returns on paid, failed or cancelled.",
+      "details": "The order page does the same with a 3 s refetch. Watch out: the page gives up after 10 minutes while the worker allows a charge 20 (step 7). When the page gives up first, the order keeps going on the server; the message says so (:34).",
+      "refs": "[waitForPayment.ts:8 (moved)](moved/waitForPayment.ts:8-8) · ~~orders.ts:6~~ (file gone) · ~~Checkout.vue:17~~ (line gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The checkout learns about the payment by polling `GET /api/orders/{id}` every 3 s ([waitForPayment.ts:8](web/src/checkout/waitForPayment.ts:8-8)), showing the server's message when it changes, and returns on paid, failed or cancelled.",
+      "details": "The order page does the same with a 3 s refetch. Watch out: the page gives up after 10 minutes while the worker allows a charge 20 (step 7). When the page gives up first, the order keeps going on the server; the message says so (:34).",
+      "refs": "[waitForPayment.ts:8](web/src/checkout/waitForPayment.ts:8-8) · [orders.ts:6](web/src/api/orders.ts:6-6) · [Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  }
+]

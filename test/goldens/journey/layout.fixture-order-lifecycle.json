@@ -1,0 +1,287 @@
+{
+  "signature": "[[[\"web\",\"system\",\"Web shop\",\"\"],[\"backend\",\"system\",\"Shop backend\",\"\"],[\"db\",\"system\",\"Database\",\"\"],[\"wh\",\"system\",\"Warehouse system\",\"\"],[\"checkout\",\"module\",\"Checkout\",\"web\"],[\"orders\",\"module\",\"Orders API\",\"backend\"],[\"worker\",\"module\",\"Order worker\",\"backend\"],[\"stock\",\"module\",\"Stock check\",\"backend\"],[\"records\",\"store\",\"Order records\",\"db\"],[\"stockapi\",\"external\",\"Stock API\",\"wh\"],[\"place\",\"function\",\"placeOrder\",\"checkout\"],[\"create\",\"function\",\"createOrder\",\"orders\"],[\"cancel\",\"function\",\"cancelOrder\",\"orders\"],[\"pass\",\"function\",\"Worker.pass\",\"worker\"],[\"process\",\"function\",\"processOrder\",\"worker\"],[\"retry\",\"function\",\"retryLater\",\"worker\"],[\"expire\",\"function\",\"expire\",\"worker\"],[\"release\",\"function\",\"releaseAbandoned\",\"worker\"],[\"queue\",\"function\",\"queuePosition\",\"stock\"],[\"admit\",\"function\",\"admit\",\"stock\"],[\"check\",\"function\",\"stockCheck\",\"stock\"],[\"preview\",\"function\",\"Preview\",\"stock\"]],[[\"place\",\"create\",\"places the order\",false],[\"create\",\"preview\",\"previews the stock check\",false],[\"create\",\"records\",\"inserts a pending order\",false],[\"pass\",\"records\",\"polls every 2 s\",true],[\"pass\",\"process\",\"one order at a time\",false],[\"check\",\"queue\",\"counts who is ahead\",false],[\"process\",\"admit\",\"checks the stock\",false],[\"admit\",\"check\",\"reads stock and holds\",false],[\"preview\",\"check\",\"same check, read-only\",false],[\"check\",\"stockapi\",\"reads stock levels\",false],[\"process\",\"stockapi\",\"reserves / releases\",false],[\"process\",\"records\",\"stores each transition\",false],[\"process\",\"retry\",\"provider refused for now\",false],[\"retry\",\"records\",\"back to pending, in place\",false],[\"expire\",\"records\",\"polls every 2 s\",true],[\"cancel\",\"records\",\"marks it cancelling\",false],[\"release\",\"stockapi\",\"lists reservations\",true]],[\"place\",\"create\",\"preview\",\"create\",\"pass\",\"queue\",\"check\",\"admit\",\"process\",\"retry\",\"expire\",\"cancel\",\"process\",\"release\"]]",
+  "stepsOf": [
+    [
+      "place",
+      [
+        1
+      ]
+    ],
+    [
+      "create",
+      [
+        2,
+        4
+      ]
+    ],
+    [
+      "preview",
+      [
+        3
+      ]
+    ],
+    [
+      "pass",
+      [
+        5
+      ]
+    ],
+    [
+      "queue",
+      [
+        6
+      ]
+    ],
+    [
+      "check",
+      [
+        7
+      ]
+    ],
+    [
+      "admit",
+      [
+        8
+      ]
+    ],
+    [
+      "process",
+      [
+        9,
+        13
+      ]
+    ],
+    [
+      "retry",
+      [
+        10
+      ]
+    ],
+    [
+      "expire",
+      [
+        11
+      ]
+    ],
+    [
+      "cancel",
+      [
+        12
+      ]
+    ],
+    [
+      "release",
+      [
+        14
+      ]
+    ]
+  ],
+  "ancestors": [
+    [
+      "web",
+      []
+    ],
+    [
+      "backend",
+      []
+    ],
+    [
+      "db",
+      []
+    ],
+    [
+      "wh",
+      []
+    ],
+    [
+      "checkout",
+      [
+        "web"
+      ]
+    ],
+    [
+      "orders",
+      [
+        "backend"
+      ]
+    ],
+    [
+      "worker",
+      [
+        "backend"
+      ]
+    ],
+    [
+      "stock",
+      [
+        "backend"
+      ]
+    ],
+    [
+      "records",
+      [
+        "db"
+      ]
+    ],
+    [
+      "stockapi",
+      [
+        "wh"
+      ]
+    ],
+    [
+      "place",
+      [
+        "checkout",
+        "web"
+      ]
+    ],
+    [
+      "create",
+      [
+        "orders",
+        "backend"
+      ]
+    ],
+    [
+      "cancel",
+      [
+        "orders",
+        "backend"
+      ]
+    ],
+    [
+      "pass",
+      [
+        "worker",
+        "backend"
+      ]
+    ],
+    [
+      "process",
+      [
+        "worker",
+        "backend"
+      ]
+    ],
+    [
+      "retry",
+      [
+        "worker",
+        "backend"
+      ]
+    ],
+    [
+      "expire",
+      [
+        "worker",
+        "backend"
+      ]
+    ],
+    [
+      "release",
+      [
+        "worker",
+        "backend"
+      ]
+    ],
+    [
+      "queue",
+      [
+        "stock",
+        "backend"
+      ]
+    ],
+    [
+      "admit",
+      [
+        "stock",
+        "backend"
+      ]
+    ],
+    [
+      "check",
+      [
+        "stock",
+        "backend"
+      ]
+    ],
+    [
+      "preview",
+      [
+        "stock",
+        "backend"
+      ]
+    ]
+  ],
+  "verbs": [
+    [
+      "places the order",
+      "places the order"
+    ],
+    [
+      "previews the stock check",
+      "previews the stock check"
+    ],
+    [
+      "inserts a pending order",
+      "inserts a pending order"
+    ],
+    [
+      "polls every 2 s",
+      "polls"
+    ],
+    [
+      "one order at a time",
+      "one order at a time"
+    ],
+    [
+      "counts who is ahead",
+      "counts who is ahead"
+    ],
+    [
+      "checks the stock",
+      "checks the stock"
+    ],
+    [
+      "reads stock and holds",
+      "reads stock and holds"
+    ],
+    [
+      "same check, read-only",
+      "same check"
+    ],
+    [
+      "reads stock levels",
+      "reads stock levels"
+    ],
+    [
+      "reserves / releases",
+      "reserves / releases"
+    ],
+    [
+      "stores each transition",
+      "stores each transition"
+    ],
+    [
+      "provider refused for now",
+      "provider refused for now"
+    ],
+    [
+      "back to pending, in place",
+      "back to pending"
+    ],
+    [
+      "polls every 2 s",
+      "polls"
+    ],
+    [
+      "marks it cancelling",
+      "marks it cancelling"
+    ],
+    [
+      "lists reservations",
+      "lists reservations"
+    ]
+  ]
+}

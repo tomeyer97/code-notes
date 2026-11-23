@@ -1,0 +1,146 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "",
+  "sort": "name",
+  "searchSort": "name",
+  "kind": "all",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13",
+        "k26"
+      ]
+    },
+    {
+      "id": "new",
+      "label": "New",
+      "keys": [
+        "k32",
+        "k24",
+        "k8",
+        "k16"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "A–Z",
+      "keys": [
+        "k23",
+        "k3",
+        "k28",
+        "k20",
+        "k11",
+        "k19",
+        "k14",
+        "k31",
+        "k2",
+        "k30",
+        "k12",
+        "k9",
+        "k34",
+        "k15",
+        "k33",
+        "k21",
+        "k27",
+        "k1",
+        "k22",
+        "k7",
+        "k29",
+        "k10",
+        "k17",
+        "k18",
+        "k4",
+        "k35",
+        "k25",
+        "k5",
+        "k6"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13",
+        "k26"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [
+        "k23",
+        "k3",
+        "k28",
+        "k20",
+        "k11",
+        "k19",
+        "k14",
+        "k31",
+        "k2",
+        "k30",
+        "k12",
+        "k9",
+        "k34",
+        "k15",
+        "k26",
+        "k33",
+        "k21",
+        "k27",
+        "k1",
+        "k32",
+        "k22",
+        "k7",
+        "k29",
+        "k10",
+        "k17",
+        "k13",
+        "k18",
+        "k24",
+        "k4",
+        "k35",
+        "k8",
+        "k25",
+        "k16",
+        "k5",
+        "k6"
+      ]
+    }
+  ],
+  "count": 35,
+  "total": 35,
+  "hits": {}
+}

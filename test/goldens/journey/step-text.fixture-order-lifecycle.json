@@ -1,0 +1,513 @@
+[
+  {
+    "id": "dryrun",
+    "files": [
+      "web/src/checkout/placeOrder.ts",
+      "web/src/checkout/Checkout.vue"
+    ],
+    "written": {
+      "lead": "Before the customer is sent to their bank, the page sends the order as a dry run. Stock and prices are checked; a back-ordered item is reported, not refused.",
+      "details": "The real POST follows in the same function. The page waits at most 10 minutes for the payment (`timeoutMs` in `web/src/checkout/Checkout.vue`), the order itself waits longer.",
+      "refs": "[Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Before the customer is sent to their bank, the page sends the order as a dry run. Stock and prices are checked; a back-ordered item is reported, not refused.",
+      "details": "The real POST follows in the same function. The page waits at most 10 minutes for the payment (`timeoutMs` in `web/src/checkout/Checkout.vue`), the order itself waits longer.",
+      "refs": "[Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Before the customer is sent to their bank, the page sends the order as a dry run. Stock and prices are checked; a back-ordered item is reported, not refused.",
+      "details": "The real POST follows in the same function. The page waits at most 10 minutes for the payment (`timeoutMs` in `web/src/checkout/Checkout.vue`), the order itself waits longer.",
+      "refs": "[placeOrder.ts:32-40 (moved)](moved/placeOrder.ts:32-40) · ~~Checkout.vue:17~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Before the customer is sent to their bank, the page sends the order as a dry run. Stock and prices are checked; a back-ordered item is reported, not refused.",
+      "details": "The real POST follows in the same function. The page waits at most 10 minutes for the payment (`timeoutMs` in `web/src/checkout/Checkout.vue`), the order itself waits longer.",
+      "refs": "[placeOrder.ts:32-40](web/src/checkout/placeOrder.ts:32-40) · [Checkout.vue:17](web/src/checkout/Checkout.vue:17-17)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "backorder",
+    "files": [
+      "api/orders.go",
+      "worker/stock.go"
+    ],
+    "written": {
+      "lead": "The API runs the stock check on the order before storing it. If an item is back-ordered, the order is still stored, with a reason and a message saying it waits.",
+      "details": "The dry run answers with the same message, so the page can say \"back-ordered\" before the customer pays anything. Nothing is reserved here: the worker reserves later.",
+      "refs": "[stock.go:94-107](worker/stock.go:94-107)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The API runs the stock check on the order before storing it. If an item is back-ordered, the order is still stored, with a reason and a message saying it waits.",
+      "details": "The dry run answers with the same message, so the page can say \"back-ordered\" before the customer pays anything. Nothing is reserved here: the worker reserves later.",
+      "refs": "[stock.go:94-107](worker/stock.go:94-107)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The API runs the stock check on the order before storing it. If an item is back-ordered, the order is still stored, with a reason and a message saying it waits.",
+      "details": "The dry run answers with the same message, so the page can say \"back-ordered\" before the customer pays anything. Nothing is reserved here: the worker reserves later.",
+      "refs": "[orders.go:72-81 (moved)](moved/orders.go:72-81) · ~~stock.go:94-107~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The API runs the stock check on the order before storing it. If an item is back-ordered, the order is still stored, with a reason and a message saying it waits.",
+      "details": "The dry run answers with the same message, so the page can say \"back-ordered\" before the customer pays anything. Nothing is reserved here: the worker reserves later.",
+      "refs": "[orders.go:72-81](api/orders.go:72-81) · [stock.go:94-107](worker/stock.go:94-107)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "preview",
+    "files": [
+      "worker/stock.go",
+      "api/orders.go"
+    ],
+    "written": {
+      "lead": "`Preview` is the worker's stock check on an order that is not stored yet. It reads the open orders and the stock levels and stores nothing.",
+      "details": "The message gets a \"Some items are back-ordered\" prefix so the customer reads it as a delay, not an error. The worker repeats the same check for real on its next pass.",
+      "refs": "[orders.go:72-81](api/orders.go:72-81)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "`Preview` is the worker's stock check on an order that is not stored yet. It reads the open orders and the stock levels and stores nothing.",
+      "details": "The message gets a \"Some items are back-ordered\" prefix so the customer reads it as a delay, not an error. The worker repeats the same check for real on its next pass.",
+      "refs": "[orders.go:72-81](api/orders.go:72-81)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "`Preview` is the worker's stock check on an order that is not stored yet. It reads the open orders and the stock levels and stores nothing.",
+      "details": "The message gets a \"Some items are back-ordered\" prefix so the customer reads it as a delay, not an error. The worker repeats the same check for real on its next pass.",
+      "refs": "[stock.go:94-107 (moved)](moved/stock.go:94-107) · ~~orders.go:72-81~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "`Preview` is the worker's stock check on an order that is not stored yet. It reads the open orders and the stock levels and stores nothing.",
+      "details": "The message gets a \"Some items are back-ordered\" prefix so the customer reads it as a delay, not an error. The worker repeats the same check for real on its next pass.",
+      "refs": "[stock.go:94-107](worker/stock.go:94-107) · [orders.go:72-81](api/orders.go:72-81)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "expiry",
+    "files": [
+      "api/orders.go",
+      "api/cancel.go"
+    ],
+    "written": {
+      "lead": "Every order gets an `expiresAt` when it is stored: the shop's order TTL, never more than 24 hours. A back-ordered order also gets its stock reason here.",
+      "details": "The cap lives in `expiry`; an order waiting for stock still expires, so a customer is never charged days later for an order they forgot.",
+      "refs": "[cancel.go:35-41](api/cancel.go:35-41)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Every order gets an `expiresAt` when it is stored: the shop's order TTL, never more than 24 hours. A back-ordered order also gets its stock reason here.",
+      "details": "The cap lives in `expiry`; an order waiting for stock still expires, so a customer is never charged days later for an order they forgot.",
+      "refs": "[cancel.go:35-41](api/cancel.go:35-41)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Every order gets an `expiresAt` when it is stored: the shop's order TTL, never more than 24 hours. A back-ordered order also gets its stock reason here.",
+      "details": "The cap lives in `expiry`; an order waiting for stock still expires, so a customer is never charged days later for an order they forgot.",
+      "refs": "[orders.go:98-102 (moved)](moved/orders.go:98-102) · ~~cancel.go:35-41~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Every order gets an `expiresAt` when it is stored: the shop's order TTL, never more than 24 hours. A back-ordered order also gets its stock reason here.",
+      "details": "The cap lives in `expiry`; an order waiting for stock still expires, so a customer is never charged days later for an order they forgot.",
+      "refs": "[orders.go:98-102](api/orders.go:98-102) · [cancel.go:35-41](api/cancel.go:35-41)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "passes",
+    "files": [
+      "worker/worker.go",
+      "cmd/shop/main.go"
+    ],
+    "written": {
+      "lead": "Nothing notifies the worker: every 2 s each phase lists the open orders and handles them one after another, each with its own 30 s timeout.",
+      "details": "`Run` starts one loop per phase (orders, expire). The interval is set in `cmd/shop/main.go`. A slow provider call holds up only the orders behind it in this pass.",
+      "refs": "[worker.go:28](worker/worker.go:28-28) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Nothing notifies the worker: every 2 s each phase lists the open orders and handles them one after another, each with its own 30 s timeout.",
+      "details": "`Run` starts one loop per phase (orders, expire). The interval is set in `cmd/shop/main.go`. A slow provider call holds up only the orders behind it in this pass.",
+      "refs": "[worker.go:31](worker/worker.go:31-31) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Nothing notifies the worker: every 2 s each phase lists the open orders and handles them one after another, each with its own 30 s timeout.",
+      "details": "`Run` starts one loop per phase (orders, expire). The interval is set in `cmd/shop/main.go`. A slow provider call holds up only the orders behind it in this pass.",
+      "refs": "[worker.go:58-79 (moved)](moved/worker.go:58-79) · [worker.go:28 (moved)](moved/worker.go:28-28) · ~~main.go:31~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Nothing notifies the worker: every 2 s each phase lists the open orders and handles them one after another, each with its own 30 s timeout.",
+      "details": "`Run` starts one loop per phase (orders, expire). The interval is set in `cmd/shop/main.go`. A slow provider call holds up only the orders behind it in this pass.",
+      "refs": "[worker.go:58-79](worker/worker.go:58-79) · [worker.go:28](worker/worker.go:28-28) · [main.go:31](cmd/shop/main.go:31-31)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "queue",
+    "files": [
+      "worker/stock.go"
+    ],
+    "written": {
+      "lead": "Orders are sorted by creation time; only earlier orders that wait for stock and share an item count as ahead. Waiting never moves an order back.",
+      "details": "The order keeps its `CreatedAt` while it waits, so it stays ahead of orders placed after it.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Orders are sorted by creation time; only earlier orders that wait for stock and share an item count as ahead. Waiting never moves an order back.",
+      "details": "The order keeps its `CreatedAt` while it waits, so it stays ahead of orders placed after it.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Orders are sorted by creation time; only earlier orders that wait for stock and share an item count as ahead. Waiting never moves an order back.",
+      "details": "The order keeps its `CreatedAt` while it waits, so it stays ahead of orders placed after it.",
+      "refs": "[stock.go:21-37 (moved)](moved/stock.go:21-37) · [stock.go:29 (moved)](moved/stock.go:29-29)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Orders are sorted by creation time; only earlier orders that wait for stock and share an item count as ahead. Waiting never moves an order back.",
+      "details": "The order keeps its `CreatedAt` while it waits, so it stays ahead of orders placed after it.",
+      "refs": "[stock.go:21-37](worker/stock.go:21-37) · [stock.go:29](worker/stock.go:29-29)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "stockcheck",
+    "files": [
+      "worker/stock.go"
+    ],
+    "written": {
+      "lead": "For each line the check compares the warehouse's count minus what other open orders reserved with the quantity ordered, then asks who is ahead.",
+      "details": "A discontinued item can never be filled; a short count only means waiting. The levels and reservations come from the warehouse in two reads.",
+      "refs": "[stock.go:21](worker/stock.go:21-21)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "For each line the check compares the warehouse's count minus what other open orders reserved with the quantity ordered, then asks who is ahead.",
+      "details": "A discontinued item can never be filled; a short count only means waiting. The levels and reservations come from the warehouse in two reads.",
+      "refs": "[stock.go:24](worker/stock.go:24-24)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "For each line the check compares the warehouse's count minus what other open orders reserved with the quantity ordered, then asks who is ahead.",
+      "details": "A discontinued item can never be filled; a short count only means waiting. The levels and reservations come from the warehouse in two reads.",
+      "refs": "[stock.go:71 (moved)](moved/stock.go:71-71) · [stock.go:75 (moved)](moved/stock.go:75-75) · [stock.go:21 (moved)](moved/stock.go:21-21)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "For each line the check compares the warehouse's count minus what other open orders reserved with the quantity ordered, then asks who is ahead.",
+      "details": "A discontinued item can never be filled; a short count only means waiting. The levels and reservations come from the warehouse in two reads.",
+      "refs": "[stock.go:71](worker/stock.go:71-71) · [stock.go:75](worker/stock.go:75-75) · [stock.go:21](worker/stock.go:21-21)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "verdict",
+    "files": [
+      "worker/stock.go",
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "`admit` turns the verdict into a stored decision: failed for an item that is no longer sold, a stock reason and message for an order that must wait.",
+      "details": "Only an order with nothing in its way goes on to be charged, with its reason cleared. A waiting order is checked again on every pass.",
+      "refs": "[worker.go:86](worker/worker.go:86-86)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "`admit` turns the verdict into a stored decision: failed for an item that is no longer sold, a stock reason and message for an order that must wait.",
+      "details": "Only an order with nothing in its way goes on to be charged, with its reason cleared. A waiting order is checked again on every pass.",
+      "refs": "[worker.go:86](worker/worker.go:86-86)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "`admit` turns the verdict into a stored decision: failed for an item that is no longer sold, a stock reason and message for an order that must wait.",
+      "details": "Only an order with nothing in its way goes on to be charged, with its reason cleared. A waiting order is checked again on every pass.",
+      "refs": "[stock.go:51-66 (moved)](moved/stock.go:51-66) · ~~worker.go:86~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "`admit` turns the verdict into a stored decision: failed for an item that is no longer sold, a stock reason and message for an order that must wait.",
+      "details": "Only an order with nothing in its way goes on to be charged, with its reason cleared. A waiting order is checked again on every pass.",
+      "refs": "[stock.go:51-66](worker/stock.go:51-66) · [worker.go:86](worker/worker.go:86-86)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "reserve",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "A pending order that passes `admit` reserves its items, gets its charge and becomes `charging`; its payment deadline starts now, not at creation.",
+      "details": "A sold-out item at reservation time fails the order before anyone is charged. A passing provider error sends it to `retryLater` instead of failing it.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "A pending order that passes `admit` reserves its items, gets its charge and becomes `charging`; its payment deadline starts now, not at creation.",
+      "details": "A sold-out item at reservation time fails the order before anyone is charged. A passing provider error sends it to `retryLater` instead of failing it.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "A pending order that passes `admit` reserves its items, gets its charge and becomes `charging`; its payment deadline starts now, not at creation.",
+      "details": "A sold-out item at reservation time fails the order before anyone is charged. A passing provider error sends it to `retryLater` instead of failing it.",
+      "refs": "[worker.go:90 (moved)](moved/worker.go:90-90) · [worker.go:111 (moved)](moved/worker.go:111-111) · [worker.go:103 (moved)](moved/worker.go:103-103)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "A pending order that passes `admit` reserves its items, gets its charge and becomes `charging`; its payment deadline starts now, not at creation.",
+      "details": "A sold-out item at reservation time fails the order before anyone is charged. A passing provider error sends it to `retryLater` instead of failing it.",
+      "refs": "[worker.go:90](worker/worker.go:90-90) · [worker.go:111](worker/worker.go:111-111) · [worker.go:103](worker/worker.go:103-103)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "retry",
+    "files": [
+      "worker/retry.go",
+      "worker/stock.go"
+    ],
+    "written": {
+      "lead": "When the provider refuses a charge for a passing reason, the reservation is released and the order goes back to pending with a provider reason.",
+      "details": "It keeps its creation time, so it is first in line again among orders for the same items. After five retries it fails for good.",
+      "refs": "[stock.go:29](worker/stock.go:29-29)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "When the provider refuses a charge for a passing reason, the reservation is released and the order goes back to pending with a provider reason.",
+      "details": "It keeps its creation time, so it is first in line again among orders for the same items. After five retries it fails for good.",
+      "refs": "[stock.go:29](worker/stock.go:29-29)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "When the provider refuses a charge for a passing reason, the reservation is released and the order goes back to pending with a provider reason.",
+      "details": "It keeps its creation time, so it is first in line again among orders for the same items. After five retries it fails for good.",
+      "refs": "[retry.go:12-28 (moved)](moved/retry.go:12-28) · [retry.go:21 (moved)](moved/retry.go:21-21) · ~~stock.go:29~~ (file gone)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "When the provider refuses a charge for a passing reason, the reservation is released and the order goes back to pending with a provider reason.",
+      "details": "It keeps its creation time, so it is first in line again among orders for the same items. After five retries it fails for good.",
+      "refs": "[retry.go:12-28](worker/retry.go:12-28) · [retry.go:21](worker/retry.go:21-21) · [stock.go:29](worker/stock.go:29-29)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "expire",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "The expire phase reads and writes the database only: an unpaid order past its `expiresAt` is marked cancelling, whatever the payment provider is doing.",
+      "details": "The worker carries out the cancel on its next orders pass, the same way as a cancel from the customer. It also triggers the clean-up of abandoned reservations.",
+      "refs": "[worker.go:30](worker/worker.go:30-30)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The expire phase reads and writes the database only: an unpaid order past its `expiresAt` is marked cancelling, whatever the payment provider is doing.",
+      "details": "The worker carries out the cancel on its next orders pass, the same way as a cancel from the customer. It also triggers the clean-up of abandoned reservations.",
+      "refs": "[worker.go:33](worker/worker.go:33-33)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The expire phase reads and writes the database only: an unpaid order past its `expiresAt` is marked cancelling, whatever the payment provider is doing.",
+      "details": "The worker carries out the cancel on its next orders pass, the same way as a cancel from the customer. It also triggers the clean-up of abandoned reservations.",
+      "refs": "[worker.go:166-178 (moved)](moved/worker.go:166-178) · [worker.go:30 (moved)](moved/worker.go:30-30) · [worker.go:177 (moved)](moved/worker.go:177-177)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The expire phase reads and writes the database only: an unpaid order past its `expiresAt` is marked cancelling, whatever the payment provider is doing.",
+      "details": "The worker carries out the cancel on its next orders pass, the same way as a cancel from the customer. It also triggers the clean-up of abandoned reservations.",
+      "refs": "[worker.go:166-178](worker/worker.go:166-178) · [worker.go:30](worker/worker.go:30-30) · [worker.go:177](worker/worker.go:177-177)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "cancel",
+    "files": [
+      "api/cancel.go"
+    ],
+    "written": {
+      "lead": "The cancel endpoint changes no stock and calls no provider: it marks the order cancelling and answers 202. A paid order is refunded instead.",
+      "details": "",
+      "refs": "[cancel.go:19](api/cancel.go:19-19)",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The cancel endpoint changes no stock and calls no provider: it marks the order cancelling and answers 202. A paid order is refunded instead.",
+      "details": "",
+      "refs": "[cancel.go:22](api/cancel.go:22-22)",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The cancel endpoint changes no stock and calls no provider: it marks the order cancelling and answers 202. A paid order is refunded instead.",
+      "details": "",
+      "refs": "[cancel.go:19 (moved)](moved/cancel.go:19-19)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The cancel endpoint changes no stock and calls no provider: it marks the order cancelling and answers 202. A paid order is refunded instead.",
+      "details": "",
+      "refs": "[cancel.go:19](api/cancel.go:19-19)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "cancel-voids",
+    "files": [
+      "worker/worker.go"
+    ],
+    "written": {
+      "lead": "For a cancelling order the worker voids the charge first, so the customer is never charged for an order that no longer exists, then releases the stock.",
+      "details": "A charge that already settled is not an error here; the refund flow handles it. Only when both are done does the order become cancelled.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "For a cancelling order the worker voids the charge first, so the customer is never charged for an order that no longer exists, then releases the stock.",
+      "details": "A charge that already settled is not an error here; the refund flow handles it. Only when both are done does the order become cancelled.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "For a cancelling order the worker voids the charge first, so the customer is never charged for an order that no longer exists, then releases the stock.",
+      "details": "A charge that already settled is not an error here; the refund flow handles it. Only when both are done does the order become cancelled.",
+      "refs": "[worker.go:142 (moved)](moved/worker.go:142-142) · [worker.go:139-151 (moved)](moved/worker.go:139-151)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "For a cancelling order the worker voids the charge first, so the customer is never charged for an order that no longer exists, then releases the stock.",
+      "details": "A charge that already settled is not an error here; the refund flow handles it. Only when both are done does the order become cancelled.",
+      "refs": "[worker.go:142](worker/worker.go:142-142) · [worker.go:139-151](worker/worker.go:139-151)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "abandoned",
+    "files": [
+      "worker/cleanup.go"
+    ],
+    "written": {
+      "lead": "Reservations whose order no longer exists (deleted by hand, a crash between reserving and storing) are released, at most every 10 minutes.",
+      "details": "A reservation younger than an hour is left alone, so an order being stored right now is not robbed of its stock.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Reservations whose order no longer exists (deleted by hand, a crash between reserving and storing) are released, at most every 10 minutes.",
+      "details": "A reservation younger than an hour is left alone, so an order being stored right now is not robbed of its stock.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Reservations whose order no longer exists (deleted by hand, a crash between reserving and storing) are released, at most every 10 minutes.",
+      "details": "A reservation younger than an hour is left alone, so an order being stored right now is not robbed of its stock.",
+      "refs": "[cleanup.go:10-31 (moved)](moved/cleanup.go:10-31) · [cleanup.go:23 (moved)](moved/cleanup.go:23-23)",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Reservations whose order no longer exists (deleted by hand, a crash between reserving and storing) are released, at most every 10 minutes.",
+      "details": "A reservation younger than an hour is left alone, so an order being stored right now is not robbed of its stock.",
+      "refs": "[cleanup.go:10-31](worker/cleanup.go:10-31) · [cleanup.go:23](worker/cleanup.go:23-23)",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  }
+]

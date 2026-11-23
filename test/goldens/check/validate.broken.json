@@ -1,0 +1,160 @@
+[
+  {
+    "name": "as written",
+    "validate": {
+      "code": 0,
+      "out": "✓ understanding/broken.json: 3 questions"
+    },
+    "errors": [],
+    "hashes": []
+  },
+  {
+    "name": "version 2",
+    "validate": {
+      "code": 1,
+      "out": "✗ \"version\" is 2: expected 1"
+    },
+    "errors": [
+      "\"version\" is 2: expected 1"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "no questions",
+    "validate": {
+      "code": 1,
+      "out": "✗ \"questions\" must be a non-empty array"
+    },
+    "errors": [
+      "\"questions\" must be a non-empty array"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "a question id used twice",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 2 (q1): id used twice"
+    },
+    "errors": [
+      "question 2 (q1): id used twice"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "an unknown kind",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 1 (q1): \"kind\" must be one of how, why, failure, edge, change"
+    },
+    "errors": [
+      "question 1 (q1): \"kind\" must be one of how, why, failure, edge, change"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "lines backwards",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 1 (q1): \"start\"/\"end\" must be 1-based lines (or \"target\": \"file\")"
+    },
+    "errors": [
+      "question 1 (q1): \"start\"/\"end\" must be 1-based lines (or \"target\": \"file\")"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "no text",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 3 (q3): \"text\" is missing or too short"
+    },
+    "errors": [
+      "question 3 (q3): \"text\" is missing or too short"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "a verdict changed after grading",
+    "validate": {
+      "code": 0,
+      "out": "✓ understanding/broken.json: 3 questions"
+    },
+    "errors": [],
+    "hashes": [
+      "q1 attempt 1"
+    ]
+  },
+  {
+    "name": "an answer changed after grading",
+    "validate": {
+      "code": 0,
+      "out": "✓ understanding/broken.json: 3 questions"
+    },
+    "errors": [],
+    "hashes": [
+      "q1 attempt 1"
+    ]
+  },
+  {
+    "name": "an unknown verdict",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 2 (q2), attempt 1: \"verdict\" must be one of pass, retry, explained, restated"
+    },
+    "errors": [
+      "question 2 (q2), attempt 1: \"verdict\" must be one of pass, retry, explained, restated"
+    ],
+    "hashes": [
+      "q2 attempt 1"
+    ]
+  },
+  {
+    "name": "a missing file",
+    "validate": {
+      "code": 1,
+      "out": "✗ question 1 (q1): src/gone.js doesn't exist"
+    },
+    "errors": [
+      "question 1 (q1): src/gone.js doesn't exist"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "eleven questions",
+    "validate": {
+      "code": 1,
+      "out": "✗ 11 questions: at most 10"
+    },
+    "errors": [
+      "11 questions: at most 10"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "no branch or head",
+    "validate": {
+      "code": 1,
+      "out": "✗ \"branch\" is missing\n✗ \"head\" must be a commit sha"
+    },
+    "errors": [
+      "\"branch\" is missing",
+      "\"head\" must be a commit sha"
+    ],
+    "hashes": []
+  },
+  {
+    "name": "not json",
+    "validate": {
+      "code": 1,
+      "out": "✗ understanding/broken.json: Expected double-quoted property name in JSON at position 16 (line 1 column 17)"
+    }
+  },
+  {
+    "name": "no file",
+    "validate": {
+      "code": 1,
+      "out": "✗ understanding/none.json: ENOENT: no such file or directory, open '<small>/understanding/none.json'"
+    }
+  }
+]

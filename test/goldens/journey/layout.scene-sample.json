@@ -1,0 +1,94 @@
+{
+  "signature": "[[[\"web\",\"system\",\"Web app\",\"\"],[\"api\",\"system\",\"API\",\"\"],[\"db\",\"system\",\"Database\",\"\"],[\"worker\",\"system\",\"Worker\",\"\"],[\"cartpage\",\"function\",\"addToCart\",\"web\"],[\"checkout\",\"function\",\"placeOrder\",\"api\"],[\"orders\",\"store\",\"Orders\",\"db\"],[\"job\",\"function\",\"processOrder\",\"worker\"],[\"signin\",\"function\",\"requireSession\",\"api\"]],[[\"cartpage\",\"checkout\",\"place order\",false],[\"checkout\",\"orders\",\"store pending\",false],[\"job\",\"orders\",\"polls\",true]],[\"cartpage\",\"checkout\",\"checkout\",\"job\",\"job\",\"job\",\"signin\"]]",
+  "stepsOf": [
+    [
+      "cartpage",
+      [
+        1
+      ]
+    ],
+    [
+      "checkout",
+      [
+        2,
+        3
+      ]
+    ],
+    [
+      "job",
+      [
+        4,
+        5,
+        6
+      ]
+    ],
+    [
+      "signin",
+      [
+        7
+      ]
+    ]
+  ],
+  "ancestors": [
+    [
+      "web",
+      []
+    ],
+    [
+      "api",
+      []
+    ],
+    [
+      "db",
+      []
+    ],
+    [
+      "worker",
+      []
+    ],
+    [
+      "cartpage",
+      [
+        "web"
+      ]
+    ],
+    [
+      "checkout",
+      [
+        "api"
+      ]
+    ],
+    [
+      "orders",
+      [
+        "db"
+      ]
+    ],
+    [
+      "job",
+      [
+        "worker"
+      ]
+    ],
+    [
+      "signin",
+      [
+        "api"
+      ]
+    ]
+  ],
+  "verbs": [
+    [
+      "place order",
+      "place order"
+    ],
+    [
+      "store pending",
+      "store pending"
+    ],
+    [
+      "polls",
+      "polls"
+    ]
+  ]
+}

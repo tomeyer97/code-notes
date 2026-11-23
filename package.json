@@ -1656,6 +1656,7 @@
     "test:scenes": "node test/journey-scene/check.mjs test/journey-scene/sample.json",
     "test:panel": "node test/journey-map/shoot.mjs",
     "test:cli": "node --test test/cli/*.test.mjs",
+    "test:goldens": "tsc -p . && node --import ./test/hermetic.mjs --test out/test/golden-*.test.js test/cli/golden-*.test.mjs",
     "test:checkpanel": "node test/check-panel/shoot.mjs",
     "test:checktour": "node test/check-tour/shoot.mjs",
     "test:journeylist": "node test/journey-list/shoot.mjs",

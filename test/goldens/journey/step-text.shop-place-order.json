@@ -1,0 +1,348 @@
+[
+  {
+    "id": "s2xple",
+    "files": [
+      "web/index.html"
+    ],
+    "written": {
+      "lead": "The request carries who orders, one product code and the token of the saved card, never a price.",
+      "details": "- Each Buy now button orders one of its product.\n- The API routes the request to its order handler.\n- When the API refuses, the page shows a notice and stays on the shop page.\n- On success the page opens the order page and starts to watch the order.",
+      "refs": "The two Buy now buttons of the shop page are in [index.html:12-21](web/index.html:12-21).",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The request carries who orders, one product code and the token of the saved card, never a price.",
+      "details": "- Each Buy now button orders one of its product.\n- The API routes the request to its order handler.\n- When the API refuses, the page shows a notice and stays on the shop page.\n- On success the page opens the order page and starts to watch the order.",
+      "refs": "The two Buy now buttons of the shop page are in [index.html:12-21](web/index.html:12-21).",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The request carries who orders, one product code and the token of the saved card, never a price.",
+      "details": "- Each Buy now button orders one of its product.\n- The API routes the request to its order handler.\n- When the API refuses, the page shows a notice and stays on the shop page.\n- On success the page opens the order page and starts to watch the order.",
+      "refs": "The two Buy now buttons of the shop page are in [index.html:12-21 (moved)](moved/index.html:12-21).",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The request carries who orders, one product code and the token of the saved card, never a price.",
+      "details": "- Each Buy now button orders one of its product.\n- The API routes the request to its order handler.\n- When the API refuses, the page shows a notice and stays on the shop page.\n- On success the page opens the order page and starts to watch the order.",
+      "refs": "The two Buy now buttons of the shop page are in [index.html:12-21](web/index.html:12-21).",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "ahutu9",
+    "files": [
+      "config/shop.yaml"
+    ],
+    "written": {
+      "lead": "The total is added up here from catalog prices, so the browser cannot set what a lamp costs.",
+      "details": "- A request without a customer, with an empty cart or without a card token is refused before the catalog is read.\n- An unknown product code refuses the whole order.\n- For a refused request the handler sends the error back and stores nothing.",
+      "refs": "The limit of 20 products per order is set in [shop.yaml:11](config/shop.yaml:11-11).",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The total is added up here from catalog prices, so the browser cannot set what a lamp costs.",
+      "details": "- A request without a customer, with an empty cart or without a card token is refused before the catalog is read.\n- An unknown product code refuses the whole order.\n- For a refused request the handler sends the error back and stores nothing.",
+      "refs": "The limit of 20 products per order is set in [shop.yaml:11](config/shop.yaml:11-11).",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The total is added up here from catalog prices, so the browser cannot set what a lamp costs.",
+      "details": "- A request without a customer, with an empty cart or without a card token is refused before the catalog is read.\n- An unknown product code refuses the whole order.\n- For a refused request the handler sends the error back and stores nothing.",
+      "refs": "The limit of 20 products per order is set in [shop.yaml:11 (moved)](moved/shop.yaml:11-11).",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The total is added up here from catalog prices, so the browser cannot set what a lamp costs.",
+      "details": "- A request without a customer, with an empty cart or without a card token is refused before the catalog is read.\n- An unknown product code refuses the whole order.\n- For a refused request the handler sends the error back and stores nothing.",
+      "refs": "The limit of 20 products per order is set in [shop.yaml:11](config/shop.yaml:11-11).",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "qwo88u",
+    "files": [],
+    "written": {
+      "lead": "The new row gets the next order number, 1042 for Ana, and holds no card data.",
+      "details": "- The handler takes the card token out before it stores the order.\n- The status column starts as pending.\n- The first order of a new shop gets the number set in the configuration.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The new row gets the next order number, 1042 for Ana, and holds no card data.",
+      "details": "- The handler takes the card token out before it stores the order.\n- The status column starts as pending.\n- The first order of a new shop gets the number set in the configuration.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The new row gets the next order number, 1042 for Ana, and holds no card data.",
+      "details": "- The handler takes the card token out before it stores the order.\n- The status column starts as pending.\n- The first order of a new shop gets the number set in the configuration.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The new row gets the next order number, 1042 for Ana, and holds no card data.",
+      "details": "- The handler takes the card token out before it stores the order.\n- The status column starts as pending.\n- The first order of a new shop gets the number set in the configuration.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "tlctsa",
+    "files": [],
+    "written": {
+      "lead": "The answer is the pending order, so nothing has been charged when the page gets it.",
+      "details": "- The job carries the order number, the amount, the currency of the shop and the card token.\n- A new job is put last in line.\n- The queue lives in the API's memory, so a restart of the API drops the jobs still waiting and their orders stay pending.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The answer is the pending order, so nothing has been charged when the page gets it.",
+      "details": "- The job carries the order number, the amount, the currency of the shop and the card token.\n- A new job is put last in line.\n- The queue lives in the API's memory, so a restart of the API drops the jobs still waiting and their orders stay pending.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The answer is the pending order, so nothing has been charged when the page gets it.",
+      "details": "- The job carries the order number, the amount, the currency of the shop and the card token.\n- A new job is put last in line.\n- The queue lives in the API's memory, so a restart of the API drops the jobs still waiting and their orders stay pending.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The answer is the pending order, so nothing has been charged when the page gets it.",
+      "details": "- The job carries the order number, the amount, the currency of the shop and the card token.\n- A new job is put last in line.\n- The queue lives in the API's memory, so a restart of the API drops the jobs still waiting and their orders stay pending.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "1fvq0z",
+    "files": [],
+    "written": {
+      "lead": "The API hands out the oldest waiting job and removes it from the queue.",
+      "details": "- The 2 s pause comes from the configuration.\n- After a job the worker asks again at once, without the pause.\n- With no job waiting the API answers with nothing and the worker pauses.\n- The worker's requests carry a key, and the API refuses the job routes without it.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The API hands out the oldest waiting job and removes it from the queue.",
+      "details": "- The 2 s pause comes from the configuration.\n- After a job the worker asks again at once, without the pause.\n- With no job waiting the API answers with nothing and the worker pauses.\n- The worker's requests carry a key, and the API refuses the job routes without it.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The API hands out the oldest waiting job and removes it from the queue.",
+      "details": "- The 2 s pause comes from the configuration.\n- After a job the worker asks again at once, without the pause.\n- With no job waiting the API answers with nothing and the worker pauses.\n- The worker's requests carry a key, and the API refuses the job routes without it.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The API hands out the oldest waiting job and removes it from the queue.",
+      "details": "- The 2 s pause comes from the configuration.\n- After a job the worker asks again at once, without the pause.\n- With no job waiting the API answers with nothing and the worker pauses.\n- The worker's requests carry a key, and the API refuses the job routes without it.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "x7ebuw",
+    "files": [
+      "config/shop.yaml"
+    ],
+    "written": {
+      "lead": "The key is order-1042 on every try, which lets the payment provider recognise a repeated charge.",
+      "details": "- The payment client sends the amount, the currency and the card token, with the key as a header.\n- When the provider cannot be reached the worker tries up to 3 times, waiting 1 s, then 2 s.\n- A request to the provider is given up after 5 s.\n- Not verified: how the provider treats a repeated key.",
+      "refs": "The provider's address and the 5 s limit are in [shop.yaml:21-23](config/shop.yaml:21-23).",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The key is order-1042 on every try, which lets the payment provider recognise a repeated charge.",
+      "details": "- The payment client sends the amount, the currency and the card token, with the key as a header.\n- When the provider cannot be reached the worker tries up to 3 times, waiting 1 s, then 2 s.\n- A request to the provider is given up after 5 s.\n- Not verified: how the provider treats a repeated key.",
+      "refs": "The provider's address and the 5 s limit are in [shop.yaml:21-23](config/shop.yaml:21-23).",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The key is order-1042 on every try, which lets the payment provider recognise a repeated charge.",
+      "details": "- The payment client sends the amount, the currency and the card token, with the key as a header.\n- When the provider cannot be reached the worker tries up to 3 times, waiting 1 s, then 2 s.\n- A request to the provider is given up after 5 s.\n- Not verified: how the provider treats a repeated key.",
+      "refs": "The provider's address and the 5 s limit are in [shop.yaml:21-23 (moved)](moved/shop.yaml:21-23).",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The key is order-1042 on every try, which lets the payment provider recognise a repeated charge.",
+      "details": "- The payment client sends the amount, the currency and the card token, with the key as a header.\n- When the provider cannot be reached the worker tries up to 3 times, waiting 1 s, then 2 s.\n- A request to the provider is given up after 5 s.\n- Not verified: how the provider treats a repeated key.",
+      "refs": "The provider's address and the 5 s limit are in [shop.yaml:21-23](config/shop.yaml:21-23).",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "yyp0d9",
+    "files": [],
+    "written": {
+      "lead": "The update only touches a pending order, so a second report for order 1042 changes nothing.",
+      "details": "- The worker sends the result to the API and logs one line.\n- The payment id is stored with the order.\n- A report for an order settled before gets a conflict answer, which the worker logs as a warning.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The update only touches a pending order, so a second report for order 1042 changes nothing.",
+      "details": "- The worker sends the result to the API and logs one line.\n- The payment id is stored with the order.\n- A report for an order settled before gets a conflict answer, which the worker logs as a warning.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The update only touches a pending order, so a second report for order 1042 changes nothing.",
+      "details": "- The worker sends the result to the API and logs one line.\n- The payment id is stored with the order.\n- A report for an order settled before gets a conflict answer, which the worker logs as a warning.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The update only touches a pending order, so a second report for order 1042 changes nothing.",
+      "details": "- The worker sends the result to the API and logs one line.\n- The payment id is stored with the order.\n- A report for an order settled before gets a conflict answer, which the worker logs as a warning.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "5ngsrh",
+    "files": [],
+    "written": {
+      "lead": "Ana sees the status change from pending to paid without reloading the page.",
+      "details": "- The API answers each question from the orders table.\n- A settled order changes the status chip and adds a line to the history.\n- After 30 s without a result the page stops asking and adds a line that says to reload later.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Ana sees the status change from pending to paid without reloading the page.",
+      "details": "- The API answers each question from the orders table.\n- A settled order changes the status chip and adds a line to the history.\n- After 30 s without a result the page stops asking and adds a line that says to reload later.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Ana sees the status change from pending to paid without reloading the page.",
+      "details": "- The API answers each question from the orders table.\n- A settled order changes the status chip and adds a line to the history.\n- After 30 s without a result the page stops asking and adds a line that says to reload later.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Ana sees the status change from pending to paid without reloading the page.",
+      "details": "- The API answers each question from the orders table.\n- A settled order changes the status chip and adds a line to the history.\n- After 30 s without a result the page stops asking and adds a line that says to reload later.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "zmkr2s",
+    "files": [],
+    "written": {
+      "lead": "The worker does not try a declined card again, and the provider's reason is shown on the order page.",
+      "details": "- The payment client turns the provider's refusal into an error of its own.\n- The reason, such as insufficient funds, is stored with the order.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The worker does not try a declined card again, and the provider's reason is shown on the order page.",
+      "details": "- The payment client turns the provider's refusal into an error of its own.\n- The reason, such as insufficient funds, is stored with the order.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The worker does not try a declined card again, and the provider's reason is shown on the order page.",
+      "details": "- The payment client turns the provider's refusal into an error of its own.\n- The reason, such as insufficient funds, is stored with the order.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The worker does not try a declined card again, and the provider's reason is shown on the order page.",
+      "details": "- The payment client turns the provider's refusal into an error of its own.\n- The reason, such as insufficient funds, is stored with the order.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "u1j4h0",
+    "files": [],
+    "written": {
+      "lead": "The check runs before the order is stored, so a refused order leaves no pending row behind.",
+      "details": "- The limit of 8 comes from the configuration.\n- The queue is full when as many jobs wait as the limit allows.\n- The page shows a notice that asks to try again in a minute.",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The check runs before the order is stored, so a refused order leaves no pending row behind.",
+      "details": "- The limit of 8 comes from the configuration.\n- The queue is full when as many jobs wait as the limit allows.\n- The page shows a notice that asks to try again in a minute.",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The check runs before the order is stored, so a refused order leaves no pending row behind.",
+      "details": "- The limit of 8 comes from the configuration.\n- The queue is full when as many jobs wait as the limit allows.\n- The page shows a notice that asks to try again in a minute.",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The check runs before the order is stored, so a refused order leaves no pending row behind.",
+      "details": "- The limit of 8 comes from the configuration.\n- The queue is full when as many jobs wait as the limit allows.\n- The page shows a notice that asks to try again in a minute.",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  }
+]

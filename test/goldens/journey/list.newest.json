@@ -1,0 +1,2608 @@
+{
+  "rows": {
+    "k1": {
+      "key": "k1",
+      "kind": "journey",
+      "title": "How orders work",
+      "question": "What happens when a customer uses orders?",
+      "summary": "The path through api for orders.",
+      "createdAt": "2026-11-13T12:00:00.000Z",
+      "files": [
+        "api/orders.js",
+        "api/orders.js",
+        "api/orders.js",
+        "api/orders.js",
+        "api/orders.js"
+      ],
+      "stepTitles": [
+        "Step 1 of orders",
+        "Step 2 of orders",
+        "Step 3 of orders",
+        "Step 4 of orders",
+        "Step 5 of orders"
+      ],
+      "steps": 5,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "3 d",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 5 steps · 3 d",
+      "hereText": "",
+      "hits": []
+    },
+    "k2": {
+      "key": "k2",
+      "kind": "journey",
+      "title": "How discounts work",
+      "question": "What happens when a customer uses discounts?",
+      "summary": "The path through api for discounts.",
+      "createdAt": "2026-11-10T12:00:00.000Z",
+      "files": [
+        "api/discounts.js",
+        "api/discounts.js",
+        "api/discounts.js",
+        "api/discounts.js",
+        "api/discounts.js",
+        "api/discounts.js"
+      ],
+      "stepTitles": [
+        "Step 1 of discounts",
+        "Step 2 of discounts",
+        "Step 3 of discounts",
+        "Step 4 of discounts",
+        "Step 5 of discounts",
+        "Step 6 of discounts"
+      ],
+      "steps": 6,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "6 d",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 6 steps · 6 d",
+      "hereText": "",
+      "hits": []
+    },
+    "k3": {
+      "key": "k3",
+      "kind": "journey",
+      "title": "How auth work",
+      "question": "What happens when a customer uses auth?",
+      "summary": "The path through api for auth.",
+      "createdAt": "2026-11-07T12:00:00.000Z",
+      "files": [
+        "api/auth.js",
+        "api/auth.js",
+        "api/auth.js",
+        "api/auth.js",
+        "api/auth.js",
+        "api/auth.js",
+        "api/auth.js"
+      ],
+      "stepTitles": [
+        "Step 1 of auth",
+        "Step 2 of auth",
+        "Step 3 of auth",
+        "Step 4 of auth",
+        "Step 5 of auth",
+        "Step 6 of auth",
+        "Step 7 of auth"
+      ],
+      "steps": 7,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "9 d",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 7 steps · 9 d",
+      "hereText": "",
+      "hits": []
+    },
+    "k4": {
+      "key": "k4",
+      "kind": "journey",
+      "title": "How search work",
+      "question": "What happens when a customer uses search?",
+      "summary": "The path through api for search.",
+      "createdAt": "2026-11-04T12:00:00.000Z",
+      "files": [
+        "api/search.js",
+        "api/search.js",
+        "api/search.js",
+        "api/search.js",
+        "api/search.js",
+        "api/search.js",
+        "api/search.js",
+        "api/search.js"
+      ],
+      "stepTitles": [
+        "Step 1 of search",
+        "Step 2 of search",
+        "Step 3 of search",
+        "Step 4 of search",
+        "Step 5 of search",
+        "Step 6 of search",
+        "Step 7 of search",
+        "Step 8 of search"
+      ],
+      "steps": 8,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        },
+        {
+          "start": 134,
+          "end": 142
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "12 d",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 8 steps · 12 d",
+      "hereText": "",
+      "hits": []
+    },
+    "k5": {
+      "key": "k5",
+      "kind": "journey",
+      "title": "How uploads work",
+      "question": "What happens when a customer uses uploads?",
+      "summary": "The path through api for uploads.",
+      "createdAt": "2026-11-01T12:00:00.000Z",
+      "files": [
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/uploads.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of uploads",
+        "Step 2 of uploads",
+        "Step 3 of uploads",
+        "Step 4 of uploads",
+        "Step 5 of uploads",
+        "Step 6 of uploads",
+        "Step 7 of uploads",
+        "Step 8 of uploads",
+        "Step 9 of uploads"
+      ],
+      "steps": 9,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        },
+        {
+          "start": 174,
+          "end": 182
+        },
+        {
+          "start": 186,
+          "end": 194
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "1 Nov 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 9 steps · 1 Nov 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k6": {
+      "key": "k6",
+      "kind": "journey",
+      "title": "How webhooks work",
+      "question": "What happens when a customer uses webhooks?",
+      "summary": "The path through api for webhooks.",
+      "createdAt": "2026-10-29T12:00:00.000Z",
+      "files": [
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js",
+        "api/webhooks.js"
+      ],
+      "stepTitles": [
+        "Step 1 of webhooks",
+        "Step 2 of webhooks",
+        "Step 3 of webhooks",
+        "Step 4 of webhooks",
+        "Step 5 of webhooks",
+        "Step 6 of webhooks",
+        "Step 7 of webhooks",
+        "Step 8 of webhooks",
+        "Step 9 of webhooks",
+        "Step 10 of webhooks"
+      ],
+      "steps": 10,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        },
+        {
+          "start": 94,
+          "end": 102
+        },
+        {
+          "start": 106,
+          "end": 114
+        },
+        {
+          "start": 118,
+          "end": 126
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "29 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 10 steps · 29 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k7": {
+      "key": "k7",
+      "kind": "journey",
+      "title": "How rate limits work",
+      "question": "What happens when a customer uses rate limits?",
+      "summary": "The path through api for rate limits.",
+      "createdAt": "2026-10-26T12:00:00.000Z",
+      "files": [
+        "api/rate-limits.js",
+        "api/rate-limits.js",
+        "api/rate-limits.js",
+        "api/rate-limits.js"
+      ],
+      "stepTitles": [
+        "Step 1 of rate limits",
+        "Step 2 of rate limits",
+        "Step 3 of rate limits",
+        "Step 4 of rate limits"
+      ],
+      "steps": 4,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "26 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 4 steps · 26 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k8": {
+      "key": "k8",
+      "kind": "journey",
+      "title": "How sessions work",
+      "question": "What happens when a customer uses sessions?",
+      "summary": "The path through api for sessions.",
+      "createdAt": "2026-10-23T12:00:00.000Z",
+      "files": [
+        "api/sessions.js",
+        "api/sessions.js",
+        "api/sessions.js",
+        "api/sessions.js",
+        "api/sessions.js"
+      ],
+      "stepTitles": [
+        "Step 1 of sessions",
+        "Step 2 of sessions",
+        "Step 3 of sessions",
+        "Step 4 of sessions",
+        "Step 5 of sessions"
+      ],
+      "steps": 5,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        }
+      ],
+      "isNew": true,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "23 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 5 steps · 23 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k9": {
+      "key": "k9",
+      "kind": "journey",
+      "title": "How exports works end to end with a rather long title for the narrow panel",
+      "question": "What happens when a customer uses exports?",
+      "summary": "The path through api for exports.",
+      "createdAt": "2026-10-20T12:00:00.000Z",
+      "files": [
+        "api/exports.js",
+        "api/exports.js",
+        "api/exports.js",
+        "api/exports.js",
+        "api/exports.js",
+        "api/exports.js"
+      ],
+      "stepTitles": [
+        "Step 1 of exports",
+        "Step 2 of exports",
+        "Step 3 of exports",
+        "Step 4 of exports",
+        "Step 5 of exports",
+        "Step 6 of exports"
+      ],
+      "steps": 6,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "20 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 6 steps · 20 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k10": {
+      "key": "k10",
+      "kind": "journey",
+      "title": "How refunds work",
+      "question": "What happens when a customer uses refunds?",
+      "summary": "The path through api for refunds.",
+      "createdAt": "2026-10-17T12:00:00.000Z",
+      "files": [
+        "api/refunds.js",
+        "api/refunds.js",
+        "api/refunds.js",
+        "api/refunds.js",
+        "api/refunds.js",
+        "api/store.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of refunds",
+        "Step 2 of refunds",
+        "Step 3 of refunds",
+        "Step 4 of refunds",
+        "Step 5 of refunds",
+        "Step 6 of refunds",
+        "Step 7 of refunds"
+      ],
+      "steps": 7,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "api",
+      "age": "17 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "api · 7 steps · 17 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k11": {
+      "key": "k11",
+      "kind": "journey",
+      "title": "How charging work",
+      "question": "What happens when a customer uses charging?",
+      "summary": "The path through worker for charging.",
+      "createdAt": "2026-10-14T12:00:00.000Z",
+      "files": [
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js",
+        "worker/charging.js"
+      ],
+      "stepTitles": [
+        "Step 1 of charging",
+        "Step 2 of charging",
+        "The worker retries a failed charge with the same key",
+        "Step 4 of charging",
+        "Step 5 of charging",
+        "Step 6 of charging",
+        "Step 7 of charging",
+        "Step 8 of charging"
+      ],
+      "steps": 8,
+      "stale": 2,
+      "staleSteps": [
+        2,
+        4
+      ],
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        },
+        {
+          "start": 174,
+          "end": 182
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "14 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 8 steps · 14 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k12": {
+      "key": "k12",
+      "kind": "journey",
+      "title": "How emails work",
+      "question": "What happens when a customer uses emails?",
+      "summary": "The path through worker for emails.",
+      "createdAt": "2026-10-11T12:00:00.000Z",
+      "files": [
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js",
+        "worker/emails.js"
+      ],
+      "stepTitles": [
+        "Step 1 of emails",
+        "Step 2 of emails",
+        "Step 3 of emails",
+        "Step 4 of emails",
+        "Step 5 of emails",
+        "Step 6 of emails",
+        "Step 7 of emails",
+        "Step 8 of emails",
+        "Step 9 of emails"
+      ],
+      "steps": 9,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        },
+        {
+          "start": 94,
+          "end": 102
+        },
+        {
+          "start": 106,
+          "end": 114
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "11 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 9 steps · 11 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k13": {
+      "key": "k13",
+      "kind": "journey",
+      "title": "How reports work",
+      "question": "What happens when a customer uses reports?",
+      "summary": "The path through worker for reports.",
+      "createdAt": "2026-10-08T12:00:00.000Z",
+      "files": [
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js",
+        "worker/reports.js"
+      ],
+      "stepTitles": [
+        "Step 1 of reports",
+        "Step 2 of reports",
+        "Step 3 of reports",
+        "Step 4 of reports",
+        "Step 5 of reports",
+        "Step 6 of reports",
+        "Step 7 of reports",
+        "Step 8 of reports",
+        "Step 9 of reports",
+        "Step 10 of reports"
+      ],
+      "steps": 10,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        },
+        {
+          "start": 134,
+          "end": 142
+        },
+        {
+          "start": 146,
+          "end": 154
+        },
+        {
+          "start": 158,
+          "end": 166
+        }
+      ],
+      "isNew": false,
+      "resume": 2,
+      "walkedAt": 1794830387000,
+      "area": "worker",
+      "age": "8 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 10 steps · 8 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k14": {
+      "key": "k14",
+      "kind": "journey",
+      "title": "How cleanup work",
+      "question": "What happens when a customer uses cleanup?",
+      "summary": "The path through worker for cleanup.",
+      "createdAt": "2026-10-05T12:00:00.000Z",
+      "files": [
+        "worker/cleanup.js",
+        "worker/cleanup.js",
+        "worker/cleanup.js",
+        "worker/cleanup.js"
+      ],
+      "stepTitles": [
+        "Step 1 of cleanup",
+        "Step 2 of cleanup",
+        "Step 3 of cleanup",
+        "Step 4 of cleanup"
+      ],
+      "steps": 4,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "5 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 4 steps · 5 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k15": {
+      "key": "k15",
+      "kind": "journey",
+      "title": "How imports work",
+      "question": "What happens when a customer uses imports?",
+      "summary": "The path through worker for imports.",
+      "createdAt": "2026-10-02T12:00:00.000Z",
+      "files": [
+        "worker/imports.js",
+        "worker/imports.js",
+        "worker/imports.js",
+        "worker/imports.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of imports",
+        "Step 2 of imports",
+        "Step 3 of imports",
+        "Step 4 of imports",
+        "Step 5 of imports"
+      ],
+      "steps": 5,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "2 Oct 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 5 steps · 2 Oct 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k16": {
+      "key": "k16",
+      "kind": "journey",
+      "title": "How thumbnails work",
+      "question": "What happens when a customer uses thumbnails?",
+      "summary": "The path through worker for thumbnails.",
+      "createdAt": "2026-09-29T12:00:00.000Z",
+      "files": [
+        "worker/thumbnails.js",
+        "worker/thumbnails.js",
+        "worker/thumbnails.js",
+        "worker/thumbnails.js",
+        "worker/thumbnails.js",
+        "worker/thumbnails.js"
+      ],
+      "stepTitles": [
+        "Step 1 of thumbnails",
+        "Step 2 of thumbnails",
+        "Step 3 of thumbnails",
+        "Step 4 of thumbnails",
+        "Step 5 of thumbnails",
+        "Step 6 of thumbnails"
+      ],
+      "steps": 6,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        }
+      ],
+      "isNew": true,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "29 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 6 steps · 29 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k17": {
+      "key": "k17",
+      "kind": "journey",
+      "title": "How reminders work",
+      "question": "What happens when a customer uses reminders?",
+      "summary": "The path through worker for reminders.",
+      "createdAt": "2026-09-26T12:00:00.000Z",
+      "files": [
+        "worker/reminders.js",
+        "worker/reminders.js",
+        "worker/reminders.js",
+        "worker/reminders.js",
+        "worker/reminders.js",
+        "worker/reminders.js",
+        "worker/reminders.js"
+      ],
+      "stepTitles": [
+        "Step 1 of reminders",
+        "Step 2 of reminders",
+        "Step 3 of reminders",
+        "Step 4 of reminders",
+        "Step 5 of reminders",
+        "Step 6 of reminders",
+        "Step 7 of reminders"
+      ],
+      "steps": 7,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "26 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 7 steps · 26 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k18": {
+      "key": "k18",
+      "kind": "journey",
+      "title": "How retries of payouts works end to end with a rather long title for the narrow panel",
+      "question": "What happens when a customer uses retries of payouts?",
+      "summary": "The path through worker for retries of payouts.",
+      "createdAt": "2026-09-23T12:00:00.000Z",
+      "files": [
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js",
+        "worker/retries-of-payouts.js"
+      ],
+      "stepTitles": [
+        "Step 1 of retries of payouts",
+        "Step 2 of retries of payouts",
+        "Step 3 of retries of payouts",
+        "Step 4 of retries of payouts",
+        "Step 5 of retries of payouts",
+        "Step 6 of retries of payouts",
+        "Step 7 of retries of payouts",
+        "Step 8 of retries of payouts"
+      ],
+      "steps": 8,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        },
+        {
+          "start": 94,
+          "end": 102
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "worker",
+      "age": "23 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "worker · 8 steps · 23 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k19": {
+      "key": "k19",
+      "kind": "journey",
+      "title": "How checkout page work",
+      "question": "What happens when a customer uses checkout page?",
+      "summary": "The path through web for checkout page.",
+      "createdAt": "2026-09-20T12:00:00.000Z",
+      "files": [
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js",
+        "web/checkout-page.js"
+      ],
+      "stepTitles": [
+        "Step 1 of checkout page",
+        "Step 2 of checkout page",
+        "Step 3 of checkout page",
+        "Step 4 of checkout page",
+        "Step 5 of checkout page",
+        "Step 6 of checkout page",
+        "Step 7 of checkout page",
+        "Step 8 of checkout page",
+        "Step 9 of checkout page"
+      ],
+      "steps": 9,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        },
+        {
+          "start": 134,
+          "end": 142
+        },
+        {
+          "start": 146,
+          "end": 154
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "8 wk",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 9 steps · 8 wk",
+      "hereText": "",
+      "hits": []
+    },
+    "k20": {
+      "key": "k20",
+      "kind": "journey",
+      "title": "How cart work",
+      "question": "What happens when a customer uses cart?",
+      "summary": "The path through web for cart.",
+      "createdAt": "2026-09-17T12:00:00.000Z",
+      "files": [
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "web/cart.js",
+        "api/store.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of cart",
+        "Step 2 of cart",
+        "Step 3 of cart",
+        "Step 4 of cart",
+        "Step 5 of cart",
+        "Step 6 of cart",
+        "Step 7 of cart",
+        "Step 8 of cart",
+        "Step 9 of cart",
+        "Step 10 of cart"
+      ],
+      "steps": 10,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        },
+        {
+          "start": 174,
+          "end": 182
+        },
+        {
+          "start": 186,
+          "end": 194
+        },
+        {
+          "start": 198,
+          "end": 206
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "17 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 10 steps · 17 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k21": {
+      "key": "k21",
+      "kind": "journey",
+      "title": "How login form work",
+      "question": "What happens when a customer uses login form?",
+      "summary": "The path through web for login form.",
+      "createdAt": "2026-09-14T12:00:00.000Z",
+      "files": [
+        "web/login-form.js",
+        "web/login-form.js",
+        "web/login-form.js",
+        "web/login-form.js"
+      ],
+      "stepTitles": [
+        "Step 1 of login form",
+        "Step 2 of login form",
+        "Step 3 of login form",
+        "Step 4 of login form"
+      ],
+      "steps": 4,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "14 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 4 steps · 14 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k22": {
+      "key": "k22",
+      "kind": "journey",
+      "title": "How product page work",
+      "question": "What happens when a customer uses product page?",
+      "summary": "The path through web for product page.",
+      "createdAt": "2026-09-11T12:00:00.000Z",
+      "files": [
+        "web/product-page.js",
+        "web/product-page.js",
+        "web/product-page.js",
+        "web/product-page.js",
+        "web/product-page.js"
+      ],
+      "stepTitles": [
+        "Step 1 of product page",
+        "Step 2 of product page",
+        "Step 3 of product page",
+        "Step 4 of product page",
+        "Step 5 of product page"
+      ],
+      "steps": 5,
+      "stale": 2,
+      "staleSteps": [
+        2,
+        4
+      ],
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "11 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 5 steps · 11 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k23": {
+      "key": "k23",
+      "kind": "journey",
+      "title": "How admin table work",
+      "question": "What happens when a customer uses admin table?",
+      "summary": "The path through web for admin table.",
+      "createdAt": "2026-09-08T12:00:00.000Z",
+      "files": [
+        "web/admin-table.js",
+        "web/admin-table.js",
+        "web/admin-table.js",
+        "web/admin-table.js",
+        "web/admin-table.js",
+        "web/admin-table.js"
+      ],
+      "stepTitles": [
+        "Step 1 of admin table",
+        "Step 2 of admin table",
+        "Step 3 of admin table",
+        "Step 4 of admin table",
+        "Step 5 of admin table",
+        "Step 6 of admin table"
+      ],
+      "steps": 6,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "8 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 6 steps · 8 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k24": {
+      "key": "k24",
+      "kind": "journey",
+      "title": "How search box work",
+      "question": "What happens when a customer uses search box?",
+      "summary": "The path through web for search box.",
+      "createdAt": "2026-09-05T12:00:00.000Z",
+      "files": [
+        "web/search-box.js",
+        "web/search-box.js",
+        "web/search-box.js",
+        "web/search-box.js",
+        "web/search-box.js",
+        "web/search-box.js",
+        "web/search-box.js"
+      ],
+      "stepTitles": [
+        "Step 1 of search box",
+        "Step 2 of search box",
+        "Step 3 of search box",
+        "Step 4 of search box",
+        "Step 5 of search box",
+        "Step 6 of search box",
+        "Step 7 of search box"
+      ],
+      "steps": 7,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        }
+      ],
+      "isNew": true,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "5 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 7 steps · 5 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k25": {
+      "key": "k25",
+      "kind": "journey",
+      "title": "How settings work",
+      "question": "What happens when a customer uses settings?",
+      "summary": "The path through web for settings.",
+      "createdAt": "2026-09-02T12:00:00.000Z",
+      "files": [
+        "web/settings.js",
+        "web/settings.js",
+        "web/settings.js",
+        "web/settings.js",
+        "web/settings.js",
+        "web/settings.js",
+        "web/settings.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of settings",
+        "Step 2 of settings",
+        "Step 3 of settings",
+        "Step 4 of settings",
+        "Step 5 of settings",
+        "Step 6 of settings",
+        "Step 7 of settings",
+        "Step 8 of settings"
+      ],
+      "steps": 8,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        },
+        {
+          "start": 134,
+          "end": 142
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "2 Sep 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 8 steps · 2 Sep 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k26": {
+      "key": "k26",
+      "kind": "journey",
+      "title": "How invoices page work",
+      "question": "What happens when a customer uses invoices page?",
+      "summary": "The path through web for invoices page.",
+      "createdAt": "2026-08-30T12:00:00.000Z",
+      "files": [
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js",
+        "web/invoices-page.js"
+      ],
+      "stepTitles": [
+        "Step 1 of invoices page",
+        "Step 2 of invoices page",
+        "Step 3 of invoices page",
+        "Step 4 of invoices page",
+        "Step 5 of invoices page",
+        "Step 6 of invoices page",
+        "Step 7 of invoices page",
+        "Step 8 of invoices page",
+        "Step 9 of invoices page"
+      ],
+      "steps": 9,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        },
+        {
+          "start": 174,
+          "end": 182
+        },
+        {
+          "start": 186,
+          "end": 194
+        }
+      ],
+      "isNew": false,
+      "resume": 2,
+      "walkedAt": 1794830374000,
+      "area": "web",
+      "age": "30 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 9 steps · 30 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k27": {
+      "key": "k27",
+      "kind": "journey",
+      "title": "How order history works end to end with a rather long title for the narrow panel",
+      "question": "What happens when a customer uses order history?",
+      "summary": "The path through web for order history.",
+      "createdAt": "2026-08-27T12:00:00.000Z",
+      "files": [
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js",
+        "web/order-history.js"
+      ],
+      "stepTitles": [
+        "Step 1 of order history",
+        "Step 2 of order history",
+        "Step 3 of order history",
+        "Step 4 of order history",
+        "Step 5 of order history",
+        "Step 6 of order history",
+        "Step 7 of order history",
+        "Step 8 of order history",
+        "Step 9 of order history",
+        "Step 10 of order history"
+      ],
+      "steps": 10,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        },
+        {
+          "start": 94,
+          "end": 102
+        },
+        {
+          "start": 106,
+          "end": 114
+        },
+        {
+          "start": 118,
+          "end": 126
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "web",
+      "age": "27 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "web · 10 steps · 27 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k28": {
+      "key": "k28",
+      "kind": "journey",
+      "title": "How card tokens work",
+      "question": "What happens when a customer uses card tokens?",
+      "summary": "The path through payments for card tokens.",
+      "createdAt": "2026-08-24T12:00:00.000Z",
+      "files": [
+        "payments/card-tokens.js",
+        "payments/card-tokens.js",
+        "payments/card-tokens.js",
+        "payments/card-tokens.js"
+      ],
+      "stepTitles": [
+        "Step 1 of card tokens",
+        "Step 2 of card tokens",
+        "Step 3 of card tokens",
+        "Step 4 of card tokens"
+      ],
+      "steps": 4,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "payments",
+      "age": "24 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "payments · 4 steps · 24 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k29": {
+      "key": "k29",
+      "kind": "journey",
+      "title": "How refund flow work",
+      "question": "What happens when a customer uses refund flow?",
+      "summary": "The path through payments for refund flow.",
+      "createdAt": "2026-08-21T12:00:00.000Z",
+      "files": [
+        "payments/refund-flow.js",
+        "payments/refund-flow.js",
+        "payments/refund-flow.js",
+        "payments/refund-flow.js",
+        "payments/refund-flow.js"
+      ],
+      "stepTitles": [
+        "Step 1 of refund flow",
+        "Step 2 of refund flow",
+        "Step 3 of refund flow",
+        "Step 4 of refund flow",
+        "Step 5 of refund flow"
+      ],
+      "steps": 5,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "payments",
+      "age": "21 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "payments · 5 steps · 21 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k30": {
+      "key": "k30",
+      "kind": "journey",
+      "title": "How disputes work",
+      "question": "What happens when a customer uses disputes?",
+      "summary": "The path through payments for disputes.",
+      "createdAt": "2026-08-18T12:00:00.000Z",
+      "files": [
+        "payments/disputes.js",
+        "payments/disputes.js",
+        "payments/disputes.js",
+        "payments/disputes.js",
+        "api/store.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of disputes",
+        "Step 2 of disputes",
+        "Step 3 of disputes",
+        "Step 4 of disputes",
+        "Step 5 of disputes",
+        "Step 6 of disputes"
+      ],
+      "steps": 6,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "payments",
+      "age": "18 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "payments · 6 steps · 18 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k31": {
+      "key": "k31",
+      "kind": "journey",
+      "title": "How currency rounding work",
+      "question": "What happens when a customer uses currency rounding?",
+      "summary": "The path through payments for currency rounding.",
+      "createdAt": "2026-08-15T12:00:00.000Z",
+      "files": [
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js",
+        "payments/currency-rounding.js"
+      ],
+      "stepTitles": [
+        "Step 1 of currency rounding",
+        "Step 2 of currency rounding",
+        "Step 3 of currency rounding",
+        "Step 4 of currency rounding",
+        "Step 5 of currency rounding",
+        "Step 6 of currency rounding",
+        "Step 7 of currency rounding"
+      ],
+      "steps": 7,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "payments",
+      "age": "15 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "payments · 7 steps · 15 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k32": {
+      "key": "k32",
+      "kind": "journey",
+      "title": "How payouts work",
+      "question": "What happens when a customer uses payouts?",
+      "summary": "The path through payments for payouts.",
+      "createdAt": "2026-08-12T12:00:00.000Z",
+      "files": [
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js",
+        "payments/payouts.js"
+      ],
+      "stepTitles": [
+        "Step 1 of payouts",
+        "Step 2 of payouts",
+        "Step 3 of payouts",
+        "Step 4 of payouts",
+        "Step 5 of payouts",
+        "Step 6 of payouts",
+        "Step 7 of payouts",
+        "Step 8 of payouts"
+      ],
+      "steps": 8,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        },
+        {
+          "start": 138,
+          "end": 146
+        },
+        {
+          "start": 150,
+          "end": 158
+        },
+        {
+          "start": 162,
+          "end": 170
+        },
+        {
+          "start": 174,
+          "end": 182
+        }
+      ],
+      "isNew": true,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "payments",
+      "age": "12 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "payments · 8 steps · 12 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k33": {
+      "key": "k33",
+      "kind": "journey",
+      "title": "How loading settings work",
+      "question": "What happens when a customer uses loading settings?",
+      "summary": "The path through config for loading settings.",
+      "createdAt": "2026-08-09T12:00:00.000Z",
+      "files": [
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js",
+        "config/loading-settings.js"
+      ],
+      "stepTitles": [
+        "Step 1 of loading settings",
+        "Step 2 of loading settings",
+        "Step 3 of loading settings",
+        "Step 4 of loading settings",
+        "Step 5 of loading settings",
+        "Step 6 of loading settings",
+        "Step 7 of loading settings",
+        "Step 8 of loading settings",
+        "Step 9 of loading settings"
+      ],
+      "steps": 9,
+      "stale": 2,
+      "staleSteps": [
+        2,
+        4
+      ],
+      "ranges": [
+        {
+          "start": 10,
+          "end": 18
+        },
+        {
+          "start": 22,
+          "end": 30
+        },
+        {
+          "start": 34,
+          "end": 42
+        },
+        {
+          "start": 46,
+          "end": 54
+        },
+        {
+          "start": 58,
+          "end": 66
+        },
+        {
+          "start": 70,
+          "end": 78
+        },
+        {
+          "start": 82,
+          "end": 90
+        },
+        {
+          "start": 94,
+          "end": 102
+        },
+        {
+          "start": 106,
+          "end": 114
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "config",
+      "age": "9 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "config · 9 steps · 9 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k34": {
+      "key": "k34",
+      "kind": "journey",
+      "title": "How feature flags work",
+      "question": "What happens when a customer uses feature flags?",
+      "summary": "The path through config for feature flags.",
+      "createdAt": "2026-08-06T12:00:00.000Z",
+      "files": [
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js",
+        "config/feature-flags.js"
+      ],
+      "stepTitles": [
+        "Step 1 of feature flags",
+        "Step 2 of feature flags",
+        "Step 3 of feature flags",
+        "Step 4 of feature flags",
+        "Step 5 of feature flags",
+        "Step 6 of feature flags",
+        "Step 7 of feature flags",
+        "Step 8 of feature flags",
+        "Step 9 of feature flags",
+        "Step 10 of feature flags"
+      ],
+      "steps": 10,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 50,
+          "end": 58
+        },
+        {
+          "start": 62,
+          "end": 70
+        },
+        {
+          "start": 74,
+          "end": 82
+        },
+        {
+          "start": 86,
+          "end": 94
+        },
+        {
+          "start": 98,
+          "end": 106
+        },
+        {
+          "start": 110,
+          "end": 118
+        },
+        {
+          "start": 122,
+          "end": 130
+        },
+        {
+          "start": 134,
+          "end": 142
+        },
+        {
+          "start": 146,
+          "end": 154
+        },
+        {
+          "start": 158,
+          "end": 166
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "config",
+      "age": "6 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "config · 10 steps · 6 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    },
+    "k35": {
+      "key": "k35",
+      "kind": "journey",
+      "title": "How secrets work",
+      "question": "What happens when a customer uses secrets?",
+      "summary": "The path through config for secrets.",
+      "createdAt": "2026-08-03T12:00:00.000Z",
+      "files": [
+        "config/secrets.js",
+        "config/secrets.js",
+        "config/secrets.js",
+        "api/store.js"
+      ],
+      "stepTitles": [
+        "Step 1 of secrets",
+        "Step 2 of secrets",
+        "Step 3 of secrets",
+        "Step 4 of secrets"
+      ],
+      "steps": 4,
+      "stale": 0,
+      "ranges": [
+        {
+          "start": 90,
+          "end": 98
+        },
+        {
+          "start": 102,
+          "end": 110
+        },
+        {
+          "start": 114,
+          "end": 122
+        },
+        {
+          "start": 126,
+          "end": 134
+        }
+      ],
+      "isNew": false,
+      "resume": 0,
+      "walkedAt": "[undefined]",
+      "area": "config",
+      "age": "3 Aug 12:00",
+      "here": false,
+      "hereSteps": 0,
+      "atCursor": false,
+      "cursorSteps": 0,
+      "meta": "config · 4 steps · 3 Aug 12:00",
+      "hereText": "",
+      "hits": []
+    }
+  },
+  "query": "",
+  "sort": "newest",
+  "searchSort": "newest",
+  "kind": "all",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13",
+        "k26"
+      ]
+    },
+    {
+      "id": "new",
+      "label": "New",
+      "keys": [
+        "k8",
+        "k16",
+        "k24",
+        "k32"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "Newest",
+      "keys": [
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+        "k5",
+        "k6",
+        "k7",
+        "k9",
+        "k10",
+        "k11",
+        "k12",
+        "k14",
+        "k15",
+        "k17",
+        "k18",
+        "k19",
+        "k20",
+        "k21",
+        "k22",
+        "k23",
+        "k25",
+        "k27",
+        "k28",
+        "k29",
+        "k30",
+        "k31",
+        "k33",
+        "k34",
+        "k35"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13",
+        "k26"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+        "k5",
+        "k6",
+        "k7",
+        "k8",
+        "k9",
+        "k10",
+        "k11",
+        "k12",
+        "k13",
+        "k14",
+        "k15",
+        "k16",
+        "k17",
+        "k18",
+        "k19",
+        "k20",
+        "k21",
+        "k22",
+        "k23",
+        "k24",
+        "k25",
+        "k26",
+        "k27",
+        "k28",
+        "k29",
+        "k30",
+        "k31",
+        "k32",
+        "k33",
+        "k34",
+        "k35"
+      ]
+    }
+  ],
+  "count": 35,
+  "total": 35
+}

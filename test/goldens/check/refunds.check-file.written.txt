@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "branch": "feat/refunds",
+  "base": "<sha1>",
+  "head": "<sha2>",
+  "diffStat": {
+    "files": 6,
+    "added": 81,
+    "removed": 1
+  },
+  "answeredBy": {
+    "name": "Ada",
+    "email": "ada@example.com"
+  },
+  "createdAt": "<time>",
+  "questions": [
+    {
+      "id": "q1",
+      "kind": "failure",
+      "text": "If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?",
+      "file": "worker/notify.js",
+      "start": 33,
+      "end": 39,
+      "anchor": {
+        "v": 3,
+        "head": "// A refund was made: tell the customer how much comes back to their card.\nasync function refundNotice({ number, refund }) {\n  const { rows: [r] } = await pool.query(",
+        "tail": "  await sendMail(r.email, `Refund for order #${number}`, text)\n}",
+        "lines": 7,
+        "hash": "06c5014e5e18",
+        "before": "}",
+        "after": "const handlers = { order_confirmation: orderConfirmation, refund_notice: refundNotice }"
+      }
+    },
+    {
+      "id": "q2",
+      "kind": "edge",
+      "text": "What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?",
+      "file": "api/refunds.js",
+      "start": 11,
+      "end": 13,
+      "anchor": {
+        "v": 3,
+        "head": "  const { rows: [prev] } = await pool.query(\n    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n  if (prev) return { refund: prev, replayed: true }",
+        "tail": "    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n  if (prev) return { refund: prev, replayed: true }",
+        "lines": 3,
+        "hash": "3fcd2a81cd17",
+        "before": "  if (!Number.isInteger(amount) || amount < 1) throw new RefundError(422, 'The amount must be a whole number of cents.')",
+        "after": "  const client = await pool.connect()"
+      }
+    },
+    {
+      "id": "q3",
+      "kind": "why",
+      "text": "Why is the order row locked before the remaining refundable amount is checked?",
+      "file": "api/refunds.js",
+      "start": 18,
+      "end": 20,
+      "anchor": {
+        "v": 3,
+        "head": "    const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE number = $1 FOR UPDATE', [number])\n    if (!order) throw new RefundError(404, 'Order not found')\n    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)",
+        "tail": "    if (!order) throw new RefundError(404, 'Order not found')\n    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)",
+        "lines": 3,
+        "hash": "67596c93f04f",
+        "before": "    await client.query('BEGIN')",
+        "after": "    const { rows: [refund] } = await client.query("
+      }
+    },
+    {
+      "id": "q4",
+      "kind": "failure",
+      "text": "Where do the low-stock alerts end up once this runs in production?",
+      "file": "worker/alerts.js",
+      "start": 5,
+      "end": 12,
+      "anchor": {
+        "v": 3,
+        "head": "const OPS_EMAIL = process.env.OPS_EMAIL\nexport async function checkStock() {\n  const { rows } = await pool.query('SELECT id, name, stock, low_at FROM products WHERE stock < low_at')",
+        "tail": "  await sendMail(OPS_EMAIL, `Low stock: ${rows.length} products`, text)\n  return rows.length",
+        "lines": 8,
+        "hash": "e0e46c0b7751",
+        "before": "import { sendMail } from './notify.js'",
+        "after": "}"
+      }
+    },
+    {
+      "id": "q5",
+      "kind": "why",
+      "text": "Why does every refunded unit go back into product stock, even when staff refund without a return?",
+      "file": "api/restock.js",
+      "start": 3,
+      "end": 6,
+      "anchor": {
+        "v": 3,
+        "head": "  for (const { sku, qty } of items) {\n    await client.query('INSERT INTO refund_items (order_number, sku, qty) VALUES ($1, $2, $3)', [number, sku, qty])\n    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])",
+        "tail": "    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])\n  }",
+        "lines": 4,
+        "hash": "5467cf1983f2",
+        "before": "export async function refundItems(client, number, items) {",
+        "after": "}"
+      }
+    },
+    {
+      "id": "q6",
+      "kind": "edge",
+      "text": "What does the refund handler answer for an order that was never paid at all?",
+      "file": "api/refunds.js",
+      "target": "file"
+    }
+  ],
+  "result": {
+    "done": 0,
+    "passed": 0,
+    "total": 6,
+    "needed": 4,
+    "verdict": "fail",
+    "at": "<time>"
+  }
+}

@@ -1,0 +1,240 @@
+[
+  {
+    "id": "add",
+    "files": [],
+    "written": {
+      "lead": "The button posts the product id; the API keeps the cart in the database.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The button posts the product id; the API keeps the cart in the database.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The button posts the product id; the API keeps the cart in the database.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The button posts the product id; the API keeps the cart in the database.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "confirm",
+    "files": [],
+    "written": {
+      "lead": "The API stores the order as pending and answers at once.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The API stores the order as pending and answers at once.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The API stores the order as pending and answers at once.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The API stores the order as pending and answers at once.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "live",
+    "files": [],
+    "written": {
+      "lead": "The page streams a camera picture and a support chat.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The page streams a camera picture and a support chat.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The page streams a camera picture and a support chat.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The page streams a camera picture and a support chat.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "queue",
+    "files": [],
+    "written": {
+      "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "deploy",
+    "files": [],
+    "written": {
+      "lead": "A deploy script starts a fresh worker; the old one stops.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "A deploy script starts a fresh worker; the old one stops.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "A deploy script starts a fresh worker; the old one stops.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "A deploy script starts a fresh worker; the old one stops.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "receipt",
+    "files": [],
+    "written": {
+      "lead": "The receipt is a text file; an assistant answers questions about it.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The receipt is a text file; an assistant answers questions about it.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The receipt is a text file; an assistant answers questions about it.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The receipt is a text file; an assistant answers questions about it.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  },
+  {
+    "id": "session",
+    "files": [],
+    "written": {
+      "lead": "The API answers 401; the web app shows the sign-in page.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "movedDown3": {
+      "lead": "The API answers 401; the web app shows the sign-in page.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "detailsOpenWithFacts": {
+      "lead": "The API answers 401; the web app shows the sign-in page.",
+      "details": "",
+      "refs": "",
+      "stale": false
+    },
+    "stale": {
+      "lead": "The API answers 401; the web app shows the sign-in page.",
+      "details": "",
+      "refs": "",
+      "stale": true
+    },
+    "staleBanner": [
+      "**⚠ Code changed** · Ask to refresh",
+      "**⚠ Code changed: can't find these lines** · Ask",
+      "**⚠ File moved or deleted** · Ask",
+      ""
+    ]
+  }
+]

@@ -1,0 +1,7183 @@
+[
+  {
+    "name": "a good file: no problems, unknown fields (say) accepted",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9,
+          "say": "spoken intro",
+          "extra": 1
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19,
+          "say": "spoken a1",
+          "extra": 1
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29,
+          "say": "spoken b",
+          "extra": 1
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39,
+          "say": "spoken c2",
+          "extra": 1
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100,
+          "say": "spoken outro",
+          "extra": 1
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9,
+          "say": "spoken intro",
+          "extra": 1
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19,
+          "say": "spoken a1",
+          "extra": 1
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29,
+          "say": "spoken b",
+          "extra": 1
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39,
+          "say": "spoken c2",
+          "extra": 1
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100,
+          "say": "spoken outro",
+          "extra": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "invalid JSON",
+    "problems": [
+      {
+        "level": "error",
+        "code": "json",
+        "message": "not valid JSON: line 1, column 47: the file ends too early (cut off?)",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 46,
+        "end": 46
+      }
+    ],
+    "syntax": "line 1, column 47: the file ends too early (cut off?)",
+    "parsed": "not JSON: Unexpected end of JSON input"
+  },
+  {
+    "name": "an empty file",
+    "problems": [
+      {
+        "level": "error",
+        "code": "json",
+        "message": "the file is empty",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 0,
+        "end": 0
+      }
+    ],
+    "syntax": "line 1, column 1: the file ends too early (cut off?)",
+    "parsed": "not JSON: Unexpected end of JSON input"
+  },
+  {
+    "name": "not an object",
+    "problems": [
+      {
+        "level": "error",
+        "code": "object",
+        "message": "not a podcast: the file is not a JSON object",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 0,
+        "end": 6
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "not an object"
+  },
+  {
+    "name": "version 2",
+    "problems": [
+      {
+        "level": "error",
+        "code": "version",
+        "message": "version 2: this player reads version 1",
+        "path": [
+          "version"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 4,
+        "end": 16
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "version 2 (this player reads version 1)"
+  },
+  {
+    "name": "no version",
+    "problems": [
+      {
+        "level": "error",
+        "code": "version",
+        "message": "no \"version\" (this player reads version 1)",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 0,
+        "end": 878
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "version undefined (this player reads version 1)"
+  },
+  {
+    "name": "no audio field",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio",
+        "message": "no \"audio\": the audio file, relative to this file",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 0,
+        "end": 874
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "no \"audio\" file"
+  },
+  {
+    "name": "audio outside the journeys folder",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "../x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio-outside",
+        "message": "audio must be in the journeys folder (got ../x.mp3)",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 89
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "../x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio by absolute path",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "/tmp/x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio-outside",
+        "message": "audio must be in the journeys folder, as a path relative to the podcast file (got /tmp/x.mp3)",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 91
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "/tmp/x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio as a URL",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "https://example.com/x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio-outside",
+        "message": "audio must be a file in the journeys folder, not a URL (got https://example.com/x.mp3)",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 106
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "https://example.com/x.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio in a subfolder is fine",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "audio/../audio/j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "audio/../audio/j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio file missing",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio-missing",
+        "message": "the audio file j.mp3 isn't there",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 86
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio file empty",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "audio-empty",
+        "message": "the audio file j.mp3 is empty",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 86
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "segments missing",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": []
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "segments",
+        "message": "no \"segments\": the parts of the episode",
+        "path": []
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 0,
+        "end": 107
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "no \"segments\""
+  },
+  {
+    "name": "segments empty",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": []
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "segments",
+        "message": "\"segments\" is empty: the episode has no parts",
+        "path": [
+          "segments"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 109,
+        "end": 123
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "\"segments\" is empty"
+  },
+  {
+    "name": "segments not a list",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": []
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "segments",
+        "message": "\"segments\" is not a list (it is an object)",
+        "path": [
+          "segments"
+        ]
+      }
+    ],
+    "playable": false,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 109,
+        "end": 264
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": "\"segments\" is not a list"
+  },
+  {
+    "name": "no segment has a start",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "x",
+          "at": null
+        }
+      ]
+    },
+    "episode": "[undefined]",
+    "problems": [
+      {
+        "level": "error",
+        "code": "segments",
+        "message": "no segment has a start time: nothing to play",
+        "path": [
+          "segments"
+        ]
+      },
+      {
+        "level": "warning",
+        "code": "start",
+        "message": "segment x: no start time; skipped",
+        "path": [
+          "segments",
+          0
+        ],
+        "segment": "x"
+      }
+    ],
+    "playable": false,
+    "notice": "2 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 109,
+        "end": 172
+      },
+      {
+        "start": 127,
+        "end": 168
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "x",
+          "at": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "a segment that is not an object is skipped",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "segment",
+        "message": "segment #6 is not an object; skipped",
+        "path": [
+          "segments",
+          5
+        ]
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 894,
+        "end": 900
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "broken links: a beat out of range, an unknown step, a bad at",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a9",
+          "at": {
+            "step": "a",
+            "beat": 9
+          },
+          "speaker": "host",
+          "text": "a9",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "x",
+          "at": {
+            "step": "nope"
+          },
+          "speaker": "host",
+          "text": "x",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "bad",
+          "at": "step c",
+          "speaker": "host",
+          "text": "bad",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "none",
+          "at": null,
+          "speaker": "host",
+          "text": "none",
+          "start": 40,
+          "end": 50
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a9",
+          "start": 10,
+          "end": 19,
+          "text": "a9",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        },
+        {
+          "id": "x",
+          "start": 20,
+          "end": 29,
+          "text": "x",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        },
+        {
+          "id": "bad",
+          "start": 30,
+          "end": 39,
+          "text": "bad",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        },
+        {
+          "id": "none",
+          "start": 40,
+          "end": 50,
+          "text": "none",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 40,
+          "step": 1
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [
+        "Step 1: no beat 9 (it has 3); showing the whole step",
+        "step \"nope\" isn't in the journey (segment x, 0:20–0:29): it keeps the view before it",
+        "segment bad: \"at\" is not null or { step, beat }; it keeps the view before it"
+      ],
+      "problems": [
+        {
+          "level": "warning",
+          "code": "beat",
+          "message": "Step 1: no beat 9 (it has 3); showing the whole step",
+          "path": [
+            "segments",
+            1,
+            "at",
+            "beat"
+          ],
+          "segment": "a9"
+        },
+        {
+          "level": "warning",
+          "code": "step",
+          "path": [
+            "segments",
+            2,
+            "at",
+            "step"
+          ],
+          "segment": "x",
+          "segments": [
+            "x"
+          ],
+          "message": "step \"nope\" isn't in the journey (segment x, 0:20–0:29): it keeps the view before it"
+        },
+        {
+          "level": "warning",
+          "code": "at",
+          "message": "segment bad: \"at\" is not null or { step, beat }; it keeps the view before it",
+          "path": [
+            "segments",
+            3,
+            "at"
+          ],
+          "segment": "bad"
+        }
+      ]
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "beat",
+        "message": "Step 1: no beat 9 (it has 3); showing the whole step",
+        "path": [
+          "segments",
+          1,
+          "at",
+          "beat"
+        ],
+        "segment": "a9"
+      },
+      {
+        "level": "warning",
+        "code": "step",
+        "path": [
+          "segments",
+          2,
+          "at",
+          "step"
+        ],
+        "segment": "x",
+        "segments": [
+          "x"
+        ],
+        "message": "step \"nope\" isn't in the journey (segment x, 0:20–0:29): it keeps the view before it"
+      },
+      {
+        "level": "warning",
+        "code": "at",
+        "message": "segment bad: \"at\" is not null or { step, beat }; it keeps the view before it",
+        "path": [
+          "segments",
+          3,
+          "at"
+        ],
+        "segment": "bad"
+      }
+    ],
+    "playable": true,
+    "notice": "3 problems",
+    "broken": 3,
+    "spans": [
+      {
+        "start": 323,
+        "end": 332
+      },
+      {
+        "start": 474,
+        "end": 488
+      },
+      {
+        "start": 615,
+        "end": 629
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a9",
+          "at": {
+            "step": "a",
+            "beat": 9
+          },
+          "speaker": "host",
+          "text": "a9",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "x",
+          "at": {
+            "step": "nope"
+          },
+          "speaker": "host",
+          "text": "x",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "bad",
+          "at": "step c",
+          "speaker": "host",
+          "text": "bad",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "none",
+          "at": null,
+          "speaker": "host",
+          "text": "none",
+          "start": 40,
+          "end": 50
+        }
+      ]
+    }
+  },
+  {
+    "name": "a missing at",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "noat",
+          "start": 10,
+          "end": 20
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "noat",
+          "start": 10,
+          "end": 20,
+          "text": "",
+          "speaker": "",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [
+        "segment noat: \"at\" is missing; it keeps the view before it"
+      ],
+      "problems": [
+        {
+          "level": "warning",
+          "code": "at",
+          "message": "segment noat: \"at\" is missing; it keeps the view before it",
+          "path": [
+            "segments",
+            1
+          ],
+          "segment": "noat"
+        }
+      ]
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "at",
+        "message": "segment noat: \"at\" is missing; it keeps the view before it",
+        "path": [
+          "segments",
+          1
+        ],
+        "segment": "noat"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 1,
+    "spans": [
+      {
+        "start": 260,
+        "end": 322
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "noat",
+          "start": 10,
+          "end": 20
+        }
+      ]
+    }
+  },
+  {
+    "name": "overlap, out of order, end before start",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 8,
+          "end": 20
+        },
+        {
+          "id": "s4",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "s4",
+          "start": 40,
+          "end": 50
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "c"
+          },
+          "speaker": "host",
+          "text": "s3",
+          "start": 30,
+          "end": 25
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 10,
+          "text": "s1",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 8,
+          "end": 20,
+          "text": "s2",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        },
+        {
+          "id": "s3",
+          "start": 30,
+          "end": 30,
+          "text": "s3",
+          "speaker": "host",
+          "step": 3,
+          "stepId": "c"
+        },
+        {
+          "id": "s4",
+          "start": 40,
+          "end": 50,
+          "text": "s4",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 8,
+          "step": 0
+        },
+        {
+          "start": 8,
+          "end": 30,
+          "step": 1
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "overlap",
+        "message": "segment s2: starts at 0:08, before segment s1 ends (0:10): the later one wins from its start",
+        "path": [
+          "segments",
+          1,
+          "start"
+        ],
+        "segment": "s2"
+      },
+      {
+        "level": "warning",
+        "code": "narration-order",
+        "message": "segment s4: narrates step 2 (\"b\") after step 3 (\"c\"): the journey's steps were reordered since it was recorded; re-record it, or put the steps back",
+        "path": [
+          "segments",
+          2,
+          "at",
+          "step"
+        ],
+        "segment": "s4"
+      },
+      {
+        "level": "warning",
+        "code": "end-before-start",
+        "message": "segment s3: ends at 0:25, before it starts (0:30)",
+        "path": [
+          "segments",
+          3,
+          "end"
+        ],
+        "segment": "s3"
+      },
+      {
+        "level": "warning",
+        "code": "order",
+        "message": "segment s3: starts at 0:30, before segment s4 above it (0:40): segments play in time order, not in file order",
+        "path": [
+          "segments",
+          3,
+          "start"
+        ],
+        "segment": "s3"
+      }
+    ],
+    "playable": true,
+    "notice": "4 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 369,
+        "end": 379
+      },
+      {
+        "start": 450,
+        "end": 461
+      },
+      {
+        "start": 695,
+        "end": 704
+      },
+      {
+        "start": 676,
+        "end": 687
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 8,
+          "end": 20
+        },
+        {
+          "id": "s4",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "s4",
+          "start": 40,
+          "end": 50
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "c"
+          },
+          "speaker": "host",
+          "text": "s3",
+          "start": 30,
+          "end": 25
+        }
+      ]
+    }
+  },
+  {
+    "name": "end past the declared duration",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 10,
+          "end": 150
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 150,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 10,
+          "text": "s1",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 10,
+          "end": 150,
+          "text": "s2",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 150,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "past-duration",
+        "message": "segment s2: ends at 2:30, after the episode's \"duration\" (1:40)",
+        "path": [
+          "segments",
+          1,
+          "end"
+        ],
+        "segment": "s2"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 388,
+        "end": 398
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 10,
+          "end": 150
+        }
+      ]
+    }
+  },
+  {
+    "name": "a start that is not a number is skipped",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": "10",
+          "end": 20
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 10,
+          "text": "s1",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "start",
+        "message": "segment s2: start \"10\" is not a time in seconds; skipped",
+        "path": [
+          "segments",
+          1,
+          "start"
+        ],
+        "segment": "s2"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 369,
+        "end": 382
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": "10",
+          "end": 20
+        }
+      ]
+    }
+  },
+  {
+    "name": "an end that is not a number",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 10,
+          "end": "x"
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 10,
+          "text": "s1",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 10,
+          "end": 100,
+          "text": "s2",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 100,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "end",
+        "message": "segment s2: end \"x\" is not a time in seconds; it ends where the next one starts",
+        "path": [
+          "segments",
+          1,
+          "end"
+        ],
+        "segment": "s2"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 388,
+        "end": 398
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s2",
+          "start": 10,
+          "end": "x"
+        }
+      ]
+    }
+  },
+  {
+    "name": "a duplicate id and an unknown cue",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s1",
+          "start": 10,
+          "end": 20,
+          "cue": "zoom"
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 10,
+          "text": "s1",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s1",
+          "start": 10,
+          "end": 20,
+          "text": "s1",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 100,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "id",
+        "message": "segment s1: the id \"s1\" is used twice (0:00 and 0:10)",
+        "path": [
+          "segments",
+          1,
+          "id"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "cue",
+        "message": "segment s1: cue \"zoom\" is not map, open or beat; ignored",
+        "path": [
+          "segments",
+          1,
+          "cue"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "2 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 263,
+        "end": 273
+      },
+      {
+        "start": 405,
+        "end": 418
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "s1",
+          "start": 0,
+          "end": 10
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "s1",
+          "start": 10,
+          "end": 20,
+          "cue": "zoom"
+        }
+      ]
+    }
+  },
+  {
+    "name": "duration is not a number",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": "[undefined]",
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "duration",
+        "message": "\"duration\" \"12:47\" is not a length in seconds; ignored",
+        "path": [
+          "duration"
+        ]
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 90,
+        "end": 109
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": "[undefined]",
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "written for another journey",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "other",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "journey",
+        "message": "written for journey \"other\", but it is next to \"j\": it plays with the journey next to it",
+        "path": [
+          "journey",
+          "id"
+        ]
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 53,
+        "end": 66
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "other",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "declared duration differs from the audio",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "duration",
+        "message": "\"duration\" says 1:40 but the audio is 1:30 long",
+        "path": [
+          "duration"
+        ]
+      },
+      {
+        "level": "warning",
+        "code": "past-audio",
+        "message": "segment outro: ends at 1:40, after the audio's end (1:30)",
+        "path": [
+          "segments",
+          4,
+          "end"
+        ],
+        "segment": "outro"
+      }
+    ],
+    "playable": true,
+    "notice": "2 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 90,
+        "end": 105
+      },
+      {
+        "start": 872,
+        "end": 882
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "cut-off audio: one plain warning",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "audio-short",
+        "message": "The audio is 0:13 long but the episode is 1:40: the file looks cut off (3 parts start after its end)",
+        "path": [
+          "audio"
+        ]
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 70,
+        "end": 86
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "audio a little longer than the duration is fine",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a1",
+          "start": 10,
+          "end": 19,
+          "text": "a1",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 20,
+          "end": 29,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        },
+        {
+          "id": "c2",
+          "start": 30,
+          "end": 39,
+          "text": "c2",
+          "speaker": "host",
+          "step": 3,
+          "beat": 1,
+          "stepId": "c"
+        },
+        {
+          "id": "outro",
+          "start": 40,
+          "end": 100,
+          "text": "outro",
+          "speaker": "host",
+          "step": 0
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 2
+        },
+        {
+          "start": 30,
+          "end": 40,
+          "step": 3
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 0
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "a1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "c2",
+          "at": {
+            "step": "c",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "c2",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "outro",
+          "at": null,
+          "speaker": "host",
+          "text": "outro",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "a step the journey doesn't have, in three segments: said once, with its segments and times",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "x1",
+          "at": {
+            "step": "gone",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "x1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "x2",
+          "at": {
+            "step": "gone"
+          },
+          "speaker": "host",
+          "text": "x2",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "x3",
+          "at": {
+            "step": "gone",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "x3",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "x1",
+          "start": 10,
+          "end": 19,
+          "text": "x1",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "x2",
+          "start": 20,
+          "end": 29,
+          "text": "x2",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "x3",
+          "start": 30,
+          "end": 39,
+          "text": "x3",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "b",
+          "start": 40,
+          "end": 100,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 40,
+          "step": 0
+        },
+        {
+          "start": 40,
+          "end": 100,
+          "step": 2
+        }
+      ],
+      "warnings": [
+        "step \"gone\" isn't in the journey (segments x1–x3, 0:10–0:39): they keep the view before them"
+      ],
+      "problems": [
+        {
+          "level": "warning",
+          "code": "step",
+          "path": [
+            "segments",
+            1,
+            "at",
+            "step"
+          ],
+          "segment": "x1",
+          "segments": [
+            "x1",
+            "x2",
+            "x3"
+          ],
+          "message": "step \"gone\" isn't in the journey (segments x1–x3, 0:10–0:39): they keep the view before them"
+        }
+      ]
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "step",
+        "path": [
+          "segments",
+          1,
+          "at",
+          "step"
+        ],
+        "segment": "x1",
+        "segments": [
+          "x1",
+          "x2",
+          "x3"
+        ],
+        "message": "step \"gone\" isn't in the journey (segments x1–x3, 0:10–0:39): they keep the view before them"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 3,
+    "spans": [
+      {
+        "start": 302,
+        "end": 316
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "x1",
+          "at": {
+            "step": "gone",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "x1",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "x2",
+          "at": {
+            "step": "gone"
+          },
+          "speaker": "host",
+          "text": "x2",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "x3",
+          "at": {
+            "step": "gone",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "x3",
+          "start": 30,
+          "end": 39
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 40,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "a beat written as a string",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a2",
+          "at": {
+            "step": "a",
+            "beat": "2"
+          },
+          "speaker": "host",
+          "text": "a2",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a2",
+          "start": 10,
+          "end": 100,
+          "text": "a2",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 100,
+          "step": 1
+        }
+      ],
+      "warnings": [
+        "Step 1: beat must be a number, got the string \"2\"; showing the whole step"
+      ],
+      "problems": [
+        {
+          "level": "warning",
+          "code": "beat",
+          "message": "Step 1: beat must be a number, got the string \"2\"; showing the whole step",
+          "path": [
+            "segments",
+            1,
+            "at",
+            "beat"
+          ],
+          "segment": "a2"
+        }
+      ]
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "beat",
+        "message": "Step 1: beat must be a number, got the string \"2\"; showing the whole step",
+        "path": [
+          "segments",
+          1,
+          "at",
+          "beat"
+        ],
+        "segment": "a2"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 1,
+    "spans": [
+      {
+        "start": 323,
+        "end": 334
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a2",
+          "at": {
+            "step": "a",
+            "beat": "2"
+          },
+          "speaker": "host",
+          "text": "a2",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "narrated in another order than the journey's (steps reordered since)",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "c",
+          "at": {
+            "step": "c"
+          },
+          "speaker": "host",
+          "text": "c",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 30,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "c",
+          "start": 10,
+          "end": 19,
+          "text": "c",
+          "speaker": "host",
+          "step": 3,
+          "stepId": "c"
+        },
+        {
+          "id": "a",
+          "start": 20,
+          "end": 29,
+          "text": "a",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        },
+        {
+          "id": "b",
+          "start": 30,
+          "end": 100,
+          "text": "b",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 3
+        },
+        {
+          "start": 20,
+          "end": 30,
+          "step": 1
+        },
+        {
+          "start": 30,
+          "end": 100,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "narration-order",
+        "message": "segment a: narrates step 1 (\"a\") after step 3 (\"c\"): the journey's steps were reordered since it was recorded; re-record it, or put the steps back",
+        "path": [
+          "segments",
+          2,
+          "at",
+          "step"
+        ],
+        "segment": "a"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 453,
+        "end": 464
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "c",
+          "at": {
+            "step": "c"
+          },
+          "speaker": "host",
+          "text": "c",
+          "start": 10,
+          "end": 19
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "id": "b",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "b",
+          "start": 30,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "recorded for an older commit, steps changed since: a quiet note",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "609d0bb"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a",
+          "start": 10,
+          "end": 100,
+          "text": "a",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 100,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "info",
+        "code": "recorded-for",
+        "message": "Code changed since recording: steps 1, 3",
+        "path": [
+          "journey",
+          "commit"
+        ]
+      }
+    ],
+    "playable": true,
+    "notice": "Code changed since recording: steps 1, 3",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 68,
+        "end": 87
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "609d0bb"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "recorded for an older commit, nothing changed since: nothing said",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "609d0bb"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "a",
+          "start": 10,
+          "end": 100,
+          "text": "a",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 100,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "609d0bb"
+      },
+      "audio": "j.mp3",
+      "duration": 100,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "a",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "a",
+          "start": 10,
+          "end": 100
+        }
+      ]
+    }
+  },
+  {
+    "name": "sentences: timed sentences are used, no problem",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 4.4,
+              "text": "Second one."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 3,
+          "end": 5.8,
+          "text": "First one. Second one.",
+          "speaker": "host",
+          "step": 0,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 4.4,
+              "text": "Second one."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "start": 6,
+          "end": 9,
+          "text": "Then this.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 6,
+          "step": 0
+        },
+        {
+          "start": 6,
+          "end": 10,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 4.4,
+              "text": "Second one."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    }
+  },
+  {
+    "name": "sentences: not a list",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": {
+            "start": 3,
+            "text": "First one."
+          }
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 3,
+          "end": 5.8,
+          "text": "First one. Second one.",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 6,
+          "end": 9,
+          "text": "Then this.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 6,
+          "step": 0
+        },
+        {
+          "start": 6,
+          "end": 10,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "sentences",
+        "message": "segment s1: sentences is not a list of { start, text }; the caption is estimated from the text instead",
+        "path": [
+          "segments",
+          0,
+          "sentences"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 271,
+        "end": 342
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": {
+            "start": 3,
+            "text": "First one."
+          }
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    }
+  },
+  {
+    "name": "sentences: out of order",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 4.4,
+              "text": "Second one."
+            },
+            {
+              "start": 4,
+              "text": "Third."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 3,
+          "end": 5.8,
+          "text": "First one. Second one.",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 6,
+          "end": 9,
+          "text": "Then this.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 6,
+          "step": 0
+        },
+        {
+          "start": 6,
+          "end": 10,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "sentences",
+        "message": "segment s1: sentences: item 3 starts at 0:04, before item 2 (0:04.4); the caption is estimated from the text instead",
+        "path": [
+          "segments",
+          0,
+          "sentences",
+          2,
+          "start"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 457,
+        "end": 469
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 4.4,
+              "text": "Second one."
+            },
+            {
+              "start": 4,
+              "text": "Third."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    }
+  },
+  {
+    "name": "sentences: a start outside the segment",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 6.5,
+              "text": "Second one."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 3,
+          "end": 5.8,
+          "text": "First one. Second one.",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s2",
+          "start": 6,
+          "end": 9,
+          "text": "Then this.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 6,
+          "step": 0
+        },
+        {
+          "start": 6,
+          "end": 10,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "sentences",
+        "message": "segment s1: sentences: item 2 starts at 0:06.5, outside the segment (0:03–0:05.8); the caption is estimated from the text instead",
+        "path": [
+          "segments",
+          0,
+          "sentences",
+          1,
+          "start"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 380,
+        "end": 392
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 10,
+      "segments": [
+        {
+          "id": "s1",
+          "at": null,
+          "speaker": "host",
+          "text": "First one. Second one.",
+          "start": 3,
+          "end": 5.8,
+          "sentences": [
+            {
+              "start": 3,
+              "text": "First one."
+            },
+            {
+              "start": 6.5,
+              "text": "Second one."
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Then this.",
+          "start": 6,
+          "end": 9
+        }
+      ]
+    }
+  },
+  {
+    "name": "marks: good ones, their code where they say (one found 2 lines down)",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello, and a look at the file.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 30,
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "The end.",
+          "start": 30,
+          "end": 60
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "Hello, and a look at the file.",
+          "speaker": "host",
+          "step": 0,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "lines": [
+                1,
+                1
+              ],
+              "file": "src/b.go"
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "start": 10,
+          "end": 20,
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "start": 20,
+          "end": 30,
+          "text": "Two.",
+          "speaker": "host",
+          "step": 1,
+          "beat": 1,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "start": 30,
+          "end": 60,
+          "text": "The end.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 30,
+          "step": 1
+        },
+        {
+          "start": 30,
+          "end": 60,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s2: mark 1: \"return 2\" isn't in line 5 of src/b.go; found 2 lines down, lit there",
+        "path": [
+          "segments",
+          2,
+          "marks",
+          0,
+          "match"
+        ],
+        "segment": "s2"
+      }
+    ],
+    "playable": true,
+    "notice": "1 problem",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 1789,
+        "end": 1808
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello, and a look at the file.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 30,
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "The end.",
+          "start": 30,
+          "end": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "marks: good ones, the code not read",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello, and a look at the file.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 30,
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "The end.",
+          "start": 30,
+          "end": 60
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "Hello, and a look at the file.",
+          "speaker": "host",
+          "step": 0,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "lines": [
+                1,
+                1
+              ],
+              "file": "src/b.go"
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "start": 10,
+          "end": 20,
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "start": 20,
+          "end": 30,
+          "text": "Two.",
+          "speaker": "host",
+          "step": 1,
+          "beat": 1,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "start": 30,
+          "end": 60,
+          "text": "The end.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 30,
+          "step": 1
+        },
+        {
+          "start": 30,
+          "end": 60,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [],
+    "playable": true,
+    "notice": "[undefined]",
+    "broken": 0,
+    "spans": [],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello, and a look at the file.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "the file",
+              "at": 2,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "If it requires a model and the grant is missing, it is rejected right there.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "phrase": "requires a model",
+              "at": 0.9,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NeedsModel(steps)"
+            },
+            {
+              "phrase": "the grant is missing",
+              "at": 2.5,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "g == nil"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "reject(400)"
+            },
+            {
+              "phrase": "right there",
+              "at": 4,
+              "lines": [
+                4,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 2
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "a",
+            "beat": 2
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 30,
+          "marks": [
+            {
+              "phrase": "Two",
+              "at": 0.1,
+              "lines": [
+                5,
+                5
+              ],
+              "match": "return 2"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "The end.",
+          "start": 30,
+          "end": 60
+        }
+      ]
+    }
+  },
+  {
+    "name": "marks: bad ones are ignored, out of order and a phrase not said are kept",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "Hello",
+              "at": 1,
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "One two three four.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "at": 1,
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "One",
+              "at": 12,
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "two",
+              "at": 1,
+              "lines": [
+                3,
+                2
+              ]
+            },
+            {
+              "phrase": "two",
+              "at": 1,
+              "lines": [
+                2,
+                2
+              ],
+              "nth": 0
+            },
+            {
+              "phrase": "four",
+              "at": 5,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "three",
+              "at": 3,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "five",
+              "at": 6,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            "x"
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 60,
+          "marks": {
+            "phrase": "Two"
+          }
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "Hello.",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s1",
+          "start": 10,
+          "end": 20,
+          "text": "One two three four.",
+          "speaker": "host",
+          "step": 1,
+          "beat": 0,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "three",
+              "at": 3,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "four",
+              "at": 5,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "five",
+              "at": 6,
+              "lines": [
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "start": 20,
+          "end": 60,
+          "text": "Two.",
+          "speaker": "host",
+          "step": 2,
+          "stepId": "b"
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 20,
+          "step": 1
+        },
+        {
+          "start": 20,
+          "end": 60,
+          "step": 2
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment intro: mark 1: a mark in a segment on the map (\"at\": null) needs its own \"file\"; ignored",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          0
+        ],
+        "segment": "intro"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 1: no phrase; ignored",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          0
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 2: at 0:22 (12 s) is outside the segment (0:10–0:20); ignored",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          1,
+          "at"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 3: lines must be [first, last] (1-based, first <= last), got [3,2]; ignored",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          2,
+          "lines"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 4: nth must be 1 or more, got 0; ignored",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          3,
+          "nth"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 6 lights at 3 s, before mark 5 (5 s): marks light in the order they are said",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          5,
+          "at"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 6: the phrase \"three\" isn't in the text after the phrase before it",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          5,
+          "phrase"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 7: the phrase \"five\" isn't in the text after the phrase before it",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          6,
+          "phrase"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 8: not an object { phrase, at, lines }; ignored",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          7
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s2: marks is not a list of { phrase, at, lines }; ignored",
+        "path": [
+          "segments",
+          2,
+          "marks"
+        ],
+        "segment": "s2"
+      }
+    ],
+    "playable": true,
+    "notice": "10 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 275,
+        "end": 396
+      },
+      {
+        "start": 621,
+        "end": 713
+      },
+      {
+        "start": 762,
+        "end": 770
+      },
+      {
+        "start": 911,
+        "end": 962
+      },
+      {
+        "start": 1103,
+        "end": 1111
+      },
+      {
+        "start": 1302,
+        "end": 1309
+      },
+      {
+        "start": 1273,
+        "end": 1290
+      },
+      {
+        "start": 1404,
+        "end": 1420
+      },
+      {
+        "start": 1522,
+        "end": 1525
+      },
+      {
+        "start": 1697,
+        "end": 1739
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "Hello.",
+          "start": 0,
+          "end": 9,
+          "marks": [
+            {
+              "phrase": "Hello",
+              "at": 1,
+              "lines": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 1
+          },
+          "speaker": "host",
+          "text": "One two three four.",
+          "start": 10,
+          "end": 20,
+          "marks": [
+            {
+              "at": 1,
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "One",
+              "at": 12,
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "two",
+              "at": 1,
+              "lines": [
+                3,
+                2
+              ]
+            },
+            {
+              "phrase": "two",
+              "at": 1,
+              "lines": [
+                2,
+                2
+              ],
+              "nth": 0
+            },
+            {
+              "phrase": "four",
+              "at": 5,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "three",
+              "at": 3,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            {
+              "phrase": "five",
+              "at": 6,
+              "lines": [
+                2,
+                2
+              ]
+            },
+            "x"
+          ]
+        },
+        {
+          "id": "s2",
+          "at": {
+            "step": "b"
+          },
+          "speaker": "host",
+          "text": "Two.",
+          "start": 20,
+          "end": 60,
+          "marks": {
+            "phrase": "Two"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "marks: against the code: not found, past the end, a missing file, a third occurrence",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "s1",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "Gone, far, missing, nowhere, twice.",
+          "start": 0,
+          "end": 60,
+          "marks": [
+            {
+              "phrase": "Gone",
+              "at": 1,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NotThere("
+            },
+            {
+              "phrase": "far",
+              "at": 2,
+              "lines": [
+                40,
+                41
+              ]
+            },
+            {
+              "phrase": "missing",
+              "at": 3,
+              "file": "src/gone.go",
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "nowhere",
+              "at": 4,
+              "lines": [
+                7,
+                9
+              ]
+            },
+            {
+              "phrase": "twice",
+              "at": 5,
+              "lines": [
+                3,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 3
+            }
+          ]
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "s1",
+          "start": 0,
+          "end": 60,
+          "text": "Gone, far, missing, nowhere, twice.",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "Gone",
+              "at": 1,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NotThere("
+            },
+            {
+              "phrase": "far",
+              "at": 2,
+              "lines": [
+                40,
+                41
+              ]
+            },
+            {
+              "phrase": "missing",
+              "at": 3,
+              "lines": [
+                1,
+                1
+              ],
+              "file": "src/gone.go"
+            },
+            {
+              "phrase": "nowhere",
+              "at": 4,
+              "lines": [
+                7,
+                9
+              ]
+            },
+            {
+              "phrase": "twice",
+              "at": 5,
+              "lines": [
+                3,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 3
+            }
+          ]
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 60,
+          "step": 1
+        }
+      ],
+      "warnings": [],
+      "problems": []
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 1: \"NotThere(\" isn't in line 4 of src/a.go, nor within 20 lines: the whole lines light",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          0,
+          "match"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 2: lines 40–41 of src/a.go are past its end (8 lines); nothing is lit",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          1,
+          "lines"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 3: src/gone.go isn't in the repository; nothing is lit",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          2,
+          "file"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 4: lines 7–9 of src/a.go go past its end (8 lines)",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          3,
+          "lines"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 5: \"reject(400)\" (occurrence 3) isn't in lines 3–7 of src/a.go, nor within 20 lines: the whole lines light",
+        "path": [
+          "segments",
+          0,
+          "marks",
+          4,
+          "match"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "5 problems",
+    "broken": 0,
+    "spans": [
+      {
+        "start": 449,
+        "end": 469
+      },
+      {
+        "start": 547,
+        "end": 600
+      },
+      {
+        "start": 682,
+        "end": 703
+      },
+      {
+        "start": 848,
+        "end": 899
+      },
+      {
+        "start": 1042,
+        "end": 1064
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 60,
+      "segments": [
+        {
+          "id": "s1",
+          "at": {
+            "step": "a"
+          },
+          "speaker": "host",
+          "text": "Gone, far, missing, nowhere, twice.",
+          "start": 0,
+          "end": 60,
+          "marks": [
+            {
+              "phrase": "Gone",
+              "at": 1,
+              "lines": [
+                4,
+                4
+              ],
+              "match": "NotThere("
+            },
+            {
+              "phrase": "far",
+              "at": 2,
+              "lines": [
+                40,
+                41
+              ]
+            },
+            {
+              "phrase": "missing",
+              "at": 3,
+              "file": "src/gone.go",
+              "lines": [
+                1,
+                1
+              ]
+            },
+            {
+              "phrase": "nowhere",
+              "at": 4,
+              "lines": [
+                7,
+                9
+              ]
+            },
+            {
+              "phrase": "twice",
+              "at": 5,
+              "lines": [
+                3,
+                7
+              ],
+              "match": "reject(400)",
+              "nth": 3
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "a beat the step doesn't have: said once, its marks on the beat's code not checked against the step's file (a mark with its own file still is)",
+    "podcast": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 30,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 99
+          },
+          "speaker": "host",
+          "text": "The function two returns two, in the other file.",
+          "start": 10,
+          "end": 29,
+          "marks": [
+            {
+              "phrase": "two returns two",
+              "at": 1,
+              "lines": [
+                7,
+                7
+              ],
+              "match": "return 2"
+            },
+            {
+              "phrase": "the other file",
+              "at": 3,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ],
+              "match": "nope"
+            }
+          ]
+        }
+      ]
+    },
+    "episode": {
+      "title": "T",
+      "duration": 30,
+      "segments": [
+        {
+          "id": "intro",
+          "start": 0,
+          "end": 9,
+          "text": "intro",
+          "speaker": "host",
+          "step": 0
+        },
+        {
+          "id": "s1",
+          "start": 10,
+          "end": 29,
+          "text": "The function two returns two, in the other file.",
+          "speaker": "host",
+          "step": 1,
+          "stepId": "a",
+          "marks": [
+            {
+              "phrase": "two returns two",
+              "at": 1,
+              "lines": [
+                7,
+                7
+              ],
+              "match": "return 2"
+            },
+            {
+              "phrase": "the other file",
+              "at": 3,
+              "lines": [
+                1,
+                1
+              ],
+              "file": "src/b.go",
+              "match": "nope"
+            }
+          ]
+        }
+      ],
+      "chapters": [
+        {
+          "start": 0,
+          "end": 10,
+          "step": 0
+        },
+        {
+          "start": 10,
+          "end": 30,
+          "step": 1
+        }
+      ],
+      "warnings": [
+        "Step 1: no beat 99 (it has 2); showing the whole step"
+      ],
+      "problems": [
+        {
+          "level": "warning",
+          "code": "beat",
+          "message": "Step 1: no beat 99 (it has 2); showing the whole step",
+          "path": [
+            "segments",
+            1,
+            "at",
+            "beat"
+          ],
+          "segment": "s1"
+        }
+      ]
+    },
+    "problems": [
+      {
+        "level": "warning",
+        "code": "mark",
+        "message": "segment s1: mark 2: \"nope\" isn't in line 1 of src/b.go, nor within 20 lines: the whole lines light",
+        "path": [
+          "segments",
+          1,
+          "marks",
+          1,
+          "match"
+        ],
+        "segment": "s1"
+      },
+      {
+        "level": "warning",
+        "code": "beat",
+        "message": "Step 1: no beat 99 (it has 2); showing the whole step",
+        "path": [
+          "segments",
+          1,
+          "at",
+          "beat"
+        ],
+        "segment": "s1"
+      }
+    ],
+    "playable": true,
+    "notice": "2 problems",
+    "broken": 1,
+    "spans": [
+      {
+        "start": 832,
+        "end": 847
+      },
+      {
+        "start": 322,
+        "end": 332
+      }
+    ],
+    "syntax": "[undefined]",
+    "parsed": {
+      "version": 1,
+      "title": "T",
+      "journey": {
+        "id": "j",
+        "file": "[undefined]",
+        "commit": "[undefined]"
+      },
+      "audio": "j.mp3",
+      "duration": 30,
+      "segments": [
+        {
+          "id": "intro",
+          "at": null,
+          "speaker": "host",
+          "text": "intro",
+          "start": 0,
+          "end": 9
+        },
+        {
+          "id": "s1",
+          "at": {
+            "step": "a",
+            "beat": 99
+          },
+          "speaker": "host",
+          "text": "The function two returns two, in the other file.",
+          "start": 10,
+          "end": 29,
+          "marks": [
+            {
+              "phrase": "two returns two",
+              "at": 1,
+              "lines": [
+                7,
+                7
+              ],
+              "match": "return 2"
+            },
+            {
+              "phrase": "the other file",
+              "at": 3,
+              "file": "src/b.go",
+              "lines": [
+                1,
+                1
+              ],
+              "match": "nope"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,192 @@
+{
+  "grade": [
+    [
+      "spawn claude ENOENT",
+      "Claude Code wasn't found; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "There's an issue with the selected model (bogus). Run --model to pick another.",
+      "Claude couldn't check it; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "API Error: 529 overloaded",
+      "Claude is busy right now; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "rate limit reached",
+      "Claude is busy right now; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "Invalid API key · Please run /login",
+      "Claude Code isn't signed in; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "Something else broke. More words here.",
+      "Claude couldn't check it; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ],
+    [
+      "",
+      "Claude couldn't check it; your answer is saved.",
+      "Claude Code wasn't found; your answer is saved."
+    ]
+  ],
+  "write": [
+    [
+      {
+        "error": "spawn claude ENOENT",
+        "model": "opus"
+      },
+      {
+        "text": "Claude Code wasn't found.",
+        "path": true
+      }
+    ],
+    [
+      {
+        "error": "There's an issue with the selected model (bogus). Run --model to pick another.",
+        "model": "opus"
+      },
+      {
+        "text": "Claude couldn't use the model \"opus\".",
+        "setting": true
+      }
+    ],
+    [
+      {
+        "error": "API Error: 529 overloaded",
+        "model": "opus"
+      },
+      {
+        "text": "Claude is busy right now."
+      }
+    ],
+    [
+      {
+        "error": "rate limit reached",
+        "model": "opus"
+      },
+      {
+        "text": "Claude is busy right now."
+      }
+    ],
+    [
+      {
+        "error": "Invalid API key · Please run /login",
+        "model": "opus"
+      },
+      {
+        "text": "Claude Code isn't signed in."
+      }
+    ],
+    [
+      {
+        "error": "Something else broke. More words here.",
+        "model": "opus"
+      },
+      {
+        "text": "Claude couldn't write the questions: Something else broke."
+      }
+    ],
+    [
+      {
+        "error": "",
+        "model": "opus"
+      },
+      {
+        "text": "Claude couldn't write questions for this change."
+      }
+    ],
+    [
+      {
+        "text": "UNCOMMITTED: 3 files"
+      },
+      {
+        "text": "Commit your change first: questions are about committed code."
+      }
+    ],
+    [
+      {
+        "text": "NOTHING to ask"
+      },
+      {
+        "text": "No code lines changed: nothing to ask."
+      }
+    ],
+    [
+      {
+        "text": "I could not."
+      },
+      {
+        "text": "Claude couldn't write questions for this change."
+      }
+    ],
+    [
+      {},
+      {
+        "text": "Claude couldn't write questions for this change."
+      }
+    ]
+  ],
+  "json": [
+    [
+      "{\n  \"a\": 1,\n  \"b\" 2\n}",
+      "Expected ':' after property name in JSON at position 18 (line 3 column 7)",
+      {
+        "line": 3,
+        "col": 7,
+        "text": "Line 3: expected ':' after property name."
+      }
+    ],
+    [
+      "{\"a\":}",
+      "Unexpected token '}', \"{\"a\":}\" is not valid JSON",
+      null
+    ],
+    [
+      "[1, 2",
+      "Expected ',' or ']' after array element in JSON at position 5 (line 1 column 6)",
+      {
+        "line": 1,
+        "col": 6,
+        "text": "Line 1: expected '."
+      }
+    ],
+    [
+      "{\n\n  x\n}",
+      "Expected property name or '}' in JSON at position 5 (line 3 column 3)",
+      {
+        "line": 3,
+        "col": 3,
+        "text": "Line 3: expected property name or '}'."
+      }
+    ]
+  ],
+  "jsonWorded": [
+    [
+      "Unexpected token } in JSON at position 5",
+      {
+        "line": 2,
+        "col": 4,
+        "text": "Line 2: unexpected token } in JSON."
+      }
+    ],
+    [
+      "Expected property name or '}' in JSON at position 2 (line 1 column 3)",
+      {
+        "line": 1,
+        "col": 3,
+        "text": "Line 1: expected property name or '}'."
+      }
+    ],
+    [
+      "no place given",
+      null
+    ]
+  ]
+}

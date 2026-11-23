@@ -1,0 +1,217 @@
+{
+  "files": [
+    [
+      "journeys/a.json",
+      "journeys/a.podcast.json",
+      false
+    ],
+    [
+      "a.JSON",
+      "a.podcast.json",
+      false
+    ],
+    [
+      "a.podcast.json",
+      "a.podcast.podcast.json",
+      true
+    ],
+    [
+      "a.json.bak",
+      "a.json.bak.podcast.json",
+      false
+    ]
+  ],
+  "audio": [
+    [
+      "a.mp3",
+      null
+    ],
+    [
+      "sub/a.mp3",
+      null
+    ],
+    [
+      "./a.mp3",
+      null
+    ],
+    [
+      "../a.mp3",
+      "audio must be in the journeys folder (got ../a.mp3)"
+    ],
+    [
+      "sub/../../a.mp3",
+      "audio must be in the journeys folder (got sub/../../a.mp3)"
+    ],
+    [
+      "/abs/a.mp3",
+      "audio must be in the journeys folder, as a path relative to the podcast file (got /abs/a.mp3)"
+    ],
+    [
+      "C:\\x\\a.mp3",
+      "audio must be in the journeys folder, as a path relative to the podcast file (got C:\\x\\a.mp3)"
+    ],
+    [
+      "c:/x.mp3",
+      "audio must be in the journeys folder, as a path relative to the podcast file (got c:/x.mp3)"
+    ],
+    [
+      "https://x/a.mp3",
+      "audio must be a file in the journeys folder, not a URL (got https://x/a.mp3)"
+    ],
+    [
+      "file:a.mp3",
+      "audio must be a file in the journeys folder, not a URL (got file:a.mp3)"
+    ],
+    [
+      "sub\\..\\a.mp3",
+      null
+    ]
+  ],
+  "clock": [
+    [
+      0,
+      "0:00",
+      "0:00"
+    ],
+    [
+      0.4,
+      "0:00",
+      "0:00.4"
+    ],
+    [
+      59.9,
+      "0:59",
+      "0:59.9"
+    ],
+    [
+      60,
+      "1:00",
+      "1:00"
+    ],
+    [
+      61.5,
+      "1:01",
+      "1:01.5"
+    ],
+    [
+      3599,
+      "59:59",
+      "59:59"
+    ],
+    [
+      3600,
+      "1:00:00",
+      "1:00:00"
+    ],
+    [
+      7322.25,
+      "2:02:02",
+      "2:02:02.3"
+    ],
+    [
+      -3,
+      "0:00",
+      "0:00"
+    ]
+  ],
+  "syntax": [
+    [
+      "{\n  \"a\": 1,\n  \"b\": }",
+      "line 3, column 8: unexpected \"}\""
+    ],
+    [
+      "",
+      "line 1, column 1: the file ends too early (cut off?)"
+    ],
+    [
+      "[1, 2",
+      "line 1, column 6: the file ends too early (cut off?)"
+    ],
+    [
+      "{\"a\": \"x\n\"}",
+      "line 1, column 9: a line break inside a string"
+    ],
+    [
+      "{\"a\": 1} x",
+      "line 1, column 10: unexpected \"x\""
+    ],
+    [
+      "{\"a\": tru}",
+      "line 1, column 7: unexpected \"t\""
+    ]
+  ],
+  "lineCol": [
+    [
+      0,
+      {
+        "line": 0,
+        "col": 0
+      }
+    ],
+    [
+      3,
+      {
+        "line": 1,
+        "col": 1
+      }
+    ],
+    [
+      5,
+      {
+        "line": 1,
+        "col": 3
+      }
+    ],
+    [
+      12,
+      {
+        "line": 2,
+        "col": 0
+      }
+    ],
+    [
+      100,
+      {
+        "line": 2,
+        "col": 88
+      }
+    ]
+  ],
+  "locate": [
+    [
+      [],
+      {
+        "start": 0,
+        "end": 36
+      }
+    ],
+    [
+      [
+        "a"
+      ],
+      {
+        "start": 4,
+        "end": 22
+      }
+    ],
+    [
+      [
+        "b"
+      ],
+      {
+        "start": 26,
+        "end": 34
+      }
+    ],
+    [
+      [
+        "zz",
+        3
+      ],
+      {
+        "start": 0,
+        "end": 36
+      }
+    ]
+  ]
+}

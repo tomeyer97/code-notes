@@ -1,0 +1,395 @@
+{
+  "files": [
+    [
+      "feat/x",
+      "understanding/feat-x.json",
+      ".code-notes/.cache/checks/feat-x.json",
+      "feat-x"
+    ],
+    [
+      "Feat/Ünïcode branch",
+      "understanding/feat-n-code-branch.json",
+      ".code-notes/.cache/checks/feat-n-code-branch.json",
+      "feat-n-code-branch"
+    ],
+    [
+      "a//b",
+      "understanding/a-b.json",
+      ".code-notes/.cache/checks/a-b.json",
+      "a-b"
+    ],
+    [
+      "release/1.2",
+      "understanding/release-1.2.json",
+      ".code-notes/.cache/checks/release-1.2.json",
+      "release-1.2"
+    ],
+    [
+      "HEAD",
+      "understanding/head.json",
+      ".code-notes/.cache/checks/head.json",
+      "head"
+    ]
+  ],
+  "sizes": [
+    [
+      0,
+      1,
+      1,
+      "0 questions, ~1 min"
+    ],
+    [
+      1,
+      1,
+      1,
+      "1 question, ~1 min"
+    ],
+    [
+      20,
+      2,
+      12,
+      "20 questions, ~12 min"
+    ],
+    [
+      40,
+      2,
+      24,
+      "40 questions, ~24 min"
+    ],
+    [
+      79,
+      3,
+      47,
+      "79 questions, ~47 min"
+    ],
+    [
+      80,
+      3,
+      48,
+      "80 questions, ~48 min"
+    ],
+    [
+      150,
+      4,
+      90,
+      "150 questions, ~90 min"
+    ],
+    [
+      400,
+      5,
+      240,
+      "400 questions, ~240 min"
+    ],
+    [
+      2000,
+      5,
+      1200,
+      "2000 questions, ~1200 min"
+    ]
+  ],
+  "args": [
+    [
+      [
+        "status",
+        "--json"
+      ],
+      {
+        "_": [
+          "status"
+        ],
+        "json": true
+      }
+    ],
+    [
+      [
+        "grade",
+        "f.json",
+        "--question",
+        "q2",
+        "--answer",
+        "x y",
+        "--write"
+      ],
+      {
+        "_": [
+          "grade",
+          "f.json"
+        ],
+        "question": "q2",
+        "answer": "x y",
+        "write": true
+      }
+    ],
+    [
+      [
+        "ci",
+        "--base=abc",
+        "--no-comment"
+      ],
+      {
+        "_": [
+          "ci"
+        ],
+        "base": "abc",
+        "no-comment": true
+      }
+    ],
+    [
+      [
+        "add",
+        "--text",
+        "--kind"
+      ],
+      {
+        "_": [
+          "add"
+        ],
+        "text": true,
+        "kind": true
+      }
+    ]
+  ],
+  "words": [
+    [
+      "how",
+      "How"
+    ],
+    [
+      "why",
+      "Why"
+    ],
+    [
+      "failure",
+      "Failure"
+    ],
+    [
+      "edge",
+      "Edge case"
+    ],
+    [
+      "change",
+      "Change"
+    ]
+  ],
+  "stateWords": [
+    [
+      {
+        "phase": "nothing"
+      },
+      {
+        "tone": "ok",
+        "bar": "",
+        "title": "No check needed",
+        "line": "No code lines changed.",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "none",
+        "changed": 120
+      },
+      {
+        "tone": "todo",
+        "bar": "Understanding: start",
+        "title": "No check yet for feat/x",
+        "line": "120 code lines changed.",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "answering",
+        "done": 1,
+        "total": 3,
+        "passed": 1,
+        "needed": 2
+      },
+      {
+        "tone": "todo",
+        "bar": "Understanding 1/3",
+        "title": "1 of 3 done",
+        "line": "Answer all 3 · 2 must pass · ~1 min left.",
+        "rule": "Answer all 3 · 2 must pass"
+      }
+    ],
+    [
+      {
+        "phase": "short",
+        "done": 3,
+        "total": 3,
+        "passed": 1,
+        "needed": 2
+      },
+      {
+        "tone": "warn",
+        "bar": "Understanding 1/2 passed",
+        "title": "1 passed, 2 must pass",
+        "line": "Say an explained answer back in your own words.",
+        "rule": "Answer all 3 · 2 must pass"
+      }
+    ],
+    [
+      {
+        "phase": "done",
+        "done": 3,
+        "total": 3,
+        "passed": 3,
+        "needed": 2
+      },
+      {
+        "tone": "ok",
+        "bar": "✓ Understanding",
+        "title": "✓ Done",
+        "line": "Committed.",
+        "rule": "Answer all 3 · 2 must pass"
+      }
+    ],
+    [
+      {
+        "phase": "drift",
+        "grew": 60,
+        "maxDrift": 40,
+        "total": 3,
+        "needed": 2,
+        "passed": 3,
+        "done": 3
+      },
+      {
+        "tone": "warn",
+        "bar": "Needs top-up: +60 lines",
+        "title": "Needs top-up: +60 lines",
+        "line": "Add 1–2 questions about the new lines.",
+        "rule": "Answer all 3 · 2 must pass"
+      }
+    ],
+    [
+      {
+        "phase": "drift",
+        "grew": 60,
+        "maxDrift": 40,
+        "commitFirst": true
+      },
+      {
+        "tone": "warn",
+        "bar": "Needs top-up: +60 lines",
+        "title": "Needs top-up: +60 lines",
+        "line": "Commit, then add 1–2 questions about the new lines.",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "invalid",
+        "why": "not JSON"
+      },
+      {
+        "tone": "warn",
+        "bar": "Understanding: fix the file",
+        "title": "The check file is not valid",
+        "line": "not JSON.",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "invalid",
+        "conflict": {
+          "line": 3,
+          "mergeable": true
+        }
+      },
+      {
+        "tone": "warn",
+        "bar": "Understanding: merge conflict",
+        "title": "The check file has a merge conflict",
+        "line": "Both sides of the conflict can be kept.",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "stashed",
+        "stash": "stash@{0}"
+      },
+      {
+        "tone": "warn",
+        "bar": "Understanding: in a stash",
+        "title": "Your check is in a git stash",
+        "line": "Run git stash pop (stash@{0}).",
+        "rule": ""
+      }
+    ],
+    [
+      {
+        "phase": "unknown"
+      },
+      {
+        "tone": "todo",
+        "bar": "",
+        "title": "",
+        "line": "",
+        "rule": ""
+      }
+    ]
+  ],
+  "verdicts": [
+    [
+      "{\"verdict\":\"pass\",\"feedback\":\"ok\"}",
+      {
+        "verdict": "pass",
+        "feedback": "ok",
+        "hint": ""
+      }
+    ],
+    [
+      "not json",
+      "throws: the grader didn't reply with a verdict: not json"
+    ],
+    [
+      "```\n{\"verdict\":\"retry\"}\n```",
+      {
+        "verdict": "retry",
+        "feedback": "",
+        "hint": ""
+      }
+    ],
+    [
+      "{\"verdict\":\"explained\",\"feedback\":\"x\",\"hint\":\"y\",\"topic\":\"t\",\"concern\":\"c\"}",
+      {
+        "verdict": "retry",
+        "feedback": "x",
+        "hint": "y",
+        "concern": "c"
+      }
+    ],
+    [
+      "Sure! {\"verdict\":\"pass\"} hope that helps",
+      {
+        "verdict": "pass",
+        "feedback": "",
+        "hint": ""
+      }
+    ]
+  ],
+  "settled": [
+    {
+      "text": "May be a bug.",
+      "flagged": false,
+      "dismissed": {
+        "reason": "by design",
+        "by": {
+          "name": "Ada"
+        },
+        "at": "t1"
+      }
+    },
+    {
+      "text": "x",
+      "flagged": false,
+      "fixed": {
+        "at": "t2"
+      }
+    }
+  ]
+}

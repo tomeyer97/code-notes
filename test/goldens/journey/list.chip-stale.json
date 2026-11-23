@@ -1,0 +1,93 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "",
+  "sort": "area",
+  "searchSort": "best",
+  "kind": "all",
+  "area": "stale",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [
+    {
+      "id": "area:config",
+      "label": "config",
+      "keys": [
+        "k33"
+      ]
+    },
+    {
+      "id": "area:web",
+      "label": "web",
+      "keys": [
+        "k22"
+      ]
+    },
+    {
+      "id": "area:worker",
+      "label": "worker",
+      "keys": [
+        "k11"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [],
+      "children": [
+        {
+          "id": "area:config",
+          "label": "config",
+          "keys": [
+            "k33"
+          ]
+        },
+        {
+          "id": "area:web",
+          "label": "web",
+          "keys": [
+            "k22"
+          ]
+        },
+        {
+          "id": "area:worker",
+          "label": "worker",
+          "keys": [
+            "k11"
+          ]
+        }
+      ]
+    }
+  ],
+  "count": 3,
+  "total": 35,
+  "hits": {}
+}

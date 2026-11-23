@@ -1,0 +1,171 @@
+{
+  "actions": {
+    "start": "Start",
+    "topUp": "Add questions",
+    "scm": "Commit…",
+    "commitPush": "Commit & push",
+    "openFile": "Open",
+    "merge": "Keep both answers",
+    "pull": "Pull"
+  },
+  "kinds": {
+    "how": "How",
+    "why": "Why",
+    "failure": "Failure",
+    "edge": "Edge case",
+    "change": "Change"
+  },
+  "states": {
+    "todo": "",
+    "ungraded": "not graded",
+    "pass": "",
+    "retry": "try again",
+    "explained": "explained · say it back",
+    "restated": "in your words"
+  },
+  "requests": [
+    "start",
+    "topUp",
+    "scm",
+    "commitPush",
+    "openFile",
+    "merge",
+    "pull",
+    "ready",
+    "open",
+    "select",
+    "answer",
+    "draft",
+    "link",
+    "next",
+    "regrade",
+    "escape",
+    "concern",
+    "include",
+    "retry",
+    "modelSetting",
+    "pathSetting",
+    "install",
+    "tour",
+    "writeTour",
+    "openMr"
+  ],
+  "reports": [
+    "rendered",
+    "error",
+    "focused"
+  ],
+  "constants": {
+    "SESSION": "[function SESSION]",
+    "AUTHOR": "Understanding check",
+    "SKILL": "understanding-check",
+    "REPO_FILES": [
+      ".gitattributes",
+      ".ignore"
+    ],
+    "BACKGROUND_SETTING": "understanding.background",
+    "BG_KEY": "codeNotes.understanding.backgroundHeads",
+    "TODO_KEY": "codeNotes.understanding.todoFiles",
+    "FIX_KEY": "codeNotes.understanding.fixFiles",
+    "DRAFT_KEY": "codeNotes.understanding.drafts",
+    "WRITING_KEY": "codeNotes.understanding.writing",
+    "BG_COMMITS_KEPT": 50,
+    "REFRESH_SOON_MS": 400,
+    "FIX_REFRESH_MS": 100,
+    "TICK_MS": 1000,
+    "ORPHAN_MAX_MS": 600000,
+    "REVEAL_RETRY_MS": [
+      250,
+      800
+    ],
+    "RESTORED_OPEN_MS": 300,
+    "PUSHED_MESSAGE_MS": 8000,
+    "DEFAULT_MODEL_LABEL": "Claude Code default"
+  },
+  "sayItBack": "Got it? Say it back in one sentence (optional).",
+  "retry": [
+    "Not quite. ",
+    "Not quite. ",
+    "Not quite: look again.",
+    "Not quite. Look at the lock."
+  ],
+  "busy": [
+    "Writing questions · 0:00",
+    "Writing questions · 0:00",
+    "Writing questions · 0:01",
+    "Writing questions · 1:01",
+    "Writing questions · 60:00"
+  ],
+  "defined": {
+    "a": 1,
+    "c": null,
+    "d": "",
+    "e": false
+  },
+  "parts": [
+    [
+      "Why is the lock taken before the unique key is checked?",
+      [
+        {
+          "text": "Why is "
+        },
+        {
+          "text": "the lock",
+          "link": 0
+        },
+        {
+          "text": " taken before the "
+        },
+        {
+          "text": "unique key",
+          "link": 1
+        },
+        {
+          "text": " is checked?"
+        }
+      ]
+    ],
+    [
+      "No links here.",
+      [
+        {
+          "text": "No links here."
+        }
+      ]
+    ],
+    [
+      "",
+      []
+    ],
+    [
+      "the the the",
+      [
+        {
+          "text": "the",
+          "link": 3
+        },
+        {
+          "text": " the the"
+        }
+      ]
+    ]
+  ],
+  "missing": [
+    [
+      {
+        "role": "agent",
+        "n": 3
+      }
+    ],
+    [
+      {
+        "n": 1
+      },
+      {
+        "role": "human",
+        "n": 2
+      }
+    ],
+    []
+  ]
+}

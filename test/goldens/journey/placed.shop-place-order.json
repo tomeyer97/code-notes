@@ -1,0 +1,400 @@
+[
+  {
+    "id": "s2xple",
+    "file": "web/src/checkout/placeOrder.ts",
+    "range": {
+      "start": 29,
+      "end": 33
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const res = await fetch(`${API}/orders`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },",
+      "tail": "    body: JSON.stringify(request),\n  })",
+      "lines": 5,
+      "hash": "517b98e7ecbb",
+      "before": "export async function placeOrder(request: OrderRequest): Promise<void> {",
+      "after": "  const body = await res.json()"
+    },
+    "asIs": {
+      "start": 29,
+      "end": 33,
+      "stale": false
+    },
+    "moved": {
+      "start": 32,
+      "end": 36,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 29,
+      "end": 33,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 29,
+      "end": 33,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "ahutu9",
+    "file": "api/validate.js",
+    "range": {
+      "start": 21,
+      "end": 28
+    },
+    "captured": {
+      "v": 3,
+      "head": "  for (const item of body.items) {\n    const product = CATALOG[item.sku]\n    if (!product) return fail(`Unknown product ${item.sku}`)",
+      "tail": "    total += product.price * item.qty\n  }",
+      "lines": 8,
+      "hash": "2e5271529999",
+      "before": "  let total = 0",
+      "after": "  return { ok: true, order: { customer: body.customer.trim(), items, total, cardToken: body.cardToken } }"
+    },
+    "asIs": {
+      "start": 21,
+      "end": 28,
+      "stale": false
+    },
+    "moved": {
+      "start": 24,
+      "end": 31,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 21,
+      "end": 28,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 21,
+      "end": 28,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "qwo88u",
+    "file": "api/store.js",
+    "range": {
+      "start": 19,
+      "end": 24
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id\n  const id = last ? last + 1 : config.orders.firstNumber\n  db.prepare('INSERT INTO orders (id, customer, items, total, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')",
+      "tail": "    .run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())\n  return getOrder(id)",
+      "lines": 6,
+      "hash": "33e1748b652f",
+      "before": "export function insertOrder({ customer, items, total }) {",
+      "after": "}"
+    },
+    "asIs": {
+      "start": 19,
+      "end": 24,
+      "stale": false
+    },
+    "moved": {
+      "start": 22,
+      "end": 27,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 19,
+      "end": 24,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 19,
+      "end": 24,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "tlctsa",
+    "file": "api/orders.js",
+    "range": {
+      "start": 14,
+      "end": 17
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const { cardToken, ...details } = checked.order\n  const order = insertOrder(details)\n  jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })",
+      "tail": "  jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })\n  send(res, 201, { order })",
+      "lines": 4,
+      "hash": "adc2034a1ab2",
+      "before": "  // The card token goes into the job only: the orders table never holds it.",
+      "after": "}"
+    },
+    "asIs": {
+      "start": 14,
+      "end": 17,
+      "stale": false
+    },
+    "moved": {
+      "start": 17,
+      "end": 20,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 14,
+      "end": 17,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 14,
+      "end": 17,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "1fvq0z",
+    "file": "worker/worker.js",
+    "range": {
+      "start": 37,
+      "end": 45
+    },
+    "captured": {
+      "v": 3,
+      "head": "  for (;;) {\n    try {\n      const worked = await pollOnce()",
+      "tail": "    await sleep(config.worker.pollMs)\n  }",
+      "lines": 9,
+      "hash": "77b1c330d6df",
+      "before": "  console.log(`worker: polling every ${config.worker.pollMs} ms`)",
+      "after": "}"
+    },
+    "asIs": {
+      "start": 37,
+      "end": 45,
+      "stale": false
+    },
+    "moved": {
+      "start": 40,
+      "end": 48,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 37,
+      "end": 45,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 37,
+      "end": 44,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "x7ebuw",
+    "file": "worker/charge.js",
+    "range": {
+      "start": 7,
+      "end": 18
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const idempotencyKey = `order-${job.orderId}`\n  const { maxAttempts, retryMs } = config.worker\n  for (let attempt = 1; attempt <= maxAttempts; attempt++) {",
+      "tail": "      })\n      return { paid: true, paymentId: payment.id }",
+      "lines": 12,
+      "hash": "ff2083cd1960",
+      "before": "export async function chargeOrder(job) {",
+      "after": "    } catch (err) {"
+    },
+    "asIs": {
+      "start": 7,
+      "end": 18,
+      "stale": false
+    },
+    "moved": {
+      "start": 10,
+      "end": 21,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 7,
+      "end": 18,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 7,
+      "end": 18,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "yyp0d9",
+    "file": "api/orders.js",
+    "range": {
+      "start": 35,
+      "end": 37
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const result = await readJson(req)\n  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)\n  send(res, changed ? 200 : 409, { order: getOrder(id) })",
+      "tail": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)\n  send(res, changed ? 200 : 409, { order: getOrder(id) })",
+      "lines": 3,
+      "hash": "86b9c55a06b0",
+      "before": "export async function settleOrder(req, res, id) {",
+      "after": "}"
+    },
+    "asIs": {
+      "start": 35,
+      "end": 37,
+      "stale": false
+    },
+    "moved": {
+      "start": 38,
+      "end": 40,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 35,
+      "end": 37,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 35,
+      "end": 37,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "5ngsrh",
+    "file": "web/src/checkout/OrderStatus.ts",
+    "range": {
+      "start": 40,
+      "end": 45
+    },
+    "captured": {
+      "v": 3,
+      "head": "    const res = await fetch(`${API}/orders/${id}`)\n    const { order } = await res.json()\n    if (order.status === 'pending') return",
+      "tail": "    clearInterval(timer)\n    showStatus(order)",
+      "lines": 6,
+      "hash": "feecab46ad21",
+      "before": "    }",
+      "after": "  }, POLL_MS)"
+    },
+    "asIs": {
+      "start": 40,
+      "end": 45,
+      "stale": false
+    },
+    "moved": {
+      "start": 43,
+      "end": 48,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 40,
+      "end": 45,
+      "stale": true,
+      "removed": true
+    },
+    "removed": {
+      "start": 40,
+      "end": 45,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "zmkr2s",
+    "file": "api/orders.js",
+    "range": {
+      "start": 36,
+      "end": 36
+    },
+    "captured": {
+      "v": 3,
+      "head": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+      "tail": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+      "lines": 1,
+      "hash": "a60edb392ba0",
+      "before": "  const result = await readJson(req)",
+      "after": "  send(res, changed ? 200 : 409, { order: getOrder(id) })"
+    },
+    "asIs": {
+      "start": 36,
+      "end": 36,
+      "stale": false
+    },
+    "moved": {
+      "start": 39,
+      "end": 39,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 36,
+      "end": 36,
+      "stale": false
+    },
+    "removed": {
+      "start": 36,
+      "end": 36,
+      "stale": true,
+      "removed": true
+    }
+  },
+  {
+    "id": "u1j4h0",
+    "file": "api/orders.js",
+    "range": {
+      "start": 11,
+      "end": 11
+    },
+    "captured": {
+      "v": 3,
+      "head": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
+      "tail": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
+      "lines": 1,
+      "hash": "ec049abf31f0",
+      "before": "  if (!checked.ok) return send(res, 400, { error: checked.error })",
+      "after": "  // The card token goes into the job only: the orders table never holds it."
+    },
+    "asIs": {
+      "start": 11,
+      "end": 11,
+      "stale": false
+    },
+    "moved": {
+      "start": 14,
+      "end": 14,
+      "stale": false,
+      "file": "renamed.js"
+    },
+    "edited": {
+      "start": 11,
+      "end": 11,
+      "stale": false
+    },
+    "removed": {
+      "start": 11,
+      "end": 11,
+      "stale": true,
+      "removed": true
+    }
+  }
+]
