@@ -11,12 +11,12 @@ import type { WorkspaceEvents } from '../platform/events'
 import type { NotesApi } from '../notes/model'
 import type { TourApi, TourPodcast } from './api'
 import { StepCard } from './card'
-import { currentTour, openCheckpoint, seeAlsoLink, tourChanged } from './checkTour'
+import { checkQuietLines, CheckTours, openCheckpoint, seeAlsoLink } from './checkTour'
 import { backToStep, closeWalkTabs, endJourney, openJourney, openMap, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney, stepDetails, walkJourney } from './commands'
 import { askStep, askUpdate } from './askStep'
 import { stepsFollowed, tourFollows } from './follow'
 import { AskBoxes, TourItems, useTourParts } from './instances'
-import { pickJourneyStep, stepLenses } from './lenses'
+import { pickJourneyStep, StepLensProvider } from './lenses'
 import { mapState, onMapMessage, showBeat, toggleAnimation, toggleAuthorMode } from './mapMessages'
 import { codeGetsMoreRoom } from './panelLayout'
 import { pickJourney } from './pick'
@@ -71,9 +71,16 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
   useTourPorts(ports)
   const state = new TourState()
   const probe = new TourProbe()
-  // The card asks the walk what a podcast shows on the step (the walk's controller), and the tutorial what it points
-  // at: both made right below.
-  const card = StepCard.create(state, probe, (lj, n) => walk.narration(lj, n), () => tutorialNow.mark, log())
+  const lenses = new StepLensProvider(checkQuietLines)
+  // The card asks the walk where it is and what a podcast shows on the step (the walk's controller), and the tutorial
+  // what it points at: both made right below.
+  const card = StepCard.create({
+    tour: state, probe, log: log(),
+    walk: { touring: () => walk.touring(), tourJourney: () => walk.tourJourney(), isOn: (lj, n) => walk.isOn(lj, n) },
+    narration: (lj, n) => walk.narration(lj, n),
+    tutorialMark: () => tutorialNow.mark,
+    lensesChanged: () => lenses.changed(),
+  })
   const walk = new Walk(state, card, probe)
   const items = createTourItems()
   const status = new TourStatusItem(items)
@@ -83,14 +90,12 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
   let podcast: TourPodcast | undefined
   const asks: AskBoxes = { drafts: new Map(), open: undefined }
   useTourParts({ state, probe, card, walk, items, spot, asks, podcast: () => podcast })
+  const checkTours = new CheckTours()
 
   context.subscriptions.push(
-    card, walk, spot, tutorialNow, ...Object.values(items),
-    ...followTheWalk(walk, { state, card, status, ...ports }),
-    vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], {
-      onDidChangeCodeLenses: card.lensChanged.event,
-      provideCodeLenses: stepLenses,
-    }),
+    card, walk, spot, tutorialNow, lenses, ...Object.values(items),
+    ...followTheWalk(walk, { state, card, status, lenses, ...ports }),
+    vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], lenses),
     // While the voice tells the step the marks show what is said: no beat box, no caret moved to it.
     ports.beats.usePolicy({ quiet: () => card.narrating(), follow: walk.following }),
     // Hints name the chord prefix last pressed.
@@ -142,12 +147,12 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
     narrates: (e) => card.narrates(e),
     refreshCard: () => card.refreshDecorations(),
     showCard: (lj, n) => card.show(lj, n),
-    lensesChanged: () => card.lensChanged.fire(),
+    lensesChanged: () => lenses.changed(),
     linkClicked: (back) => { state.linkBack = back },
     ownCursorFor: (ms) => { state.cursorUntil = Date.now() + ms },
     forgetStepId: () => { state.stepId = undefined },
-    checkTourChanged: tourChanged,
-    checkTour: currentTour,
+    checkTourChanged: (check, file, branch) => checkTours.changed(check, file, branch),
+    checkTour: () => checkTours.current(),
     openCheckpoint,
     seeAlsoLink,
     usePodcast: (p) => {
@@ -165,7 +170,7 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
   context.subscriptions.push(steppers.register(STEP_PRIORITY.walk, { step: (dir) => walk.touring() && walk.stepBy(dir) }))
   return {
     api, journeysLoaded, restore: restoreTour, parts: { state, probe, card, walk, items, spot, asks, tutorial: tutorialNow },
-    follow: (model, events) => tourFollows(model, events),
+    follow: (model, events) => tourFollows(model, events, lenses),
     onMapMessage, mapState,
   }
 }

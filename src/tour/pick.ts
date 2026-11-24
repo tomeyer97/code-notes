@@ -3,9 +3,9 @@
 import * as vscode from 'vscode'
 import { journeys } from './ports'
 import { podcast, tourState, walk } from './instances'
-import { LoadedJourney, posKey } from '../journeys/steps'
+import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
+import { matchScore, SearchText } from '../core/list/match'
 import { pickOne } from '../platform/quickPick'
-import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
 import { fireAndForget } from '../platform/run'
@@ -17,11 +17,33 @@ const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon(
 /** A row of the picker: a journey, or (`ask`) writing one for the question typed. */
 type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJourney | undefined }
 
+/**
+ * What a command's argument names: a journey (a sidebar row's), or a string that is a key, a posKey or an id. A key is
+ * looked for first, then a posKey, then an id: an id that happens to equal another journey's key never wins.
+ */
+export type JourneyRef = { kind: 'journey'; lj: LoadedJourney } | { kind: 'name'; name: string }
+
+/** The command argument `arg` as a JourneyRef (undefined: none, or nothing that names a journey). */
+export function journeyRefOf(arg: unknown): JourneyRef | undefined {
+  if (typeof arg === 'string') return { kind: 'name', name: arg }
+  // A row of the Journeys view (sidebar/nodes.ts: `{ kind: 'journey', lj }`).
+  const row = arg as { kind?: unknown; lj?: LoadedJourney } | undefined
+  if (row && typeof row === 'object' && row.kind === 'journey' && row.lj) return { kind: 'journey', lj: row.lj }
+  return undefined
+}
+
+/** The journey `ref` names among `all`. */
+export function findJourney(all: LoadedJourney[], ref: JourneyRef): LoadedJourney | undefined {
+  if (ref.kind === 'journey') return ref.lj
+  const name = ref.name
+  return all.find((x) => x.key === name) ?? all.find((x) => posKey(x) === name) ?? all.find((x) => x.j.id === name)
+}
+
 /** The journey `arg` names (a key, an id, a posKey, a sidebar row), else the one picked. */
 export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
   const all = journeys().all()
-  if (typeof arg === 'string') return all.find((x) => x.key === arg || x.j.id === arg || posKey(x) === arg)
-  if (arg && typeof arg === 'object' && (arg as Node).kind === 'journey') return (arg as { lj: LoadedJourney }).lj
+  const ref = journeyRefOf(arg)
+  if (ref) return findJourney(all, ref)
   // Always a picker (the "…" promises one): the question once, and how far each one got.
   const multi = (vscode.workspace.workspaceFolders?.length ?? 0) > 1
   const qp = vscode.window.createQuickPick<PickItem>()
@@ -32,7 +54,12 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
   const update = () => { qp.items = pickerItems(all, qp.value, multi) }
   qp.onDidChangeValue(update)
   // ▶ on a row with a podcast: that journey, listened to.
-  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); fireAndForget(podcast()?.play(key), 'pick: podcast.play') } })
+  qp.onDidTriggerItemButton((e) => {
+    if (!e.item.lj) return
+    const key = e.item.lj.key
+    qp.hide()
+    fireAndForget(podcast()?.play(key), 'pick: podcast.play')
+  })
   update()
   const pick = await pickOne(qp)
   if (pick?.ask) {
@@ -43,22 +70,46 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
 }
 
 /**
- * The rows for what is typed. Words, not scattered letters: each word must be in the title, question, summary or a
- * step's title; the best matches first (then the one being walked, then those left mid-way), with the step that
+ * The rows for what is typed: the journeys the list's search finds (core/list/match.ts, the same words and weights as
+ * the Journeys list), the best matches first (then the one being walked, then those left mid-way), with the step that
  * matched. Nothing matches: one row that asks the agent to write that journey.
  */
 function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickItem[] {
   const words = value.toLowerCase().split(/\s+/).filter(Boolean)
-  const typed = value.trim().toLowerCase()
-  const going = (x: LoadedJourney) => (x.key === tourState().key && tourState().step ? 2 : walk().resumeAt(x) ? 1 : 0)
-  const items = all.map((x) => ({ x, k: pickerScore(x, words, typed) }))
-    .filter((v) => v.k >= 0)
-    .sort((a, b) => b.k - a.k || going(b.x) - going(a.x))
-    .map((v) => journeyItem(v.x, words, multi))
+  const going = (x: LoadedJourney) => (journeyBadges(x).walking ? 2 : walk().resumeAt(x) ? 1 : 0)
+  const items = rankJourneys(all, value)
+    .sort((a, b) => b.score - a.score || going(b.lj) - going(a.lj))
+    .map((v) => journeyItem(v.lj, words, multi))
   const q = value.trim()
   if (items.length || !q) return items
   const label = `$(sparkle) Write a journey for '${q}' with Claude`
   return [{ ask: q, label, description: `${modelLabel(journeyModel())}, about 3 min`, alwaysShow: true, lj: undefined }]
+}
+
+/** What the list's search reads of a journey. */
+const searchTextOf = (x: LoadedJourney): SearchText => ({
+  title: x.j.title, question: x.j.question, summary: x.j.summary,
+  stepTitles: x.j.steps.map((s) => s.title),
+  files: x.j.steps.map((s) => fileOf(x, s.n)),
+})
+
+/** The journeys matching `query` with their scores (in `all`'s order): one ranking, the list's (matchScore). */
+export function rankJourneys(all: LoadedJourney[], query: string): { lj: LoadedJourney; score: number }[] {
+  return all.map((lj) => ({ lj, score: matchScore(searchTextOf(lj), query).score })).filter((v) => v.score > 0)
+}
+
+/** What a journey's row says besides its title: being walked, has a podcast, listened to now, can't be read. */
+export interface JourneyBadges { walking: boolean; podcast: boolean; listening: boolean; unreadable: boolean }
+
+export function journeyBadges(x: LoadedJourney): JourneyBadges {
+  const pod = podcast()?.status(x)
+  const has = pod?.state === 'ok'
+  return {
+    walking: x.key === tourState().key && !!tourState().step,
+    podcast: has,
+    listening: has && !!pod?.session,
+    unreadable: !!x.readError,
+  }
 }
 
 /**
@@ -70,16 +121,14 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
   const step = words.length ? x.j.steps.find((st) => words.some((w) => st.title.toLowerCase().includes(w))) : undefined
   const onlyStepMatched = step && !words.every((w) => journeyHay(x).includes(w))
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
+  const b = journeyBadges(x)
   // A podcast: ♪ after the title, and a ▶ button on the row that opens it and listens.
-  const pod = podcast()?.status(x)
-  const has = pod?.state === 'ok'
-  const listening = has && !!pod?.session
-  const walking = x.key === tourState().key && tourState().step && !listening
+  const description = [b.listening ? 'listening' : about, b.unreadable ? '⚠' : '', multi ? x.folder.name : '']
   return {
     ask: undefined,
-    label: `${walking ? '$(play-circle) ' : ''}${x.j.title}${has ? ' ♪' : ''}`,
-    description: [listening ? 'listening' : about, x.readError ? '⚠' : '', multi ? x.folder.name : ''].filter(Boolean).join(' · '),
-    ...(has && !listening ? { buttons: [LISTEN_BUTTON] } : {}),
+    label: `${b.walking && !b.listening ? '$(play-circle) ' : ''}${x.j.title}${b.podcast ? ' ♪' : ''}`,
+    description: description.filter(Boolean).join(' · '),
+    ...(b.podcast && !b.listening ? { buttons: [LISTEN_BUTTON] } : {}),
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,
   }
@@ -87,20 +136,3 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
 
 /** Title, question and summary, lower case: what a word must be in for more than a step to match. */
 const journeyHay = (x: LoadedJourney) => [x.j.title, x.j.question, x.j.summary].join('\n').toLowerCase()
-
-/** The picker's weights: the exact title, a title starting with what was typed, each word in the title. */
-const EXACT_TITLE = 1e6
-const TITLE_PREFIX = 1e5
-const TITLE_WORD = 1e3
-
-/** How well a journey matches typed `words` (-1: a word is in none of its texts); then how often the words occur. */
-export function pickerScore(x: LoadedJourney, words: string[], typed: string): number {
-  const text = [journeyHay(x), ...x.j.steps.map((st) => st.title.toLowerCase())].join('\n')
-  if (!words.every((w) => text.includes(w))) return -1
-  const title = x.j.title.toLowerCase()
-  const exact = typed && title === typed ? EXACT_TITLE : 0
-  const prefix = typed && title.startsWith(typed) ? TITLE_PREFIX : 0
-  const titleWords = words.filter((w) => title.includes(w)).length * TITLE_WORD
-  const occurrences = words.reduce((a, w) => a + text.split(w).length - 1, 0)
-  return exact + prefix + titleWords + occurrences
-}

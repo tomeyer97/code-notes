@@ -18,10 +18,22 @@ export function blocksFromSymbols(syms: Sym[]): Block[] {
   const out: Block[] = []
   const walk = (list: Sym[], inClass: boolean) => {
     for (const s of list) {
-      if (s.kind === 'fn') { out.push({ start: s.start, end: s.end, kind: 'fn' }); continue }
-      if (s.kind === 'var' && !inClass && s.end > s.start) { out.push({ start: s.start, end: s.end, kind: 'var' }); continue }
-      if (s.kind === 'class') { out.push({ start: s.start, end: s.end, kind: 'class' }); walk(s.children, true); continue }
-      if (s.kind === 'other') walk(s.children, inClass) // a namespace, a module
+      switch (s.kind) {
+        case 'fn':
+          out.push({ start: s.start, end: s.end, kind: 'fn' })
+          break
+        case 'var':
+          // A class's fields and one-line consts are not blocks.
+          if (!inClass && s.end > s.start) out.push({ start: s.start, end: s.end, kind: 'var' })
+          break
+        case 'class':
+          out.push({ start: s.start, end: s.end, kind: 'class' })
+          walk(s.children, true)
+          break
+        case 'other': // a namespace, a module
+          walk(s.children, inClass)
+          break
+      }
     }
   }
   walk(syms, false)

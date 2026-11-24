@@ -132,3 +132,11 @@ test('the example journey: which refs are listed, as today', () => {
   assert.equal(open.refs, closed.refs)
   assert.equal(stepText(lj, 6, link, input()).refs, '', 'its one ref is inside its own lines')
 })
+
+test('line suffixes, one grammar: a bare ref with an en dash, a `#L` ref, and a ref moved with the step keeps its dash', () => {
+  assert.deepEqual(parseBare('src/a.ts:3–5'), { text: 'a.ts:3–5', file: 'src/a.ts', line: 3, end: 5 })
+  assert.deepEqual(parseBare('src/a.ts#L9'), { text: 'a.ts#L9', file: 'src/a.ts', line: 9 })
+  assert.deepEqual(parseBare('src/a.ts'), { text: 'a.ts', file: 'src/a.ts', line: 0 })
+  const t = text(one({ refs: ['src/a.ts:40–42'] }, { start: 15, end: 25 }))
+  assert.equal(t.refs, '[a.ts:45–47](src/a.ts:45-47)')
+})

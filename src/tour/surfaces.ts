@@ -20,6 +20,7 @@ export interface WalkSurfaces {
   state: TourState
   card: StepCard
   status: TourStatusItem
+  lenses: { changed(): void }
   journeys: Journeys
   mapPanel: MapPanel
   beats: Beats
@@ -34,7 +35,7 @@ export function followTheWalk(walk: Walk, s: WalkSurfaces): vscode.Disposable[] 
       // A step question's back-link says less while you walk its journey.
       syncStepNotes()
       fireAndForget(setCtx('codeNotes.journeyActive', walk.touring()), 'walk: setCtx codeNotes.journeyActive')
-      s.card.lensChanged.fire() // the step lenses show only outside a walk
+      s.lenses.changed() // the step lenses show only outside a walk
       fireAndForget(setCtx('codeNotes.hasJourneys', s.journeys.all().length > 0), 'walk: setCtx codeNotes.hasJourneys')
       s.mapPanel.update()
       renderStatus(walk, s)

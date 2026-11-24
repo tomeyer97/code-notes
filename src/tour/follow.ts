@@ -10,7 +10,8 @@ import { WorkspaceEvents } from '../platform/events'
 import { fireAndForget } from '../platform/run'
 import { keepOffMap } from './panelLayout'
 
-export function tourFollows(model: NotesApi, events: WorkspaceEvents): vscode.Disposable {
+/** `lenses`: the step lenses, asked for again when the journeys change. */
+export function tourFollows(model: NotesApi, events: WorkspaceEvents, lenses: { changed(): void }): vscode.Disposable {
   return vscode.Disposable.from(
     model.onDidChange((c) => {
       if (whileTyping(c)) return
@@ -21,13 +22,13 @@ export function tourFollows(model: NotesApi, events: WorkspaceEvents): vscode.Di
       if (tj && !card().inMap(tj, tourState().step)) card().show(tj, tourState().step)
     }),
     journeys().onDidChange(() => {
-      card().lensChanged.fire()
+      lenses.changed()
       for (const lj of journeys().list.values()) mapPanel().update(lj)
       // The journey file was rewritten: the same step (by id), with its new text.
       walk().followStep()
     }),
     journeys().onDidMoveSteps((lj) => {
-      card().lensChanged.fire()
+      lenses.changed()
       mapPanel().update()
       if (lj.key === tourState().key && tourState().step) card().show(lj, tourState().step)
       card().refreshDecorations()
