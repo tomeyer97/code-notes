@@ -20,17 +20,30 @@ import { fireAndForget } from '../platform/run'
 export const LISTEN_VIEW = 'codeNotes.listen'
 /** The context key that brings the view in (package.json: the view's and the transport commands' `when`). */
 export const LISTENING_CTX = 'codeNotes.listening'
+/** The command VS Code makes for the view: it shows the view (and makes it, the first time). */
+const LISTEN_FOCUS = 'codeNotes.listen.focus'
+/** How long a new view's page has to say it is ready (ms). */
+export const READY_TIMEOUT_MS = 10_000
+
+/** The page's files (media/), as the view links them: the harness under test/journey-podcast/ loads the page the view
+ *  makes from this list, so it never links other files than VS Code does. */
+export const LISTEN_PAGE = {
+  css: ['common.css', 'journey-podcast.css', 'listen.css'],
+  body: '<div id="app"></div>',
+  script: 'listen',
+} as const
 
 export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined
   /** The page's messages (src/protocol/listen.ts): what it is sent waits until it is ready. */
   private channel: WebviewChannel<FromListen, ToListen>
-  private waiting: (() => void)[] = []
+  /** Each waits for the page's next 'ready' (ensure()). */
+  private waiting = new Set<() => void>()
   private subs: vscode.Disposable[] = []
   /** `on.message`: what the page says; `on.gone`: the view's page went (the view was closed for good), the audio with
    *  it. */
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private readonly on: { message: (m: FromListen) => void; gone: () => void }) {
-    this.channel = new WebviewChannel('listen view', log, { onReady: () => { for (const w of this.waiting.splice(0)) w() } })
+    this.channel = new WebviewChannel('listen view', log, { onReady: () => this.readied() })
   }
 
   register(): vscode.Disposable {
@@ -46,9 +59,9 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
     const media = (f: string) => vscode.Uri.joinPath(this.extensionUri, 'media', f)
     view.webview.options = { enableScripts: true, localResourceRoots: this.roots() }
     view.webview.html = webviewPage(view.webview, {
-      css: [media('common.css'), media('journey-podcast.css'), media('listen.css')],
-      body: '<div id="app"></div>',
-      scripts: [pageScript(this.extensionUri, 'listen')],
+      css: LISTEN_PAGE.css.map(media),
+      body: LISTEN_PAGE.body,
+      scripts: [pageScript(this.extensionUri, LISTEN_PAGE.script)],
       allow: { media: true },
     })
     this.subs.push(
@@ -89,24 +102,42 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
 
   /**
    * The view made (shown once, so VS Code creates it; the keyboard then goes back to where it was): resolves true once
-   * its page is ready, false if it could not be shown.
+   * its page is ready, false if it could not be shown or its page did not say so within READY_TIMEOUT_MS.
    */
   async ensure(): Promise<boolean> {
     if (this.alive) return true
-    const ready = new Promise<void>((r) => this.waiting.push(r))
-    if (!this.view) {
-      try {
-        await setCtx(LISTENING_CTX, true)
-        await vscode.commands.executeCommand(`${LISTEN_VIEW}.focus`)
-      } catch (e) {
-        this.log.warn(`listen view: could not be shown (${e})`)
-        return false
-      }
-      // The keyboard back in the editor area (the group last used: the code, or the journey panel).
-      fireAndForget(vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'), 'listenView: command workbench.action.focusActiveEditorGroup')
+    const ready = this.nextReady(READY_TIMEOUT_MS)
+    if (!this.view && !(await this.show())) { ready.cancel(); return false }
+    return ready.done
+  }
+
+  /** The view brought in and shown, then the keyboard back in the editor area (the group last used: the code, or the
+   *  journey panel). False: it could not be shown. */
+  private async show(): Promise<boolean> {
+    try {
+      await setCtx(LISTENING_CTX, true)
+      await vscode.commands.executeCommand(LISTEN_FOCUS)
+    } catch (e) {
+      this.log.warn(`listen view: could not be shown (${e})`)
+      return false
     }
-    const timeout = new Promise<'late'>((r) => setTimeout(() => r('late'), 10000))
-    return (await Promise.race([ready, timeout])) !== 'late'
+    fireAndForget(vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'), 'listenView: command workbench.action.focusActiveEditorGroup')
+    return true
+  }
+
+  /** The page's next 'ready': `done` resolves true then, or false after `ms` (the waiter goes either way). */
+  private nextReady(ms: number): { done: Promise<boolean>; cancel: () => void } {
+    let settle: (ok: boolean) => void = () => undefined
+    const done = new Promise<boolean>((resolve) => { settle = resolve })
+    const finish = (ok: boolean) => { clearTimeout(timer); this.waiting.delete(onReady); settle(ok) }
+    const onReady = () => finish(true)
+    const timer = setTimeout(() => finish(false), ms)
+    this.waiting.add(onReady)
+    return { done, cancel: () => finish(false) }
+  }
+
+  private readied(): void {
+    for (const w of [...this.waiting]) w()
   }
 
   dispose(): void {

@@ -1,22 +1,19 @@
 // The Listen view (src/podcast/listenView.ts): where a journey's audio plays; the page's script, bundled as
-// out/pages/listen.js. A webview view VS Code keeps alive while
-// hidden, so the episode goes on when the journey panel closes; the journey panel's player is a remote of this one.
-// The view is there only while a journey is listened to: nothing to say before one is loaded.
-// Shows the journey, the part being talked about, and the player (journey-podcast.js in host mode).
+// out/pages/listen.js. VS Code keeps the view alive while hidden, so the episode goes on when the journey panel
+// closes. It is there only while a journey is listened to: nothing to say before one is loaded. It shows the journey,
+// the part being talked about, and the player (journey-podcast.js), which starts as the audio's host.
 //
-// The player starts as the audio's host; the extension makes it a remote while the journey panel plays the audio
-// (podcastRole: journey-podcast.js's header says why).
+// One player on screen: while the journey panel shows this episode, the panel's player is the one to use, and this
+// view is one line (the journey, ⏸ / ▶ and the time).
 //
-// One player on screen: while the journey panel shows this episode (its player is the player), this view is one line,
-// the journey, ⏸ / ▶ and the time; the whole player shows here only when the panel is closed.
-//
-// Its messages both ways are src/protocol/listen.ts (ToListen, FromListen): the player's, the journey the panel shows
-// (`panel`) and the journey's map asked for (`podcastOpen`).
+// Its messages both ways are src/protocol/listen.ts (ToListen, FromListen).
 import { el, connect, onMessages } from './common.js'
 import { JourneyPodcast } from './journey-podcast.js'
+import { runTestMessage } from './map/testHooks.js'
 
 /** @typedef {import('../src/protocol/listen').ToListen} ToListen */
 /** @typedef {import('../src/protocol/listen').FromListen} FromListen */
+/** @typedef {import('../src/protocol/podcast').PodcastEpisode} PodcastEpisode */
 
 const { post } = /** @type {import('./types').Port<FromListen>} */ (connect())
 const app = /** @type {HTMLElement} */ (document.getElementById('app'))
@@ -30,22 +27,29 @@ head.append(title, where)
 const mount = el('div', 'ls-player')
 app.append(head, mount)
 
+/** @type {PodcastEpisode | undefined} */
 let ep
-/** The journey the panel shows ('' : closed). */
+/** The journey the panel shows ('': closed). */
 let panelKey = ''
+/** The journey panel shows this episode: its player is the one on screen. */
+const panelShowsIt = () => !!ep && panelKey === ep.key
 function compact() {
-  const on = !!ep && panelKey === ep.key
+  const on = panelShowsIt()
   document.body.classList.toggle('compact', on)
   title.title = on ? 'Open the journey (its panel has the player)' : 'Open the journey'
+}
+/** "Step 3 of 7 · title" for the step being talked about ('' on the map's parts). */
+function stepLine(step) {
+  if (!ep || !step) return ''
+  const s = ep.steps[step - 1]
+  return `Step ${step} of ${ep.steps.length}${s ? ` · ${s.title}` : ''}`
 }
 const player = JourneyPodcast({
   post,
   mode: 'host',
   mount,
   onTick: (_t, step) => {
-    const n = ep && ep.steps ? ep.steps.length : 0
-    const s = step && ep && ep.steps[step - 1]
-    const text = !ep ? '' : step ? `Step ${step} of ${n}${s ? ` · ${s.title}` : ''}` : ''
+    const text = stepLine(step)
     if (where.textContent !== text) { where.textContent = text; where.title = text }
   },
 })
@@ -68,9 +72,7 @@ const handlers = {
   podcastState(m) { player.hostState(m) },
   panel(m) { panelKey = m.key || ''; compact() },
   hello() { post({ type: 'ready' }) },
-  test(m) {
-    if (m.click) { const t = document.querySelector(m.click); if (t) t.dispatchEvent(new MouseEvent('click', { bubbles: true })) }
-  },
+  test: runTestMessage,
 }
 onMessages(handlers)
 post({ type: 'ready' })
