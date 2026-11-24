@@ -1,9 +1,9 @@
 // The command line: `node understanding.mjs <command>` (see HELP).
 import fs from 'node:fs'
 import path from 'node:path'
-import { CI_URL, cliName, DOCS_URL, hasSkill, SKILL_DIR, SKILL_URL, withoutVsCode } from './constants'
+import { CI_URL, cliName, DOCS_URL, SKILL_DIR, SKILL_URL, STATE } from './constants'
 import { currentBranch, repoRoot } from './git'
-import { diffText } from './diff'
+import { diffOrEmpty } from './diff'
 import { addAttempt, fileFor, flagConcern, gitIdentity, loadConfig, readCheck, unknownLine, unknownSettings, writeCheck } from './checkFile'
 import { validateCheck } from './validate'
 import { localStatus, nextQuestion, stamp, stateOf, stateWords, summarize } from './state'
@@ -12,7 +12,8 @@ import { pickBackend } from './graderBackends'
 import { commitCheck } from './push'
 import { MARK } from './mrComment'
 import { runCi } from './ci'
-import { FOLD_TEXT, initRepo, installSkill } from './init'
+import { FOLD_TEXT, hasSkill, initRepo, installSkill } from './init'
+import { withoutVsCode } from './messages'
 import type { Attempt, Check, Config, Question } from './types'
 
 /** The parsed command line (parseArgs): `_` the words, then each `--flag`: its value, or true. */
@@ -49,14 +50,39 @@ ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.
 The questions are written by the understanding-check skill: in VS Code by Code Notes, else by Claude Code
 (/understanding-check; ${SKILL_URL}).`
 
+/**
+ * The flags that never take a value, and who reads them (the skill's scripts/questions.mjs parses with parseArgs
+ * too). Any other `--flag` takes the next word as its value unless that word is a flag too; `--flag=value` always does.
+ * A new boolean flag goes here and in HELP.
+ */
+export const BOOLEAN_FLAGS: Record<string, string> = {
+  json: 'status',
+  write: 'grade',
+  prompt: 'grade',
+  'no-comment': 'ci',
+  'no-push': 'commit',
+  suspect: 'questions.mjs',
+  'whole-file': 'questions.mjs',
+  'top-up': 'questions.mjs',
+  replace: 'questions.mjs',
+  evidence: 'questions.mjs',
+  none: 'questions.mjs',
+}
+
+/**
+ * The command line: `_` the words, then each `--flag`: its value, or true. Not node:util's parseArgs, whose rules
+ * differ where command lines that work today depend on these: `--base --json` (no value here), an unknown
+ * `--flag value` (a value here), a word starting with a single "-" (a word here, e.g. an answer).
+ */
 export function parseArgs(argv: string[]): Args {
   const o: Args = { _: [] }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a.startsWith('--')) { o._.push(a); continue }
     const [k, v] = a.slice(2).split(/=(.*)/s)
+    const next = argv[i + 1]
     if (v !== undefined) o[k] = v
-    else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && !['json', 'write', 'no-comment', 'suspect', 'whole-file', 'top-up', 'replace', 'evidence', 'none', 'prompt', 'no-push'].includes(k)) o[k] = argv[++i]
+    else if (next !== undefined && !next.startsWith('--') && !Object.hasOwn(BOOLEAN_FLAGS, k)) { o[k] = next; i++ }
     else o[k] = true
   }
   return o
@@ -133,8 +159,9 @@ function validateCommand({ o, repo, cwd, print }: CommandArgs): number {
 }
 
 /**
- * `grade`: the ungraded answers (or `--question`'s) graded by a backend; `--prompt` prints the grader's instructions
- * instead; `--reply` records a grade written elsewhere.
+ * `grade`: the ungraded answers (or `--question`'s) graded by a backend (gradeRun); `--prompt` prints the grader's
+ * instructions instead (gradePrompt); `--reply` records a grade written elsewhere (recordReply). The file and the
+ * flags are checked here, once.
  */
 async function gradeCommand({ o, repo, cwd, env, print }: CommandArgs): Promise<number> {
   const f = o._[1] ? path.resolve(cwd, o._[1]) : path.join(repo, fileFor(currentBranch(repo, env)))
@@ -143,23 +170,26 @@ async function gradeCommand({ o, repo, cwd, env, print }: CommandArgs): Promise<
   const errs = validateCheck(c)
   if (errs.length) { print(`✗ not valid: ${errs[0]}`); return 2 }
   const cfg = loadConfig(repo)
-  let list = c.questions.filter((q: Question) => stateOf(q) === 'ungraded')
   const one = typeof o.question === 'string'
-  if ((o.prompt || o.reply !== undefined) && (!one || typeof o.answer !== 'string')) {
+  const answer = typeof o.answer === 'string' ? o.answer : undefined
+  if ((o.prompt || o.reply !== undefined) && (!one || answer === undefined)) {
     print(`--${o.prompt ? 'prompt' : 'reply'} needs --question and --answer`)
     return 2
   }
-  if (!one && typeof o.answer === 'string') { print('--answer needs --question'); return 2 }
-  if (one) {
-    const q = c.questions.find((x: Question) => x.id === o.question)
-    if (!q) { print(`✗ no question ${o.question}`); return 2 }
-    // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
-    if (o.prompt) { print(promptFor(repo, c, q, o.answer)); return 0 }
-    if (typeof o.answer === 'string') addAttempt(c, q, o.answer, gitIdentity(repo))
-    // A grade written elsewhere (Claude Code in a chat): checked and recorded like the grader's own reply.
-    if (o.reply !== undefined) return recordReply({ f, c, q, cfg, reply: String(o.reply), repo, env, print })
-    list = [q]
-  }
+  if (!one && answer !== undefined) { print('--answer needs --question'); return 2 }
+  if (!one) return gradeRun({ f, c, list: c.questions.filter((q: Question) => stateOf(q) === STATE.ungraded), cfg, o, repo, env, print })
+  const q = c.questions.find((x: Question) => x.id === o.question)
+  if (!q) { print(`✗ no question ${o.question}`); return 2 }
+  // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
+  if (o.prompt) { print(promptFor(repo, c, q, answer!)); return 0 }
+  if (answer !== undefined) addAttempt(c, q, answer, gitIdentity(repo))
+  // A grade written elsewhere (Claude Code in a chat): checked and recorded like the grader's own reply.
+  if (o.reply !== undefined) return recordReply({ f, c, q, cfg, reply: String(o.reply), repo, env, print })
+  return gradeRun({ f, c, list: [q], cfg, o, repo, env, print })
+}
+
+/** `grade` with a backend: each question of `list` graded at once, said; `--write` saves the file. */
+async function gradeRun({ f, c, list, cfg, o, repo, env, print }: { f: string; c: Check; list: Question[]; cfg: Config; o: Args; repo: string; env: NodeJS.ProcessEnv; print: Print }): Promise<number> {
   if (!list.length) { print('Nothing to grade: no answers without a verdict.'); return 0 }
   let backend: ReturnType<typeof pickBackend>
   try {
@@ -169,17 +199,19 @@ async function gradeCommand({ o, repo, cwd, env, print }: CommandArgs): Promise<
     return 2
   }
   const model = typeof o.model === 'string' ? o.model : cfg.model ?? env.UNDERSTANDING_MODEL ?? undefined
-  let diff: string
-  try { diff = diffText(repo, c.base ?? c.head, undefined) } catch { diff = '' }
-  let failed = 0
-  await Promise.all(list.map(async (q: Question) => {
+  const diff = diffOrEmpty(repo, c.base ?? c.head)
+  const results = await Promise.all(list.map(async (q: Question) => {
     try {
       const a = await gradeQuestion(repo, c, q, { backend, model, env, diff })
       print(gradeLine(q, a))
-    } catch (e) { failed++; print(`! ${q.id}: ${(e as Error).message}`) }
+      return true
+    } catch (e) {
+      print(`! ${q.id}: ${(e as Error).message}`)
+      return false
+    }
   }))
   if (o.write) { writeCheck(f, stamp(c, cfg)); print(`Saved ${path.relative(repo, f)}.`) }
-  return failed ? 2 : 0
+  return results.every(Boolean) ? 0 : 2
 }
 
 /** `grade --reply`: the grade (`reply`) recorded on question `q`'s latest answer, the file saved, what is next said. */
@@ -204,7 +236,7 @@ function nextCommand({ repo, env, print }: CommandArgs): number {
   const also = q.also?.length ? ` · also ${q.also.map((x: NonNullable<Question['also']>[number]) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''
   print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ''}) · ${q.kind} · ${where}${also}`)
   print(q.text)
-  const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts!.at(-1)!.hint : ''
+  const hint = q.attempts?.at(-1)?.verdict === STATE.retry ? q.attempts!.at(-1)!.hint : ''
   if (hint) print(`Hint: ${hint}`)
   return 0
 }

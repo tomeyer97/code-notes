@@ -1,15 +1,14 @@
 // The merge request comment: the result, what a reviewer can act on, the answers; text made safe to post.
-import { createHash } from 'node:crypto'
-import { DEFAULTS, DIR, MARKER, TOUR_LINE } from './constants'
+// The other sentences of the CI job are in messages.ts; a phase's headline is in phases.ts.
+import { DEFAULTS, DIR, STATE, TOUR_LINE } from './constants'
 import { git, gitOk, hasCommit } from './git'
-import { oldLineOf } from './diff'
 import { sameWho } from './checkFile'
-import type { Attempt, Check, CodeStat, Concern, Config, Link, QState, Question, Summary } from './types'
+import { stripCourtesy } from './grading'
+import { MARKER } from './markers'
+import { settingsSentence } from './messages'
+import type { Spot } from './forge'
+import type { Attempt, Check, Concern, Link, QState, Question, Summary } from './types'
 
-/** The forge context a diff link needs (ci's ctx, with the head commit). */
-interface LinkCtx { platform?: string; web?: string; mr?: string | number; head?: string }
-/** Where a link points: a question, or a line range of a file. */
-type Spot = Pick<Question, 'file' | 'start' | 'end' | 'target'>
 /** A "Worth discussing" item (discussItems). */
 interface Discuss { id: string; q: Question; a: Attempt | undefined; topic: string; point: string }
 /** A review item (reviewItems): one per question. */
@@ -18,43 +17,43 @@ interface ReviewItem { id: string; q: Question; concern?: string; flagged?: bool
 type FindLast = { findLast(f: (x: Attempt) => boolean): Attempt | undefined }
 
 const MARK: Record<QState, string> = { pass: '✓', restated: '✓', explained: '·', retry: '↻', ungraded: '?', todo: '○' }
+
+// Text from people and the grader is posted on every repository's merge requests: these keep it from pinging anyone,
+// linking to anything or rendering as markup. test/cli/mrComment.test.mjs covers each case.
+/** A mention: "@carol", "@all", "@group/sub" (not an email's "a@b", not inside code or a word). */
+const MENTION = /(^|[^\w.@`])@(?=[\w-])/g
+/** A numbered reference: "#12" issue, "!3" merge request, "~5" label, "%2" milestone, "$7" snippet, "&4" epic. */
+const REFERENCE = /(^|[^\w&\u2060])([#!~%$&])(?=\d)/g
+/** The word joiner (U+2060): invisible, it breaks the "@" or "#" from what follows. */
+const JOINER = '\u2060'
+/** HTML's own characters: "<b>", "</blockquote>", "&amp;". */
+const HTML_CHAR = /[&<>]/g
+const HTML_ENTITY: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+/** Markdown's inline characters: "*bold*", "`code`", "[link](…)", "| table |", ":emoji:", "~~strike~~", "#", "!". */
+const MARKDOWN_CHAR = /[\\`*_[\]|~#:!]/g
+/** A line that starts a list, a rule or a heading underline: "- item", "+ item", "---", "===". */
+const LINE_MARK = /^(\s*)([-+=])/
+/** A line that starts a numbered list: "1. item", "2) item". */
+const NUMBERED = /^(\s*\d+)([.)])/
+
 /**
- * Makes @mentions inert (`@carol`, `@all`, `@group/sub`, `@org/team`): a word joiner after the "@" keeps the text as it
- * reads but GitLab and GitHub no longer notify anyone, also when the comment is edited later. Emails stay as they are.
- * Numbered references too (`#12` issue, `!3` merge request, `~5` label, `%2` milestone, `$7` snippet, `&4` epic): quoted
- * text never turns into a link to something else.
+ * Makes @mentions and numbered references inert: a word joiner after the "@" or "#" keeps the text as it reads but
+ * GitLab and GitHub no longer notify anyone or link it, also when the comment is edited later. Emails stay as they are.
  */
-export const inert = (s: unknown): string => String(s ?? '').replace(/(^|[^\w.@`])@(?=[\w-])/g, '$1@\u2060').replace(/(^|[^\w&\u2060])([#!~%$&])(?=\d)/g, '$1$2\u2060')
+export const inert = (s: unknown): string => String(s ?? '').replace(MENTION, `$1@${JOINER}`).replace(REFERENCE, `$1$2${JOINER}`)
 /**
  * Text written by a person or the grader, shown exactly as typed in a comment: HTML and markdown made literal (a
  * "---" under a line, "### ✅ waived", "</blockquote>", a table row, `:emoji:` or a link never render), line by line.
  */
 export function literal(s: unknown): string {
   return String(s ?? '').split('\n').map((l) => l
-    .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as Record<string, string>)[c])
-    .replace(/[\\`*_[\]|~#:!]/g, '\\$&')
-    .replace(/^(\s*)([-+=])/, '$1\\$2')
-    .replace(/^(\s*\d+)([.)])/, '$1\\$2')).join('\n')
+    .replace(HTML_CHAR, (c) => HTML_ENTITY[c])
+    .replace(MARKDOWN_CHAR, '\\$&')
+    .replace(LINE_MARK, '$1\\$2')
+    .replace(NUMBERED, '$1\\$2')).join('\n')
 }
 const quote = (s: unknown): string => literal(inert(String(s).trim())).split('\n').map((l) => (l.trim() ? `> ${l}` : '>')).join('\n')
 const loc = (q: Spot): string => (q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`)
-
-
-
-/** A link to a question's lines in the merge request's diff (GitLab, GitHub); the file at the head commit when it isn't in the diff. */
-export function refLink(ctx: LinkCtx | undefined, q: Spot, diff?: string): string | undefined {
-  if (!ctx?.web || !ctx.mr) return undefined
-  const file = q.target === 'file' || !q.start
-  if (ctx.platform === 'github') {
-    const h = createHash('sha256').update(q.file, 'utf8').digest('hex')
-    return `${ctx.web}/pull/${ctx.mr}/files#diff-${h}${file ? '' : `R${q.start}${q.end! > q.start! ? `-R${q.end}` : ''}`}`
-  }
-  if (ctx.platform !== 'gitlab') return undefined
-  const h = createHash('sha1').update(q.file, 'utf8').digest('hex')
-  const old = oldLineOf(diff ?? '', q.file, q.start ?? 1)
-  if (old === undefined) return ctx.head ? `${ctx.web}/-/blob/${ctx.head}/${q.file.split('/').map(encodeURIComponent).join('/')}${file ? '' : `#L${q.start}-${q.end}`}` : undefined
-  return `${ctx.web}/-/merge_requests/${ctx.mr}/diffs#${h}${file ? '' : `_${old}_${q.start}`}`
-}
 
 /** Text from the grader or the author, safe on one markdown line. */
 const inline = (s: unknown): string => literal(inert(String(s ?? '').replace(/\s+/g, ' ').trim()))
@@ -68,7 +67,7 @@ export function clipWords(s: unknown, n: number): string {
 /** The grader's reasoning for the reviewer, at most 15 words: its `note`, else its feedback without the "Right.". */
 export function reasonOf(a: Attempt | undefined): string {
   if (!a) return ''
-  return clipWords(String(a.note || a.feedback || '').replace(/^\s*(right|correct|yes)[.!:,]\s*/i, ''), 15)
+  return clipWords(stripCourtesy(String(a.note || a.feedback || '')), 15)
 }
 /** The one-line correct explanation of an explained question: the grader's `note`, else the first sentence of its explanation. */
 export function explanationOf(a: Attempt | undefined): string {
@@ -103,12 +102,12 @@ export function discussItems(check: Check, sum: Summary): Discuss[] {
   const out: Discuss[] = []
   check.questions.forEach((q, i) => {
     const s = sum.states[i], as = q.attempts ?? []
-    if (s === 'explained' || s === 'restated') {
-      const a = as.find((x) => x.verdict === 'explained')
+    if (s === STATE.explained || s === STATE.restated) {
+      const a = as.find((x) => x.verdict === STATE.explained)
       out.push({ id: `discuss-${q.id}`, q, a, topic: a?.topic || q.text, point: explanationOf(a) })
       return
     }
-    const a = (as as Attempt[] & FindLast).findLast((x) => x.verdict === 'pass')
+    const a = (as as Attempt[] & FindLast).findLast((x) => x.verdict === STATE.pass)
     if (a?.partial) out.push({ id: `discuss-${q.id}`, q, a, topic: a.topic || q.text, point: explanationOf(a) || clipWords(String(a.feedback ?? '').replace(/^\s*mostly right[.!:,]?\s*/i, ''), 30) })
   })
   return out
@@ -182,46 +181,73 @@ export function clipAnswer(s: unknown, n = 300): string {
  * every answer once in a collapsed "All answers" (long ones cut). It never grades in public (`qa` only once done).
  */
 export function commentBody(check: Check, sum: Summary, head: string, link: (q: Spot) => string | undefined = () => undefined, { qa = false, threads = new Map(), changed = new Map(), items = reviewItems(check, sum, { qa }) }: { qa?: boolean; threads?: Map<string, string>; changed?: Map<string, string>; items?: ReviewItem[] } = {}): string {
-  const ref = (q: Spot): string => { const u = link(q); return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\`` }
-  const linkText = (t: unknown, n: number): string => clipWords(t, n).replace(/\\?[[\]]/g, '')
-  // Someone other than the check's author answered (a teammate): said, never blocking.
-  const by = (a: Attempt | undefined): string => (a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : '')
-  const fixed = (id: string): string => (changed.has(id) ? ` · ${changedText(changed.get(id))}` : '')
+  const text: ItemText = { check, link, changed }
   const out = [MARKER, head]
-  const lines = items.map((it) => {
-    const u = threads.get(it.id)
-    if (isConcernItem(it)) {
-      const lead = it.flagged ? '' : 'May be a bug: '
-      return u ? `- ⚠ ${lead}[${linkText(it.concern, 14)}](${u})${fixed(it.id)}` : `- ⚠ ${lead}${inline(it.concern)} · ${ref(it.q)}${fixed(it.id)}`
-    }
-    const d = it.d!
-    return u ? `- 💬 [Worth discussing: ${linkText(d.topic, 10)}](${u})${by(d.a)}` : `- 💬 **Worth discussing: ${inline(d.topic)}** · ${ref(d.q)}${by(d.a)}${d.point ? ` · ${d.point}` : ''}`
-  })
-  if (lines.length) out.push('', ...lines)
+  if (items.length) out.push('', ...items.map((it) => itemLine(it, threads.get(it.id), text)))
   if (check.journey) out.push('', TOUR_LINE)
   if (!qa) return out.join('\n')
   const noticed = noticedConcerns(check, items)
-  if (noticed.length) out.push('', '**Also noticed while grading**', ...noticed.map((q) => `- ${clipWords(q.concern!.text, 25)} · ${ref(q)}${fixed(q.id)}`))
-  const all: string[] = []
-  check.questions.forEach((q, i) => {
-    const s = sum.states[i], as = q.attempts ?? []
-    const title = `**${questionText(q.text)}** · ${ref(q)}${q.suspect ? ' · may be a bug' : ''}`
-    // Explained, then said back: the author's own words, marked. Explained only: the point is in "Worth discussing".
-    if (s === 'restated') { const a = (as as Attempt[] & FindLast).findLast((x) => x.verdict === 'restated'); all.push('', `${title}${by(a)} · restated after an explanation`, ...(a?.answer ? [quote(clipAnswer(a.answer))] : [])); return }
-    if (s === 'explained') { all.push('', `${title} · explained`); return }
-    const good = (as as Attempt[] & FindLast).findLast((x) => x.verdict === 'pass')
-    all.push('', `${title}${by(good)}`, ...(good?.answer ? [quote(clipAnswer(good.answer))] : []))
-  })
-  out.push('', '<details><summary>All answers</summary>', ...all, '', '</details>')
+  if (noticed.length) out.push('', '**Also noticed while grading**', ...noticed.map((q) => `- ${clipWords(q.concern!.text, 25)} · ${refText(q, link)}${fixedText(q.id, changed)}`))
+  out.push('', ...answersSection(check, sum, link))
   return out.join('\n')
 }
 
-/** The merge request comment while there is no check yet: what it is and what to do, in two lines. */
-export function missingBody(rel: string, cfg: Config = DEFAULTS, rerun = ', then re-run the job', { quiet = false, size = 'about 5 min' }: { quiet?: boolean; size?: string } = {}): string {
-  return [MARKER, `**Understanding check: not done yet.** A few questions about your change (${size}): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
-    ...(quiet ? [] : [`<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`])].join('\n')
+/** What an item's line needs besides the item: the check, the link to lines, the concerns whose lines changed. */
+interface ItemText { check: Check; link: (q: Spot) => string | undefined; changed: Map<string, string> }
+
+/** A question's place as markdown: a link to its lines when there is one, else the place as code. */
+function refText(q: Spot, link: (q: Spot) => string | undefined): string {
+  const u = link(q)
+  return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\``
+}
+/** " · lines changed in abc1234 · fixed?" for a concern whose line changed, else ''. */
+const fixedText = (id: string, changed: Map<string, string>): string => (changed.has(id) ? ` · ${changedText(changed.get(id))}` : '')
+/** Someone other than the check's author answered (a teammate): said, never blocking. */
+const byText = (a: Attempt | undefined, check: Check): string => (a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : '')
+/** A link's text: clipped, without brackets that would end it. */
+const linkText = (t: unknown, n: number): string => clipWords(t, n).replace(/\\?[[\]]/g, '')
+
+/**
+ * One review item's line: a concern (⚠, "May be a bug: " unless the author flagged it) or "Worth discussing" (💬).
+ * With a thread (`url`), a short link to it; without, the text, a link to the lines and (discussing) the point.
+ */
+function itemLine(it: ReviewItem, url: string | undefined, { check, link, changed }: ItemText): string {
+  if (isConcernItem(it)) {
+    const lead = it.flagged ? '' : 'May be a bug: '
+    const fixed = fixedText(it.id, changed)
+    return url
+      ? `- ⚠ ${lead}[${linkText(it.concern, 14)}](${url})${fixed}`
+      : `- ⚠ ${lead}${inline(it.concern)} · ${refText(it.q, link)}${fixed}`
+  }
+  const d = it.d!
+  const by = byText(d.a, check)
+  if (url) return `- 💬 [Worth discussing: ${linkText(d.topic, 10)}](${url})${by}`
+  const point = d.point ? ` · ${d.point}` : ''
+  return `- 💬 **Worth discussing: ${inline(d.topic)}** · ${refText(d.q, link)}${by}${point}`
 }
 
+/**
+ * "All answers", collapsed: each question once, with the answer that counts (a pass's, or a restatement's, marked);
+ * an explained one only says so (its point is in "Worth discussing").
+ */
+function answersSection(check: Check, sum: Summary, link: (q: Spot) => string | undefined): string[] {
+  const all: string[] = []
+  const answer = (a: Attempt | undefined): string[] => (a?.answer ? [quote(clipAnswer(a.answer))] : [])
+  check.questions.forEach((q, i) => {
+    const s = sum.states[i], as = (q.attempts ?? []) as Attempt[] & FindLast
+    const title = `**${questionText(q.text)}** · ${refText(q, link)}${q.suspect ? ' · may be a bug' : ''}`
+    if (s === STATE.restated) {
+      const a = as.findLast((x) => x.verdict === STATE.restated)
+      all.push('', `${title}${byText(a, check)} · restated after an explanation`, ...answer(a))
+    } else if (s === STATE.explained) {
+      all.push('', `${title} · explained`)
+    } else {
+      const good = as.findLast((x) => x.verdict === STATE.pass)
+      all.push('', `${title}${byText(good, check)}`, ...answer(good))
+    }
+  })
+  return ['<details><summary>All answers</summary>', ...all, '', '</details>']
+}
 
 /**
  * What this change does to the check's own settings (understanding/config.json at `base` vs `head`), as one sentence
@@ -232,18 +258,7 @@ export function settingsChange(repo: string, base: string | undefined, head: str
   const a: Record<string, unknown> = { ...DEFAULTS, ...(at(base) ?? {}) }, b: Record<string, unknown> = { ...DEFAULTS, ...(at(head) ?? {}) }
   const v = (x: unknown): string => (x !== null && typeof x === 'object' ? JSON.stringify(x) : String(x))
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => v(a[k]) !== v(b[k]))
-  return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => (plain ? (x: string) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`)).join(', ')}.` : undefined
-}
-/** The settings change as the comment's headline: it applies once merged; this merge request is judged by the target's. */
-const settingsHeadline = (line: string): string => `**⚠ ${line.replace(/\.$/, '')}** (from the merge on; this merge request follows the current settings)`
-
-/** Why no check is needed: only exempt files changed, or no code lines (comments, blank lines). */
-export function noCheckLine(change: CodeStat): string {
-  if (change.exemptOnly) {
-    const f = change.exempt
-    return `✓ No check needed: only exempt files changed (${f.slice(0, 3).join(', ')}${f.length > 3 ? `, +${f.length - 3} more` : ''}).`
-  }
-  return '✓ No check needed: no code lines changed (only comments or blank lines).'
+  return keys.length ? settingsSentence(keys.map((k) => (plain ? (x: string) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`))) : undefined
 }
 
-export { changedText, inline, isConcernItem, liveConcern, MARK, settingsHeadline }
+export { changedText, inline, isConcernItem, liveConcern, MARK }

@@ -1,8 +1,8 @@
 // Grading an answer (local only): what the grader sees, its prompt, reading its reply, recording the grade.
 import fs from 'node:fs'
 import path from 'node:path'
-import { VERDICTS } from './constants'
-import { diffText } from './diff'
+import { STATE, VERDICTS } from './constants'
+import { diffOrEmpty, diffText } from './diff'
 import { addAttempt, attemptHash } from './checkFile'
 import { isDone, stateOf } from './state'
 import { graderPrompt } from './graderPrompt'
@@ -35,19 +35,40 @@ export function diffForGrader(diff: string, file: string): string {
 /** The texts of the check's other questions not done yet (the grader must not answer them). */
 export const openOthers = (check: Check, q: Question): string[] => (check.questions ?? []).filter((x) => x.id !== q.id && !isDone(stateOf(x))).map((x) => x.text)
 
+/** The grader's courtesy opener ("Right.", "Mostly right:", "Correct!", "Yes,"): the feedback without it. */
+export const stripCourtesy = (t: unknown): string => String(t ?? '').replace(/^\s*(right|mostly right|correct|yes)\b[.!:,]?\s*/i, '')
+
 /**
  * Whether a concern only repeats the feedback: the same words as the feedback, or a part of it (letters and digits
- * compared, case and punctuation ignored, "Right:" / "Mostly right." left out).
+ * compared, case and punctuation ignored, the courtesy opener left out).
  */
 export function repeats(concern: string, feedback: string): boolean {
-  const norm = (t: string | undefined): string => String(t ?? '').replace(/^\s*(right|mostly right|correct|yes)\b[.!:,]?\s*/i, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const norm = (t: string | undefined): string => stripCourtesy(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const c = norm(concern), f = norm(feedback)
   return !c || f.includes(c)
 }
 
 /**
- * The grader's reply as `{ verdict, feedback, hint, note?, topic?, concern? }` (throws when there is none). A first try
- * is never "explained", a later one never "retry"; a restatement is "restated" or "explained".
+ * The verdict that counts, from the grader's (`raw`) and the attempt: the attempt number decides between "retry" and
+ * "explained" (the prompt asks for the right one, graderPrompt's replyFormat; this holds when the model slips).
+ *
+ *   raw         first try   later try   restatement
+ *   pass        pass        pass        restated
+ *   restated    pass        pass        restated
+ *   retry       retry       explained   explained
+ *   explained   retry       explained   explained
+ */
+export function normalizeVerdict(raw: Verdict, { attempt, restate }: { attempt: number; restate: boolean }): Verdict {
+  const passed = raw === STATE.pass || raw === STATE.restated
+  if (restate) return passed ? STATE.restated : STATE.explained
+  if (passed) return STATE.pass
+  return attempt >= 2 ? STATE.explained : STATE.retry
+}
+
+/**
+ * The grader's reply as `{ verdict, feedback, hint, note?, topic?, concern? }` (throws when there is none). The
+ * verdict is normalizeVerdict's: a first try is never "explained", a later one never "retry"; a restatement is
+ * "restated" or "explained".
  */
 export function parseVerdict(text: string, attempt = 1, { restate = false }: { restate?: boolean } = {}): ParsedVerdict {
   const s = String(text ?? '')
@@ -58,19 +79,13 @@ export function parseVerdict(text: string, attempt = 1, { restate = false }: { r
     let v: any
     try { v = JSON.parse(c) } catch { continue }
     if (!v || !VERDICTS.includes(v.verdict)) continue
-    let verdict: Verdict = v.verdict
-    if (restate) verdict = verdict === 'pass' || verdict === 'restated' ? 'restated' : 'explained'
-    else {
-      if (verdict === 'restated') verdict = 'pass'
-      if (attempt >= 2 && verdict === 'retry') verdict = 'explained'
-      if (attempt < 2 && verdict === 'explained') verdict = 'retry'
-    }
+    const verdict = normalizeVerdict(v.verdict, { attempt, restate })
     const str = (x: unknown): string => String(x ?? '').trim()
-    const out: ParsedVerdict = { verdict, feedback: str(v.feedback), hint: verdict === 'retry' ? str(v.hint) : '' }
-    if (str(v.note) && verdict !== 'retry') out.note = str(v.note)
+    const out: ParsedVerdict = { verdict, feedback: str(v.feedback), hint: verdict === STATE.retry ? str(v.hint) : '' }
+    if (str(v.note) && verdict !== STATE.retry) out.note = str(v.note)
     // A pass that corrects something: worth discussing on the merge request.
-    if (verdict === 'pass' && v.partial === true) out.partial = true
-    if (str(v.topic) && (verdict === 'explained' || out.partial)) out.topic = str(v.topic)
+    if (verdict === STATE.pass && v.partial === true) out.partial = true
+    if (str(v.topic) && (verdict === STATE.explained || out.partial)) out.topic = str(v.topic)
     // A concern is about the code; one that only repeats the feedback (a confirmation, a reassurance) is dropped.
     if (str(v.concern) && !repeats(str(v.concern), out.feedback)) out.concern = str(v.concern)
     // Links whose phrase is in the text (verbatim); their lines are checked against the files by codeLinksIn().
@@ -105,7 +120,7 @@ export function gradeMode(q: Question): { attempt: number; explanation?: string 
   const as = q.attempts ?? []
   const last = as[as.length - 1]
   const before = as.filter((x) => x !== last && x.verdict)
-  const ex = before.find((x) => x.verdict === 'explained')
+  const ex = before.find((x) => x.verdict === STATE.explained)
   return { attempt: before.length + 1, ...(ex ? { explanation: ex.feedback ?? '' } : {}) }
 }
 
@@ -140,17 +155,22 @@ export function applyGrade(repo: string, q: Question, a: Attempt, text: string):
   return recordGrade(repo, q, a, v, new Date().toISOString())
 }
 
+/** The grade's fields an attempt keeps (recordGrade copies these and nothing else), in the file's order. */
+const GRADE_FIELDS = ['verdict', 'feedback', 'hint', 'note', 'partial', 'topic', 'concern', 'links'] as const satisfies readonly (keyof ParsedVerdict)[]
+
 /**
  * Verdict `v` (parseVerdict's) recorded on attempt `a` of `q` at time `at`: its links to lines that are there, the
- * time, the hash; a concern kept on the question (its flag survives a later grade). The extension records its grades
- * with this too (src/check/grading.ts), after checking the attempt is still the one it graded.
+ * time, the hash; a concern kept on the question (its flag survives a later grade). The one implementation: the
+ * extension records its grades with it too (src/check/cliApi.ts), after checking the attempt is still the one it graded.
  */
 export function recordGrade(repo: string, q: Question, a: Attempt, v: ParsedVerdict, at: string): Attempt {
   if (v.links) {
     v.links = codeLinksIn(repo, v.links)
     if (!v.links.length) delete v.links
   }
-  Object.assign(a, v, { gradedAt: at })
+  const grade = a as Pick<Attempt, (typeof GRADE_FIELDS)[number]>
+  for (const k of GRADE_FIELDS) if (Object.hasOwn(v, k)) (grade as Record<string, unknown>)[k] = v[k]
+  a.gradedAt = at
   a.hash = attemptHash(q, a)
   if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt }
   return a
@@ -161,7 +181,6 @@ export function promptFor(repo: string, check: Check, q: Question, answer: strin
   const c = structuredClone(check)
   const cq = c.questions.find((x) => x.id === q.id)!
   addAttempt(c, cq, answer)
-  let diff = ''
-  try { diff = diffText(repo, check.base ?? check.head, undefined) } catch { /* the grader reads the code */ }
+  const diff = diffOrEmpty(repo, check.base ?? check.head)
   return graderPrompt({ q: cq, answer, ...gradeMode(cq), diff: diffForGrader(diff, cq.file), code: codeWindow(repo, cq), canRead: true, tour: tourText(c), others: openOthers(c, cq) })
 }

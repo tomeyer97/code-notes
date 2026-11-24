@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULTS, DIR } from './constants'
+import { CACHE, DEFAULTS, DIR } from './constants'
 import { git, gitOk } from './git'
 import type { Attempt, Check, Config, Question, Who } from './types'
 
@@ -12,8 +12,7 @@ export function slugOf(branch: string): string {
   return String(branch).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'branch'
 }
 export const fileFor = (branch: string): string => `${DIR}/${slugOf(branch)}.json`
-/** Where a branch's check waits while another branch is checked out (git-ignored): put in place on its return. */
-export const CACHE = '.code-notes/.cache/checks'
+/** Where a branch's check waits while another branch is checked out (CACHE): put in place on its return. */
 export const cachedFor = (branch: string): string => `${CACHE}/${slugOf(branch)}.json`
 
 /**
@@ -134,4 +133,4 @@ export function flagConcern(check: Check, q: Question, who?: Who): boolean {
   return true
 }
 
-export { sameWho, unknownLine }
+export { CACHE, sameWho, unknownLine }

@@ -1,6 +1,7 @@
 // The grader's prompt: what Claude is told when it grades one answer, paragraph by paragraph. Each paragraph is a
 // function of what it depends on (a second try, a restatement, a grader that can read the repository); the long
-// instructions are lists of sentences, joined as one line each.
+// instructions are lists of sentences, joined as one line each. The rendered prompt, to read as prose:
+// test/goldens/check/refunds.grader-prompt.txt (its golden test fails when a sentence here changes).
 import type { Question } from './types'
 
 /** A question as the prompt reads it: a docs or a removal question may say so. */
@@ -86,22 +87,25 @@ function howToJudge(q: PromptQuestion, { restate, canRead }: { restate: boolean;
     ) : '',
     restate ? '- "restated": their sentence gets the main point of the explanation right. Otherwise "explained".'
       : '- "pass": the answer shows they understand the main point. Most honest, roughly right answers pass.\n- Not a pass: wrong about the code, empty, evasive ("not sure", "the AI wrote it"), or only restating the question.',
-    canRead ? VERIFY_READING : VERIFY_SHOWN,
+    verifyClaims(canRead),
   ].join('\n')
 }
 
-const VERIFY_READING = line(
-  '- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name).',
-  'Before you say a value is checked, guarded, unique, retried, locked or never read, read the code that would do it and every place that uses it.',
-  'A value that is written but never read guards nothing: never hold it up as a marker or safeguard, and never compare other code with it as if it protected anything.',
-  'Do not mention code you did not read.',
-)
-const VERIFY_SHOWN = line(
-  '- Make claims only about lines shown above.',
-  'Before you say a value is checked, guarded, unique, retried, locked or never read, find the lines that show it.',
-  'A value that is written but never read guards nothing: never hold it up as a marker or safeguard.',
-  'Say nothing about code that is not shown.',
-)
+/**
+ * Every claim checked against the code. The same four sentences either way; what differs is where the code comes
+ * from: a grader that can read the repository (`canRead`) reads it, one that can't sticks to the lines shown.
+ */
+function verifyClaims(canRead: boolean): string {
+  const from = canRead
+    ? { rule: '- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name).', find: 'read the code that would do it and every place that uses it', compare: ', and never compare other code with it as if it protected anything', rest: 'Do not mention code you did not read.' }
+    : { rule: '- Make claims only about lines shown above.', find: 'find the lines that show it', compare: '', rest: 'Say nothing about code that is not shown.' }
+  return line(
+    from.rule,
+    `Before you say a value is checked, guarded, unique, retried, locked or never read, ${from.find}.`,
+    `A value that is written but never read guards nothing: never hold it up as a marker or safeguard${from.compare}.`,
+    from.rest,
+  )
+}
 
 /** What to write: the feedback by verdict (a restatement, a pass, a partial pass, a miss), the note, a concern, links. */
 function whatToWrite({ restate, second }: { restate: boolean; second: boolean }): string {

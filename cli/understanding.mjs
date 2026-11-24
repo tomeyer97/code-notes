@@ -10,16 +10,23 @@
 // Generated from cli/understanding/*.ts by scripts/build/cli.mjs (npm run build): edit those, not this file.
 
 // cli/understanding/index.ts
-import fs12 from "node:fs";
+import fs11 from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // cli/understanding/constants.ts
-import fs from "node:fs";
 import path from "node:path";
 var DIR = "understanding";
+var CACHE = ".code-notes/.cache/checks";
 var KINDS = ["how", "why", "failure", "edge", "change"];
 var VERDICTS = ["pass", "retry", "explained", "restated"];
-var MARKER = "<!-- understanding-check -->";
+var STATE = {
+  todo: "todo",
+  ungraded: "ungraded",
+  retry: "retry",
+  pass: "pass",
+  explained: "explained",
+  restated: "restated"
+};
 var DEFAULTS = {
   questions: { min: 1, max: 5 },
   passRatio: 0.6,
@@ -31,15 +38,23 @@ var DEFAULTS = {
   backend: null,
   mrComment: true
 };
+var GRADER = {
+  model: "claude-opus-5-5",
+  /** The Messages API's version header. */
+  apiVersion: "2023-06-01",
+  /** The reply's length limit. */
+  maxTokens: 4e3,
+  /** How long one grade may take. */
+  timeoutMs: 3e5
+};
 var MAX_QUESTIONS = 10;
 var MAX_TEXT = 240;
 var MAX_TOUR_STEPS = 20;
 var TOUR_LINE = "A guided tour of this change: open it in VS Code with Code Notes (Check view)";
-var DOCS_URL = "https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md";
-var CI_URL = "https://github.com/tomeyer97/code-notes#in-ci";
-var SKILL_URL = "https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check";
-var withoutVsCode = (installed) => installed ? "Without VS Code: type /understanding-check in Claude Code." : `Without VS Code: add the understanding-check skill to .claude/skills (${SKILL_URL}), then type /understanding-check in Claude Code.`;
-var hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, "SKILL.md"));
+var REPO_URL = "https://github.com/tomeyer97/code-notes";
+var DOCS_URL = `${REPO_URL}/blob/main/docs/understanding-check.md`;
+var CI_URL = `${REPO_URL}#in-ci`;
+var SKILL_URL = `${REPO_URL}/tree/main/skills/understanding-check`;
 var SKILL_DIR = ".claude/skills/understanding-check";
 var SELF = "";
 var setSelf = (file) => {
@@ -448,6 +463,13 @@ function diffText(repo, from, to, files, exempt = []) {
   if (!list.length) return "";
   return git(repo, ["diff", "--no-color", "-U3", "-M", from, ...to ? [to] : [], "--", ...list]);
 }
+function diffOrEmpty(repo, from, to, exempt = []) {
+  try {
+    return diffText(repo, from, to, void 0, exempt);
+  } catch {
+    return "";
+  }
+}
 function numberDiff(diff) {
   const out = [];
   for (const d of walkDiff(diff)) {
@@ -538,13 +560,12 @@ function nearestChanged(diff, file, line3) {
 
 // cli/understanding/checkFile.ts
 import { createHash } from "node:crypto";
-import fs2 from "node:fs";
+import fs from "node:fs";
 import path3 from "node:path";
 function slugOf(branch) {
   return String(branch).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-{2,}/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "branch";
 }
 var fileFor = (branch) => `${DIR}/${slugOf(branch)}.json`;
-var CACHE = ".code-notes/.cache/checks";
 var cachedFor = (branch) => `${CACHE}/${slugOf(branch)}.json`;
 function conflictSides(text) {
   const lines = String(text).split("\n");
@@ -585,7 +606,7 @@ function conflictOf(text) {
 function loadConfig(repo, { at } = {}) {
   let c = {};
   try {
-    c = JSON.parse(at ? git(repo, ["show", `${at}:${DIR}/config.json`]) : fs2.readFileSync(path3.join(repo, DIR, "config.json"), "utf8"));
+    c = JSON.parse(at ? git(repo, ["show", `${at}:${DIR}/config.json`]) : fs.readFileSync(path3.join(repo, DIR, "config.json"), "utf8"));
   } catch {
   }
   if (!c || typeof c !== "object" || Array.isArray(c)) c = {};
@@ -595,7 +616,7 @@ function loadConfig(repo, { at } = {}) {
 function unknownSettings(repo) {
   let c;
   try {
-    c = JSON.parse(fs2.readFileSync(path3.join(repo, DIR, "config.json"), "utf8"));
+    c = JSON.parse(fs.readFileSync(path3.join(repo, DIR, "config.json"), "utf8"));
   } catch {
     return [];
   }
@@ -603,13 +624,13 @@ function unknownSettings(repo) {
 }
 var unknownLine = (keys) => `  ${DIR}/config.json: ${keys.map((k) => `"${k}"`).join(", ")} ${keys.length === 1 ? "is not a setting" : "are not settings"} (ignored).`;
 function readCheck(file) {
-  return JSON.parse(fs2.readFileSync(file, "utf8"));
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 function writeCheck(file, check) {
-  fs2.mkdirSync(path3.dirname(file), { recursive: true });
+  fs.mkdirSync(path3.dirname(file), { recursive: true });
   const tmp = path3.join(path3.dirname(file), `.${path3.basename(file)}.${process.pid}.tmp`);
-  fs2.writeFileSync(tmp, JSON.stringify(check, null, 2) + "\n");
-  fs2.renameSync(tmp, file);
+  fs.writeFileSync(tmp, JSON.stringify(check, null, 2) + "\n");
+  fs.renameSync(tmp, file);
 }
 function gitIdentity(repo) {
   const name = gitOk(repo, ["config", "user.name"]), email = gitOk(repo, ["config", "user.email"]);
@@ -651,7 +672,7 @@ function flagConcern(check, q, who) {
 }
 
 // cli/understanding/validate.ts
-import fs3 from "node:fs";
+import fs2 from "node:fs";
 import path4 from "node:path";
 
 // src/core/anchors/kinds.ts
@@ -946,7 +967,7 @@ function questionProblems(q, i, { ids, tourSteps, repo }) {
   if (typeof q.text !== "string" || q.text.trim().length < 10) bad('"text" is missing or too short');
   else if (q.text.length > 400) bad('"text" is longer than 400 characters');
   if (!isRelPath(q.file)) bad('"file" must be a path inside the repository');
-  else if (repo && !fs3.existsSync(path4.join(repo, q.file))) bad(`${q.file} doesn't exist`);
+  else if (repo && !fs2.existsSync(path4.join(repo, q.file))) bad(`${q.file} doesn't exist`);
   if (q.target !== void 0 && q.target !== "file") bad('"target" must be "file" or left out');
   else if (q.target === void 0 && !isLines(q.start, q.end)) bad('"start"/"end" must be 1-based lines (or "target": "file")');
   if (q.anchor !== void 0 && (!isObject(q.anchor) || q.anchor.v !== 3 || typeof q.anchor.head !== "string")) {
@@ -961,7 +982,7 @@ function questionProblems(q, i, { ids, tourSteps, repo }) {
     if (!Array.isArray(q.also) || q.also.length > 3) bad('"also" must be a list of at most 3 { "file", "start", "end" }');
     else if (q.also.some((x) => !x || !isRelPath(x.file) || !isLines(x.start, x.end))) bad('each "also" needs a file inside the repository and 1-based start/end');
     else if (repo) {
-      for (const x of q.also) if (!fs3.existsSync(path4.join(repo, x.file))) bad(`${x.file} doesn't exist`);
+      for (const x of q.also) if (!fs2.existsSync(path4.join(repo, x.file))) bad(`${x.file} doesn't exist`);
     }
   }
   linksBad(q.links, `${at}: "links"`, errs);
@@ -1011,7 +1032,7 @@ function hashProblems(check) {
 }
 
 // cli/understanding/state.ts
-import fs5 from "node:fs";
+import fs4 from "node:fs";
 import path6 from "node:path";
 
 // cli/understanding/size.ts
@@ -1070,7 +1091,7 @@ var sizeText = (n) => `${n} question${n === 1 ? "" : "s"}, ~${minutesFor(n)} min
 var sizeWords = (n) => sizeText(n).replace("~", "about ");
 
 // cli/understanding/anchors.ts
-import fs4 from "node:fs";
+import fs3 from "node:fs";
 import path5 from "node:path";
 
 // src/core/anchors/compact.ts
@@ -1208,7 +1229,7 @@ function relocate(repo, check) {
   const linesOfFile = (f) => {
     if (!cache.has(f)) {
       try {
-        cache.set(f, fs4.readFileSync(path5.join(repo, f), "utf8").split(/\r?\n/));
+        cache.set(f, fs3.readFileSync(path5.join(repo, f), "utf8").split(/\r?\n/));
       } catch {
         cache.set(f, void 0);
       }
@@ -1232,38 +1253,134 @@ function relocate(repo, check) {
   return moved;
 }
 
+// cli/understanding/phases.ts
+var PHASE = {
+  nothing: {
+    words: (state, st, branch) => st.onBase ? { tone: "ok", bar: "", title: `${branch}: no check here`, line: "" } : { tone: "ok", bar: "", title: "No check needed", line: nothingLine(state, st) }
+  },
+  stashed: {
+    words: (state) => ({
+      tone: "warn",
+      bar: "Understanding: in a stash",
+      title: "Your check is in a git stash",
+      line: `Run git stash pop (${state.stash}).`
+    })
+  },
+  none: {
+    words: (state, st, branch) => ({
+      tone: "todo",
+      bar: "Understanding: start",
+      title: `No check yet for ${branch}`,
+      line: `${noneSize(state, st)}${state.want ? ` · ${sizeText(state.want)}` : ""}.`
+    })
+  },
+  invalid: {
+    words: (state) => state.conflict ? {
+      tone: "warn",
+      bar: "Understanding: merge conflict",
+      title: "The check file has a merge conflict",
+      line: state.conflict.mergeable ? "Both sides of the conflict can be kept." : "Open it at the conflict."
+    } : {
+      tone: "warn",
+      bar: "Understanding: fix the file",
+      title: "The check file is not valid",
+      line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, "")}.`
+    }
+  },
+  drift: {
+    words: (state) => ({
+      tone: "warn",
+      bar: `Needs top-up: +${state.grew} lines`,
+      title: `Needs top-up: +${state.grew} lines`,
+      line: state.commitFirst ? "Commit, then add 1–2 questions about the new lines." : "Add 1–2 questions about the new lines."
+    }),
+    ci: {
+      log: (w) => `Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? " (compared by size: the branch was rewritten)" : ""}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
+      comment: (w) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`
+    }
+  },
+  answering: {
+    words: (state, _st, _branch, rule) => ({
+      tone: "todo",
+      bar: `Understanding ${state.done}/${state.total}`,
+      title: `${state.done} of ${state.total} done`,
+      line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`
+    }),
+    ci: {
+      log: (w) => `Understanding check: ${w.sum.done} of ${w.sum.total} done (${w.rule}). Finish in VS Code, commit ${w.rel} and push.`,
+      comment: (w) => `**Understanding check in progress:** ${w.sum.done} of ${w.sum.total} done (about ${minutesFor(w.sum.total - w.sum.done)} min left).`
+    }
+  },
+  short: {
+    words: (state) => ({
+      tone: "warn",
+      bar: `Understanding ${state.passed}/${state.needed} passed`,
+      title: `${state.passed} passed, ${state.needed} must pass`,
+      line: "Say an explained answer back in your own words."
+    }),
+    ci: {
+      log: (w) => `Understanding check: ${w.sum.passed} passed, ${w.sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`,
+      comment: (w) => `**Understanding check in progress:** all ${w.sum.total} answered, not finished yet.`
+    }
+  },
+  done: {
+    words: (_state, st) => ({
+      tone: "ok",
+      bar: "✓ Understanding",
+      title: "✓ Done",
+      line: st.untracked ? "A new file: not committed yet." : st.dirty ? "Not committed yet." : "Committed."
+    }),
+    ci: {
+      log: (w) => `Understanding check done: ${w.sum.passed} of ${w.sum.total} passed (${w.rule}).${w.room}`,
+      comment: (w) => `**✓ Understanding check done** · ${w.sum.total} question${w.sum.total === 1 ? "" : "s"}`
+    }
+  }
+};
+var roomText = (drift, maxDrift) => drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? "" : "s"} since the check (top-up at ${maxDrift}).` : "";
+function nothingLine(state, st) {
+  if (st.stackedOn) return `Covered by ${st.stackedOn}'s check.`;
+  return state.exemptOnly ? "Only exempt files changed." : "No code lines changed.";
+}
+function noneSize(state, st) {
+  const renamed = st.change?.renamed ?? [];
+  if (!state.changed && renamed.length) return `Renamed, 0 lines changed (${renamed.map((r) => r.to.split("/").pop()).join(", ")})`;
+  const lines = `${state.changed} ${state.docs ? "line" : "code line"}${state.changed === 1 ? "" : "s"}`;
+  const since = st.stackedOn ? ` since ${st.stackedOn}'s check` : "";
+  return `${lines} ${state.removal ? "removed" : "changed"}${state.docs ? " (docs)" : ""}${since}`;
+}
+
 // cli/understanding/state.ts
 function stateOf(q) {
   const as = Array.isArray(q.attempts) ? q.attempts : [];
-  if (!as.length) return "todo";
-  if (as.some((a) => a.verdict === "pass")) return "pass";
-  if (as.some((a) => a.verdict === "restated")) return "restated";
-  if (as.some((a) => a.verdict === "explained")) return "explained";
+  if (!as.length) return STATE.todo;
+  if (as.some((a) => a.verdict === STATE.pass)) return STATE.pass;
+  if (as.some((a) => a.verdict === STATE.restated)) return STATE.restated;
+  if (as.some((a) => a.verdict === STATE.explained)) return STATE.explained;
   const last = as[as.length - 1];
-  return last.verdict === "retry" ? "retry" : "ungraded";
+  return last.verdict === STATE.retry ? STATE.retry : STATE.ungraded;
 }
 var needed = (total, ratio) => Math.max(1, Math.ceil(total * ratio - 1e-9));
-var isDone = (state) => state === "pass" || state === "explained" || state === "restated";
-var isPassed = (state) => state === "pass" || state === "restated";
+var isDone = (state) => state === STATE.pass || state === STATE.explained || state === STATE.restated;
+var isPassed = (state) => state === STATE.pass || state === STATE.restated;
 function summarize(check, cfg = DEFAULTS) {
   const states = check.questions.map(stateOf);
   const count = (s) => states.filter((x) => x === s).length;
   const total = states.length;
   const need = needed(total, cfg.passRatio);
-  const passed = states.filter(isPassed).length;
+  const passed2 = states.filter(isPassed).length;
   const done = states.filter(isDone).length;
   return {
     total,
-    passed,
+    passed: passed2,
     done,
-    explained: count("explained"),
-    restated: count("restated"),
-    retry: count("retry"),
-    todo: count("todo"),
-    ungraded: count("ungraded"),
+    explained: count(STATE.explained),
+    restated: count(STATE.restated),
+    retry: count(STATE.retry),
+    todo: count(STATE.todo),
+    ungraded: count(STATE.ungraded),
     open: total - done,
     needed: need,
-    met: done === total && passed >= need,
+    met: done === total && passed2 >= need,
     states
   };
 }
@@ -1273,13 +1390,16 @@ function refreshInputs(repo, env = process.env) {
   return { branch, files: [fileFor(branch), `${DIR}/config.json`, cachedFor(branch)], refs: baseRefFiles() };
 }
 function localStatus(repo, { base, cfg = loadConfig(repo), env = process.env } = {}) {
+  return statusOf(gatherStatus(repo, { base, cfg, env }), cfg);
+}
+function statusOf(facts, cfg = DEFAULTS) {
+  const state = checkState(facts, cfg);
+  return { ...facts, state, next: stateWords(state, facts).line };
+}
+function gatherStatus(repo, { base, cfg, env }) {
   const st = branchStatus(repo, { base, cfg, env });
-  const withState = (x) => {
-    const state = checkState(x, cfg);
-    return { ...x, state, next: stateWords(state, x).line };
-  };
   const read = st.exists ? readOrExplain(repo, st.file) : notInTree(repo, st.file);
-  if (!read.check) return withState({ ...st, ...read });
+  if (!read.check) return { ...st, ...read };
   const check = read.check;
   relocate(repo, check);
   const drift = driftOf(repo, check, "HEAD", st.change, cfg.exempt, st.base);
@@ -1287,7 +1407,7 @@ function localStatus(repo, { base, cfg = loadConfig(repo), env = process.env } =
   const porcelain = gitOk(repo, ["status", "--porcelain", "--", st.file]) ?? "";
   const dirty = !!porcelain;
   const untracked = porcelain.startsWith("??");
-  return withState({ ...st, check, summary: summarize(check, cfg), drift, pending, dirty, ...untracked ? { untracked } : {} });
+  return { ...st, check, summary: summarize(check, cfg), drift, pending, dirty, ...untracked ? { untracked } : {} };
 }
 function branchStatus(repo, { base, cfg, env }) {
   const branch = currentBranch(repo, env);
@@ -1306,7 +1426,7 @@ function branchStatus(repo, { base, cfg, env }) {
     head,
     change,
     changed: linesOf(change),
-    exists: fs5.existsSync(path6.join(repo, rel)),
+    exists: fs4.existsSync(path6.join(repo, rel)),
     ...stack ? { stackedOn: stack.branch } : {},
     ...isDefaultBranch(repo, branch, baseRef) ? { onBase: true } : {}
   };
@@ -1317,7 +1437,7 @@ function notInTree(repo, rel) {
 }
 function readOrExplain(repo, rel) {
   const abs = path6.join(repo, rel);
-  const conflict = conflictOf(fs5.readFileSync(abs, "utf8"));
+  const conflict = conflictOf(fs4.readFileSync(abs, "utf8"));
   if (conflict) return { errors: [`${rel} has a merge conflict`], conflict: { line: conflict.line, mergeable: !!conflict.merged } };
   let check;
   try {
@@ -1330,80 +1450,32 @@ function readOrExplain(repo, rel) {
 }
 function checkState(st, cfg = DEFAULTS) {
   if (!st) return { phase: "none", changed: 0 };
-  if (!st.exists && st.stashed) return { phase: "stashed", stash: st.stashed };
-  if (!st.exists) return st.small || !st.changed && !st.change?.renamed?.length ? { phase: "nothing", changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly } : { phase: "none", changed: st.changed, want: st.change ? questionsForChange(st.change, cfg) : questionsFor(st.changed, cfg), ...changeKind(st.change) === "docs" ? { docs: true } : changeKind(st.change) === "removal" ? { removal: true } : {} };
+  if (!st.exists) return noFileState(st, cfg);
   if (st.errors?.length || !st.summary) return { phase: "invalid", why: st.errors?.[0] ?? "the file is not valid", ...st.conflict ? { conflict: st.conflict } : {} };
   const s = st.summary;
-  const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(st.drift?.lines ?? 0, st.pending?.lines ?? 0) };
-  if ((st.drift?.lines ?? 0) > cfg.maxDrift) return { ...base, phase: "drift", commitFirst: false };
-  if ((st.pending?.lines ?? 0) > cfg.maxDrift) return { ...base, phase: "drift", commitFirst: true };
+  const committed = st.drift?.lines ?? 0;
+  const pending = st.pending?.lines ?? 0;
+  const base = { passed: s.passed, done: s.done, total: s.total, needed: s.needed, maxDrift: cfg.maxDrift, grew: Math.max(committed, pending) };
+  if (committed > cfg.maxDrift) return { ...base, phase: "drift", commitFirst: false };
+  if (pending > cfg.maxDrift) return { ...base, phase: "drift", commitFirst: true };
   return { ...base, phase: s.done < s.total ? "answering" : s.met ? "done" : "short" };
+}
+function noFileState(st, cfg) {
+  if (st.stashed) return { phase: "stashed", stash: st.stashed };
+  const renamed = !!st.change?.renamed?.length;
+  if (st.small || !st.changed && !renamed) return { phase: "nothing", changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly };
+  const kind = changeKind(st.change);
+  return {
+    phase: "none",
+    changed: st.changed,
+    want: st.change ? questionsForChange(st.change, cfg) : questionsFor(st.changed, cfg),
+    ...kind === "docs" ? { docs: true } : kind === "removal" ? { removal: true } : {}
+  };
 }
 function stateWords(state, st = {}) {
   const rule = state.total ? ruleText(state) : "";
-  const words = Object.hasOwn(WORDS, state.phase) ? WORDS[state.phase](state, st, st.branch ?? "this branch", rule) : { tone: "todo", bar: "", title: "", line: "" };
+  const words = Object.hasOwn(PHASE, state.phase) ? PHASE[state.phase].words(state, st, st.branch ?? "this branch", rule) : { tone: "todo", bar: "", title: "", line: "" };
   return { ...words, rule };
-}
-var WORDS = {
-  nothing: (state, st, branch) => st.onBase ? { tone: "ok", bar: "", title: `${branch}: no check here`, line: "" } : { tone: "ok", bar: "", title: "No check needed", line: nothingLine(state, st) },
-  stashed: (state) => ({
-    tone: "warn",
-    bar: "Understanding: in a stash",
-    title: "Your check is in a git stash",
-    line: `Run git stash pop (${state.stash}).`
-  }),
-  none: (state, st, branch) => ({
-    tone: "todo",
-    bar: "Understanding: start",
-    title: `No check yet for ${branch}`,
-    line: `${noneSize(state, st)}${state.want ? ` · ${sizeText(state.want)}` : ""}.`
-  }),
-  invalid: (state) => state.conflict ? {
-    tone: "warn",
-    bar: "Understanding: merge conflict",
-    title: "The check file has a merge conflict",
-    line: state.conflict.mergeable ? "Both sides of the conflict can be kept." : "Open it at the conflict."
-  } : {
-    tone: "warn",
-    bar: "Understanding: fix the file",
-    title: "The check file is not valid",
-    line: / is not valid JSON/.test(state.why) ? "It isn't valid JSON: open it." : `${state.why.replace(/^\S+\.json:\s*/, "")}.`
-  },
-  drift: (state) => ({
-    tone: "warn",
-    bar: `Needs top-up: +${state.grew} lines`,
-    title: `Needs top-up: +${state.grew} lines`,
-    line: state.commitFirst ? "Commit, then add 1–2 questions about the new lines." : "Add 1–2 questions about the new lines."
-  }),
-  answering: (state, _st, _branch, rule) => ({
-    tone: "todo",
-    bar: `Understanding ${state.done}/${state.total}`,
-    title: `${state.done} of ${state.total} done`,
-    line: `${rule} · ~${minutesFor(state.total - state.done)} min left.`
-  }),
-  short: (state) => ({
-    tone: "warn",
-    bar: `Understanding ${state.passed}/${state.needed} passed`,
-    title: `${state.passed} passed, ${state.needed} must pass`,
-    line: "Say an explained answer back in your own words."
-  }),
-  done: (state, st) => ({
-    tone: "ok",
-    bar: "✓ Understanding",
-    title: "✓ Done",
-    line: st.untracked ? "A new file: not committed yet." : st.dirty ? "Not committed yet." : "Committed."
-  })
-};
-function nothingLine(state, st) {
-  if (st.stackedOn) return `Covered by ${st.stackedOn}'s check.`;
-  return state.exemptOnly ? "Only exempt files changed." : "No code lines changed.";
-}
-function noneSize(state, st) {
-  const renamed = st.change?.renamed ?? [];
-  if (!state.changed && renamed.length) return `Renamed, 0 lines changed (${renamed.map((r) => r.to.split("/").pop()).join(", ")})`;
-  const lines = `${state.changed} ${state.docs ? "line" : "code line"}${state.changed === 1 ? "" : "s"}`;
-  const since = st.stackedOn ? ` since ${st.stackedOn}'s check` : "";
-  return `${lines} ${state.removal ? "removed" : "changed"}${state.docs ? " (docs)" : ""}${since}`;
 }
 function driftOf(repo, check, to, nowStat, exempt = [], base) {
   const fresh = freshLines(repo, check, base, to, exempt);
@@ -1420,7 +1492,7 @@ function stamp(check, cfg) {
 }
 
 // cli/understanding/grading.ts
-import fs7 from "node:fs";
+import fs6 from "node:fs";
 import path8 from "node:path";
 
 // cli/understanding/graderPrompt.ts
@@ -1500,21 +1572,18 @@ function howToJudge(q, { restate, canRead }) {
       "One sentence that confirms it (when the code agrees) or corrects it (a use the search missed: a dynamic call, a name in a string or a config file) is a full pass."
     ) : "",
     restate ? '- "restated": their sentence gets the main point of the explanation right. Otherwise "explained".' : '- "pass": the answer shows they understand the main point. Most honest, roughly right answers pass.\n- Not a pass: wrong about the code, empty, evasive ("not sure", "the AI wrote it"), or only restating the question.',
-    canRead ? VERIFY_READING : VERIFY_SHOWN
+    verifyClaims(canRead)
   ].join("\n");
 }
-var VERIFY_READING = line2(
-  "- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name).",
-  "Before you say a value is checked, guarded, unique, retried, locked or never read, read the code that would do it and every place that uses it.",
-  "A value that is written but never read guards nothing: never hold it up as a marker or safeguard, and never compare other code with it as if it protected anything.",
-  "Do not mention code you did not read."
-);
-var VERIFY_SHOWN = line2(
-  "- Make claims only about lines shown above.",
-  "Before you say a value is checked, guarded, unique, retried, locked or never read, find the lines that show it.",
-  "A value that is written but never read guards nothing: never hold it up as a marker or safeguard.",
-  "Say nothing about code that is not shown."
-);
+function verifyClaims(canRead) {
+  const from = canRead ? { rule: "- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name).", find: "read the code that would do it and every place that uses it", compare: ", and never compare other code with it as if it protected anything", rest: "Do not mention code you did not read." } : { rule: "- Make claims only about lines shown above.", find: "find the lines that show it", compare: "", rest: "Say nothing about code that is not shown." };
+  return line2(
+    from.rule,
+    `Before you say a value is checked, guarded, unique, retried, locked or never read, ${from.find}.`,
+    `A value that is written but never read guards nothing: never hold it up as a marker or safeguard${from.compare}.`,
+    from.rest
+  );
+}
 function whatToWrite({ restate, second }) {
   return [
     line2(
@@ -1577,19 +1646,17 @@ function replyFormat({ restate, second }) {
 
 // cli/understanding/graderBackends.ts
 import { spawn as spawn2 } from "node:child_process";
-import fs6 from "node:fs";
+import fs5 from "node:fs";
 import path7 from "node:path";
-var DEFAULT_MODEL = "claude-opus-5-5";
-var ANTHROPIC_VERSION = "2023-06-01";
-var GRADER_MAX_TOKENS = 4e3;
-var GRADER_TIMEOUT_MS = 3e5;
+var READ_ONLY_TOOLS = ["Read", "Grep", "Glob"];
+var DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "Bash"];
 var claudeCommand = (env) => env.UNDERSTANDING_CLAUDE || "claude";
 function onPath(cmd) {
-  if (cmd.includes("/")) return fs6.existsSync(cmd) ? cmd : void 0;
+  if (cmd.includes("/")) return fs5.existsSync(cmd) ? cmd : void 0;
   for (const d of (process.env.PATH ?? "").split(path7.delimiter)) {
     const p = path7.join(d, cmd);
     try {
-      fs6.accessSync(p, fs6.constants.X_OK);
+      fs5.accessSync(p, fs5.constants.X_OK);
       return p;
     } catch {
     }
@@ -1606,7 +1673,7 @@ function pickBackend({ flag, cfg = DEFAULTS, env = process.env } = {}) {
   if (env.ANTHROPIC_API_KEY) return "anthropic";
   throw new Error("no grader: install Claude Code (the claude CLI) or set ANTHROPIC_API_KEY");
 }
-async function runGrader(backend, { prompt, repo, model, env = process.env, timeoutMs = GRADER_TIMEOUT_MS }) {
+async function runGrader(backend, { prompt, repo, model, env = process.env, timeoutMs = GRADER.timeoutMs }) {
   if (backend === "anthropic") return runAnthropic({ prompt, model, env, timeoutMs });
   return runClaudeCli({ prompt, repo, model, env, timeoutMs });
 }
@@ -1615,8 +1682,8 @@ async function runAnthropic({ prompt, model, env, timeoutMs }) {
   const url = `${(env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "")}/v1/messages`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": ANTHROPIC_VERSION },
-    body: JSON.stringify({ model: model || DEFAULT_MODEL, max_tokens: GRADER_MAX_TOKENS, messages: [{ role: "user", content: prompt }] }),
+    headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": GRADER.apiVersion },
+    body: JSON.stringify({ model: model || GRADER.model, max_tokens: GRADER.maxTokens, messages: [{ role: "user", content: prompt }] }),
     signal: AbortSignal.timeout(timeoutMs)
   });
   const body = await res.json().catch(() => ({}));
@@ -1624,16 +1691,35 @@ async function runAnthropic({ prompt, model, env, timeoutMs }) {
   if (body.stop_reason === "refusal") throw new Error("the model declined to grade this answer");
   return (body.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("");
 }
-function runClaudeCli({ prompt, repo, model, env, timeoutMs }) {
+async function runClaudeCli({ prompt, repo, model, env, timeoutMs }) {
   const cli = claudeCommand(env);
-  const tools = ["--allowedTools", "Read", "Grep", "Glob", "--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash"];
+  const tools = ["--allowedTools", ...READ_ONLY_TOOLS, "--disallowedTools", ...DENIED_TOOLS];
   const args = ["-p", "--output-format", "json", ...tools, ...model ? ["--model", model] : []];
-  return new Promise((resolve, reject) => {
-    const p = spawn2(cli, args, { cwd: repo, env, stdio: ["pipe", "pipe", "pipe"] });
-    let out = "", err = "";
+  const r = await runProcess(cli, args, { input: prompt, cwd: repo, env, timeoutMs });
+  if (r.timedOut) throw new Error(`the claude CLI took longer than ${Math.round(timeoutMs / 1e3)}s`);
+  if (r.startError) throw new Error(`couldn't start ${cli}: ${r.startError}`);
+  let v;
+  try {
+    v = JSON.parse(r.out.trim().split("\n").pop());
+  } catch {
+    throw new Error(`claude exited (${r.code}): ${(r.err || r.out).trim().slice(-300)}`);
+  }
+  if (v.is_error) throw new Error(`claude: ${v.result ?? "error"}`);
+  return String(v.result ?? "");
+}
+function runProcess(cmd, args, { input, cwd, env, timeoutMs }) {
+  return new Promise((resolve) => {
+    const p = spawn2(cmd, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    let out = "", err = "", settled = false;
+    const settle = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(t);
+      resolve({ code: null, out, err, ...r });
+    };
     const t = setTimeout(() => {
       p.kill("SIGTERM");
-      reject(new Error(`the claude CLI took longer than ${Math.round(timeoutMs / 1e3)}s`));
+      settle({ timedOut: true });
     }, timeoutMs);
     p.stdout.on("data", (b) => {
       out += b;
@@ -1641,22 +1727,9 @@ function runClaudeCli({ prompt, repo, model, env, timeoutMs }) {
     p.stderr.on("data", (b) => {
       if (err.length < 4e3) err += b;
     });
-    p.on("error", (e) => {
-      clearTimeout(t);
-      reject(new Error(`couldn't start ${cli}: ${e.message}`));
-    });
-    p.on("close", (code) => {
-      clearTimeout(t);
-      let v;
-      try {
-        v = JSON.parse(out.trim().split("\n").pop());
-      } catch {
-        return reject(new Error(`claude exited (${code}): ${(err || out).trim().slice(-300)}`));
-      }
-      if (v.is_error) return reject(new Error(`claude: ${v.result ?? "error"}`));
-      resolve(String(v.result ?? ""));
-    });
-    p.stdin.end(prompt);
+    p.on("error", (e) => settle({ startError: e.message }));
+    p.on("close", (code) => settle({ code }));
+    p.stdin.end(input);
   });
 }
 
@@ -1665,7 +1738,7 @@ var MAX_DIFF = 6e4;
 function codeWindow(repo, q, pad = 30) {
   let lines;
   try {
-    lines = fs7.readFileSync(path8.join(repo, q.file), "utf8").split("\n");
+    lines = fs6.readFileSync(path8.join(repo, q.file), "utf8").split("\n");
   } catch {
     return "";
   }
@@ -1690,10 +1763,17 @@ function diffForGrader(diff, file) {
   return out;
 }
 var openOthers = (check, q) => (check.questions ?? []).filter((x) => x.id !== q.id && !isDone(stateOf(x))).map((x) => x.text);
+var stripCourtesy = (t) => String(t ?? "").replace(/^\s*(right|mostly right|correct|yes)\b[.!:,]?\s*/i, "");
 function repeats(concern, feedback) {
-  const norm2 = (t) => String(t ?? "").replace(/^\s*(right|mostly right|correct|yes)\b[.!:,]?\s*/i, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const norm2 = (t) => stripCourtesy(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const c = norm2(concern), f = norm2(feedback);
   return !c || f.includes(c);
+}
+function normalizeVerdict(raw, { attempt, restate }) {
+  const passed2 = raw === STATE.pass || raw === STATE.restated;
+  if (restate) return passed2 ? STATE.restated : STATE.explained;
+  if (passed2) return STATE.pass;
+  return attempt >= 2 ? STATE.explained : STATE.retry;
 }
 function parseVerdict(text, attempt = 1, { restate = false } = {}) {
   const s = String(text ?? "");
@@ -1708,18 +1788,12 @@ function parseVerdict(text, attempt = 1, { restate = false } = {}) {
       continue;
     }
     if (!v || !VERDICTS.includes(v.verdict)) continue;
-    let verdict = v.verdict;
-    if (restate) verdict = verdict === "pass" || verdict === "restated" ? "restated" : "explained";
-    else {
-      if (verdict === "restated") verdict = "pass";
-      if (attempt >= 2 && verdict === "retry") verdict = "explained";
-      if (attempt < 2 && verdict === "explained") verdict = "retry";
-    }
+    const verdict = normalizeVerdict(v.verdict, { attempt, restate });
     const str3 = (x) => String(x ?? "").trim();
-    const out = { verdict, feedback: str3(v.feedback), hint: verdict === "retry" ? str3(v.hint) : "" };
-    if (str3(v.note) && verdict !== "retry") out.note = str3(v.note);
-    if (verdict === "pass" && v.partial === true) out.partial = true;
-    if (str3(v.topic) && (verdict === "explained" || out.partial)) out.topic = str3(v.topic);
+    const out = { verdict, feedback: str3(v.feedback), hint: verdict === STATE.retry ? str3(v.hint) : "" };
+    if (str3(v.note) && verdict !== STATE.retry) out.note = str3(v.note);
+    if (verdict === STATE.pass && v.partial === true) out.partial = true;
+    if (str3(v.topic) && (verdict === STATE.explained || out.partial)) out.topic = str3(v.topic);
     if (str3(v.concern) && !repeats(str3(v.concern), out.feedback)) out.concern = str3(v.concern);
     const said = [out.feedback, out.hint, out.concern ?? ""].join("\n");
     const links = (Array.isArray(v.links) ? v.links : []).filter((l) => l && typeof l.phrase === "string" && l.phrase.trim() && said.includes(l.phrase.trim()) && typeof l.file === "string" && Number.isInteger(l.start) && l.start >= 1).slice(0, 3).map((l) => ({ phrase: l.phrase.trim(), file: l.file.replace(/^\.\//, ""), start: l.start, end: Number.isInteger(l.end) && l.end >= l.start ? l.end : l.start }));
@@ -1728,7 +1802,7 @@ function parseVerdict(text, attempt = 1, { restate = false } = {}) {
   }
   throw new Error(`the grader didn't reply with a verdict: ${s.trim().slice(0, 200) || "(nothing)"}`);
 }
-function codeLinksIn(repo, links, read = (f) => fs7.readFileSync(path8.join(repo, f), "utf8").split(/\r?\n/)) {
+function codeLinksIn(repo, links, read = (f) => fs6.readFileSync(path8.join(repo, f), "utf8").split(/\r?\n/)) {
   const out = [];
   for (const l of Array.isArray(links) ? links : []) {
     if (!l || typeof l.file !== "string" || path8.isAbsolute(l.file) || l.file.split(/[\\/]/).includes("..")) continue;
@@ -1747,7 +1821,7 @@ function gradeMode(q) {
   const as = q.attempts ?? [];
   const last = as[as.length - 1];
   const before = as.filter((x) => x !== last && x.verdict);
-  const ex = before.find((x) => x.verdict === "explained");
+  const ex = before.find((x) => x.verdict === STATE.explained);
   return { attempt: before.length + 1, ...ex ? { explanation: ex.feedback ?? "" } : {} };
 }
 function tourText(check) {
@@ -1769,12 +1843,15 @@ function applyGrade(repo, q, a, text) {
   const v = parseVerdict(text, mode.attempt, { restate: mode.explanation !== void 0 });
   return recordGrade(repo, q, a, v, (/* @__PURE__ */ new Date()).toISOString());
 }
+var GRADE_FIELDS = ["verdict", "feedback", "hint", "note", "partial", "topic", "concern", "links"];
 function recordGrade(repo, q, a, v, at) {
   if (v.links) {
     v.links = codeLinksIn(repo, v.links);
     if (!v.links.length) delete v.links;
   }
-  Object.assign(a, v, { gradedAt: at });
+  const grade = a;
+  for (const k of GRADE_FIELDS) if (Object.hasOwn(v, k)) grade[k] = v[k];
+  a.gradedAt = at;
   a.hash = attemptHash(q, a);
   if (v.concern) q.concern = { text: v.concern, flagged: q.concern?.flagged ?? false, at: a.gradedAt };
   return a;
@@ -1783,20 +1860,16 @@ function promptFor(repo, check, q, answer) {
   const c = structuredClone(check);
   const cq = c.questions.find((x) => x.id === q.id);
   addAttempt(c, cq, answer);
-  let diff = "";
-  try {
-    diff = diffText(repo, check.base ?? check.head, void 0);
-  } catch {
-  }
+  const diff = diffOrEmpty(repo, check.base ?? check.head);
   return graderPrompt({ q: cq, answer, ...gradeMode(cq), diff: diffForGrader(diff, cq.file), code: codeWindow(repo, cq), canRead: true, tour: tourText(c), others: openOthers(c, cq) });
 }
 
 // cli/understanding/push.ts
-import fs9 from "node:fs";
+import fs8 from "node:fs";
 import path10 from "node:path";
 
 // cli/understanding/init.ts
-import fs8 from "node:fs";
+import fs7 from "node:fs";
 import path9 from "node:path";
 var INIT_LINES = {
   // The settings stay in sight: a merge request that changes them shows the change.
@@ -1804,84 +1877,79 @@ var INIT_LINES = {
   ".ignore": [`${DIR}/`]
 };
 var OLD_LINES = { ".gitattributes": [`${DIR}/*.json linguist-generated=true`] };
-function setupMissing(repo) {
-  const out = [];
-  for (const [name, want] of Object.entries(INIT_LINES)) {
-    let text = "";
-    try {
-      text = fs8.readFileSync(path9.join(repo, name), "utf8");
-    } catch {
-    }
-    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
-    out.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`));
+function missingLines(repo, name) {
+  let text = "";
+  try {
+    text = fs7.readFileSync(path9.join(repo, name), "utf8");
+  } catch {
   }
-  return out;
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
+  return { text, have, missing: INIT_LINES[name].filter((l) => !have.has(l)) };
+}
+var INIT_FILES = Object.keys(INIT_LINES);
+function setupMissing(repo) {
+  return INIT_FILES.flatMap((name) => missingLines(repo, name).missing.map((l) => `${name}: ${l}`));
 }
 function initRepo(repo, { only } = {}) {
   const added = [];
-  for (const [name, want] of Object.entries(INIT_LINES)) {
+  for (const name of INIT_FILES) {
     if (only && name !== only) continue;
-    const file = path9.join(repo, name);
-    let text = "";
-    try {
-      text = fs8.readFileSync(file, "utf8");
-    } catch {
-    }
-    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()));
-    const missing = want.filter((l) => !have.has(l));
+    const { text: was, have, missing } = missingLines(repo, name);
+    let text = was;
     if (!missing.length) continue;
+    added.push(...missing.map((l) => `${name}: ${l}`));
     const old = (OLD_LINES[name] ?? []).find((l) => have.has(l));
     if (old) text = text.split(/(\r?\n)/).map((l) => l.trim() === old ? missing.shift() : l).join("");
     if (missing.length) text = `${text}${text && !text.endsWith("\n") ? "\n" : ""}${missing.join("\n")}
 `;
-    fs8.writeFileSync(file, text);
-    added.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`));
+    fs7.writeFileSync(path9.join(repo, name), text);
   }
   return added;
 }
 var foldMissing = (repo) => setupMissing(repo).some((l) => l.startsWith(".gitattributes:"));
 var foldDiffs = (repo) => initRepo(repo, { only: ".gitattributes" });
 var FOLD_TEXT = "also folds check files in diffs (.gitattributes)";
-var skillSource = () => {
-  const here = path9.dirname(SELF);
-  return [path9.join(here, "../skills/understanding-check"), path9.join(here, "..")].find((d) => fs8.existsSync(path9.join(d, "SKILL.md")) && fs8.existsSync(path9.join(d, "scripts/questions.mjs")));
-};
+function skillSource(cli = SELF) {
+  const here = path9.dirname(cli);
+  const dir = [path9.join(here, "../skills/understanding-check"), path9.join(here, "..")].find((d) => fs7.existsSync(path9.join(d, "SKILL.md")) && fs7.existsSync(path9.join(d, "scripts/questions.mjs")));
+  return dir ? { dir, cli } : void 0;
+}
+var hasSkill = (repo) => fs7.existsSync(path9.join(repo, SKILL_DIR, "SKILL.md"));
 var committedCli = (repo) => (gitOk(repo, ["ls-files", "--", ":(glob)**/understanding.mjs"]) ?? "").split("\n").find((f) => f && !f.startsWith(`${SKILL_DIR}/`));
-function installSkill(repo) {
-  const src = skillSource();
-  if (!src) return void 0;
-  const want = [["SKILL.md", path9.join(src, "SKILL.md")], ["scripts/questions.mjs", path9.join(src, "scripts/questions.mjs")]];
-  if (!committedCli(repo)) want.push(["scripts/understanding.mjs", SELF]);
+function installSkill(repo, from = skillSource()) {
+  if (!from) return void 0;
+  const want = [["SKILL.md", path9.join(from.dir, "SKILL.md")], ["scripts/questions.mjs", path9.join(from.dir, "scripts/questions.mjs")]];
+  if (!committedCli(repo)) want.push(["scripts/understanding.mjs", from.cli]);
   const out = [];
-  for (const [rel, from] of want) {
+  for (const [rel, from2] of want) {
     const to = path9.join(repo, SKILL_DIR, rel);
-    const text = fs8.readFileSync(from);
+    const text = fs7.readFileSync(from2);
     let have;
     try {
-      have = fs8.readFileSync(to);
+      have = fs7.readFileSync(to);
     } catch {
     }
     if (have && have.equals(text)) continue;
-    fs8.mkdirSync(path9.dirname(to), { recursive: true });
-    fs8.writeFileSync(to, text);
+    fs7.mkdirSync(path9.dirname(to), { recursive: true });
+    fs7.writeFileSync(to, text);
     out.push(`${SKILL_DIR}/${rel}`);
   }
   return out;
 }
 
 // cli/understanding/push.ts
-async function commitAndPush(repo, files, message, { env = process.env, timeoutMs = 6e4 } = {}) {
+async function commitAndPush(repo, files, message, { env = process.env, timeoutMs = 6e4, push = true } = {}) {
   const g = (args, ms) => gitRun(repo, args, { env, timeoutMs: ms ?? 15e3 });
   const done = await commitFiles(g, files, message);
-  if (done.failed === "add") return notPushed(false, `Couldn't stage: ${gitError(done.r.err)}`);
-  if (done.failed === "commit") return notPushed(false, `Commit failed: ${gitError(done.r.err || done.r.out)}`);
+  if (done.failed !== void 0) return notPushed(false, done.failed);
   const committed = done.committed;
+  if (!push) return { ok: true, committed, pushed: false, line: committed ? "Committed." : "Nothing to commit." };
   const was = committed ? "Committed, but not pushed" : "Not pushed";
   const branch = (await g(["symbolic-ref", "--quiet", "--short", "HEAD"])).out.trim();
   if (!branch) return notPushed(committed, `${was}: not on a branch.`);
   const target = await pushTarget(g, branch);
   if (target.why) return notPushed(committed, `${was}: ${target.why}`);
-  const p = await gitRun(repo, target.args, { env, timeoutMs });
+  const p = await gitRun(repo, target.args, { env: { ...env, LC_ALL: "C" }, timeoutMs });
   const mr = MR_LINK.exec(`${p.err}
 ${p.out}`)?.[1];
   if (!p.code) return { ok: true, committed, pushed: true, line: "Pushed.", ...mr ? { mr } : {} };
@@ -1891,11 +1959,11 @@ var notPushed = (committed, line3) => ({ ok: false, committed, pushed: false, li
 var COMMIT_MS = 6e4;
 async function commitFiles(g, files, message) {
   const add = await g(["add", "--", ...files]);
-  if (add.code) return { failed: "add", r: add };
+  if (add.code) return { failed: `Couldn't stage: ${gitError(add.err)}` };
   const staged = await g(["diff", "--cached", "--quiet", "--", ...files]);
   if (staged.code !== 1) return { committed: false };
   const c = await g(["commit", "-q", "-m", message, "--", ...files], COMMIT_MS);
-  return c.code ? { failed: "commit", r: c } : { committed: true };
+  return c.code ? { failed: `Commit failed: ${gitError(c.err || c.out)}` } : { committed: true };
 }
 async function pushTarget(g, branch) {
   const conf = async (k) => (await g(["config", "--get", k])).out.trim();
@@ -1923,46 +1991,102 @@ function pushFailure(p, { committed, remote, timeoutMs }) {
 async function commitCheck(repo, { env = process.env, push = true } = {}) {
   const branch = currentBranch(repo, env);
   const rel = fileFor(branch);
-  if (!fs9.existsSync(path10.join(repo, rel))) return { ok: false, line: `No check yet: ${rel} doesn't exist.` };
+  if (!fs8.existsSync(path10.join(repo, rel))) return { ok: false, line: `No check yet: ${rel} doesn't exist.` };
   const files = [rel];
   if (foldMissing(repo)) {
     foldDiffs(repo);
     files.push(".gitattributes");
   }
-  const message = `Understanding check: ${branch}`;
-  if (push) {
-    const pushed = await commitAndPush(repo, files, message, { env });
-    return { ...pushed, files };
-  }
-  const done = await commitFiles((args) => gitRun(repo, args, { env }), files, message);
-  if (done.failed === "add") return { ok: false, files, line: "Couldn't stage the check file." };
-  if (done.failed === "commit") return { ok: false, files, line: `Commit failed: ${(done.r.err || done.r.out).trim().split("\n")[0]}` };
-  if (!done.committed) return { ok: true, committed: false, files, line: "Nothing to commit." };
-  return { ok: true, committed: true, files, line: "Committed." };
+  const done = await commitAndPush(repo, files, `Understanding check: ${branch}`, { env, push });
+  return { ...done, files };
 }
 
+// cli/understanding/markers.ts
+var MARKER = "<!-- understanding-check -->";
+var concernMarker = (id) => `<!-- understanding-concern:${id} -->`;
+var closedMarker = (id) => `<!-- understanding-concern-closed:${id} -->`;
+var CONCERN_ID = /<!-- understanding-concern:([\w-]+) -->/;
+var CLOSED_ID = /<!-- understanding-concern-closed:([\w-]+) -->/;
+var concernIdOf = (body) => CONCERN_ID.exec(String(body ?? ""))?.[1];
+var closedIdOf = (body) => CLOSED_ID.exec(String(body ?? ""))?.[1];
+var isOwnComment = (body) => typeof body === "string" && body.includes(MARKER);
+var isConcernThread = (body) => /\n⚠/.test(String(body));
+
+// cli/understanding/messages.ts
+var withoutVsCode = (installed) => installed ? "Without VS Code: type /understanding-check in Claude Code." : `Without VS Code: add the understanding-check skill to .claude/skills (${SKILL_URL}), then type /understanding-check in Claude Code.`;
+var NO_HISTORY = "Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).";
+var cantReadMr = (why) => `Understanding check: couldn't read the merge request: ${why}`;
+var cantReadApprovals = (why) => `Understanding check: couldn't read approvals: ${why}`;
+var coveredBy = (branch) => `No check needed: covered by ${branch}'s check (no code changed since).`;
+var ONLY_SETTINGS = "No check needed: only the check's settings changed.";
+function noCheckText(change) {
+  if (change.exemptOnly) {
+    const f = change.exempt;
+    return `No check needed: only exempt files changed (${f.slice(0, 3).join(", ")}${f.length > 3 ? `, +${f.length - 3} more` : ""}).`;
+  }
+  return "No check needed: no code lines changed (only comments or blank lines).";
+}
+var noCheckLine = (change) => `✓ ${noCheckText(change)}`;
+var SKIP = {
+  /** Log and comment: someone other than the author approved. */
+  waived: (approvers2) => `Understanding check waived (approved by ${approvers2.map((u) => `@${u}`).join(", ")})`,
+  /** Log: the job has no token to read approvals with (`tokenVar`: the variable it needs). */
+  blind: (label, tokenVar) => `Label "${label}" is set, but this job can't see approvals (no ${tokenVar}).`,
+  /** Log: only the author approved. */
+  authorOnly: (author, rerun) => `Approved only by ${author} (the author). Ask a reviewer to approve${rerun}.`,
+  /** Log and comment: no approval yet. */
+  asked: (rerun) => `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`,
+  /** Comment: only the author approved. */
+  ownApproval: (rerun) => `Your own approval doesn't count: ask a reviewer to approve${rerun}.`
+};
+var ADVISORY_COMMENT = "Advisory: this check doesn't block merging.";
+var advisoryLine = (text) => `⚠ Advisory: ${text}`;
+var ANNOTATION_TITLE = "Understanding check";
+function missingLog(rel, { size, skipLabel, rerun, quiet, withoutVs }) {
+  return [
+    `No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
+    `  ${withoutVs}`,
+    ...quiet ? [] : [`  Or add the label "${skipLabel}" and get a reviewer's approval${rerun}.`]
+  ];
+}
+function missingBody(rel, cfg = DEFAULTS, rerun = ", then re-run the job", { quiet = false, size = "about 5 min" } = {}) {
+  return [
+    MARKER,
+    `**Understanding check: not done yet.** A few questions about your change (${size}): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
+    ...quiet ? [] : [`<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`]
+  ].join("\n");
+}
+var INVALID = {
+  notJson: { log: (rel, why) => `${rel} is not valid JSON (${why}).`, comment: (rel) => `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.` },
+  notValid: { log: (rel, first) => `${rel} is not valid: ${first}.`, comment: (rel, firstInline) => `**Understanding check:** \`${rel}\` is not valid (${firstInline}).` },
+  regraded: {
+    log: (rel, bad) => `${rel}: ${bad.join(", ")} changed after grading (a merge, or an edit by hand). Grade ${bad.length === 1 ? "it" : "them"} again in VS Code, then commit and push.`,
+    comment: "**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push."
+  }
+};
+var settingsSentence = (parts) => `This merge request changes the understanding check's settings: ${parts.join(", ")}.`;
+var settingsHeadline = (line3) => `**⚠ ${line3.replace(/\.$/, "")}** (from the merge on; this merge request follows the current settings)`;
+var settingsLater = (sentence) => `  ${sentence} It applies once merged.`;
+var commentWritten = (how) => `  Merge request comment ${how}.`;
+var commentFailed = (why) => `  (couldn't write the merge request comment: ${why})`;
+var foldTip = (cli) => `  tip: run "node ${cli} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`;
+
 // cli/understanding/mrComment.ts
-import { createHash as createHash3 } from "node:crypto";
 var MARK = { pass: "✓", restated: "✓", explained: "·", retry: "↻", ungraded: "?", todo: "○" };
-var inert = (s) => String(s ?? "").replace(/(^|[^\w.@`])@(?=[\w-])/g, "$1@⁠").replace(/(^|[^\w&\u2060])([#!~%$&])(?=\d)/g, "$1$2⁠");
+var MENTION = /(^|[^\w.@`])@(?=[\w-])/g;
+var REFERENCE = /(^|[^\w&\u2060])([#!~%$&])(?=\d)/g;
+var JOINER = "⁠";
+var HTML_CHAR = /[&<>]/g;
+var HTML_ENTITY = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+var MARKDOWN_CHAR = /[\\`*_[\]|~#:!]/g;
+var LINE_MARK = /^(\s*)([-+=])/;
+var NUMBERED = /^(\s*\d+)([.)])/;
+var inert = (s) => String(s ?? "").replace(MENTION, `$1@${JOINER}`).replace(REFERENCE, `$1$2${JOINER}`);
 function literal(s) {
-  return String(s ?? "").split("\n").map((l) => l.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]).replace(/[\\`*_[\]|~#:!]/g, "\\$&").replace(/^(\s*)([-+=])/, "$1\\$2").replace(/^(\s*\d+)([.)])/, "$1\\$2")).join("\n");
+  return String(s ?? "").split("\n").map((l) => l.replace(HTML_CHAR, (c) => HTML_ENTITY[c]).replace(MARKDOWN_CHAR, "\\$&").replace(LINE_MARK, "$1\\$2").replace(NUMBERED, "$1\\$2")).join("\n");
 }
 var quote = (s) => literal(inert(String(s).trim())).split("\n").map((l) => l.trim() ? `> ${l}` : ">").join("\n");
 var loc = (q) => q.target === "file" ? q.file : `${q.file}:${q.start}-${q.end}`;
-function refLink(ctx, q, diff) {
-  if (!ctx?.web || !ctx.mr) return void 0;
-  const file = q.target === "file" || !q.start;
-  if (ctx.platform === "github") {
-    const h2 = createHash3("sha256").update(q.file, "utf8").digest("hex");
-    return `${ctx.web}/pull/${ctx.mr}/files#diff-${h2}${file ? "" : `R${q.start}${q.end > q.start ? `-R${q.end}` : ""}`}`;
-  }
-  if (ctx.platform !== "gitlab") return void 0;
-  const h = createHash3("sha1").update(q.file, "utf8").digest("hex");
-  const old = oldLineOf(diff ?? "", q.file, q.start ?? 1);
-  if (old === void 0) return ctx.head ? `${ctx.web}/-/blob/${ctx.head}/${q.file.split("/").map(encodeURIComponent).join("/")}${file ? "" : `#L${q.start}-${q.end}`}` : void 0;
-  return `${ctx.web}/-/merge_requests/${ctx.mr}/diffs#${h}${file ? "" : `_${old}_${q.start}`}`;
-}
 var inline = (s) => literal(inert(String(s ?? "").replace(/\s+/g, " ").trim()));
 var questionText = (t) => String(t ?? "").replace(/\s+/g, " ").trim().split("`").map((part, k) => k % 2 ? part ? `\`${part}\`` : "" : literal(inert(part))).join("");
 function clipWords(s, n) {
@@ -1971,7 +2095,7 @@ function clipWords(s, n) {
 }
 function reasonOf(a) {
   if (!a) return "";
-  return clipWords(String(a.note || a.feedback || "").replace(/^\s*(right|correct|yes)[.!:,]\s*/i, ""), 15);
+  return clipWords(stripCourtesy(String(a.note || a.feedback || "")), 15);
 }
 function explanationOf(a) {
   if (!a) return "";
@@ -1991,12 +2115,12 @@ function discussItems(check, sum) {
   const out = [];
   check.questions.forEach((q, i) => {
     const s = sum.states[i], as = q.attempts ?? [];
-    if (s === "explained" || s === "restated") {
-      const a2 = as.find((x) => x.verdict === "explained");
+    if (s === STATE.explained || s === STATE.restated) {
+      const a2 = as.find((x) => x.verdict === STATE.explained);
       out.push({ id: `discuss-${q.id}`, q, a: a2, topic: a2?.topic || q.text, point: explanationOf(a2) });
       return;
     }
-    const a = as.findLast((x) => x.verdict === "pass");
+    const a = as.findLast((x) => x.verdict === STATE.pass);
     if (a?.partial) out.push({ id: `discuss-${q.id}`, q, a, topic: a.topic || q.text, point: explanationOf(a) || clipWords(String(a.feedback ?? "").replace(/^\s*mostly right[.!:,]?\s*/i, ""), 30) });
   });
   return out;
@@ -2044,53 +2168,52 @@ function clipAnswer(s, n = 300) {
   return `${cut || t.slice(0, n)}… (full answer in the check file)`;
 }
 function commentBody(check, sum, head, link = () => void 0, { qa = false, threads = /* @__PURE__ */ new Map(), changed = /* @__PURE__ */ new Map(), items = reviewItems(check, sum, { qa }) } = {}) {
-  const ref = (q) => {
-    const u = link(q);
-    return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\``;
-  };
-  const linkText = (t, n) => clipWords(t, n).replace(/\\?[[\]]/g, "");
-  const by = (a) => a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : "";
-  const fixed = (id) => changed.has(id) ? ` · ${changedText(changed.get(id))}` : "";
+  const text = { check, link, changed };
   const out = [MARKER, head];
-  const lines = items.map((it) => {
-    const u = threads.get(it.id);
-    if (isConcernItem(it)) {
-      const lead = it.flagged ? "" : "May be a bug: ";
-      return u ? `- ⚠ ${lead}[${linkText(it.concern, 14)}](${u})${fixed(it.id)}` : `- ⚠ ${lead}${inline(it.concern)} · ${ref(it.q)}${fixed(it.id)}`;
-    }
-    const d = it.d;
-    return u ? `- 💬 [Worth discussing: ${linkText(d.topic, 10)}](${u})${by(d.a)}` : `- 💬 **Worth discussing: ${inline(d.topic)}** · ${ref(d.q)}${by(d.a)}${d.point ? ` · ${d.point}` : ""}`;
-  });
-  if (lines.length) out.push("", ...lines);
+  if (items.length) out.push("", ...items.map((it) => itemLine(it, threads.get(it.id), text)));
   if (check.journey) out.push("", TOUR_LINE);
   if (!qa) return out.join("\n");
   const noticed = noticedConcerns(check, items);
-  if (noticed.length) out.push("", "**Also noticed while grading**", ...noticed.map((q) => `- ${clipWords(q.concern.text, 25)} · ${ref(q)}${fixed(q.id)}`));
-  const all = [];
-  check.questions.forEach((q, i) => {
-    const s = sum.states[i], as = q.attempts ?? [];
-    const title = `**${questionText(q.text)}** · ${ref(q)}${q.suspect ? " · may be a bug" : ""}`;
-    if (s === "restated") {
-      const a = as.findLast((x) => x.verdict === "restated");
-      all.push("", `${title}${by(a)} · restated after an explanation`, ...a?.answer ? [quote(clipAnswer(a.answer))] : []);
-      return;
-    }
-    if (s === "explained") {
-      all.push("", `${title} · explained`);
-      return;
-    }
-    const good = as.findLast((x) => x.verdict === "pass");
-    all.push("", `${title}${by(good)}`, ...good?.answer ? [quote(clipAnswer(good.answer))] : []);
-  });
-  out.push("", "<details><summary>All answers</summary>", ...all, "", "</details>");
+  if (noticed.length) out.push("", "**Also noticed while grading**", ...noticed.map((q) => `- ${clipWords(q.concern.text, 25)} · ${refText(q, link)}${fixedText(q.id, changed)}`));
+  out.push("", ...answersSection(check, sum, link));
   return out.join("\n");
 }
-function missingBody(rel, cfg = DEFAULTS, rerun = ", then re-run the job", { quiet = false, size = "about 5 min" } = {}) {
-  return [
-    MARKER,
-    `**Understanding check: not done yet.** A few questions about your change (${size}): run **Code Notes: Check my understanding** in VS Code, then commit \`${rel}\` and push.`,
-    ...quiet ? [] : [`<sub>Or add the label \`${cfg.skipLabel}\` and get a reviewer's approval${rerun}.</sub>`]
-  ].join("\n");
+function refText(q, link) {
+  const u = link(q);
+  return u ? `[\`${loc(q)}\`](${u})` : `\`${loc(q)}\``;
+}
+var fixedText = (id, changed) => changed.has(id) ? ` · ${changedText(changed.get(id))}` : "";
+var byText = (a, check) => a?.by && !sameWho(a.by, check.answeredBy) ? ` · answered by ${inline(a.by.name || a.by.email)}` : "";
+var linkText = (t, n) => clipWords(t, n).replace(/\\?[[\]]/g, "");
+function itemLine(it, url, { check, link, changed }) {
+  if (isConcernItem(it)) {
+    const lead = it.flagged ? "" : "May be a bug: ";
+    const fixed = fixedText(it.id, changed);
+    return url ? `- ⚠ ${lead}[${linkText(it.concern, 14)}](${url})${fixed}` : `- ⚠ ${lead}${inline(it.concern)} · ${refText(it.q, link)}${fixed}`;
+  }
+  const d = it.d;
+  const by = byText(d.a, check);
+  if (url) return `- 💬 [Worth discussing: ${linkText(d.topic, 10)}](${url})${by}`;
+  const point = d.point ? ` · ${d.point}` : "";
+  return `- 💬 **Worth discussing: ${inline(d.topic)}** · ${refText(d.q, link)}${by}${point}`;
+}
+function answersSection(check, sum, link) {
+  const all = [];
+  const answer = (a) => a?.answer ? [quote(clipAnswer(a.answer))] : [];
+  check.questions.forEach((q, i) => {
+    const s = sum.states[i], as = q.attempts ?? [];
+    const title = `**${questionText(q.text)}** · ${refText(q, link)}${q.suspect ? " · may be a bug" : ""}`;
+    if (s === STATE.restated) {
+      const a = as.findLast((x) => x.verdict === STATE.restated);
+      all.push("", `${title}${byText(a, check)} · restated after an explanation`, ...answer(a));
+    } else if (s === STATE.explained) {
+      all.push("", `${title} · explained`);
+    } else {
+      const good = as.findLast((x) => x.verdict === STATE.pass);
+      all.push("", `${title}${byText(good, check)}`, ...answer(good));
+    }
+  });
+  return ["<details><summary>All answers</summary>", ...all, "", "</details>"];
 }
 function settingsChange(repo, base, head, { plain = false } = {}) {
   const at = (c) => {
@@ -2103,116 +2226,287 @@ function settingsChange(repo, base, head, { plain = false } = {}) {
   const a = { ...DEFAULTS, ...at(base) ?? {} }, b = { ...DEFAULTS, ...at(head) ?? {} };
   const v = (x) => x !== null && typeof x === "object" ? JSON.stringify(x) : String(x);
   const keys = [.../* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => v(a[k]) !== v(b[k]));
-  return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => (plain ? (x) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`)).join(", ")}.` : void 0;
-}
-var settingsHeadline = (line3) => `**⚠ ${line3.replace(/\.$/, "")}** (from the merge on; this merge request follows the current settings)`;
-function noCheckLine(change) {
-  if (change.exemptOnly) {
-    const f = change.exempt;
-    return `✓ No check needed: only exempt files changed (${f.slice(0, 3).join(", ")}${f.length > 3 ? `, +${f.length - 3} more` : ""}).`;
-  }
-  return "✓ No check needed: no code lines changed (only comments or blank lines).";
+  return keys.length ? settingsSentence(keys.map((k) => (plain ? (x) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`))) : void 0;
 }
 
 // cli/understanding/ci.ts
-import fs11 from "node:fs";
+import fs10 from "node:fs";
 import path11 from "node:path";
 
 // cli/understanding/platform.ts
-import fs10 from "node:fs";
-function ciContext(env = process.env) {
-  if (env.GITLAB_CI) {
-    return {
-      platform: "gitlab",
-      branch: env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.CI_COMMIT_REF_NAME,
-      head: env.CI_COMMIT_SHA,
-      base: env.CI_MERGE_REQUEST_DIFF_BASE_SHA,
-      baseRef: env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME && `origin/${env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME}`,
-      mr: env.CI_MERGE_REQUEST_IID,
-      labels: env.CI_MERGE_REQUEST_LABELS ? env.CI_MERGE_REQUEST_LABELS.split(",").map((x) => x.trim()).filter(Boolean) : [],
-      api: env.CI_API_V4_URL,
-      project: env.CI_PROJECT_ID,
-      token: env.GITLAB_TOKEN,
-      web: env.CI_MERGE_REQUEST_PROJECT_URL || env.CI_PROJECT_URL
-    };
-  }
-  if (env.GITHUB_ACTIONS) {
-    let ev = {};
-    try {
-      ev = JSON.parse(fs10.readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
-    } catch {
-    }
-    const pr = ev.pull_request ?? {};
-    return {
-      platform: "github",
-      branch: pr.head?.ref || env.GITHUB_HEAD_REF || env.GITHUB_REF_NAME,
-      head: pr.head?.sha || env.GITHUB_SHA,
-      base: pr.base?.sha,
-      baseRef: env.GITHUB_BASE_REF && `origin/${env.GITHUB_BASE_REF}`,
-      mr: pr.number ? String(pr.number) : void 0,
-      labels: (pr.labels ?? []).map((l) => l.name),
-      author: pr.user?.login,
-      api: env.GITHUB_API_URL || "https://api.github.com",
-      project: env.GITHUB_REPOSITORY,
-      token: env.GITHUB_TOKEN,
-      web: env.GITHUB_REPOSITORY && `${(env.GITHUB_SERVER_URL || "https://github.com").replace(/\/$/, "")}/${env.GITHUB_REPOSITORY}`
-    };
-  }
-  return { platform: "local" };
-}
-async function api(ctx, method, url, body) {
-  const headers = ctx.platform === "gitlab" ? { "PRIVATE-TOKEN": ctx.token, "content-type": "application/json" } : { authorization: `Bearer ${ctx.token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "understanding-check" };
-  const res = await fetch(`${ctx.api.replace(/\/$/, "")}${url}`, { method, headers, body: body ? JSON.stringify(body) : void 0, signal: AbortSignal.timeout(3e4) });
+import fs9 from "node:fs";
+
+// cli/understanding/github.ts
+import { createHash as createHash3 } from "node:crypto";
+
+// cli/understanding/forge.ts
+async function request(ctx, headers3, method, url, body) {
+  const res = await fetch(`${ctx.api.replace(/\/$/, "")}${url}`, { method, headers: headers3, body: body ? JSON.stringify(body) : void 0, signal: AbortSignal.timeout(3e4) });
   const text = await res.text();
   if (!res.ok) throw new Error(`${method} ${url}: ${res.status} ${text.slice(0, 200)}`);
   return text ? JSON.parse(text) : void 0;
 }
-var glMr = (ctx) => `/projects/${encodeURIComponent(ctx.project)}/merge_requests/${ctx.mr}`;
-async function mrInfo(ctx) {
-  if (!ctx.token || !ctx.mr || !ctx.api) return { labels: ctx.labels ?? [], author: ctx.author };
-  if (ctx.platform === "gitlab") {
-    const m = await api(ctx, "GET", glMr(ctx));
-    return { labels: m.labels ?? [], author: m.author?.username };
-  }
-  const p = await api(ctx, "GET", `/repos/${ctx.project}/pulls/${ctx.mr}`);
-  return { labels: (p.labels ?? []).map((l) => l.name), author: p.user?.login };
-}
-async function approvers(ctx) {
-  if (ctx.platform === "gitlab") {
-    const a = await api(ctx, "GET", `${glMr(ctx)}/approvals`);
-    return (a.approved_by ?? []).map((x) => x.user?.username).filter(Boolean);
-  }
-  const reviews = await api(ctx, "GET", `/repos/${ctx.project}/pulls/${ctx.mr}/reviews?per_page=100`);
-  const last = /* @__PURE__ */ new Map();
-  for (const r of reviews ?? []) if (r.user?.login && r.state !== "COMMENTED") last.set(r.user.login, r.state);
-  return [...last].filter(([, s]) => s === "APPROVED").map(([u]) => u);
-}
-async function upsertComment(ctx, body) {
-  if (ctx.platform === "gitlab") {
-    const notes = await api(ctx, "GET", `${glMr(ctx)}/notes?per_page=100&sort=desc&order_by=updated_at`);
-    const mine2 = (notes ?? []).find((n) => typeof n.body === "string" && n.body.includes(MARKER));
-    if (mine2) {
-      await api(ctx, "PUT", `${glMr(ctx)}/notes/${mine2.id}`, { body });
+
+// cli/understanding/github.ts
+var headers = (token) => ({
+  authorization: `Bearer ${token}`,
+  accept: "application/vnd.github+json",
+  "content-type": "application/json",
+  "user-agent": "understanding-check"
+});
+var api = (ctx, method, url, body) => request(ctx, headers(ctx.token), method, url, body);
+var commentUrl = (ctx, c, review) => `${ctx.web}/pull/${ctx.mr}#${review ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`;
+var github = {
+  tokenVar: "GITHUB_TOKEN",
+  // The recipe runs the job again on a review.
+  rerun: "",
+  headers,
+  // GitHub's diff anchors: the file's sha256, then R<new line>.
+  diffLink(ctx, q) {
+    const whole = q.target === "file" || !q.start;
+    const h = createHash3("sha256").update(q.file, "utf8").digest("hex");
+    return `${ctx.web}/pull/${ctx.mr}/files#diff-${h}${whole ? "" : `R${q.start}${q.end > q.start ? `-R${q.end}` : ""}`}`;
+  },
+  async mrInfo(ctx) {
+    const p = await api(ctx, "GET", `/repos/${ctx.project}/pulls/${ctx.mr}`);
+    return { labels: (p.labels ?? []).map((l) => l.name), author: p.user?.login };
+  },
+  // Reviews whose latest state (comments aside) is APPROVED.
+  async approvers(ctx) {
+    const reviews = await api(ctx, "GET", `/repos/${ctx.project}/pulls/${ctx.mr}/reviews?per_page=100`);
+    const last = /* @__PURE__ */ new Map();
+    for (const r of reviews ?? []) if (r.user?.login && r.state !== "COMMENTED") last.set(r.user.login, r.state);
+    return [...last].filter(([, s]) => s === "APPROVED").map(([u]) => u);
+  },
+  async upsertComment(ctx, body) {
+    const list = await api(ctx, "GET", `/repos/${ctx.project}/issues/${ctx.mr}/comments?per_page=100`);
+    const mine = (list ?? []).find((c) => isOwnComment(c.body));
+    if (mine) {
+      await api(ctx, "PATCH", `/repos/${ctx.project}/issues/comments/${mine.id}`, { body });
       return "updated";
     }
-    await api(ctx, "POST", `${glMr(ctx)}/notes`, { body });
+    await api(ctx, "POST", `/repos/${ctx.project}/issues/${ctx.mr}/comments`, { body });
     return "created";
+  },
+  threads: (ctx, log, head) => githubThreads(ctx, log, head)
+};
+function githubThreads(ctx, { safe }, head) {
+  const repoUrl = `/repos/${ctx.project}`;
+  const pr = `${repoUrl}/pulls/${ctx.mr}`;
+  let review = [];
+  const closed = /* @__PURE__ */ new Map();
+  const url = (c, rv) => c?.id !== void 0 ? { url: commentUrl(ctx, c, rv) } : {};
+  const replied = (c) => review.some((x) => x.in_reply_to_id === c.id && !closedIdOf(x.body) && x.user?.login !== c.user?.login);
+  return {
+    async list() {
+      const rv = await safe("read the review comments", () => api(ctx, "GET", `${pr}/comments?per_page=100`));
+      const notes = await safe("read the comments", () => api(ctx, "GET", `${repoUrl}/issues/${ctx.mr}/comments?per_page=100`));
+      if (!Array.isArray(rv) || !Array.isArray(notes)) return void 0;
+      review = rv;
+      const out = [];
+      for (const c of rv) {
+        const raw = concernIdOf(c.body);
+        if (raw && !c.in_reply_to_id) out.push({ raw, body: c.body, onLine: true, url: commentUrl(ctx, c, true), c, review: true });
+      }
+      for (const c of notes) {
+        const raw = concernIdOf(c.body);
+        if (raw) out.push({ raw, body: c.body, onLine: false, url: commentUrl(ctx, c, false), c, review: false });
+      }
+      for (const c of [...rv, ...notes]) {
+        const id = closedIdOf(c.body);
+        if (id) closed.set(id, c);
+      }
+      return out;
+    },
+    update: (t, body) => api(ctx, "PATCH", `${repoUrl}/${t.review ? "pulls" : "issues"}/comments/${t.c.id}`, { body }),
+    // Flagged again: the "No longer flagged." reply goes.
+    again(t, id) {
+      const gone = closed.get(id);
+      if (!gone || !t.review) return void 0;
+      return { doing: "remove a reply", run: () => api(ctx, "DELETE", `${repoUrl}/pulls/comments/${gone.id}`), said: `Concern flagged again (${id}).` };
+    },
+    async postOnLine(body, p) {
+      if (!head) return void 0;
+      try {
+        return url(await api(ctx, "POST", `${pr}/comments`, { body, commit_id: head, path: p.file, line: p.line, side: "RIGHT" }), true);
+      } catch {
+        return void 0;
+      }
+    },
+    postNote: async (body) => url(await api(ctx, "POST", `${repoUrl}/issues/${ctx.mr}/comments`, { body }), false),
+    noteWord: "a comment",
+    settled: (t, id) => t.review ? closed.has(id) || replied(t.c) : !!closedIdOf(t.body),
+    close(t, id) {
+      const reply = `${closedMarker(id)}
+No longer flagged.`;
+      return t.review ? { doing: "reply to a concern", run: () => api(ctx, "POST", `${pr}/comments/${t.c.id}/replies`, { body: reply }), said: `Concern no longer flagged (${id}).` } : { doing: "mark a concern", run: () => api(ctx, "PATCH", `${repoUrl}/issues/comments/${t.c.id}`, { body: `${t.c.body}
+
+${reply}` }), said: `Concern no longer flagged (${id}).` };
+    }
+  };
+}
+
+// cli/understanding/gitlab.ts
+import { createHash as createHash4 } from "node:crypto";
+var headers2 = (token) => ({ "PRIVATE-TOKEN": token, "content-type": "application/json" });
+var api2 = (ctx, method, url, body) => request(ctx, headers2(ctx.token), method, url, body);
+var mrPath = (ctx) => `/projects/${encodeURIComponent(ctx.project)}/merge_requests/${ctx.mr}`;
+var noteUrl = (ctx, nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`;
+var sameUser = (a, b) => !!a && !!b && (a.id !== void 0 && b.id !== void 0 ? a.id === b.id : a.username === b.username);
+var gitlab = {
+  tokenVar: "GITLAB_TOKEN",
+  rerun: ", then re-run this job",
+  headers: headers2,
+  // GitLab's diff anchors: the file's sha1, then old_new line numbers; a line the diff doesn't show: the file at head.
+  diffLink(ctx, q, diff) {
+    const whole = q.target === "file" || !q.start;
+    const old = oldLineOf(diff ?? "", q.file, q.start ?? 1);
+    if (old === void 0) {
+      return ctx.head ? `${ctx.web}/-/blob/${ctx.head}/${q.file.split("/").map(encodeURIComponent).join("/")}${whole ? "" : `#L${q.start}-${q.end}`}` : void 0;
+    }
+    const h = createHash4("sha1").update(q.file, "utf8").digest("hex");
+    return `${ctx.web}/-/merge_requests/${ctx.mr}/diffs#${h}${whole ? "" : `_${old}_${q.start}`}`;
+  },
+  async mrInfo(ctx) {
+    const m = await api2(ctx, "GET", mrPath(ctx));
+    return { labels: m.labels ?? [], author: m.author?.username };
+  },
+  async approvers(ctx) {
+    const a = await api2(ctx, "GET", `${mrPath(ctx)}/approvals`);
+    return (a.approved_by ?? []).map((x) => x.user?.username).filter(Boolean);
+  },
+  async upsertComment(ctx, body) {
+    const mr = mrPath(ctx);
+    const notes = await api2(ctx, "GET", `${mr}/notes?per_page=100&sort=desc&order_by=updated_at`);
+    const mine = (notes ?? []).find((n) => isOwnComment(n.body));
+    if (mine) {
+      await api2(ctx, "PUT", `${mr}/notes/${mine.id}`, { body });
+      return "updated";
+    }
+    await api2(ctx, "POST", `${mr}/notes`, { body });
+    return "created";
+  },
+  threads: (ctx, log) => gitlabThreads(ctx, log)
+};
+function gitlabThreads(ctx, { safe }) {
+  const mr = mrPath(ctx);
+  let refs;
+  const diffRefs = async () => {
+    if (refs === void 0) refs = await safe("read the diff refs", async () => (await api2(ctx, "GET", mr))?.diff_refs ?? null) ?? null;
+    return refs;
+  };
+  const url = (d) => {
+    const nid = d?.notes?.[0]?.id;
+    return nid !== void 0 ? { url: noteUrl(ctx, nid) } : {};
+  };
+  return {
+    async list() {
+      const discussions = await safe("read the merge request threads", () => api2(ctx, "GET", `${mr}/discussions?per_page=100`));
+      if (!Array.isArray(discussions)) return void 0;
+      const out = [];
+      for (const d of discussions) {
+        const n = d.notes?.[0], raw = concernIdOf(n?.body);
+        if (raw) out.push({ raw, body: n.body, onLine: !!n.position || n.type === "DiffNote", url: noteUrl(ctx, n.id), d, n });
+      }
+      return out;
+    },
+    update: (t, body) => api2(ctx, "PUT", `${mr}/discussions/${t.d.id}/notes/${t.n.id}`, { body }),
+    // Flagged again after the bot resolved it: reopened. Resolved by a person: left as it is.
+    again(t, id, isConcern, what) {
+      const botResolved = t.n.resolved && sameUser(t.n.resolved_by, t.n.author);
+      if (!botResolved || !isConcern) return void 0;
+      return { doing: "reopen a thread", run: () => api2(ctx, "PUT", `${mr}/discussions/${t.d.id}`, { resolved: false }), said: `${what} reopened (${id}).` };
+    },
+    async postOnLine(body, p) {
+      const r = await diffRefs();
+      if (!r?.base_sha) return void 0;
+      const position = { position_type: "text", base_sha: r.base_sha, start_sha: r.start_sha, head_sha: r.head_sha, new_path: p.file, new_line: p.line };
+      try {
+        return url(await api2(ctx, "POST", `${mr}/discussions`, { body, position }));
+      } catch {
+        return void 0;
+      }
+    },
+    postNote: async (body) => url(await api2(ctx, "POST", `${mr}/discussions`, { body })),
+    noteWord: "a note",
+    // Resolved already, or a person replied in the thread: theirs now.
+    settled: (t) => !!t.n.resolved || (t.d.notes ?? []).slice(1).some((x) => !x.system && !sameUser(x.author, t.n.author)),
+    close: (t, id) => ({ doing: "resolve a thread", run: () => api2(ctx, "PUT", `${mr}/discussions/${t.d.id}`, { resolved: true }), said: `Concern resolved (${id}): no longer flagged.` })
+  };
+}
+
+// cli/understanding/platform.ts
+var local = {
+  tokenVar: "GITLAB_TOKEN",
+  rerun: gitlab.rerun,
+  headers: () => ({}),
+  diffLink: () => void 0,
+  mrInfo: () => Promise.reject(new Error("no merge request outside CI")),
+  approvers: () => Promise.reject(new Error("no merge request outside CI")),
+  upsertComment: () => Promise.reject(new Error("no merge request outside CI")),
+  threads: () => void 0
+};
+var forgeOf = (ctx) => ctx?.platform === "gitlab" ? gitlab : ctx?.platform === "github" ? github : local;
+function ciContext(env = process.env) {
+  if (env.GITLAB_CI) return gitlabContext(env);
+  if (env.GITHUB_ACTIONS) return githubContext(env);
+  return { platform: "local" };
+}
+function gitlabContext(env) {
+  const target = env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+  return {
+    platform: "gitlab",
+    branch: env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.CI_COMMIT_REF_NAME,
+    head: env.CI_COMMIT_SHA,
+    base: env.CI_MERGE_REQUEST_DIFF_BASE_SHA,
+    baseRef: target && `origin/${target}`,
+    mr: env.CI_MERGE_REQUEST_IID,
+    labels: env.CI_MERGE_REQUEST_LABELS ? env.CI_MERGE_REQUEST_LABELS.split(",").map((x) => x.trim()).filter(Boolean) : [],
+    api: env.CI_API_V4_URL,
+    project: env.CI_PROJECT_ID,
+    token: env.GITLAB_TOKEN,
+    web: env.CI_MERGE_REQUEST_PROJECT_URL || env.CI_PROJECT_URL
+  };
+}
+function githubContext(env) {
+  const pr = pullRequestOf(env.GITHUB_EVENT_PATH);
+  const server = (env.GITHUB_SERVER_URL || "https://github.com").replace(/\/$/, "");
+  return {
+    platform: "github",
+    branch: pr.head?.ref || env.GITHUB_HEAD_REF || env.GITHUB_REF_NAME,
+    head: pr.head?.sha || env.GITHUB_SHA,
+    base: pr.base?.sha,
+    baseRef: env.GITHUB_BASE_REF && `origin/${env.GITHUB_BASE_REF}`,
+    mr: pr.number ? String(pr.number) : void 0,
+    labels: (pr.labels ?? []).map((l) => l.name),
+    author: pr.user?.login,
+    api: env.GITHUB_API_URL || "https://api.github.com",
+    project: env.GITHUB_REPOSITORY,
+    token: env.GITHUB_TOKEN,
+    web: env.GITHUB_REPOSITORY && `${server}/${env.GITHUB_REPOSITORY}`
+  };
+}
+function pullRequestOf(eventPath) {
+  if (!eventPath || !fs9.existsSync(eventPath)) return {};
+  try {
+    return JSON.parse(fs9.readFileSync(eventPath, "utf8")).pull_request ?? {};
+  } catch (e) {
+    console.error(`(couldn't read the GitHub event ${eventPath}: ${e.message})`);
+    return {};
   }
-  const list = await api(ctx, "GET", `/repos/${ctx.project}/issues/${ctx.mr}/comments?per_page=100`);
-  const mine = (list ?? []).find((c) => typeof c.body === "string" && c.body.includes(MARKER));
-  if (mine) {
-    await api(ctx, "PATCH", `/repos/${ctx.project}/issues/comments/${mine.id}`, { body });
-    return "updated";
-  }
-  await api(ctx, "POST", `/repos/${ctx.project}/issues/${ctx.mr}/comments`, { body });
-  return "created";
+}
+async function mrInfo(ctx) {
+  if (!ctx.token || !ctx.mr || !ctx.api) return { labels: ctx.labels ?? [], author: ctx.author };
+  return forgeOf(ctx).mrInfo(ctx);
+}
+var approvers = (ctx) => forgeOf(ctx).approvers(ctx);
+var upsertComment = (ctx, body) => forgeOf(ctx).upsertComment(ctx, body);
+function refLink(ctx, q, diff) {
+  if (!ctx?.web || !ctx.mr) return void 0;
+  return forgeOf(ctx).diffLink(ctx, q, diff);
 }
 
 // cli/understanding/threads.ts
-var concernMarker = (id) => `<!-- understanding-concern:${id} -->`;
-var closedMarker = (id) => `<!-- understanding-concern-closed:${id} -->`;
-var concernIdOf = (body) => /<!-- understanding-concern:([\w-]+) -->/.exec(String(body ?? ""))?.[1];
-var closedIdOf = (body) => /<!-- understanding-concern-closed:([\w-]+) -->/.exec(String(body ?? ""))?.[1];
 function concernPlace(q, lines) {
   const own2 = concernLink(q);
   if (own2) {
@@ -2245,12 +2539,14 @@ function threadBody(check, it, where, { changed } = {}) {
   return out.join("\n");
 }
 var concernBody = (check, q, where, o = {}) => threadBody(check, { id: q.id, q, concern: q.concern.text, flagged: true }, where, o.changed ? { changed: typeof o.changed === "string" ? o.changed : "" } : {});
-async function syncConcerns(ctx, check, { head, link = () => void 0, urls = /* @__PURE__ */ new Map(), repo, items = reviewItems(check), diff, changed = /* @__PURE__ */ new Map() } = {}) {
+async function syncConcerns(ctx, check, opts = {}) {
+  const { head, link = () => void 0, urls = /* @__PURE__ */ new Map(), repo, items = reviewItems(check), diff, changed = /* @__PURE__ */ new Map() } = opts;
   const log = syncLog();
+  const ops = forgeOf(ctx).threads(ctx, log, head);
+  if (!ops) return log.lines;
   const want = new Map(items.map((it) => [it.id, it]));
-  const text = threadTexts(check, { head, link, repo, diff, changed });
-  if (ctx.platform === "gitlab") await syncGitlab(ctx, want, { urls, text, log });
-  else if (ctx.platform === "github") await syncGithub(ctx, want, { urls, text, log, head });
+  const plans = threadPlans(check, items, { head, link, repo, diff, changed });
+  await syncThreads(ops, want, plans, { urls, log });
   return log.lines;
 }
 function syncLog() {
@@ -2271,305 +2567,299 @@ function syncLog() {
     }
   };
 }
-function threadTexts(check, { head, link, repo, diff, changed }) {
+function threadPlans(check, items, { head, link, repo, diff, changed }) {
+  const files = /* @__PURE__ */ new Map();
   const fileAt = (f) => {
-    try {
-      return repo && head ? git(repo, ["show", `${head}:${f}`]).split(/\r?\n/) : void 0;
-    } catch {
-      return void 0;
-    }
-  };
-  const aboutOf = (it) => {
-    if (isConcernItem(it)) return concernPlace(it.q, fileAt);
-    return it.q.target === "file" || !Number.isInteger(it.q.start) ? void 0 : { file: it.q.file, line: it.q.start };
-  };
-  const placeOf = (it) => {
-    const p = aboutOf(it);
-    if (!p || diff === void 0) return p;
-    const line3 = nearestChanged(diff, p.file, p.line);
-    return line3 === void 0 ? p : { ...p, line: line3, ...line3 !== p.line ? { moved: true } : {} };
+    if (!files.has(f)) files.set(f, linesAt(repo, head, f));
+    return files.get(f);
   };
   const whereAt = (p) => {
     if (!p) return void 0;
     const u = link({ file: p.file, start: p.line, end: p.line });
     return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\``;
   };
-  const bodyOf = (it, onLine) => {
-    const where = onLine ? placeOf(it)?.moved ? whereAt(aboutOf(it)) : void 0 : whereAt(aboutOf(it));
-    return threadBody(check, it, where, isConcernItem(it) && changed.has(it.id) ? { changed: changed.get(it.id) } : {});
-  };
-  const what = (it) => isConcernItem(it) ? "Concern" : "Worth discussing";
-  return { placeOf, bodyOf, what };
+  const plans = /* @__PURE__ */ new Map();
+  for (const it of items) {
+    const concern = isConcernItem(it);
+    const about = aboutPlace(it, concern, fileAt);
+    const place = onDiff(about, diff);
+    const opts = concern && changed.has(it.id) ? { changed: changed.get(it.id) } : {};
+    plans.set(it.id, {
+      place,
+      // On a line of the diff the text says where it is about only when that is another line.
+      onLine: threadBody(check, it, place?.moved ? whereAt(about) : void 0, opts),
+      offLine: threadBody(check, it, whereAt(about), opts),
+      what: concern ? "Concern" : "Worth discussing",
+      concern
+    });
+  }
+  return plans;
+}
+function aboutPlace(it, concern, fileAt) {
+  if (concern) return concernPlace(it.q, fileAt);
+  if (it.q.target === "file") return void 0;
+  if (!Number.isInteger(it.q.start)) return void 0;
+  return { file: it.q.file, line: it.q.start };
+}
+function onDiff(about, diff) {
+  if (!about) return void 0;
+  if (diff === void 0) return about;
+  const near = nearestChanged(diff, about.file, about.line);
+  if (near === void 0) return about;
+  if (near === about.line) return { ...about, line: near };
+  return { ...about, line: near, moved: true };
+}
+function linesAt(repo, head, file) {
+  if (!repo || !head) return void 0;
+  try {
+    return git(repo, ["show", `${head}:${file}`]).split(/\r?\n/);
+  } catch {
+    return void 0;
+  }
 }
 var idOf = (raw) => raw.replace(/^discuss-/, "");
 function keepThread(mine, id, x) {
   const had = mine.get(id);
   if (!had || had.raw !== id && x.raw === id) mine.set(id, x);
 }
-async function syncGitlab(ctx, want, { urls, text, log }) {
+async function syncThreads(ops, want, plans, { urls, log }) {
   const { say, safe } = log;
-  const mr = glMr(ctx);
-  const discussions = await safe("read the merge request threads", () => api(ctx, "GET", `${mr}/discussions?per_page=100`));
-  if (!Array.isArray(discussions)) return;
+  const step = async (s) => {
+    if (await safe(s.doing, () => s.run().then(() => true))) say(s.said);
+  };
+  const listed = await ops.list();
+  if (!listed) return;
   const mine = /* @__PURE__ */ new Map();
-  for (const d of discussions) {
-    const n = d.notes?.[0], raw = concernIdOf(n?.body);
-    if (raw) keepThread(mine, idOf(raw), { d, n, raw });
-  }
-  const sameUser = (a, b) => !!a && !!b && (a.id !== void 0 && b.id !== void 0 ? a.id === b.id : a.username === b.username);
-  const touched = (d, n) => (d.notes ?? []).slice(1).some((x) => !x.system && !sameUser(x.author, n.author));
-  const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`;
-  let refs;
-  for (const [id, it] of want) {
+  for (const t of listed) keepThread(mine, idOf(t.raw), t);
+  for (const id of want.keys()) {
+    const plan = plans.get(id);
     const had = mine.get(id);
     if (had) {
-      urls.set(id, noteUrl(had.n.id));
-      const onLine = !!had.n.position || had.n.type === "DiffNote";
-      const body = text.bodyOf(it, onLine).replace(concernMarker(id), concernMarker(had.raw));
-      const update = () => api(ctx, "PUT", `${mr}/discussions/${had.d.id}/notes/${had.n.id}`, { body }).then(() => true);
-      if (had.n.body !== body && await safe("update a thread", update)) say(`${text.what(it)} updated (${id}).`);
-      const reopen = () => api(ctx, "PUT", `${mr}/discussions/${had.d.id}`, { resolved: false }).then(() => true);
-      const botResolved = had.n.resolved && sameUser(had.n.resolved_by, had.n.author);
-      if (botResolved && isConcernItem(it) && await safe("reopen a thread", reopen)) say(`${text.what(it)} reopened (${id}).`);
-      continue;
-    }
-    const p = text.placeOf(it);
-    if (p && refs === void 0) refs = await safe("read the diff refs", async () => (await api(ctx, "GET", mr))?.diff_refs ?? null) ?? null;
-    const position = p && refs?.base_sha ? { position_type: "text", base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line } : void 0;
-    const posted = (d) => {
-      const nid = d?.notes?.[0]?.id;
-      if (nid !== void 0) urls.set(id, noteUrl(nid));
-      return true;
-    };
-    let ok = false;
-    if (position) {
-      try {
-        posted(await api(ctx, "POST", `${mr}/discussions`, { body: text.bodyOf(it, true), position }));
-        ok = true;
-      } catch {
+      urls.set(id, had.url);
+      const body = (had.onLine ? plan.onLine : plan.offLine).replace(concernMarker(id), concernMarker(had.raw));
+      if (had.body !== body) {
+        await step({ doing: "update a thread", run: () => ops.update(had, body), said: `${plan.what} updated (${id}).` });
       }
-    }
-    if (ok) {
-      say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`);
+      const again = ops.again(had, id, plan.concern, plan.what);
+      if (again) await step(again);
       continue;
     }
-    const note = () => api(ctx, "POST", `${mr}/discussions`, { body: text.bodyOf(it, false) }).then(posted);
-    if (await safe("post a thread", note)) say(`${text.what(it)} posted as a note (${id}).`);
-  }
-  for (const [id, { d, n, raw }] of mine) {
-    if (want.has(id) || n.resolved || raw !== id || !/\n⚠/.test(n.body) || touched(d, n)) continue;
-    const resolve = () => api(ctx, "PUT", `${mr}/discussions/${d.id}`, { resolved: true }).then(() => true);
-    if (await safe("resolve a thread", resolve)) say(`Concern resolved (${id}): no longer flagged.`);
-  }
-}
-async function syncGithub(ctx, want, { urls, text, log, head }) {
-  const { say, safe } = log;
-  const repoUrl = `/repos/${ctx.project}`;
-  const pr = `${repoUrl}/pulls/${ctx.mr}`;
-  const review = await safe("read the review comments", () => api(ctx, "GET", `${pr}/comments?per_page=100`));
-  const notes = await safe("read the comments", () => api(ctx, "GET", `${repoUrl}/issues/${ctx.mr}/comments?per_page=100`));
-  if (!Array.isArray(review) || !Array.isArray(notes)) return;
-  const mine = /* @__PURE__ */ new Map(), closed = /* @__PURE__ */ new Map();
-  for (const c of review) {
-    const raw = concernIdOf(c.body);
-    if (raw && !c.in_reply_to_id) keepThread(mine, idOf(raw), { c, review: true, raw });
-  }
-  for (const c of notes) {
-    const raw = concernIdOf(c.body);
-    if (raw) keepThread(mine, idOf(raw), { c, review: false, raw });
-  }
-  for (const c of review) {
-    const id = closedIdOf(c.body);
-    if (id) closed.set(id, c);
-  }
-  for (const c of notes) {
-    if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c);
-  }
-  const replied = (c) => review.some((x) => x.in_reply_to_id === c.id && !closedIdOf(x.body) && x.user?.login !== c.user?.login);
-  const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`;
-  for (const [id, it] of want) {
-    const had = mine.get(id);
-    if (had) {
-      urls.set(id, ghUrl(had.c, had.review));
-      const body = text.bodyOf(it, had.review).replace(concernMarker(id), concernMarker(had.raw));
-      const update = () => api(ctx, "PATCH", `${repoUrl}/${had.review ? "pulls" : "issues"}/comments/${had.c.id}`, { body }).then(() => true);
-      if (had.c.body !== body && await safe("update a thread", update)) say(`${text.what(it)} updated (${id}).`);
-      const gone = closed.get(id);
-      const remove = () => api(ctx, "DELETE", `${repoUrl}/pulls/comments/${gone.id}`).then(() => true);
-      if (gone && had.review && await safe("remove a reply", remove)) say(`Concern flagged again (${id}).`);
+    const p = plan.place;
+    const onLine = p ? await ops.postOnLine(plan.onLine, p) : void 0;
+    if (onLine) {
+      if (onLine.url) urls.set(id, onLine.url);
+      say(`${plan.what} posted on ${p.file}:${p.line} (${id}).`);
       continue;
     }
-    const p = text.placeOf(it);
-    let ok = false;
-    if (p && head) {
-      try {
-        const c = await api(ctx, "POST", `${pr}/comments`, { body: text.bodyOf(it, true), commit_id: head, path: p.file, line: p.line, side: "RIGHT" });
-        if (c?.id !== void 0) urls.set(id, ghUrl(c, true));
-        ok = true;
-      } catch {
-      }
-    }
-    if (ok) {
-      say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`);
-      continue;
-    }
-    const comment = () => api(ctx, "POST", `${repoUrl}/issues/${ctx.mr}/comments`, { body: text.bodyOf(it, false) }).then((c) => {
-      if (c?.id !== void 0) urls.set(id, ghUrl(c, false));
-      return true;
-    });
-    if (await safe("post a thread", comment)) say(`${text.what(it)} posted as a comment (${id}).`);
+    const note = await safe("post a thread", () => ops.postNote(plan.offLine));
+    if (!note) continue;
+    if (note.url) urls.set(id, note.url);
+    say(`${plan.what} posted as ${ops.noteWord} (${id}).`);
   }
-  for (const [id, { c, review: rv, raw }] of mine) {
-    const ours = !want.has(id) && raw === id && /\n⚠/.test(c.body);
-    const settled = rv ? closed.has(id) || replied(c) : !!closedIdOf(c.body);
-    if (!ours || settled) continue;
-    const reply = `${closedMarker(id)}
-No longer flagged.`;
-    const ok = rv ? await safe("reply to a concern", () => api(ctx, "POST", `${pr}/comments/${c.id}/replies`, { body: reply }).then(() => true)) : await safe("mark a concern", () => api(ctx, "PATCH", `${repoUrl}/issues/comments/${c.id}`, { body: `${c.body}
-
-${reply}` }).then(() => true));
-    if (ok) say(`Concern no longer flagged (${id}).`);
+  for (const [id, t] of mine) {
+    if (want.has(id) || t.raw !== id || !isConcernThread(t.body) || ops.settled(t, id)) continue;
+    await step(ops.close(t, id));
   }
 }
 
 // cli/understanding/ci.ts
+var passed = (head, lines = []) => ({ code: 0, glyph: "✓", head, lines });
+var failed = (head, lines = []) => ({ code: 1, glyph: "✗", head, lines });
+var cantCheck = (head) => ({ code: 2, glyph: "!", head, lines: [] });
+var headLine = (o) => o.glyph ? `${o.glyph} ${o.head}` : o.head;
 async function runCi(repo, opts = {}) {
   const env = opts.env ?? process.env;
-  const res = await ciJob(repo, { ...opts, env });
-  const mode = res.mode ?? ciMode(loadConfig(repo), env);
-  res.mode = mode;
-  if (mode !== "advisory" || res.code !== 1) return res;
-  res.lines[0] = `⚠ Advisory: ${res.lines[0].replace(/^[✗!]\s*/, "")}`;
+  const { outcome, mode } = await ciJob(repo, { ...opts, env });
+  return resultIn(mode, outcome, env);
+}
+function resultIn(mode, o, env) {
+  const advise = mode === "advisory" && o.code === 1;
+  const first = advise ? advisoryLine(o.head) : headLine(o);
+  const comment = o.comment !== void 0 ? { comment: o.comment } : {};
+  const res = { code: o.code, lines: [first, ...o.lines], ...comment, mode };
+  if (!advise) return res;
   if (env.GITHUB_ACTIONS) {
-    res.lines.push(`::warning title=Understanding check::${res.lines[0].replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
+    res.lines.push(githubAnnotation("warning", ANNOTATION_TITLE, first));
     res.code = 0;
-  } else res.code = 3;
+  } else {
+    res.code = 3;
+  }
   return res;
+}
+function githubAnnotation(kind, title, message) {
+  const escaped = message.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  return `::${kind} title=${title}::${escaped}`;
 }
 function ciMode(cfg = DEFAULTS, env = process.env) {
   return (env.UNDERSTANDING_MODE || cfg.mode) === "advisory" ? "advisory" : "required";
 }
-async function ciJob(repo, { env = process.env, comment = true, base: baseFlag } = {}) {
+async function ciJob(repo, opts = {}) {
+  const { env = process.env, comment = true, base: baseFlag } = opts;
   const ctx = ciContext(env);
   const head = ctx.head || gitOk(repo, ["rev-parse", "HEAD"]);
-  const branch = ctx.branch || currentBranch(repo, env);
-  const rel = fileFor(branch);
-  let base = baseFlag ?? ctx.base;
-  if (!base) {
-    const ref = ctx.baseRef ?? defaultBase(repo);
-    base = ref && head ? mergeBase(repo, ref, head) : void 0;
-  }
-  const target = [ctx.baseRef, base].find((r) => r && gitOk(repo, ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]));
-  const cfg = target ? loadConfig(repo, { at: target }) : loadConfig(repo);
+  const rel = fileFor(ctx.branch || currentBranch(repo, env));
+  let base = resolveBase(repo, ctx, baseFlag, head);
+  const cfg = targetConfig(repo, ctx, base);
   const mode = ciMode(cfg, env);
   const advisory = mode === "advisory";
   const unknown = unknownSettings(repo);
-  const finish = (res2) => Object.assign(res2, { mode, lines: [...res2.lines, ...unknown.length ? [unknownLine(unknown)] : []] });
-  const stacked = base && hasCommit(repo, base) && head && hasCommit(repo, head) ? stackBase(repo, base, head, rel) : void 0;
+  const unknownLines = unknown.length ? [unknownLine(unknown)] : [];
+  const finish = (o) => ({ outcome: { ...o, lines: [...o.lines, ...unknownLines] }, mode });
+  const bothKnown = !!base && hasCommit(repo, base) && !!head && hasCommit(repo, head);
+  const stacked = bothKnown ? stackBase(repo, base, head, rel) : void 0;
   if (stacked) base = stacked.base;
-  if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
-    return finish({ code: 2, lines: ["! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0)."] });
-  }
+  if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) return finish(cantCheck(NO_HISTORY));
   const change = codeStat(repo, base, head, cfg.exempt);
+  const forge = forgeOf(ctx);
   const canApi = ctx.platform !== "local" && !!ctx.token && !!ctx.mr && !!ctx.api;
-  const rerun = ctx.platform === "github" ? "" : ", then re-run this job";
   const settings = settingsChange(repo, base, head);
-  const post = async (res2, body) => {
-    if (!comment || !cfg.mrComment || !body) return res2;
-    const top = [...settings ? [settingsHeadline(settings)] : [], ...advisory ? ["Advisory: this check doesn't block merging."] : []];
-    if (top.length) {
-      const [m, ...rest] = body.split("\n");
-      body = [m, ...top, ...rest.length ? [""] : [], ...rest].join("\n");
-    }
-    res2.comment = body;
-    if (canApi) {
-      try {
-        res2.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`);
-      } catch (e) {
-        res2.lines.push(`  (couldn't write the merge request comment: ${e.message})`);
-      }
-    }
-    return res2;
+  const send = comment && cfg.mrComment;
+  const post = (o, body2) => {
+    return postResult(o, body2, { ctx, canApi, send, settings, advisory });
   };
+  const settingsPlain = () => settingsChange(repo, base, head, { plain: true });
   if (!linesOf(change) && !change.renamed?.length) {
-    const line3 = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : settings && !numstat(repo, base, head).some((f) => counted(f.file, cfg.exempt)) ? "✓ No check needed: only the check's settings changed." : noCheckLine(change);
-    return finish(settings ? await post({ code: 0, lines: [line3, `  ${settingsChange(repo, base, head, { plain: true })}`] }, MARKER) : { code: 0, lines: [line3] });
+    const text = noCheckNeeded({ repo, base, head, change, exempt: cfg.exempt, stackedOn: stacked?.branch, settings });
+    if (!settings) return finish(passed(text));
+    return finish(await post(passed(text, [`  ${settingsPlain()}`]), MARKER));
   }
   let info = { labels: ctx.labels ?? [], author: ctx.author };
   if (canApi) {
     try {
       info = await mrInfo(ctx);
     } catch (e) {
-      return finish({ code: 2, lines: [`! Understanding check: couldn't read the merge request: ${e.message}`] });
+      return finish(cantCheck(cantReadMr(e.message)));
     }
   }
-  let skip;
-  if (!advisory && info.labels.includes(cfg.skipLabel)) {
-    if (!canApi) skip = { line: `✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === "github" ? "GITHUB_TOKEN" : "GITLAB_TOKEN"}).` };
-    else {
-      let all = [];
-      try {
-        all = await approvers(ctx);
-      } catch (e) {
-        return finish({ code: 2, lines: [`! Understanding check: couldn't read approvals: ${e.message}`] });
-      }
-      const others = all.filter((u) => u !== info.author);
-      if (others.length) {
-        const line3 = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(", ")})`;
-        return finish(await post({ code: 0, lines: [line3] }, `${MARKER}
-${line3}`));
-      }
-      const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`;
-      const own2 = `Your own approval doesn't count: ask a reviewer to approve${rerun}.`;
-      skip = { line: all.length ? `✗ Approved only by ${info.author} (the author). Ask a reviewer to approve${rerun}.` : asked, body: `${MARKER}
-${all.length ? own2 : asked}` };
+  const asked = !advisory && info.labels.includes(cfg.skipLabel);
+  let approved;
+  if (asked && canApi) {
+    try {
+      approved = await approvers(ctx);
+    } catch (e) {
+      return finish(cantCheck(cantReadApprovals(e.message)));
     }
   }
-  const res = await checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet: advisory || !!skip });
+  const skip = asked ? skipDecision({ approved, author: info.author, skipLabel: cfg.skipLabel, forge }) : void 0;
+  if (skip?.waived) {
+    const waived = SKIP.waived(skip.by);
+    return finish(await post(passed(waived), `${MARKER}
+✓ ${waived}`));
+  }
+  const res = await checkResult(repo, {
+    cfg,
+    ctx,
+    head,
+    base,
+    rel,
+    change,
+    rerun: forge.rerun,
+    quiet: advisory || !!skip
+  });
+  const threads = /* @__PURE__ */ new Map();
   let synced = [];
-  if (res.check && canApi && comment && cfg.mrComment) {
-    const urls = /* @__PURE__ */ new Map();
-    synced = await syncConcerns(ctx, res.check, { head, link: res.link, urls, repo, items: res.items ?? reviewItems(res.check), diff: res.diff, changed: res.changed });
-    if (urls.size && res.remake) res.body = res.remake(urls);
+  if (res.check && canApi && send) {
+    synced = await syncConcerns(ctx, res.check, {
+      head,
+      link: res.link,
+      urls: threads,
+      repo,
+      items: res.items ?? reviewItems(res.check),
+      diff: res.diff,
+      changed: res.changed
+    });
   }
-  const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body);
-  if (settings) done.lines.splice(1, 0, `  ${settingsChange(repo, base, head, { plain: true })} It applies once merged.`);
+  const body = commentOf(res, threads);
+  const skipFirst = skip && res.outcome.code !== 0 ? skip : void 0;
+  const done = skipFirst ? await post(skipped(skipFirst, res.outcome), skipFirst.body ?? body) : await post(res.outcome, body);
+  if (settings) done.lines.unshift(settingsLater(settingsPlain()));
   done.lines.push(...synced);
-  if (res.check && setupMissing(repo).length) {
-    done.lines.push(`  tip: run "node ${cliName(repo)} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`);
-  }
+  if (res.check && setupMissing(repo).length) done.lines.push(foldTip(cliName(repo)));
   return finish(done);
 }
-async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, quiet = false }) {
-  const abs = path11.join(repo, rel);
-  if (!fs11.existsSync(abs)) {
-    const size = sizeWords(questionsForChange(change, cfg));
-    return { code: 1, lines: [
-      `✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
-      `  ${withoutVsCode(hasSkill(repo))}`,
-      // Advisory, or the label is there already: no skip instructions.
-      ...quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`]
-    ], body: missingBody(rel, cfg, rerun.replace("this job", "the job"), { quiet, size }) };
+function noCheckNeeded(o) {
+  if (o.stackedOn) return coveredBy(o.stackedOn);
+  const onlySettings = !!o.settings && !numstat(o.repo, o.base, o.head).some((f) => counted(f.file, o.exempt));
+  return onlySettings ? ONLY_SETTINGS : noCheckText(o.change);
+}
+function commentOf(res, threads) {
+  if ("body" in res.comment) return res.comment.body;
+  const { sum, headline, qa } = res.comment;
+  return commentBody(res.check, sum, headline, res.link, { qa, changed: res.changed, items: res.items, threads });
+}
+function skipped(skip, res) {
+  return { code: res.code, glyph: skip.glyph, head: skip.head, lines: [headLine(res), ...res.lines] };
+}
+function resolveBase(repo, ctx, flag, head) {
+  const base = flag ?? ctx.base;
+  if (base) return base;
+  const ref = ctx.baseRef ?? defaultBase(repo);
+  return ref && head ? mergeBase(repo, ref, head) : void 0;
+}
+function targetConfig(repo, ctx, base) {
+  const target = [ctx.baseRef, base].find((r) => r && gitOk(repo, ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]));
+  return target ? loadConfig(repo, { at: target }) : loadConfig(repo);
+}
+function skipDecision({ approved, author, skipLabel, forge }) {
+  if (!approved) return { waived: false, glyph: "✗", head: SKIP.blind(skipLabel, forge.tokenVar) };
+  const others = approved.filter((u) => u !== author);
+  if (others.length) return { waived: true, by: others };
+  const { rerun } = forge;
+  if (approved.length) {
+    const body = `${MARKER}
+${SKIP.ownApproval(rerun)}`;
+    return { waived: false, glyph: "✗", head: SKIP.authorOnly(author, rerun), body };
   }
-  const short = (line3, head2) => ({ code: 1, lines: [line3], body: `${MARKER}
-${head2}` });
+  return { waived: false, glyph: "", head: SKIP.asked(rerun), body: `${MARKER}
+${SKIP.asked(rerun)}` };
+}
+async function postResult(o, body, opts) {
+  const { ctx, canApi, send, settings, advisory } = opts;
+  if (!send || !body) return o;
+  const top = [...settings ? [settingsHeadline(settings)] : [], ...advisory ? [ADVISORY_COMMENT] : []];
+  if (top.length) {
+    const [headline, ...rest] = body.split("\n");
+    body = [headline, ...top, ...rest.length ? [""] : [], ...rest].join("\n");
+  }
+  o.comment = body;
+  if (canApi) {
+    try {
+      o.lines.push(commentWritten(await upsertComment(ctx, body)));
+    } catch (e) {
+      o.lines.push(commentFailed(e.message));
+    }
+  }
+  return o;
+}
+async function checkResult(repo, input) {
+  const { cfg, ctx, head, base, rel, change, rerun, quiet = false } = input;
+  const abs = path11.join(repo, rel);
+  if (!fs10.existsSync(abs)) {
+    const size = sizeWords(questionsForChange(change, cfg));
+    const withoutVs = withoutVsCode(hasSkill(repo));
+    const [first, ...more] = missingLog(rel, { size, skipLabel: cfg.skipLabel, rerun, quiet, withoutVs });
+    const body = missingBody(rel, cfg, rerun.replace("this job", "the job"), { quiet, size });
+    return { outcome: failed(first, more), comment: { body } };
+  }
   let check;
   try {
     check = readCheck(abs);
   } catch (e) {
-    return short(`✗ ${rel} is not valid JSON (${e.message}).`, `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.`);
+    const outcome2 = failed(INVALID.notJson.log(rel, e.message));
+    return { outcome: outcome2, comment: { body: `${MARKER}
+${INVALID.notJson.comment(rel)}` } };
   }
   const errs = validateCheck(check, { repo });
-  if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] };
+  if (errs.length) {
+    const outcome2 = failed(INVALID.notValid.log(rel, errs[0]), errs.slice(1, 4).map((e) => `  ${e}`));
+    return { outcome: outcome2, comment: { body: `${MARKER}
+${INVALID.notValid.comment(rel, inline(errs[0]))}` } };
+  }
   const drift = driftOf(repo, check, head, change, cfg.exempt, base);
   relocate(repo, check);
   const sum = summarize(check, cfg);
   const state = checkState({ exists: true, summary: sum, drift }, cfg);
-  let diff = "";
-  try {
-    diff = diffText(repo, base, head, void 0, cfg.exempt);
-  } catch {
-  }
+  const diff = diffOrEmpty(repo, base, head, cfg.exempt);
   const link = (q) => refLink({ ...ctx, head }, q, diff);
   const changed = /* @__PURE__ */ new Map();
   for (const q of check.questions) {
@@ -2577,48 +2867,30 @@ ${head2}` });
     const sha2 = concernChangedIn(repo, q, check.head, head);
     if (sha2 !== void 0) changed.set(q.id, sha2);
   }
-  const made = (line3, o = {}) => {
-    const items = reviewItems(check, sum, { qa: !!o.qa });
-    return { items, body: commentBody(check, sum, line3, link, { ...o, changed, items }), remake: (threads) => commentBody(check, sum, line3, link, { ...o, changed, items, threads }) };
-  };
-  const out = (r2) => Object.assign(r2, { check, link, diff, changed });
-  const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? "" : "s"} since the check (top-up at ${cfg.maxDrift}).` : "";
-  const words = { sum, drift, rel, rule: ruleText(sum), room };
-  if (state.phase === "drift") {
-    return out({ code: 1, lines: [RESULT.drift.log(words)], ...made(RESULT.drift.comment(words), { qa: sum.met }) });
-  }
+  const along = { check, link, diff, changed };
   const bad = hashProblems(check);
-  if (bad.length) {
-    const them = bad.length === 1 ? "it" : "them";
-    return out(short(
-      `✗ ${rel}: ${bad.join(", ")} changed after grading (a merge, or an edit by hand). Grade ${them} again in VS Code, then commit and push.`,
-      "**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push."
-    ));
+  if (state.phase !== "drift" && bad.length) {
+    const outcome2 = failed(INVALID.regraded.log(rel, bad));
+    return { outcome: outcome2, comment: { body: `${MARKER}
+${INVALID.regraded.comment}` }, ...along };
   }
-  const plainQ = (q) => q.text.replace(/`/g, "").trim();
-  const qLines = check.questions.map((q, i) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? "…" : ""}`);
-  const phase = state.phase === "answering" || state.phase === "short" ? state.phase : "done";
-  const r = RESULT[phase];
-  return out({ code: phase === "done" ? 0 : 1, lines: [r.log(words), ...qLines], ...made(r.comment(words), phase === "done" ? { qa: true } : {}) });
+  const phase = reportedPhase(state.phase);
+  const words = { sum, drift, rel, rule: ruleText(sum), room: roomText(drift, cfg.maxDrift) };
+  const qa = phase === "drift" ? sum.met : phase === "done";
+  const ci = PHASE[phase].ci;
+  const qLines = phase === "drift" ? [] : check.questions.map((q, i) => questionLine(q, MARK[sum.states[i]]));
+  const outcome = phase === "done" ? passed(ci.log(words), qLines) : failed(ci.log(words), qLines);
+  const items = reviewItems(check, sum, { qa });
+  return { outcome, comment: { headline: ci.comment(words), qa, sum }, items, ...along };
 }
-var RESULT = {
-  drift: {
-    log: (w) => `✗ Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? " (compared by size: the branch was rewritten)" : ""}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
-    comment: (w) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`
-  },
-  answering: {
-    log: (w) => `✗ Understanding check: ${w.sum.done} of ${w.sum.total} done (${w.rule}). Finish in VS Code, commit ${w.rel} and push.`,
-    comment: (w) => `**Understanding check in progress:** ${w.sum.done} of ${w.sum.total} done (about ${minutesFor(w.sum.total - w.sum.done)} min left).`
-  },
-  short: {
-    log: (w) => `✗ Understanding check: ${w.sum.passed} passed, ${w.sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`,
-    comment: (w) => `**Understanding check in progress:** all ${w.sum.total} answered, not finished yet.`
-  },
-  done: {
-    log: (w) => `✓ Understanding check done: ${w.sum.passed} of ${w.sum.total} passed (${w.rule}).${w.room}`,
-    comment: (w) => `**✓ Understanding check done** · ${w.sum.total} question${w.sum.total === 1 ? "" : "s"}`
-  }
-};
+function reportedPhase(phase) {
+  if (phase === "drift" || phase === "answering" || phase === "short") return phase;
+  return "done";
+}
+function questionLine(q, mark) {
+  const plain = q.text.replace(/`/g, "").trim();
+  return `  ${mark} ${q.id} ${q.kind}: ${plain.slice(0, 70)}${plain.length > 70 ? "…" : ""}`;
+}
 
 // cli/understanding/main.ts
 var HELP = `understanding.mjs: an understanding check for a change (docs: ${DOCS_URL})
@@ -2648,6 +2920,19 @@ Config: understanding/config.json. Grader: --backend, UNDERSTANDING_BACKEND, or 
 ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.
 The questions are written by the understanding-check skill: in VS Code by Code Notes, else by Claude Code
 (/understanding-check; ${SKILL_URL}).`;
+var BOOLEAN_FLAGS = {
+  json: "status",
+  write: "grade",
+  prompt: "grade",
+  "no-comment": "ci",
+  "no-push": "commit",
+  suspect: "questions.mjs",
+  "whole-file": "questions.mjs",
+  "top-up": "questions.mjs",
+  replace: "questions.mjs",
+  evidence: "questions.mjs",
+  none: "questions.mjs"
+};
 function parseArgs(argv) {
   const o = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -2657,9 +2942,12 @@ function parseArgs(argv) {
       continue;
     }
     const [k, v] = a.slice(2).split(/=(.*)/s);
+    const next = argv[i + 1];
     if (v !== void 0) o[k] = v;
-    else if (i + 1 < argv.length && !argv[i + 1].startsWith("--") && !["json", "write", "no-comment", "suspect", "whole-file", "top-up", "replace", "evidence", "none", "prompt", "no-push"].includes(k)) o[k] = argv[++i];
-    else o[k] = true;
+    else if (next !== void 0 && !next.startsWith("--") && !Object.hasOwn(BOOLEAN_FLAGS, k)) {
+      o[k] = next;
+      i++;
+    } else o[k] = true;
   }
   return o;
 }
@@ -2759,30 +3047,31 @@ async function gradeCommand({ o, repo, cwd, env, print }) {
     return 2;
   }
   const cfg = loadConfig(repo);
-  let list = c.questions.filter((q) => stateOf(q) === "ungraded");
   const one = typeof o.question === "string";
-  if ((o.prompt || o.reply !== void 0) && (!one || typeof o.answer !== "string")) {
+  const answer = typeof o.answer === "string" ? o.answer : void 0;
+  if ((o.prompt || o.reply !== void 0) && (!one || answer === void 0)) {
     print(`--${o.prompt ? "prompt" : "reply"} needs --question and --answer`);
     return 2;
   }
-  if (!one && typeof o.answer === "string") {
+  if (!one && answer !== void 0) {
     print("--answer needs --question");
     return 2;
   }
-  if (one) {
-    const q = c.questions.find((x) => x.id === o.question);
-    if (!q) {
-      print(`✗ no question ${o.question}`);
-      return 2;
-    }
-    if (o.prompt) {
-      print(promptFor(repo, c, q, o.answer));
-      return 0;
-    }
-    if (typeof o.answer === "string") addAttempt(c, q, o.answer, gitIdentity(repo));
-    if (o.reply !== void 0) return recordReply({ f, c, q, cfg, reply: String(o.reply), repo, env, print });
-    list = [q];
+  if (!one) return gradeRun({ f, c, list: c.questions.filter((q2) => stateOf(q2) === STATE.ungraded), cfg, o, repo, env, print });
+  const q = c.questions.find((x) => x.id === o.question);
+  if (!q) {
+    print(`✗ no question ${o.question}`);
+    return 2;
   }
+  if (o.prompt) {
+    print(promptFor(repo, c, q, answer));
+    return 0;
+  }
+  if (answer !== void 0) addAttempt(c, q, answer, gitIdentity(repo));
+  if (o.reply !== void 0) return recordReply({ f, c, q, cfg, reply: String(o.reply), repo, env, print });
+  return gradeRun({ f, c, list: [q], cfg, o, repo, env, print });
+}
+async function gradeRun({ f, c, list, cfg, o, repo, env, print }) {
   if (!list.length) {
     print("Nothing to grade: no answers without a verdict.");
     return 0;
@@ -2795,27 +3084,22 @@ async function gradeCommand({ o, repo, cwd, env, print }) {
     return 2;
   }
   const model = typeof o.model === "string" ? o.model : cfg.model ?? env.UNDERSTANDING_MODEL ?? void 0;
-  let diff;
-  try {
-    diff = diffText(repo, c.base ?? c.head, void 0);
-  } catch {
-    diff = "";
-  }
-  let failed = 0;
-  await Promise.all(list.map(async (q) => {
+  const diff = diffOrEmpty(repo, c.base ?? c.head);
+  const results = await Promise.all(list.map(async (q) => {
     try {
       const a = await gradeQuestion(repo, c, q, { backend, model, env, diff });
       print(gradeLine(q, a));
+      return true;
     } catch (e) {
-      failed++;
       print(`! ${q.id}: ${e.message}`);
+      return false;
     }
   }));
   if (o.write) {
     writeCheck(f, stamp(c, cfg));
     print(`Saved ${path12.relative(repo, f)}.`);
   }
-  return failed ? 2 : 0;
+  return results.every(Boolean) ? 0 : 2;
 }
 function recordReply({ f, c, q, cfg, reply, repo, env, print }) {
   let a;
@@ -2845,7 +3129,7 @@ function nextCommand({ repo, env, print }) {
   const also = q.also?.length ? ` · also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(", ")}` : "";
   print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ""}) · ${q.kind} · ${where}${also}`);
   print(q.text);
-  const hint = q.attempts?.at(-1)?.verdict === "retry" ? q.attempts.at(-1).hint : "";
+  const hint = q.attempts?.at(-1)?.verdict === STATE.retry ? q.attempts.at(-1).hint : "";
   if (hint) print(`Hint: ${hint}`);
   return 0;
 }
@@ -2908,19 +3192,24 @@ function progressLine(check, cfg, repo, env) {
 
 // cli/understanding/index.ts
 setSelf(fileURLToPath(import.meta.url));
-if (process.argv[1] && (() => {
+function isMain() {
+  if (!process.argv[1]) return false;
   try {
-    return fs12.realpathSync(process.argv[1]) === fs12.realpathSync(SELF);
+    return fs11.realpathSync(process.argv[1]) === fs11.realpathSync(SELF);
   } catch {
     return false;
   }
-})()) {
-  main().then((code) => {
-    process.exitCode = code;
-  }, (e) => {
-    console.error(`! ${e.message}`);
-    process.exitCode = 2;
-  });
+}
+if (isMain()) {
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e) => {
+      console.error(`! ${e.message}`);
+      process.exitCode = 2;
+    }
+  );
 }
 export {
   CACHE,

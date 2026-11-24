@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { SELF, setSelf } from './constants'
 import { main } from './main'
 
-export { CI_URL, DEFAULTS, DIR, DOCS_URL, hasSkill, KINDS, MARKER, MAX_QUESTIONS, MAX_TEXT, MAX_TOUR_STEPS, SKILL_DIR, SKILL_URL, TOUR_LINE, VERDICTS, withoutVsCode } from './constants'
+export { CI_URL, DEFAULTS, DIR, DOCS_URL, KINDS, MAX_QUESTIONS, MAX_TEXT, MAX_TOUR_STEPS, SKILL_DIR, SKILL_URL, TOUR_LINE, VERDICTS } from './constants'
+export { MARKER } from './markers'
+export { missingBody, noCheckLine, withoutVsCode } from './messages'
 export { ciBranch, currentBranch, DEFAULT_BRANCHES, defaultBase, git, gitRun, hasCommit, isDefaultBranch, mergeBase, repoRoot, stackBase, stashedIn } from './git'
 export { counted, globRe, isDoc, own } from './changeFiles'
 export { commentStyle, isCode } from './comments'
@@ -20,16 +22,32 @@ export { graderPrompt, REPLY_WORDS } from './graderPrompt'
 export { applyGrade, codeLinksIn, codeWindow, diffForGrader, gradeMode, gradeQuestion, openOthers, parseVerdict, promptFor, recordGrade, repeats, tourText } from './grading'
 export { pickBackend, runGrader } from './graderBackends'
 export { commitAndPush, commitCheck } from './push'
-export { approvers, ciContext, mrInfo, upsertComment } from './platform'
-export { clipAnswer, clipWords, commentBody, concernChanged, concernChangedIn, concernLink, discussItems, explanationOf, flaggedConcerns, inert, literal, missingBody, noCheckLine, noticedConcerns, questionText, reasonOf, refLink, reviewItems, settingsChange } from './mrComment'
+export { approvers, ciContext, mrInfo, refLink, upsertComment } from './platform'
+export { clipAnswer, clipWords, commentBody, concernChanged, concernChangedIn, concernLink, discussItems, explanationOf, flaggedConcerns, inert, literal, noticedConcerns, questionText, reasonOf, reviewItems, settingsChange } from './mrComment'
 export { ciMode, runCi } from './ci'
 export { concernBody, concernPlace, syncConcerns, threadBody } from './threads'
-export { FOLD_TEXT, foldDiffs, foldMissing, INIT_LINES, initRepo, installSkill, setupMissing } from './init'
+export { FOLD_TEXT, foldDiffs, foldMissing, hasSkill, INIT_LINES, initRepo, installSkill, setupMissing } from './init'
 export { main, parseArgs } from './main'
 
 setSelf(fileURLToPath(import.meta.url))
 
-// Run as a command (not imported): the command line, its exit code.
-if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF) } catch { return false } })()) {
-  main().then((code) => { process.exitCode = code }, (e) => { console.error(`! ${e.message}`); process.exitCode = 2 })
+/**
+ * Whether this file is the command being run, not a module someone imported (the extension and the skill's script
+ * import it). By real path: the command may be a symlink to it (a bin folder), or name it by another path.
+ */
+function isMain(): boolean {
+  if (!process.argv[1]) return false
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF)
+  } catch {
+    // A path that doesn't resolve (the script name of `node -e`): not this file.
+    return false
+  }
+}
+
+if (isMain()) {
+  main().then(
+    (code) => { process.exitCode = code },
+    (e) => { console.error(`! ${e.message}`); process.exitCode = 2 },
+  )
 }

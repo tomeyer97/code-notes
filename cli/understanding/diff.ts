@@ -170,6 +170,18 @@ export function diffText(repo: string, from: string, to?: string, files?: Numsta
   return git(repo, ['diff', '--no-color', '-U3', '-M', from, ...(to ? [to] : []), '--', ...list])
 }
 
+/**
+ * diffText, or '' when git can't give it (a commit missing from a shallow clone, an unreadable repository): the
+ * grader then reads the files, and links point at the file instead of the diff. One place decides that no diff is fine.
+ */
+export function diffOrEmpty(repo: string, from: string, to?: string, exempt: string[] = []): string {
+  try {
+    return diffText(repo, from, to, undefined, exempt)
+  } catch {
+    return ''
+  }
+}
+
 /** A diff with the new file's line numbers in front: what a question's lines refer to. */
 export function numberDiff(diff: string): string {
   const out: string[] = []

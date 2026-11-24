@@ -16,16 +16,21 @@ export const INIT_LINES = {
 /** Lines an earlier `init` wrote, replaced by today's. */
 const OLD_LINES: Record<string, string[]> = { '.gitattributes': [`${DIR}/*.json linguist-generated=true`] }
 
+/**
+ * One of `init`'s files as it is in the working tree (`text`, '' when there is none) and the lines it lacks
+ * (`missing`; a line counts as there whatever spaces surround it; `have`: its lines, trimmed).
+ */
+function missingLines(repo: string, name: keyof typeof INIT_LINES): { text: string; have: Set<string>; missing: string[] } {
+  let text = ''
+  try { text = fs.readFileSync(path.join(repo, name), 'utf8') } catch { /* no such file yet */ }
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
+  return { text, have, missing: INIT_LINES[name].filter((l) => !have.has(l)) }
+}
+const INIT_FILES = Object.keys(INIT_LINES) as (keyof typeof INIT_LINES)[]
+
 /** The `init` lines the repository doesn't have yet (in its working tree), as "file: line". */
 export function setupMissing(repo: string): string[] {
-  const out: string[] = []
-  for (const [name, want] of Object.entries(INIT_LINES)) {
-    let text = ''
-    try { text = fs.readFileSync(path.join(repo, name), 'utf8') } catch { /* none */ }
-    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
-    out.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`))
-  }
-  return out
+  return INIT_FILES.flatMap((name) => missingLines(repo, name).missing.map((l) => `${name}: ${l}`))
 }
 
 /**
@@ -35,19 +40,16 @@ export function setupMissing(repo: string): string[] {
  */
 export function initRepo(repo: string, { only }: { only?: string } = {}): string[] {
   const added: string[] = []
-  for (const [name, want] of Object.entries(INIT_LINES)) {
+  for (const name of INIT_FILES) {
     if (only && name !== only) continue
-    const file = path.join(repo, name)
-    let text = ''
-    try { text = fs.readFileSync(file, 'utf8') } catch { /* a new file */ }
-    const have = new Set(text.split(/\r?\n/).map((l) => l.trim()))
-    const missing = want.filter((l) => !have.has(l))
+    const { text: was, have, missing } = missingLines(repo, name)
+    let text = was
     if (!missing.length) continue
+    added.push(...missing.map((l) => `${name}: ${l}`))
     const old = (OLD_LINES[name] ?? []).find((l) => have.has(l))
     if (old) text = text.split(/(\r?\n)/).map((l) => (l.trim() === old ? missing.shift() : l)).join('')
     if (missing.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}${missing.join('\n')}\n`
-    fs.writeFileSync(file, text)
-    added.push(...want.filter((l) => !have.has(l)).map((l) => `${name}: ${l}`))
+    fs.writeFileSync(path.join(repo, name), text)
   }
   return added
 }
@@ -63,25 +65,34 @@ export const foldDiffs = (repo: string): string[] => initRepo(repo, { only: '.gi
 export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
 
 
-/** Where the skill ships beside this file (in the extension and in its repository), if it does. */
-const skillSource = (): string | undefined => {
-  const here = path.dirname(SELF)
-  return [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
+/** What installSkill copies: the skill's folder (SKILL.md, scripts/questions.mjs) and this CLI file. */
+export interface SkillSource { dir: string; cli: string }
+
+/**
+ * Where this copy of the CLI finds the skill to install: beside it, as it ships. The built cli/understanding.mjs (in
+ * the extension and in its repository) has it at ../skills/understanding-check; the skill's own copy
+ * (<skill>/scripts/understanding.mjs) is inside it. A copy elsewhere (a CI download) has none: undefined.
+ */
+export function skillSource(cli: string = SELF): SkillSource | undefined {
+  const here = path.dirname(cli)
+  const dir = [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
+  return dir ? { dir, cli } : undefined
 }
+/** The repository has the skill (`init` put it there). */
+export const hasSkill = (repo: string): boolean => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
 /** The CLI the repository has committed already (e.g. tools/understanding.mjs), outside the skill's folder. */
 const committedCli = (repo: string): string | undefined => (gitOk(repo, ['ls-files', '--', ':(glob)**/understanding.mjs']) ?? '').split('\n').find((f) => f && !f.startsWith(`${SKILL_DIR}/`))
 
 /**
- * Puts the skill in the repository (`.claude/skills/understanding-check`: SKILL.md and its script), so anyone running
- * Claude Code there can type /understanding-check, and the CLI beside it unless the repository has a copy committed
- * already (the script finds that one). Written when missing or different; returns the files written, or undefined
- * when this copy of the CLI has no skill beside it.
+ * Puts the skill in the repository (SKILL_DIR: SKILL.md and its script), so anyone running Claude Code there can type
+ * /understanding-check, and the CLI beside it unless the repository has a copy committed already (the script finds
+ * that one). `from`: what to copy (skillSource: what ships beside this file). Written when missing or different;
+ * returns the files written, or undefined when there is no skill to copy.
  */
-export function installSkill(repo: string): string[] | undefined {
-  const src = skillSource()
-  if (!src) return undefined
-  const want: [string, string][] = [['SKILL.md', path.join(src, 'SKILL.md')], ['scripts/questions.mjs', path.join(src, 'scripts/questions.mjs')]]
-  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', SELF])
+export function installSkill(repo: string, from: SkillSource | undefined = skillSource()): string[] | undefined {
+  if (!from) return undefined
+  const want: [string, string][] = [['SKILL.md', path.join(from.dir, 'SKILL.md')], ['scripts/questions.mjs', path.join(from.dir, 'scripts/questions.mjs')]]
+  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', from.cli])
   const out: string[] = []
   for (const [rel, from] of want) {
     const to = path.join(repo, SKILL_DIR, rel)

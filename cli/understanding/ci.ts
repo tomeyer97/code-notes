@@ -1,41 +1,45 @@
 // The CI job (`ci`): never calls a model; checks that the check was done for this change and meets the rule.
 import fs from 'node:fs'
 import path from 'node:path'
-import { cliName, DEFAULTS, hasSkill, MARKER, withoutVsCode } from './constants'
+import { cliName, DEFAULTS } from './constants'
 import { currentBranch, defaultBase, gitOk, hasCommit, mergeBase, stackBase } from './git'
-import { codeStat, diffText, linesOf, numstat } from './diff'
-import { minutesFor, questionsForChange, sizeWords } from './size'
+import { codeStat, diffOrEmpty, linesOf, numstat } from './diff'
+import { questionsForChange, sizeWords } from './size'
 import { fileFor, loadConfig, readCheck, unknownLine, unknownSettings } from './checkFile'
 import { hashProblems, validateCheck } from './validate'
 import { checkState, driftOf, ruleText, summarize } from './state'
 import { relocate } from './anchors'
-import { approvers, ciContext, mrInfo, upsertComment } from './platform'
-import { commentBody, concernChangedIn, inline, liveConcern, MARK, missingBody, noCheckLine, refLink, reviewItems, settingsChange, settingsHeadline } from './mrComment'
+import { approvers, ciContext, forgeOf, mrInfo, refLink, upsertComment } from './platform'
+import { commentBody, concernChangedIn, inline, liveConcern, MARK, reviewItems, settingsChange } from './mrComment'
 import { syncConcerns } from './threads'
-import { setupMissing } from './init'
+import { hasSkill, setupMissing } from './init'
 import { counted } from './changeFiles'
-import type { Check, CodeStat, Config, Drift, Question, Summary } from './types'
+import { MARKER } from './markers'
+import { PHASE, roomText, type CheckedPhase, type ResultWords } from './phases'
+import {
+  ADVISORY_COMMENT, advisoryLine, ANNOTATION_TITLE, cantReadApprovals, cantReadMr, commentFailed, commentWritten, coveredBy,
+  foldTip, INVALID, missingBody, missingLog, NO_HISTORY, noCheckText, ONLY_SETTINGS, settingsHeadline, settingsLater, SKIP,
+  withoutVsCode,
+} from './messages'
+import type { CiContext, Forge, Spot } from './forge'
+import type { Check, CodeStat, Config, Phase, Question, Summary } from './types'
 
 /** runCi's options: `base` the base commit (`--base`), `comment: false` no merge request comment. */
 interface CiOptions { env?: NodeJS.ProcessEnv; comment?: boolean; base?: string }
 type CiMode = 'required' | 'advisory'
 /** The job's result (runCi): its exit code, log lines, the merge request comment, and the mode it ran in. */
 interface CiResult { code: number; lines: string[]; comment?: string; mode?: CiMode }
-type CiContext = ReturnType<typeof ciContext>
-/** Where a link points (a question's lines, refLink's). */
-type Spot = Parameters<typeof refLink>[1]
-/** checkResult's result: the job's, with the comment (`body`) and what the review threads need. */
-interface CheckOutcome extends CiResult {
-  body?: string
-  check?: Check
-  link?: (q: Spot) => string | undefined
-  diff?: string
-  changed?: Map<string, string>
-  items?: ReturnType<typeof reviewItems>
-  remake?: (threads: Map<string, string>) => string
-}
-/** What the result's words (RESULT) are made of. */
-interface ResultWords { sum: Summary; drift: Drift; rel: string; rule: string; room: string }
+
+/**
+ * What a step of the job concludes, before the mode is applied (runCi): `code` 0 pass, 1 fail, 2 can't check; the
+ * log's first line (`head`, its `glyph` chosen by the code: ✓ ✗ !, or none), the rest of the log, the comment.
+ */
+interface Outcome { code: 0 | 1 | 2; glyph: '✓' | '✗' | '!' | ''; head: string; lines: string[]; comment?: string }
+const passed = (head: string, lines: string[] = []): Outcome => ({ code: 0, glyph: '✓', head, lines })
+const failed = (head: string, lines: string[] = []): Outcome => ({ code: 1, glyph: '✗', head, lines })
+const cantCheck = (head: string): Outcome => ({ code: 2, glyph: '!', head, lines: [] })
+/** The first line as the log shows it. */
+const headLine = (o: Pick<Outcome, 'glyph' | 'head'>): string => (o.glyph ? `${o.glyph} ${o.head}` : o.head)
 
 /**
  * The CI job (no model calls). No code lines changed (or only exempt files) → pass. Skip label + an approval by
@@ -47,15 +51,34 @@ interface ResultWords { sum: Summary; drift: Drift; rel: string; rule: string; r
  */
 export async function runCi(repo: string, opts: CiOptions = {}): Promise<CiResult> {
   const env = opts.env ?? process.env
-  const res = await ciJob(repo, { ...opts, env })
-  const mode = res.mode ?? ciMode(loadConfig(repo), env)
-  res.mode = mode
-  if (mode !== 'advisory' || res.code !== 1) return res
-  // Advisory: never blocks. GitLab shows exit 3 as "passed with warnings" (allow_failure: exit_codes: [3]); GitHub
-  // can't allow one exit code, so there it is a warning annotation and exit 0.
-  res.lines[0] = `⚠ Advisory: ${res.lines[0].replace(/^[✗!]\s*/, '')}`
-  if (env.GITHUB_ACTIONS) { res.lines.push(`::warning title=Understanding check::${res.lines[0].replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`); res.code = 0 } else res.code = 3
+  const { outcome, mode } = await ciJob(repo, { ...opts, env })
+  return resultIn(mode, outcome, env)
+}
+
+/**
+ * The outcome as the job reports it in its mode. Advisory never blocks: a failure says "⚠ Advisory" and GitLab gets
+ * exit 3 ("passed with warnings" with allow_failure: exit_codes: [3]); GitHub can't allow one exit code, so there it
+ * is a warning annotation and exit 0.
+ */
+function resultIn(mode: CiMode, o: Outcome, env: NodeJS.ProcessEnv): CiResult {
+  const advise = mode === 'advisory' && o.code === 1
+  const first = advise ? advisoryLine(o.head) : headLine(o)
+  const comment = o.comment !== undefined ? { comment: o.comment } : {}
+  const res: CiResult = { code: o.code, lines: [first, ...o.lines], ...comment, mode }
+  if (!advise) return res
+  if (env.GITHUB_ACTIONS) {
+    res.lines.push(githubAnnotation('warning', ANNOTATION_TITLE, first))
+    res.code = 0
+  } else {
+    res.code = 3
+  }
   return res
+}
+
+/** A GitHub Actions workflow command (`::warning title=…::message`), its message escaped as GitHub reads it. */
+function githubAnnotation(kind: 'warning' | 'error', title: string, message: string): string {
+  const escaped = message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+  return `::${kind} title=${title}::${escaped}`
 }
 
 /** `required` (default) or `advisory`: UNDERSTANDING_MODE, else the config's "mode". */
@@ -63,161 +86,324 @@ export function ciMode(cfg: Pick<Config, 'mode'> = DEFAULTS, env: NodeJS.Process
   return (env.UNDERSTANDING_MODE || cfg.mode) === 'advisory' ? 'advisory' : 'required'
 }
 
-async function ciJob(repo: string, { env = process.env, comment = true, base: baseFlag }: CiOptions = {}): Promise<CiResult> {
+/** What the job concluded, and the mode it judges in. */
+interface JobResult { outcome: Outcome; mode: CiMode }
+
+/** The job, step by step: base and settings, no code changed, the skip label, the check file, threads, the comment. */
+async function ciJob(repo: string, opts: CiOptions = {}): Promise<JobResult> {
+  const { env = process.env, comment = true, base: baseFlag } = opts
   const ctx = ciContext(env)
   const head = ctx.head || gitOk(repo, ['rev-parse', 'HEAD'])
-  const branch = ctx.branch || currentBranch(repo, env)
-  const rel = fileFor(branch)
-  let base: string | undefined = baseFlag ?? ctx.base
-  if (!base) { const ref = ctx.baseRef ?? defaultBase(repo); base = ref && head ? mergeBase(repo, ref, head) : undefined }
-  // The target branch's settings (its tip when the clone has it, else the merge base): a merge request that changes them
-  // (mode advisory, a bigger maxDrift, a new exempt glob) is still judged by the settings it would change.
-  const target = [ctx.baseRef, base].find((r) => r && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${r}^{commit}`]))
-  const cfg = target ? loadConfig(repo, { at: target }) : loadConfig(repo)
+  const rel = fileFor(ctx.branch || currentBranch(repo, env))
+  let base = resolveBase(repo, ctx, baseFlag, head)
+  const cfg = targetConfig(repo, ctx, base)
   const mode = ciMode(cfg, env)
   const advisory = mode === 'advisory'
   const unknown = unknownSettings(repo)
-  const finish = (res: CiResult): CiResult => Object.assign(res, { mode, lines: [...res.lines, ...(unknown.length ? [unknownLine(unknown)] : [])] })
-  // Stacked on a branch whose check is committed here (or the same work under a new branch name): that code was checked.
-  const stacked = base && hasCommit(repo, base) && head && hasCommit(repo, head) ? stackBase(repo, base, head, rel) : undefined
+  const unknownLines = unknown.length ? [unknownLine(unknown)] : []
+  const finish = (o: Outcome): JobResult => ({ outcome: { ...o, lines: [...o.lines, ...unknownLines] }, mode })
+  // Stacked on a branch whose check is committed here (or the same work under a new branch name): that code
+  // was checked.
+  const bothKnown = !!base && hasCommit(repo, base) && !!head && hasCommit(repo, head)
+  const stacked = bothKnown ? stackBase(repo, base!, head!, rel) : undefined
   if (stacked) base = stacked.base
-  if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) {
-    return finish({ code: 2, lines: ['! Understanding check: the base or head commit is not in this clone. Fetch the full history (GitLab: GIT_DEPTH: 0; GitHub: fetch-depth: 0).'] })
-  }
+  if (!base || !hasCommit(repo, base) || !hasCommit(repo, head)) return finish(cantCheck(NO_HISTORY))
+
   const change = codeStat(repo, base, head, cfg.exempt)
+  const forge = forgeOf(ctx)
   const canApi = ctx.platform !== 'local' && !!ctx.token && !!ctx.mr && !!ctx.api
-  // GitHub runs the job again on a review (the recipe listens to it); GitLab doesn't.
-  const rerun = ctx.platform === 'github' ? '' : ', then re-run this job'
   // This merge request changes the check's own settings (understanding/config.json): said to everyone, first.
   const settings = settingsChange(repo, base, head!)
-  const post = async (res: CiResult, body: string | undefined): Promise<CiResult> => {
-    if (!comment || !cfg.mrComment || !body) return res
-    const top = [...(settings ? [settingsHeadline(settings)] : []), ...(advisory ? ["Advisory: this check doesn't block merging."] : [])]
-    if (top.length) { const [m, ...rest] = body.split('\n'); body = [m, ...top, ...(rest.length ? [''] : []), ...rest].join('\n') }
-    res.comment = body
-    if (canApi) { try { res.lines.push(`  Merge request comment ${await upsertComment(ctx, body)}.`) } catch (e) { res.lines.push(`  (couldn't write the merge request comment: ${(e as Error).message})`) } }
-    return res
+  const send = comment && cfg.mrComment
+  const post = (o: Outcome, body: string | undefined): Promise<Outcome> => {
+    return postResult(o, body, { ctx, canApi, send, settings, advisory })
   }
+  // The settings change as a log line (no markdown).
+  const settingsPlain = (): string => settingsChange(repo, base, head!, { plain: true })!
+
   if (!linesOf(change) && !change.renamed?.length) {
-    const line = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : settings && !numstat(repo, base, head).some((f) => counted(f.file, cfg.exempt)) ? '✓ No check needed: only the check\'s settings changed.' : noCheckLine(change)
+    const text = noCheckNeeded({ repo, base, head: head!, change, exempt: cfg.exempt, stackedOn: stacked?.branch, settings })
+    if (!settings) return finish(passed(text))
     // Only the settings changed: the comment says so (a policy change everyone should see), nothing else.
-    return finish(settings ? await post({ code: 0, lines: [line, `  ${settingsChange(repo, base, head!, { plain: true })}`] }, MARKER) : { code: 0, lines: [line] })
+    return finish(await post(passed(text, [`  ${settingsPlain()}`]), MARKER))
   }
   let info: { labels: string[]; author?: string } = { labels: ctx.labels ?? [], author: ctx.author }
-  if (canApi) { try { info = await mrInfo(ctx) } catch (e) { return finish({ code: 2, lines: [`! Understanding check: couldn't read the merge request: ${(e as Error).message}`] }) } }
-
-  // Skip: an approval by anyone but the author waives the check (good faith: no reason asked).
-  let skip: { line: string; body?: string } | undefined
-  // Advisory: nothing blocks, so nothing to skip.
-  if (!advisory && info.labels.includes(cfg.skipLabel)) {
-    if (!canApi) skip = { line: `✗ Label "${cfg.skipLabel}" is set, but this job can't see approvals (no ${ctx.platform === 'github' ? 'GITHUB_TOKEN' : 'GITLAB_TOKEN'}).` }
-    else {
-      let all: string[] = []
-      try { all = await approvers(ctx) } catch (e) { return finish({ code: 2, lines: [`! Understanding check: couldn't read approvals: ${(e as Error).message}`] }) }
-      const others = all.filter((u) => u !== info.author)
-      if (others.length) {
-        const line = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(', ')})`
-        return finish(await post({ code: 0, lines: [line] }, `${MARKER}\n${line}`))
-      }
-      const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`
-      const own = `Your own approval doesn't count: ask a reviewer to approve${rerun}.`
-      skip = { line: all.length ? `✗ Approved only by ${info.author} (the author). Ask a reviewer to approve${rerun}.` : asked, body: `${MARKER}\n${all.length ? own : asked}` }
+  if (canApi) {
+    try {
+      info = await mrInfo(ctx)
+    } catch (e) {
+      return finish(cantCheck(cantReadMr((e as Error).message)))
     }
   }
-  const res = await checkResult(repo, { cfg, ctx, head: head!, base, rel, change, rerun, quiet: advisory || !!skip })
+
+  // Advisory: nothing blocks, so nothing to skip.
+  const asked = !advisory && info.labels.includes(cfg.skipLabel)
+  let approved: string[] | undefined
+  if (asked && canApi) {
+    try {
+      approved = await approvers(ctx)
+    } catch (e) {
+      return finish(cantCheck(cantReadApprovals((e as Error).message)))
+    }
+  }
+  const skip = asked ? skipDecision({ approved, author: info.author, skipLabel: cfg.skipLabel, forge }) : undefined
+  if (skip?.waived) {
+    const waived = SKIP.waived(skip.by)
+    return finish(await post(passed(waived), `${MARKER}\n✓ ${waived}`))
+  }
+
+  const res = await checkResult(repo, {
+    cfg,
+    ctx,
+    head: head!,
+    base,
+    rel,
+    change,
+    rerun: forge.rerun,
+    quiet: advisory || !!skip,
+  })
   // Flagged concerns go on their lines first, as threads a reviewer can resolve (never fails the job); the comment
   // then lists them as one-line links to those threads.
+  const threads = new Map<string, string>()
   let synced: string[] = []
-  if (res.check && canApi && comment && cfg.mrComment) {
-    const urls = new Map<string, string>()
-    synced = await syncConcerns(ctx, res.check, { head, link: res.link, urls, repo, items: res.items ?? reviewItems(res.check), diff: res.diff, changed: res.changed })
-    if (urls.size && res.remake) res.body = res.remake(urls)
+  if (res.check && canApi && send) {
+    synced = await syncConcerns(ctx, res.check, {
+      head,
+      link: res.link,
+      urls: threads,
+      repo,
+      items: res.items ?? reviewItems(res.check),
+      diff: res.diff,
+      changed: res.changed,
+    })
   }
-  const done = res.code !== 0 && skip ? await post({ code: res.code, lines: [skip.line, ...res.lines] }, skip.body ?? res.body) : await post({ code: res.code, lines: res.lines }, res.body)
-  if (settings) done.lines.splice(1, 0, `  ${settingsChange(repo, base, head!, { plain: true })} It applies once merged.`)
+  const body = commentOf(res, threads)
+  // A skip asked for but not granted goes first, when the check doesn't pass either.
+  const skipFirst = skip && res.outcome.code !== 0 ? skip : undefined
+  const done = skipFirst
+    ? await post(skipped(skipFirst, res.outcome), skipFirst.body ?? body)
+    : await post(res.outcome, body)
+  if (settings) done.lines.unshift(settingsLater(settingsPlain()))
   done.lines.push(...synced)
   // The repository doesn't collapse check files in diffs yet: a tip in the log (never in the comment).
-  if (res.check && setupMissing(repo).length) {
-    done.lines.push(`  tip: run "node ${cliName(repo)} init" once and commit .gitattributes and .ignore: check files then collapse in diffs.`)
-  }
+  if (res.check && setupMissing(repo).length) done.lines.push(foldTip(cliName(repo)))
   return finish(done)
 }
 
+/** Why no check is needed (the log's line): a stack's parent covers it, only the settings changed, or no code lines. */
+interface NoCheckInput {
+  repo: string
+  base: string
+  head: string
+  change: CodeStat
+  exempt: string[]
+  /** The stack's parent whose check covers this change. */
+  stackedOn?: string
+  /** The settings change, if any. */
+  settings?: string
+}
 
-/** The check file against this change: `{ code, lines, body }` (body: the merge request comment). */
-async function checkResult(repo: string, { cfg, ctx, head, base, rel, change, rerun, quiet = false }: { cfg: Config; ctx: CiContext; head: string; base: string; rel: string; change: CodeStat; rerun: string; quiet?: boolean }): Promise<CheckOutcome> {
+function noCheckNeeded(o: NoCheckInput): string {
+  if (o.stackedOn) return coveredBy(o.stackedOn)
+  const onlySettings = !!o.settings && !numstat(o.repo, o.base, o.head).some((f) => counted(f.file, o.exempt))
+  return onlySettings ? ONLY_SETTINGS : noCheckText(o.change)
+}
+
+/** The comment: checkResult's own text, or its headline rendered with the items' thread links (`threads`). */
+function commentOf(res: CheckOutcome, threads: Map<string, string>): string {
+  if ('body' in res.comment) return res.comment.body
+  const { sum, headline, qa } = res.comment
+  return commentBody(res.check!, sum, headline, res.link, { qa, changed: res.changed, items: res.items, threads })
+}
+
+/** A skip that wasn't granted, first, then the check's own outcome (`res`) under it. */
+function skipped(skip: Extract<Skip, { waived: false }>, res: Outcome): Outcome {
+  return { code: res.code, glyph: skip.glyph, head: skip.head, lines: [headLine(res), ...res.lines] }
+}
+
+/**
+ * The commit the change starts from: `--base`, else CI's (the merge request's diff base), else the merge base with
+ * the target branch (CI's, or the repository's default branch).
+ */
+function resolveBase(repo: string, ctx: CiContext, flag: string | undefined, head: string | undefined): string | undefined {
+  const base = flag ?? ctx.base
+  if (base) return base
+  const ref = ctx.baseRef ?? defaultBase(repo)
+  return ref && head ? mergeBase(repo, ref, head) : undefined
+}
+
+/**
+ * The settings the job judges by: the target branch's (its tip when the clone has it, else the merge base). A merge
+ * request that changes them (mode advisory, a bigger maxDrift, a new exempt glob) is still judged by the settings it
+ * would change.
+ */
+function targetConfig(repo: string, ctx: CiContext, base: string | undefined): Config {
+  const target = [ctx.baseRef, base].find((r) => r && gitOk(repo, ['rev-parse', '--verify', '--quiet', `${r}^{commit}`]))
+  return target ? loadConfig(repo, { at: target }) : loadConfig(repo)
+}
+
+/** What skipDecision decides from. */
+interface SkipInput {
+  /** Who approved, the author included; undefined: the job can't see approvals (no token). */
+  approved: string[] | undefined
+  /** The merge request's author. */
+  author: string | undefined
+  /** The label that asks for a skip (config "skipLabel"). */
+  skipLabel: string
+  /** The forge: its token variable and what to do after an approval. */
+  forge: Pick<Forge, 'tokenVar' | 'rerun'>
+}
+
+/** The skip label's outcome: waived by `by`, or the line that says what is missing (and the comment's, if its own). */
+type Skip = { waived: true; by: string[] } | { waived: false; glyph: '✗' | ''; head: string; body?: string }
+
+/**
+ * Who can bypass the check, once the skip label is set: anyone who approved except the author (good faith: no reason
+ * asked). `approved`: who approved, author included; undefined when the job can't see approvals (no token).
+ *   approvals                      outcome
+ *   can't see them                 not waived: "Label is set, but this job can't see approvals (no <token>)"
+ *   someone besides the author     waived, by them
+ *   the author only                not waived: "Approved only by <author>"; the comment: "Your own approval doesn't count"
+ *   none                           not waived: "Skip requested: an approval from a reviewer waives …" (log and comment)
+ */
+export function skipDecision({ approved, author, skipLabel, forge }: SkipInput): Skip {
+  if (!approved) return { waived: false, glyph: '✗', head: SKIP.blind(skipLabel, forge.tokenVar) }
+  const others = approved.filter((u) => u !== author)
+  if (others.length) return { waived: true, by: others }
+  const { rerun } = forge
+  if (approved.length) {
+    const body = `${MARKER}\n${SKIP.ownApproval(rerun)}`
+    return { waived: false, glyph: '✗', head: SKIP.authorOnly(author, rerun), body }
+  }
+  return { waived: false, glyph: '', head: SKIP.asked(rerun), body: `${MARKER}\n${SKIP.asked(rerun)}` }
+}
+
+/**
+ * The comment written (when the job comments: `send`), with the settings change and the advisory line under its
+ * headline; the log says whether the forge took it.
+ */
+interface PostOptions {
+  ctx: CiContext
+  /** The job can call the forge's API (a token, a merge request). */
+  canApi: boolean
+  /** The job writes a comment (not --no-comment, config "mrComment"). */
+  send: boolean
+  /** The settings change, said under the headline. */
+  settings: string | undefined
+  advisory: boolean
+}
+
+async function postResult(o: Outcome, body: string | undefined, opts: PostOptions): Promise<Outcome> {
+  const { ctx, canApi, send, settings, advisory } = opts
+  if (!send || !body) return o
+  const top = [...(settings ? [settingsHeadline(settings)] : []), ...(advisory ? [ADVISORY_COMMENT] : [])]
+  if (top.length) {
+    const [headline, ...rest] = body.split('\n')
+    body = [headline, ...top, ...(rest.length ? [''] : []), ...rest].join('\n')
+  }
+  o.comment = body
+  if (canApi) {
+    try {
+      o.lines.push(commentWritten(await upsertComment(ctx, body)))
+    } catch (e) {
+      o.lines.push(commentFailed((e as Error).message))
+    }
+  }
+  return o
+}
+
+/**
+ * checkResult's result: the outcome, its comment (`body`, or a headline commentBody renders once the threads are
+ * known), and what the review threads need: the check, links to its lines, the diff, concerns whose lines changed.
+ */
+interface CheckOutcome {
+  outcome: Outcome
+  comment: { body: string } | { headline: string; qa: boolean; sum: Summary }
+  check?: Check
+  link?: (q: Spot) => string | undefined
+  diff?: string
+  changed?: Map<string, string>
+  items?: ReturnType<typeof reviewItems>
+}
+
+/** What checkResult reads besides the repository. */
+interface CheckInput {
+  cfg: Config
+  ctx: CiContext
+  head: string
+  base: string
+  /** The check file, relative to the repository. */
+  rel: string
+  change: CodeStat
+  /** What to do after a reviewer approves (the forge's rerun). */
+  rerun: string
+  /** No skip instructions (advisory, or the label is there already). */
+  quiet?: boolean
+}
+
+/** The check file against this change: the outcome and the merge request comment. */
+async function checkResult(repo: string, input: CheckInput): Promise<CheckOutcome> {
+  const { cfg, ctx, head, base, rel, change, rerun, quiet = false } = input
   const abs = path.join(repo, rel)
   if (!fs.existsSync(abs)) {
     const size = sizeWords(questionsForChange(change, cfg))
-    return { code: 1, lines: [`✗ No understanding check yet: a few questions about your change (${size}). Run "Code Notes: Check my understanding" in VS Code, then commit ${rel} and push.`,
-      `  ${withoutVsCode(hasSkill(repo))}`,
-      // Advisory, or the label is there already: no skip instructions.
-      ...(quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`])], body: missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size }) }
+    const withoutVs = withoutVsCode(hasSkill(repo))
+    const [first, ...more] = missingLog(rel, { size, skipLabel: cfg.skipLabel, rerun, quiet, withoutVs })
+    const body = missingBody(rel, cfg, rerun.replace('this job', 'the job'), { quiet, size })
+    return { outcome: failed(first, more), comment: { body } }
   }
-  const short = (line: string, head: string): CheckOutcome => ({ code: 1, lines: [line], body: `${MARKER}\n${head}` })
   let check: Check
-  try { check = readCheck(abs) } catch (e) { return short(`✗ ${rel} is not valid JSON (${(e as Error).message}).`, `**Understanding check:** \`${rel}\` is not valid JSON. Run **Check my understanding** again.`) }
+  try {
+    check = readCheck(abs)
+  } catch (e) {
+    const outcome = failed(INVALID.notJson.log(rel, (e as Error).message))
+    return { outcome, comment: { body: `${MARKER}\n${INVALID.notJson.comment(rel)}` } }
+  }
   const errs = validateCheck(check, { repo })
-  if (errs.length) return { ...short(`✗ ${rel} is not valid: ${errs[0]}.`, `**Understanding check:** \`${rel}\` is not valid (${inline(errs[0])}).`), lines: [`✗ ${rel} is not valid: ${errs[0]}.`, ...errs.slice(1, 4).map((e) => `  ${e}`)] }
+  if (errs.length) {
+    const outcome = failed(INVALID.notValid.log(rel, errs[0]), errs.slice(1, 4).map((e) => `  ${e}`))
+    return { outcome, comment: { body: `${MARKER}\n${INVALID.notValid.comment(rel, inline(errs[0]))}` } }
+  }
 
   const drift = driftOf(repo, check, head, change, cfg.exempt, base)
   relocate(repo, check) // the lines as they are in this commit
   const sum: Summary = summarize(check, cfg)
   const state = checkState({ exists: true, summary: sum, drift }, cfg)
-  let diff = ''
-  try { diff = diffText(repo, base, head, undefined, cfg.exempt) } catch { /* links fall back to the file */ }
+  const diff = diffOrEmpty(repo, base, head, cfg.exempt)
   const link = (q: Spot): string | undefined => refLink({ ...ctx, head }, q, diff)
   // Concerns whose line changed since the questions' commit: "lines changed in <sha> · fixed?".
   const changed = new Map<string, string>()
-  for (const q of check.questions) { if (!liveConcern(q)) continue; const sha = concernChangedIn(repo, q, check.head, head); if (sha !== undefined) changed.set(q.id, sha) }
-  // The comment, and the same again once the threads are known (`remake(threads)`); its items go on the code as threads.
-  const made = (line: string, o: { qa?: boolean } = {}) => {
-    const items = reviewItems(check, sum, { qa: !!o.qa })
-    return { items, body: commentBody(check, sum, line, link, { ...o, changed, items }), remake: (threads: Map<string, string>) => commentBody(check, sum, line, link, { ...o, changed, items, threads }) }
+  for (const q of check.questions) {
+    if (!liveConcern(q)) continue
+    const sha = concernChangedIn(repo, q, check.head, head)
+    if (sha !== undefined) changed.set(q.id, sha)
   }
-  // The check and its links go along: runCi posts the review items on their lines.
-  const out = (r: CheckOutcome): CheckOutcome => Object.assign(r, { check, link, diff, changed })
-  // How much room is left before a top-up is needed.
-  const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${cfg.maxDrift}).` : ''
-  const words: ResultWords = { sum, drift, rel, rule: ruleText(sum), room }
-  if (state.phase === 'drift') {
-    return out({ code: 1, lines: [RESULT.drift.log(words)], ...made(RESULT.drift.comment(words), { qa: sum.met }) })
-  }
+  // The check and its links go along: the job posts its review items on their lines.
+  const along = { check, link, diff, changed }
   const bad = hashProblems(check)
-  if (bad.length) {
-    const them = bad.length === 1 ? 'it' : 'them'
-    return out(short(
-      `✗ ${rel}: ${bad.join(', ')} changed after grading (a merge, or an edit by hand). Grade ${them} again in VS Code, then commit and push.`,
-      '**Understanding check:** some answers changed after grading. Grade them again in VS Code, then push.',
-    ))
+  if (state.phase !== 'drift' && bad.length) {
+    const outcome = failed(INVALID.regraded.log(rel, bad))
+    return { outcome, comment: { body: `${MARKER}\n${INVALID.regraded.comment}` }, ...along }
   }
-  const plainQ = (q: Question) => q.text.replace(/`/g, '').trim()
-  const qLines = check.questions.map((q: Question, i: number) => `  ${MARK[sum.states[i]]} ${q.id} ${q.kind}: ${plainQ(q).slice(0, 70)}${plainQ(q).length > 70 ? '…' : ''}`)
-  const phase = state.phase === 'answering' || state.phase === 'short' ? state.phase : 'done'
-  const r = RESULT[phase]
-  return out({ code: phase === 'done' ? 0 : 1, lines: [r.log(words), ...qLines], ...made(r.comment(words), phase === 'done' ? { qa: true } : {}) })
+  const phase = reportedPhase(state.phase)
+  const words: ResultWords = { sum, drift, rel, rule: ruleText(sum), room: roomText(drift, cfg.maxDrift) }
+  const qa = phase === 'drift' ? sum.met : phase === 'done'
+  const ci = PHASE[phase].ci
+  // Each question in a line under the result (not for a top-up: the questions are the old ones).
+  const qLines = phase === 'drift' ? [] : check.questions.map((q, i) => questionLine(q, MARK[sum.states[i]]))
+  const outcome = phase === 'done' ? passed(ci.log(words), qLines) : failed(ci.log(words), qLines)
+  const items = reviewItems(check, sum, { qa })
+  return { outcome, comment: { headline: ci.comment(words), qa, sum }, items, ...along }
 }
 
-/**
- * The job's result in words, by phase (checkState's; stateWords has the same phases' words for VS Code and `status`):
- * `log`, the CI log's first line, and `comment`, the merge request comment's headline. `w`: `{ sum, drift, rel, rule,
- * room }`.
- */
-const RESULT: Record<'drift' | 'answering' | 'short' | 'done', { log: (w: ResultWords) => string; comment: (w: ResultWords) => string }> = {
-  drift: {
-    log: (w: ResultWords) => `✗ Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
-    comment: (w: ResultWords) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`,
-  },
-  answering: {
-    log: (w: ResultWords) => `✗ Understanding check: ${w.sum.done} of ${w.sum.total} done (${w.rule}). Finish in VS Code, commit ${w.rel} and push.`,
-    comment: (w: ResultWords) => `**Understanding check in progress:** ${w.sum.done} of ${w.sum.total} done (about ${minutesFor(w.sum.total - w.sum.done)} min left).`,
-  },
-  short: {
-    log: (w: ResultWords) => `✗ Understanding check: ${w.sum.passed} passed, ${w.sum.needed} must pass. In VS Code, say an explained answer back in your own words, then commit and push.`,
-    comment: (w: ResultWords) => `**Understanding check in progress:** all ${w.sum.total} answered, not finished yet.`,
-  },
-  done: {
-    log: (w: ResultWords) => `✓ Understanding check done: ${w.sum.passed} of ${w.sum.total} passed (${w.rule}).${w.room}`,
-    comment: (w: ResultWords) => `**✓ Understanding check done** · ${w.sum.total} question${w.sum.total === 1 ? '' : 's'}`,
-  },
+/** The phase CI reports for a valid check (checkState gives only these here; anything else reads as done). */
+function reportedPhase(phase: Phase): CheckedPhase {
+  if (phase === 'drift' || phase === 'answering' || phase === 'short') return phase
+  return 'done'
+}
+
+/** A question in the log: its mark, id, kind and text, cut at 70 characters. */
+function questionLine(q: Question, mark: string): string {
+  const plain = q.text.replace(/`/g, '').trim()
+  return `  ${mark} ${q.id} ${q.kind}: ${plain.slice(0, 70)}${plain.length > 70 ? '…' : ''}`
 }

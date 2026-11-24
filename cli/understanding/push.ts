@@ -11,28 +11,29 @@ import type { CommitResult, PushResult } from './types'
 type GitResult = Awaited<ReturnType<typeof gitRun>>
 /** git with the caller's timeouts (commitFiles). */
 type Git = (args: string[], ms?: number) => Promise<GitResult>
-/** commitFiles's result: committed or not, or the git step that failed and its result. */
-type Committed = { committed: boolean; failed?: undefined; r?: undefined } | { failed: 'add' | 'commit'; r: GitResult; committed?: undefined }
+/** commitFiles's result: committed or not, or the line that says why it failed. */
+type Committed = { committed: boolean; failed?: undefined } | { failed: string; committed?: undefined }
 /** Where to push (pushTarget): `remote` and `args`, or `why` not. */
 type PushTarget = { remote?: string; args?: string[]; why?: string }
 
 /**
  * Commits `files` (only those) with `message` when they have changes, then pushes the branch: to its upstream, or with
  * `-u` to its remote (branch.<b>.pushRemote, remote.pushDefault, origin, else the only remote) when it has none.
- * Returns `{ ok, committed, pushed, line }`: `line` is the one thing to tell the person.
+ * `push: false`: only the commit. Returns `{ ok, committed, pushed, line }`: `line` is the one thing to tell the person.
  */
-export async function commitAndPush(repo: string, files: string[], message: string, { env = process.env, timeoutMs = 60_000 }: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): Promise<PushResult> {
+export async function commitAndPush(repo: string, files: string[], message: string, { env = process.env, timeoutMs = 60_000, push = true }: { env?: NodeJS.ProcessEnv; timeoutMs?: number; push?: boolean } = {}): Promise<PushResult> {
   const g: Git = (args, ms) => gitRun(repo, args, { env, timeoutMs: ms ?? 15_000 })
   const done = await commitFiles(g, files, message)
-  if (done.failed === 'add') return notPushed(false, `Couldn't stage: ${gitError(done.r.err)}`)
-  if (done.failed === 'commit') return notPushed(false, `Commit failed: ${gitError(done.r.err || done.r.out)}`)
-  const committed = done.committed!
+  if (done.failed !== undefined) return notPushed(false, done.failed)
+  const committed = done.committed
+  if (!push) return { ok: true, committed, pushed: false, line: committed ? 'Committed.' : 'Nothing to commit.' }
   const was = committed ? 'Committed, but not pushed' : 'Not pushed'
   const branch = (await g(['symbolic-ref', '--quiet', '--short', 'HEAD'])).out.trim()
   if (!branch) return notPushed(committed, `${was}: not on a branch.`)
   const target = await pushTarget(g, branch)
   if (target.why) return notPushed(committed, `${was}: ${target.why}`)
-  const p = await gitRun(repo, target.args!, { env, timeoutMs })
+  // In English whatever the locale: pushFailure reads git's messages.
+  const p = await gitRun(repo, target.args!, { env: { ...env, LC_ALL: 'C' }, timeoutMs })
   const mr = MR_LINK.exec(`${p.err}\n${p.out}`)?.[1]
   if (!p.code) return { ok: true, committed, pushed: true, line: 'Pushed.', ...(mr ? { mr } : {}) }
   return notPushed(committed, pushFailure(p, { committed, remote: target.remote!, timeoutMs }))
@@ -45,22 +46,23 @@ const COMMIT_MS = 60_000
 
 /**
  * Stages `files` and commits them when they have staged changes (`g`: git with the caller's timeouts):
- * `{ committed }`, or `{ failed: 'add' | 'commit', r }` with git's result.
+ * `{ committed }`, or `{ failed }`: the line to tell the person.
  */
 async function commitFiles(g: Git, files: string[], message: string): Promise<Committed> {
   const add = await g(['add', '--', ...files])
-  if (add.code) return { failed: 'add', r: add }
+  if (add.code) return { failed: `Couldn't stage: ${gitError(add.err)}` }
   // Exit 1: the files have staged changes.
   const staged = await g(['diff', '--cached', '--quiet', '--', ...files])
   if (staged.code !== 1) return { committed: false }
   const c = await g(['commit', '-q', '-m', message, '--', ...files], COMMIT_MS)
-  return c.code ? { failed: 'commit', r: c } : { committed: true }
+  return c.code ? { failed: `Commit failed: ${gitError(c.err || c.out)}` } : { committed: true }
 }
 
 /**
  * Where the branch is pushed: `{ remote, args }` (git push's arguments), or `{ why }` when there is no remote to push
  * to. With an upstream: to it (or to the remote chosen for pushes); without: `-u` to the chosen remote, origin, or the
- * only one.
+ * only one. The order git itself follows for `git push` (branch.<name>.pushRemote, remote.pushDefault,
+ * branch.<name>.remote): https://git-scm.com/docs/git-config#Documentation/git-config.txt-branchltnamegtpushRemote
  */
 async function pushTarget(g: Git, branch: string): Promise<PushTarget> {
   const conf = async (k: string): Promise<string> => (await g(['config', '--get', k])).out.trim()
@@ -77,6 +79,8 @@ async function pushTarget(g: Git, branch: string): Promise<PushTarget> {
   return { remote, args: ['push', '-u', remote, 'HEAD'] }
 }
 
+// git's own words, matched below: the push runs with LC_ALL=C so they are English in every locale (they may still
+// change between git versions: an unknown failure falls back to git's first line).
 /** A branch without a merge request: GitLab and GitHub print where to open one. */
 const MR_LINK = /remote:\s+(https?:\/\/\S+(?:\/merge_requests\/new\S*|\/pull\/new\/\S+))/
 /** The remote has commits the branch doesn't. */
@@ -106,15 +110,6 @@ export async function commitCheck(repo: string, { env = process.env, push = true
     foldDiffs(repo)
     files.push('.gitattributes')
   }
-  const message = `Understanding check: ${branch}`
-  if (push) {
-    const pushed = await commitAndPush(repo, files, message, { env })
-    return { ...pushed, files }
-  }
-  // Only the commit (`commit --no-push`), with its own words.
-  const done = await commitFiles((args) => gitRun(repo, args, { env }), files, message)
-  if (done.failed === 'add') return { ok: false, files, line: "Couldn't stage the check file." }
-  if (done.failed === 'commit') return { ok: false, files, line: `Commit failed: ${(done.r.err || done.r.out).trim().split('\n')[0]}` }
-  if (!done.committed) return { ok: true, committed: false, files, line: 'Nothing to commit.' }
-  return { ok: true, committed: true, files, line: 'Committed.' }
+  const done = await commitAndPush(repo, files, `Understanding check: ${branch}`, { env, push })
+  return { ...done, files }
 }
