@@ -1,237 +1,108 @@
 #!/usr/bin/env python3
-"""journey.py — writes a code journey (format v2): an answer to "how does X work?" as a small map (nodes, edges)
-plus an ordered storyline of steps, all in ONE file: <repo>/journeys/<slug>.json (committed, reviewed in PRs like
-code). Rules: ../SKILL.md. The folder: <repo>/journeys/, or <repo>/.code-notes/journeys/ when only that exists;
-`--dir <folder>` (anywhere on the command line; relative to <repo>) overrides. Last good copies go in its .bak/
-(git-ignored). `--steps A-B` (anywhere) changes the step count `check` wants (6-14), e.g. for a short tour of a change.
+"""journey.py: writes and checks a code journey, <repo>/journeys/<slug>.json (format v2). `journey.py help` lists
+the commands, `journey.py help <command>` gives one's arguments and rules, `journey.py help all` is the manual.
 
-  journey.py new   <repo> <slug> "<question>" "<title>"      < summary     (<= 2 plain sentences, no code in the first)
-                   question: one natural question, <= 80 chars (it is the map header and the row's tooltip)
-                   title: a topic name <= 28 chars, subject first, not a question ("Checkout flow")
-  journey.py node  <repo> <slug> <id> <system|module|external|store|function> "<label>" [parent] [file:start-end]
-                   [--blurb "<= 60 chars, shown in the box"] [--path src/x]              < summary (tooltip)
-                   store: the app's OWN record, queue or table that two parts meet through (never third-party:
-                   that is external); a side box in a system or module; it may hold no step and never acts
-  journey.py edge  <repo> <slug> <from> <to> "<label>" [async|sync] ["<detail>"]
-                   from = the side that ACTS (caller, poller, watcher): a poll is poller -> polled, "polls …"
-                   label <= 30 chars, says HOW or WHAT FOR in words ("start run", "polls every 2 s"), never "calls"
-  journey.py step  <repo> <slug> <node> <file> <start> <end> "<title>" [after N]   < text
-                   <node>: a function, external or store box (a system or module box is refused: add the
-                   function box first). title: a fact, <= 70 chars. <start> <end>: the lines that matter (the call,
-                   the branch), <= 15 lines (WARNING above that; the whole function is the box). text on stdin:
-                       first paragraph  = lead: ONE sentence, <= 25 plain words (WARNING above that; 40 is refused)
-                       later paragraphs = details (optional markdown, folded in the UI)
-                       last lines       = refs (optional, <= 3): a line `refs:` and under it ONE SENTENCE PER LINE,
-                                          each saying what the reader will see there, with exactly one
-                                          path:line (or path:a-b) in it, <= 15 words:
-                                              refs:
-                                              The 30 s retry delay is set in worker/src/queue.ts:42.
-                                          (old form, still read: `refs: path:line path:line` = bare refs; check warns)
-  journey.py range <repo> <file> <symbol-or-line>     prints file:start-end of that function/type (for node/step)
-                   symbol: a function, type, or method (`click`, `Session.click`, Go `envs.List`). line: the
-                   innermost function/method around it (outer ones listed as "inside …"); a line outside any
-                   function is refused (exit 1), never answered with a range that does not contain it
-  journey.py check <repo> <slug> [quiet|story|refs|fix]   validates; prints the outline, the storyline and every
-                   referenced line (quiet: only PROBLEM/WARNING lines and one summary line, "ok: 14 steps, 0 problems";
-                   story: storyline only; refs: ref lines only). A step or box
-                   whose code moved (lines inserted above it, a git rename) is found again the way the extension
-                   finds it: a WARNING; `fix` (or --fix) rewrites file:start-end of every one found unambiguously,
-                   and a box `path` that git renamed. Code that CHANGED under a step is a PROBLEM that shows where it
-                   is now and what changed: re-read it and re-verify the title and lead before re-anchoring. A git
-                   that fails (dubious ownership, no repository) is reported as a git error, once. A hand-edited
-                   file with a wrong shape (e.g. "at": "file:a-b") gives PROBLEM lines, exit 1, never a traceback;
-                   a box with no step and no edge is one PROBLEM
-  journey.py migrate <repo> <slug>         v1 (one note per step) -> v2; deletes the step notes after writing
-  journey.py migrate-anchors <repo> <slug>|--all   rewrites full-text (v2) anchors as compact v3 anchors, from the
-                   text they stored (so `check` still tells whether the code moved or changed since)
-
-Links, values, marks, scenes (once the steps are written; N = the step's number; the script reads every line's text):
-  journey.py link  <repo> <slug> N "<phrase>" <file> <start> [<end>]
-                   the phrase (exact words of the lead or details, outside backticks and Markdown links) becomes a
-                   link to the 1-8 lines that do what it says; the same phrase again replaces it
-  journey.py value <repo> <slug> N <name> "<value>" <file> <line> ["<note>"]
-                   a faint hint above that line: `name = value  · note`. The line mentions <name>; value <= 40
-                   chars, one line ("-" reads stdin); note = a few words on what it IS in this run. The same name
-                   on the same line again replaces it
-  journey.py scene <repo> <slug> N   < scene JSON  {"actors": [...], "wires": [[a, b]], "beats": [...]}
-                   replaces the step's animation; a beat's code is {"file", "line"} (the script adds "text").
-                   Actors and what a beat's "set" changes: SKILL.md, media/journey-scene.js of the extension
-  journey.py mark  <repo> <slug> N|N.B <file> <line>[-<end>] ["<match>"] [<nth>]
-                   highlights ONLY "<match>" (exact characters, its nth occurrence) within those lines while step N
-                   (or beat B of step N) is open; no match: the whole lines. Use it when the text names one call,
-                   argument, condition or field; <= 3 per step or beat. The same lines and match again replace it.
-                   In a scene's JSON a beat may carry "marks" itself: [{"lines": [a, b], "match": "…"}]
-  journey.py marks <repo> <slug> [N]  prints every mark with ^^^ under the characters it lights, and its problems
-  journey.py rmlink <repo> <slug> N "<phrase>"
-  journey.py rmvalue <repo> <slug> N <name> [<line>]
-  journey.py rmscene <repo> <slug> N
-  journey.py rmmark <repo> <slug> N|N.B <i>|all
-
-Fixing things:
-  journey.py restep  <repo> <slug> N [<file> <start> <end>] ["<title>"]  < text    (empty stdin keeps the text)
-  journey.py restep  <repo> <slug> N <title|lead|details|refs|node> <value>          one field ("-" reads stdin;
-                                                                    refs: one sentence per line ("-" = stdin), or
-                                                                    several in one argument separated by " | ";
-                                                                    "" clears details/refs)
-  journey.py restep  <repo> <slug> N range <file> <start> <end>
-  journey.py rmstep  <repo> <slug> N                later steps renumber (number = position); names the boxes it
-                                                    leaves without a step (rmnode them, or add a step)
-  journey.py mvstep  <repo> <slug> N after M        moves step N behind step M (0 = first); the step keeps its id
-  journey.py stepnode <repo> <slug> N <node>        puts step N on another box
-  journey.py meta    <repo> <slug> <title|question|summary|model> <value>           ("-" reads stdin)
-  journey.py meta    <repo> <slug> start <true|false>     the journey to open first ("Start here" in the list)
-  journey.py set     <repo> <slug> <node> <label|blurb|path|summary|kind|at|parent> <value>   ("-" reads stdin)
-  journey.py rmnode  <repo> <slug> <node>           (and its edges; refuses while steps or children use it)
-  journey.py rmedge  <repo> <slug> <from> <to>
-  journey.py setedge <repo> <slug> <from> <to> "<label>" [async|sync] ["<detail>"]   (what you omit is kept)
-  journey.py reset   <repo> <slug>                  deletes the journey file (nothing else)
-  journey.py restore <repo> <slug>                  puts back the last good copy (journeys/.bak/<slug>.json,
-                                                    kept on every write and every load of a valid file)
-  journey.py podcast <repo> <slug> [<audio seconds>]   checks the journey's podcast, <slug>.podcast.json next to it
-                   (format: docs/podcast-format.md in the Code Notes repository), the way the extension does: PROBLEM =
-                   the extension won't play it (invalid JSON, version, no segments, audio missing or outside the
-                   journeys folder); WARNING = it plays, but a part is not what the file says (a step or beat the
-                   journey doesn't have, overlapping or out-of-order times, an end before its start or past the
-                   audio, written for another journey). The audio's length: <audio seconds>, else read from a .wav,
-                   else from ffprobe when it is installed. `check` runs it too when the podcast file exists.
-
-Rules (`journey.py help <command>` shows the ones for that command):
-- Every step has a stable short "id" (made by `step`/`migrate`, kept by every other command): the extension follows
-  a step by it when steps move.
-- Every write command prints one line saying what it wrote (`question = "…" (54 chars)`, `server.label = "…"`,
-  `edge a -> b: …`, `step 3 [id] …`), and under it the first/last line it anchored on.
-- Anchors are compact (v3; docs/journey-format.md of the extension, "In the repo"), for steps and box `at`:
-  {v: 3, head: first <= 3 non-blank lines, tail: last <= 2, lines: N, hash: sha1 of the normalized text (each
-  non-blank line through `norm`, joined with "\\n") first 12 hex, before/after: the nearest non-blank line around it}.
-  `check` finds the code again from head and tail: same hash = fresh (elsewhere: moved, a WARNING, `fix` repoints
-  it); another hash = CHANGED (a PROBLEM showing where it is now: re-verify, then `restep N range` / `set <node> at`);
-  head or tail not found = GONE (PROBLEM). Full-text (v2) anchors are still read.
-- Limits are enforced when you write (exit 1, nothing is written): `new`/`meta` refuse a question > 80 chars and a
-  title > 28, `step`/`restep` an over-long title or lead, `node`/`set` a label > 30 chars, a blurb > 60 and an 8th
-  child of one box, `edge`/`setedge` a label > 30.
-- `check` (and `new`, `meta question|title`) print a WARNING when another journey in the repo has a very similar
-  question or title, or walks mostly the same code: extend that one.
-- `step`/`restep`/`check` print a WARNING when the range starts or ends on a lone closing brace, stops in the middle
-  of a statement, or starts on a bare `return …` with other code after it (fix it with `restep N range`), and when
-  two steps are anchored on identical lines.
-- `step`/`restep`/`check` print a WARNING when a title holds several facts (two or more of ", " "; " ": " " and "
-  " then "; a list "A, B and C" and a leading "If …," do not count) and when the lead or details carry a path:line
-  (prose names the symbol; path:line goes in refs).
-- `node`/`set`/`check` print a WARNING when a system/module/external/store label is over 20 chars (30 stays the hard
-  limit).
-- `step`/`restep`/`check` print a WARNING when a lead is more than one sentence or more than 25 words (the rest goes
-  in details), when a step marks more than 15 lines, and when a lead repeats its title (one sentence of the lead
-  carries >= 70 % of the title's words, or the whole lead >= 85 %): the lead should say what the title does not.
-- A ref is ONE sentence saying what the reader will see there, with the path:line inside it ("The 30 s retry delay
-  is set in worker/src/queue.ts:42."): the extension shows the sentence and links the basename. `check`
-  verifies the one path:line (file exists, lines in range, prints the line); `step`/`restep`/`check` print a WARNING
-  for a bare ref without a sentence, for more than one path:line in a ref, for a ref over 15 words, and for a ref
-  that points inside the step's own range or within 20 lines of it (that code is already on screen; a ref points
-  somewhere else: another function or file).
-- `node`/`set`/`edge`/`setedge`/`check` print a WARNING when a label or blurb holds code syntax (a URL template or
-  path, an HTTP verb, a protocol name, CLI placeholders, "->"): say it in words ("start run").
-- `link` refuses a phrase that is not a free part of the lead/details (missing, only in backticks or a Markdown link,
-  overlapping another link's phrase), a range equal to the step's own range, a second link on the same lines and a
-  blank or missing line (`check`: WARNING for all but a missing line); WARNING over 15 lines. `restep`/`check` print
-  a WARNING naming a link whose phrase the text no longer has (a dead link).
-- `value` refuses a line that does not mention the name and a value over 40 chars (`check`: WARNING), and a second
-  hint on one line (`check`: PROBLEM); WARNING when the line is neither within 25 lines of the step's range nor
-  within 12 of a beat or link of it.
-- `scene` refuses (`check`: PROBLEM) an unknown actor type, a duplicate id, a wire, packet, focus or set naming no
-  actor, focus "all", a packet with no wire, no beat with code, more than 7 beats, more than 5 checks or any over 28
-  chars, more than 3 table rows, a terminal line over 36 chars (file 34, chat 38), an app screen or pane that does
-  not exist, and text longer than its box holds (the message says the limit); it refuses (`check`: WARNING) more than 4 actors, fewer than 3 beats, keys the engine ignores and set
-  indexes past what the actor has. WARNING: 7 beats, a caption over 70 chars (or with muted over 110), two code-less
-  beats in a row, a beat lighting a signature, a comment or a lone brace.
-- `mark` refuses (`check`: PROBLEM) a match that isn't on its lines (nor within 20 lines: the extension then lights
-  nothing), an nth past the occurrences, lines past the end of the file. WARNING (`mark`/`check`/`marks`): more than
-  3 marks on a step or beat, a step mark outside the step's lines, a match the step's text (a beat: its caption)
-  names none of the words of, a match that is the whole line, a whole-line mark on the step's whole range; a match
-  found a few lines off (`check fix` moves its lines).
-- `check` finds every link, value and beat line again by its stored text the way the extension does (same trimmed
-  line, nearest within 400 lines): moved = WARNING (`check fix` repoints it, apart from the step's range); not found
-  = PROBLEM. A journey with none of them gets one WARNING; a step without links, when others have some, too.
+One file, so the skill can ship it alone. Its sections, in order: limits · vocabulary · failing · the run's context ·
+git · the extension's rules · the journeys folder · a journey's shape · text · near-duplicate journeys · anchors ·
+ranges · refs · style · links and values · scenes · marks · podcasts · check · the commands · the manual and the
+command line. The tests are in the Code Notes repository, test/journey-py/.
 """
-import datetime, hashlib, json, math, os, random, re, shutil, string, subprocess, sys
+import argparse, datetime, enum, hashlib, json, math, os, random, re, shutil, string, subprocess, sys
 from collections import namedtuple
-
-# `journey.py` alone: one line per command (the detail: `journey.py help <command>`).
-SUMMARY = [
-    ('new', 'starts a journey'),
-    ('node', 'adds a box to the map'),
-    ('edge', 'adds an arrow between two boxes'),
-    ('step', 'adds a step to the storyline'),
-    ('range', "prints a function's file:start-end"),
-    ('check', 'validates a journey'),
-    ('restep', 'changes a step'),
-    ('rmstep', 'removes a step'),
-    ('mvstep', 'moves a step'),
-    ('stepnode', 'puts a step on another box'),
-    ('meta', "changes the journey's own fields"),
-    ('set', 'changes a box'),
-    ('rmnode', 'removes a box and its arrows'),
-    ('setedge', 'changes an arrow'),
-    ('rmedge', 'removes an arrow'),
-    ('link', 'links a phrase of a step to the lines doing it'),
-    ('value', 'adds a value hint above a line'),
-    ('scene', "sets a step's animation"),
-    ('mark', 'highlights the part of a line a step or beat is about'),
-    ('marks', "previews a journey's marks"),
-    ('rmlink', 'removes a code link'),
-    ('rmvalue', 'removes a value hint'),
-    ('rmscene', "removes a step's animation"),
-    ('rmmark', 'removes a mark'),
-    ('reset', 'deletes a journey'),
-    ('restore', 'puts back the last good copy'),
-    ('migrate', 'converts an old (v1) journey'),
-    ('migrate-anchors', 'rewrites old anchors in the compact form'),
-    ('podcast', "checks the journey's podcast file"),
-]
+from contextlib import contextmanager
 
 
-def short_help():
-    w = max(len(c) for c, _ in SUMMARY)
-    lines = ['journey.py: writes a code journey, <repo>/journeys/<slug>.json (rules: ../SKILL.md).', '']
-    lines += [f'  {c.ljust(w)}  {d}' for c, d in SUMMARY]
-    lines += ['', 'journey.py help <command>: its arguments and rules. journey.py help all: everything.',
-              '--dir <folder> (anywhere) reads and writes journeys there instead of <repo>/journeys/.']
-    return '\n'.join(lines)
+# ======================================================================================================================
+# Limits. Every number a check holds a journey to (`journey.py help limits` lists the ones a writer meets).
+# ======================================================================================================================
+
+# The journey
+MAX_QUESTION = 80          # chars: the question is the map's one-line header and the list row's tooltip
+MAX_TITLE = 28             # chars: the title is a list row that cannot wrap
+MAX_SUMMARY_SENTENCES = 2
+MIN_STEPS = 6              # `--steps A-B` changes the count `check` wants (a short tour of a change)
+MAX_STEPS = 14
+# The map
+MAX_CHILDREN = 7           # boxes in one box (or at the top level)
+MAX_LABEL = 30             # chars of a box label: refused over it
+SOFT_LABEL = 20            # chars of a box label (not a function box): a WARNING over it, it wraps or shrinks
+MAX_BLURB = 60             # chars of the line shown in a box
+MAX_EDGE_LABEL = 30        # chars of an arrow's label
+# A step
+MAX_STEP_TITLE = 70        # chars
+MAX_LEAD_WORDS = 40        # refused over it
+SOFT_LEAD_WORDS = 25       # a WARNING over it: the lead is one sentence
+SOFT_RANGE_LINES = 15      # lines a step marks: a WARNING over it (the whole function is the box)
+REPEAT_SENTENCE = 0.7      # a lead repeats its title when one sentence of it carries this share of the title's words
+REPEAT_LEAD = 0.85         # … or the whole lead this share
+MAX_REFS = 3
+MAX_REF_WORDS = 15         # a ref is one short sentence
+NEAR_REF = 20              # lines: a ref this close to the step's own lines shows nothing new
+# Links and value hints
+SOFT_LINK_LINES = 15       # a link opens 1-8 lines; a WARNING over this
+MAX_VALUE = 40             # chars: the extension cuts a value there (valueHints.ts capValue)
+SOFT_NOTE = 60             # chars of a value's note: a few words
+VALUE_NEAR = 25            # lines: a hint sits this near the step's lines …
+BEAT_NEAR = 12             # … or this near a beat or a link of the step
+FIND_NEAR = 400            # lines: how far a moved line is still found by its text (the extension's SAME_TEXT_RADIUS)
+# Marks
+MAX_MARKS = 3              # per step or beat: more, and nothing stands out
+MARK_REFIND = 20           # lines: a match is looked for this far up and down when the code moved
+MARK_SLACK = 0.05          # s: a podcast mark this close to its segment is in it
+# Podcasts
+POD_SLACK = 0.05           # s: times this close are the same time
+POD_DUR_SLACK = 1          # s, or 1 % of the audio: the declared duration may differ this much from the audio
+# A scene, for the Python rules (without node). The helper reads them from the extension's journey schema
+# (src/core/format/schema/journey.schema.json); the extension's tests check that these say the same.
+MIN_BEATS = 3
+SOFT_BEATS = 6             # a WARNING over it
+MAX_BEATS = 7
+MAX_ACTORS = 4
+SOFT_CAPTION = 70          # chars of a caption
+SOFT_CAPTION_ALL = 110     # chars of a caption and its muted clause
+MAX_CHECKS = 5             # a service's checks
+MAX_CHECK = 28             # chars of one check
+MAX_ROWS = 3               # a table's rows
+MAX_TERM_LINE = 36         # chars of a terminal line
+MAX_PACKET = 24            # chars of a packet's label
+# Characters that fit a scene's box. Over these a label is cut or sticks out of its box (the panel check fails).
+LABEL_CHARS = {'service': 38, 'app': 42, 'browser': 42, 'terminal': 42, 'file': 42, 'chat': 42, 'table': 46,
+               'cluster': 46, 'queue': 46, 'gauge': 46}
+MAX_TABS = 3
+TAB_CHARS = 10
+DIALOG_CHARS = {'title': 24, 'item': 24, 'button': 18}
+DIALOG_LINES = 2
+LINE_KEY = 12              # a dialog line's label
+LINE_VALUE = 18            # a dialog line's value
+DETAIL_CHARS = {'title': 22, 'status': 12, 'empty': 30, 'picture': 38, 'placeholder': 32}
+TITLE_CHIP = 30            # a page's title and its status chip share one line
+SIGNIN_CHARS = {'title': 22, 'notice': 40, 'provider': 10, 'button': 24}
+OLD_CHARS = {'test': 22, 'env': LINE_VALUE, 'provider': SIGNIN_CHARS['provider'], 'status': DETAIL_CHARS['status']}
+BROWSER_CHARS = {'url': 32, 'title': 20, 'shop': 20, 'button': 13, 'cart': 10, 'markLabel': 18}
+SHOP_TOP = 26              # the shop's name and the cart share one line
+FN_CHARS = 28              # a service's function name
+CARD_CHARS = 32
+TIMELINE_CHARS = 36
+PRODUCT_CHARS = 14
+INNER_LABEL_CHARS = 40     # a cluster inside a cluster
+FILE_CHARS = 34            # a file's line …
+FILE_NUM_CHARS = 30        # … with line numbers (`from`)
+CHAT_CHARS = 38            # a chat message
+CHAT_TOOL_CHARS = 32       # a chat's tool call
+APP_CHAT_CHARS = 32
+NOTE_CHARS = 44            # a queue's or gauge's note
+QUEUE_SLOTS = 8
+PAGE_ROWS = 4
+PAGE_KEY = 12
+PAGE_VALUE = 20
+PAGE_BANNER = 38
+PAGE_ITEMS = 4             # rows, the banner and the button: what fits under the title
+PAGE_CHARS = {'title': 22, 'chip': 12, 'tab': TAB_CHARS, 'button': 20}
 
 
-def command_help(cmd):
-    """The command's usage block from the full text, and the rules that name it."""
-    doc = __doc__.split('\n')
-    out, inside = [], False
-    for l in doc:
-        if l.startswith('  journey.py '):
-            inside = l.split()[1] == cmd
-        elif not l.startswith('    ') or not l.strip():
-            inside = False
-        if inside:
-            out.append(l)
-    rules, cur = [], None
-    for l in doc[doc.index('Rules (`journey.py help <command>` shows the ones for that command):') + 1:]:
-        if l.startswith('- '):
-            cur = [l]
-            rules.append(cur)
-        elif cur is not None and l.startswith('  '):
-            cur.append(l)
-    hits = [r for r in rules if re.search(r'`(?:[\w-]+/)*' + re.escape(cmd) + r'[`/ ]', ' '.join(r))]
-    if hits:
-        out += ['', 'Rules:'] + [l for r in hits for l in r]
-    return '\n'.join(out)
-
-
-def no_journey(repo, slug):
-    """An unknown slug: the closest ones and every slug there is."""
-    import difflib
-    d = jdir(repo)
-    slugs = sorted(f[:-5] for f in os.listdir(d) if f.endswith('.json')) if os.path.isdir(d) else []
-    if not slugs:
-        sys.exit(f"No journey '{slug}': {d} has none yet (`journey.py new` starts one).")
-    near = difflib.get_close_matches(slug, slugs, n=3, cutoff=0.5)
-    ask = f" Did you mean {', '.join(near)}?" if near else ''
-    sys.exit(f"No journey '{slug}'.{ask}\nJourneys: {', '.join(slugs)}")
+# ======================================================================================================================
+# Vocabulary
+# ======================================================================================================================
 
 KINDS = ('system', 'module', 'function', 'external', 'store')
 # external: something outside this repo (a third-party controller, a cloud API). Its steps are anchored on the repo
@@ -241,16 +112,13 @@ KINDS = ('system', 'module', 'function', 'external', 'store')
 STEP_KINDS = ('function', 'external', 'store')      # the boxes a step can sit on
 PARENT_KINDS = {'system': (None,), 'module': ('system',), 'external': ('system',), 'store': ('system', 'module'),
                 'function': ('system', 'module', 'external')}
-MAX_CHILDREN = 7
-MAX_LABEL, MAX_BLURB, MAX_EDGE_LABEL = 30, 60, 30
-MIN_STEPS, MAX_STEPS = 6, 14
-MAX_STEP_TITLE, MAX_LEAD_WORDS = 70, 40
-SOFT_LEAD_WORDS, SOFT_RANGE_LINES = 25, 15      # over these `step`/`restep`/`check` print a WARNING
-MAX_QUESTION = 80
-MAX_REFS = 3
-STEP_FIELDS = ('title', 'lead', 'details', 'refs', 'node', 'range')
-REF = r'((?:[\w.@-]+/)*[\w.@-]+\.[A-Za-z]{1,6}):(\d+)(?:-(\d+))?'
-LINK = r'(?<![\w/])((?:[\w.@-]+/)+[\w.@-]+\.[A-Za-z]{1,6}):(\d+)(?:-(\d+))?'
+# path:line in a ref or in prose. REF takes any path, a bare file name too; LINK (in prose) needs a folder and must
+# not be glued to a word.
+_DIR = r'[\w.@-]+/'
+_FILE = r'[\w.@-]+\.[A-Za-z]{1,6}'
+_LINES = r':(\d+)(?:-(\d+))?'
+REF = rf'((?:{_DIR})*{_FILE}){_LINES}'
+LINK = rf'(?<![\w/])((?:{_DIR})+{_FILE}){_LINES}'
 
 # What a check finds: PROBLEM = refused when written and a PROBLEM in `check`; REFUSE = refused when written and a
 # WARNING in `check`; WARN = a WARNING.
@@ -260,10 +128,184 @@ Issue = namedtuple('Issue', 'level text')
 Fix = namedtuple('Fix', 'warning text apply')
 
 
-# --- the extension's rules. journey-check.mjs, beside this script, is built from the Code Notes extension's format
-# core and checks shapes, scenes, marks, podcasts and anchors the way the extension reads them. It runs when node is
-# on PATH; without node, the Python rules further down (the same rules, run against it by the extension's tests) do.
+# ======================================================================================================================
+# Failing. A command that stops raises Failed (exit 1) or UsageError (exit 2); `main` says it, once.
+# ======================================================================================================================
+
+class Failed(Exception):
+    """Exit 1, with `text` on stderr ('' when the command printed its own PROBLEM lines)."""
+    code = 1
+
+    def __init__(self, text=''):
+        super().__init__(text)
+        self.text = text
+
+
+class UsageError(Failed):
+    """Exit 2: the command line is wrong. `command`'s usage lines follow the text."""
+    code = 2
+
+    def __init__(self, command, why):
+        super().__init__(f'{command}: {why}')
+        self.command = command
+
+
+def fail(text):
+    raise Failed(text)
+
+
+def refuse(why):
+    """A write that is refused: nothing was written."""
+    raise Failed(f'{why}; nothing was written')
+
+
+# ======================================================================================================================
+# The run's context: what a command works on, passed to it (nothing here is a module-level setting).
+# ======================================================================================================================
+
+class Ctx:
+    """The repo, where its journeys are (`--dir`), git, the step count `check` wants (`--steps`) and stdin."""
+    def __init__(self, repo, dir=None, steps=(MIN_STEPS, MAX_STEPS), stdin=None):
+        self.repo = repo
+        self.git = Git(repo)
+        self.journeys = Journeys(repo, dir)
+        self.steps = steps
+        self.stdin = stdin or sys.stdin
+
+    def stdin_text(self):
+        return '' if self.stdin.isatty() else self.stdin.read().strip()
+
+    def body(self, what='text'):
+        b = self.stdin_text()
+        if not b:
+            fail(f'nothing on stdin: {what} is missing (pass it with <<EOF … EOF)')
+        return b
+
+    def value_of(self, v):
+        """A value given on the command line; "-" reads it from stdin."""
+        return self.body() if v == '-' else v
+
+    def code(self, since):
+        return Code(self.repo, self.git, since)
+
+
+class Echo:
+    """The lines a write collects while it works (what it anchored on, warnings about its range), printed under the
+    one line that says what it wrote."""
+    def __init__(self):
+        self.lines = []
+
+    def say(self, line):
+        self.lines.append(line)
+
+    def wrote(self, header):
+        print(header)
+        for line in self.lines:
+            print(line)
+        self.lines = []
+
+
+# ======================================================================================================================
+# git: one way to run it, one error policy.
+# ======================================================================================================================
+
+class Git:
+    """git in one repo. A git that fails (no git, not a repository, dubious ownership) answers None; the first thing
+    it said is kept in `error`, which `check` reports once. The renames are asked once per run."""
+    def __init__(self, repo):
+        self.repo = repo
+        self.error = ''
+        self._renames = None
+
+    def run(self, *args, quiet=False):
+        """git's stdout, or None when it failed (quiet: without keeping what it said)."""
+        try:
+            r = subprocess.run(['git', '-C', self.repo, *args], capture_output=True, text=True)
+        except OSError as e:     # no git binary
+            if not quiet:
+                self.error = self.error or f'{e.strerror or e}'
+            return None
+        if r.returncode != 0:
+            if not quiet and r.stderr.strip():
+                self.error = self.error or ' '.join(r.stderr.strip().split('\n')[0].split())[:200]
+            return None
+        return r.stdout
+
+    def head(self):
+        """The short commit id of HEAD; '' outside a repository or before its first commit."""
+        return (self.run('rev-parse', '--short', 'HEAD', quiet=True) or '').strip()
+
+    def changed_files(self, commit):
+        """The files changed since `commit`, committed or not (paths relative to the repo); None: git can't say."""
+        out = self.run('diff', '--name-only', '--relative', commit, '--', quiet=True)
+        return None if out is None else {l.strip() for l in out.splitlines() if l.strip()}
+
+    def renames(self, since):
+        """old path -> new path: renames committed since the journey's commit (or in the last 500 commits), then
+        staged/uncommitted ones (git diff -M HEAD, git status). Asked once per run."""
+        if self._renames is not None:
+            return self._renames
+        self._renames = {}
+        ok = since and (self.run('rev-parse', '--verify', '--quiet', since + '^{commit}') or '').strip()
+        rng = [f'{since}..HEAD'] if ok else ['-n', '500']
+        out = self.run('log', '-M', '--diff-filter=R', '--name-status', '--format=', '--reverse', *rng) or ''
+        out += self.run('diff', '-M', '--name-status', 'HEAD') or ''
+        for line in out.splitlines():
+            f = line.split('\t')
+            if len(f) == 3 and f[0].startswith('R'):
+                self._renames[f[1]] = f[2]
+        for line in (self.run('status', '--porcelain=v1') or '').splitlines():
+            if line[:1] == 'R' and ' -> ' in line:
+                a, b = line[3:].split(' -> ', 1)
+                self._renames[a.strip('"')] = b.strip('"')
+        return self._renames
+
+
+class Code:
+    """The code a journey points at: the repo's files, and where git says they went since the journey's commit."""
+    def __init__(self, repo, git, since):
+        self.repo, self.git, self.since = repo, git, since
+
+    def path(self, f):
+        return os.path.join(self.repo, f)
+
+    def isfile(self, f):
+        return os.path.isfile(self.path(f))
+
+    def renamed(self, f):
+        """Where file f is now, following git's renames ('f' itself when git says nothing)."""
+        names = self.git.renames(self.since)
+        seen = {f}
+        while f in names:
+            f = names[f]
+            if f in seen:
+                break
+            seen.add(f)
+        return f
+
+    def renamed_path(self, p):
+        """Where a box's `path` (a file or a directory) went, from the same git renames; '' when git does not say."""
+        p = p.rstrip('/')
+        new = self.renamed(p)
+        if new != p:
+            return new
+        dirs = set()
+        for old in self.git.renames(self.since):
+            if old.startswith(p + '/'):
+                rest, to = old[len(p):], self.renamed(old)
+                if not to.endswith(rest):
+                    return ''        # files of the directory were renamed, not the directory
+                dirs.add(to[:-len(rest)])
+        return dirs.pop() if len(dirs) == 1 else ''
+
+
+# ======================================================================================================================
+# The extension's rules. journey-check.mjs, beside this script, is built from the Code Notes extension's format core
+# and checks shapes, scenes, marks, podcasts and anchors the way the extension reads them. It runs when node is on
+# PATH; without node, the Python rules further down (the same rules, run against it by the extension's tests) do.
 # JOURNEY_RULES=python or JOURNEY_RULES=node picks one.
+# ======================================================================================================================
+
 FALLBACK = object()      # the helper could not answer: use the Python rules
 
 
@@ -275,11 +317,11 @@ class NodeRules:
         self.node = shutil.which('node') if self.want != 'python' else None
         self.on = bool(self.node) and os.path.isfile(self.HELPER)
         self.proc = None
-        if self.want == 'node' and not self.on:
-            sys.exit('JOURNEY_RULES=node: node is not on PATH or journey-check.mjs is missing')
 
     def ask(self, op, **request):
         """The helper's answer to one request (one JSON line each way, one helper per run), or FALLBACK."""
+        if self.want == 'node' and not self.on:
+            fail('JOURNEY_RULES=node: node is not on PATH or journey-check.mjs is missing')
         if not self.on:
             return FALLBACK
         try:
@@ -296,36 +338,29 @@ class NodeRules:
     def give_up(self, why):
         """The helper failed: the Python rules from here on (JOURNEY_RULES=node: stop)."""
         if self.want == 'node':
-            sys.exit(f'journey-check.mjs failed: {why}')
+            fail(f'journey-check.mjs failed: {why}')
         self.on = False
         return FALLBACK
 
 
-RULES = NodeRules()
+RULES = NodeRules()      # one helper process per run, started on the first question
 
+
+# ======================================================================================================================
+# The journeys folder: <repo>/journeys (committed with the code), or .code-notes/journeys when only that exists;
+# `--dir` overrides. The last good copy of each journey is kept in its .bak/ (git-ignored).
+# ======================================================================================================================
 
 def now():
     t = datetime.datetime.now(datetime.timezone.utc)
     return t.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
 
-DIR = None             # --dir <folder>: where the journeys are (relative to the repo, or absolute)
-
-
-def jdir(repo):
-    """<repo>/journeys (committed with the code); .code-notes/journeys when only that exists; --dir overrides."""
-    if DIR:
-        return os.path.join(repo, DIR)
-    new, old = os.path.join(repo, 'journeys'), os.path.join(repo, '.code-notes', 'journeys')
-    return old if os.path.isdir(old) and not os.path.isdir(new) else new
-
-
-def jpath(repo, slug):
-    return os.path.join(jdir(repo), slug + '.json')
-
-
-def bak_path(repo, slug, kind=''):
-    return os.path.join(jdir(repo), '.bak', slug + kind + '.json')
+def new_id(used):
+    while True:
+        i = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        if i not in used:
+            return i
 
 
 def write_atomic(p, text):
@@ -336,66 +371,151 @@ def write_atomic(p, text):
     os.replace(tmp, p)
 
 
-def keep_bak(repo, slug, raw):
-    """The last good copy, in .bak/ (the extension reads journeys/*.json only, so it never shows it)."""
-    b = bak_path(repo, slug)
+class Journeys:
+    """The journeys of a repo, in one folder: reading, writing and the backups."""
+    def __init__(self, repo, dir=None):
+        self.repo = repo
+        if dir:                  # relative to the repo, or absolute
+            self.dir = os.path.join(repo, dir)
+        else:
+            new, old = os.path.join(repo, 'journeys'), os.path.join(repo, '.code-notes', 'journeys')
+            self.dir = old if os.path.isdir(old) and not os.path.isdir(new) else new
+        self.bak_failed = False
+
+    def path(self, slug):
+        return os.path.join(self.dir, slug + '.json')
+
+    def bak(self, slug, kind=''):
+        return os.path.join(self.dir, '.bak', slug + kind + '.json')
+
+    def podcast(self, slug):
+        return os.path.join(self.dir, slug + '.podcast.json')
+
+    def slugs(self):
+        return sorted(f[:-5] for f in os.listdir(self.dir) if f.endswith('.json')) if os.path.isdir(self.dir) else []
+
+    def others(self, slug):
+        """[(slug, journey)] of every other v2 journey in the folder that reads."""
+        out = []
+        for f in sorted(os.listdir(self.dir)) if os.path.isdir(self.dir) else []:
+            if not f.endswith('.json') or f[:-5] == slug:
+                continue
+            try:
+                o = json.load(open(os.path.join(self.dir, f), encoding='utf-8'))
+            except (OSError, ValueError):
+                continue
+            if isinstance(o, dict) and o.get('version') == 2:
+                out.append((f[:-5], o))
+        return out
+
+    def no_journey(self, slug):
+        """An unknown slug: the closest ones and every slug there is."""
+        import difflib
+        slugs = self.slugs()
+        if not slugs:
+            fail(f"No journey '{slug}': {self.dir} has none yet (`journey.py new` starts one).")
+        near = difflib.get_close_matches(slug, slugs, n=3, cutoff=0.5)
+        ask = f" Did you mean {', '.join(near)}?" if near else ''
+        fail(f"No journey '{slug}'.{ask}\nJourneys: {', '.join(slugs)}")
+
+    def keep_bak(self, slug, raw):
+        """The last good copy, in .bak/ (the extension reads journeys/*.json only, so it never shows it)."""
+        b = self.bak(slug)
+        try:
+            if os.path.exists(b) and open(b, encoding='utf-8').read() == raw:
+                return
+            write_atomic(b, raw)
+            ig = os.path.join(os.path.dirname(b), '.gitignore')
+            if not os.path.exists(ig):   # backups never reach a commit, whatever the repo ignores
+                write_atomic(ig, '*\n')
+        except OSError as e:
+            # A read-only checkout lands here too: nothing else changes, but `restore` would offer an older copy.
+            if not self.bak_failed:
+                print(f'WARNING: no backup of {slug} could be kept in {os.path.dirname(b)} ({e.strerror or e}): '
+                      f'`restore` would put back an older copy', file=sys.stderr)
+            self.bak_failed = True
+
+    def unreadable(self, slug, why):
+        """A journey file that does not parse: one PROBLEM line, exit 1 (never a traceback)."""
+        b = self.bak(slug)
+        if os.path.exists(b):
+            t = datetime.datetime.fromtimestamp(os.path.getmtime(b)).strftime('%Y-%m-%d %H:%M')
+            hint = f'`journey.py restore {self.repo} {slug}` puts back the last good copy ({t})'
+        else:
+            hint = 'no backup of it exists; rewrite it with the commands (reset, new …)'
+        print(f'PROBLEM: {self.path(slug)}: {why}; {hint}')
+        raise Failed()
+
+    def load(self, slug, v1=False, notes=None):
+        """The journey. Hand-edits it can read anyway (an "at": "file:a-b" string) are read the way the commands
+        write them; each is added to `notes` (for `check`, which reports them as PROBLEMs)."""
+        p = self.path(slug)
+        if not os.path.exists(p):
+            self.no_journey(slug)
+        try:
+            raw = open(p, encoding='utf-8').read()
+            j = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self.unreadable(slug, f'invalid JSON at line {e.lineno} column {e.colno} (char {e.pos} of {len(e.doc)}): {e.msg}')
+        except UnicodeDecodeError as e:
+            self.unreadable(slug, f'not UTF-8 text (byte {e.start})')
+        if not isinstance(j, dict) or not isinstance(j.get('version'), int):
+            self.unreadable(slug, 'not a journey (a JSON object with a "version")')
+        if j.get('version') == 2:
+            miss = [k for k in ('title', 'nodes', 'edges', 'steps') if k not in j]
+            if miss:
+                self.unreadable(slug, 'missing ' + ', '.join(miss))
+        if j.get('version') == 2:
+            bad, upgrades = journey_shape(j)
+            if bad:                  # a hand-edited file gets PROBLEM lines, never a traceback
+                for b in bad:
+                    print('PROBLEM: ' + b)
+                restore = f', or `journey.py restore {self.repo} {slug}` puts back the last good copy'
+                print(f'FAILED: {p} was edited by hand into a shape the commands cannot read; fix the lines '
+                      f'above' + (restore if os.path.exists(self.bak(slug)) else ''))
+                raise Failed()
+            self.upgrade(j, upgrades, notes if notes is not None else [])
+        self.keep_bak(slug, raw)
+        if not v1 and j.get('version') != 2:
+            fail(f'{slug} is a v{j.get("version")} journey: run `journey.py migrate {self.repo} {slug}` first')
+        return j
+
+    def upgrade(self, j, upgrades, notes):
+        """Reads hand-edits the way the commands write them: a box `at` written as "file:start-end" becomes
+        {file, start, end, anchor}; a range without an anchor gets one. Each is noted in `notes`."""
+        for u in upgrades:
+            a = reanchor(self.repo, u['file'], u['start'], u['end'])
+            if 'step' in u:
+                j['steps'][u['step']]['anchor'] = a
+            elif u.get('at'):
+                j['nodes'][u['node']]['at'] = {'file': u['file'], 'start': u['start'], 'end': u['end'], 'anchor': a}
+            else:
+                j['nodes'][u['node']]['at']['anchor'] = a
+            notes.append(u['note'])
+
+    def save(self, slug, j):
+        # every step has a stable short id (the extension follows a step by it when steps move); never changed here
+        used = {s.get('id') for s in j.get('steps', [])}
+        for k, s in enumerate(j.get('steps', [])):
+            if not s.get('id'):
+                j['steps'][k] = {'id': new_id(used), **s}
+                used.add(j['steps'][k]['id'])
+        raw = json.dumps(j, indent=2, ensure_ascii=False) + '\n'
+        write_atomic(self.path(slug), raw)
+        self.keep_bak(slug, raw)
+
+
+def lines_of(repo, rel):
     try:
-        if os.path.exists(b) and open(b, encoding='utf-8').read() == raw:
-            return
-        write_atomic(b, raw)
-        ig = os.path.join(os.path.dirname(b), '.gitignore')
-        if not os.path.exists(ig):   # backups never reach a commit, whatever the repo ignores
-            write_atomic(ig, '*\n')
-    except OSError:
-        pass                     # a read-only checkout: no backup, nothing else changes
+        return open(os.path.join(repo, rel), encoding='utf-8', errors='replace').read().split('\n')
+    except (FileNotFoundError, IsADirectoryError):
+        fail(f'{rel}: no such file in {repo}')
 
 
-def unreadable(repo, slug, why):
-    """A journey file that does not parse: one PROBLEM line, exit 1 (never a traceback)."""
-    b = bak_path(repo, slug)
-    if os.path.exists(b):
-        t = datetime.datetime.fromtimestamp(os.path.getmtime(b)).strftime('%Y-%m-%d %H:%M')
-        hint = f'`journey.py restore {repo} {slug}` puts back the last good copy ({t})'
-    else:
-        hint = 'no backup of it exists; rewrite it with the commands (reset, new …)'
-    print(f'PROBLEM: {jpath(repo, slug)}: {why}; {hint}')
-    sys.exit(1)
-
-
-def load(repo, slug, v1=False):
-    p = jpath(repo, slug)
-    if not os.path.exists(p):
-        no_journey(repo, slug)
-    try:
-        raw = open(p, encoding='utf-8').read()
-        j = json.loads(raw)
-    except json.JSONDecodeError as e:
-        unreadable(repo, slug, f'invalid JSON at line {e.lineno} column {e.colno} (char {e.pos} of {len(e.doc)}): {e.msg}')
-    except UnicodeDecodeError as e:
-        unreadable(repo, slug, f'not UTF-8 text (byte {e.start})')
-    if not isinstance(j, dict) or not isinstance(j.get('version'), int):
-        unreadable(repo, slug, 'not a journey (a JSON object with a "version")')
-    if j.get('version') == 2:
-        miss = [k for k in ('title', 'nodes', 'edges', 'steps') if k not in j]
-        if miss:
-            unreadable(repo, slug, 'missing ' + ', '.join(miss))
-    if j.get('version') == 2:
-        bad, upgrades = journey_shape(j)
-        if bad:                  # a hand-edited file gets PROBLEM lines, never a traceback
-            for b in bad:
-                print('PROBLEM: ' + b)
-            b = bak_path(repo, slug)
-            print(f'FAILED: {jpath(repo, slug)} was edited by hand into a shape the commands cannot read; fix the lines '
-                  f'above' + (f', or `journey.py restore {repo} {slug}` puts back the last good copy' if os.path.exists(b) else ''))
-            sys.exit(1)
-        upgrade(repo, j, upgrades)
-    keep_bak(repo, slug, raw)
-    if not v1 and j.get('version') != 2:
-        sys.exit(f'{slug} is a v{j.get("version")} journey: run `journey.py migrate {repo} {slug}` first')
-    return j
-
-
-SHAPE_NOTES = []       # hand-edits `load` could read anyway (an "at": "file:a-b" string): `check` reports each as a PROBLEM
+# ======================================================================================================================
+# A journey's shape: what every command relies on. With node, the extension's own rules
+# (cli/journey/shape.ts through journey-check.mjs); without, the Python rules below.
+# ======================================================================================================================
 
 
 def journey_shape(j):
@@ -405,20 +525,6 @@ def journey_shape(j):
     if got is FALLBACK:
         return shape_problems(j)
     return got['problems'], got['upgrades']
-
-
-def upgrade(repo, j, upgrades):
-    """Reads hand-edits the way the commands write them: a box `at` written as "file:start-end" becomes
-    {file, start, end, anchor}; a range without an anchor gets one. Each is noted (SHAPE_NOTES) for `check`."""
-    for u in upgrades:
-        a = reanchor(repo, u['file'], u['start'], u['end'])
-        if 'step' in u:
-            j['steps'][u['step']]['anchor'] = a
-        elif u.get('at'):
-            j['nodes'][u['node']]['at'] = {'file': u['file'], 'start': u['start'], 'end': u['end'], 'anchor': a}
-        else:
-            j['nodes'][u['node']]['at']['anchor'] = a
-        SHAPE_NOTES.append(u['note'])
 
 
 def reanchor(repo, f, a, b):
@@ -434,6 +540,8 @@ def reanchor(repo, f, a, b):
 
 # --- the Python rules for a journey's shape (without node; the helper's are cli/journey/shape.ts of the extension)
 ANCHOR_TEXT = ('text', 'before', 'after', 'head', 'tail', 'hash')
+
+
 STEP_LISTS = (('links', ('phrase', 'file', 'start', 'end')), ('values', ('name', 'value', 'file', 'line')))
 
 
@@ -445,6 +553,10 @@ def anchor_ok(a):
     if not isinstance(a, dict) or not all(is_str(a.get(k, '')) for k in ANCHOR_TEXT):
         return False
     return a.get('v') != 3 or (is_str(a.get('head')) and is_int(a.get('lines')))
+
+
+def is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def shape_problems(j):
@@ -540,1020 +652,9 @@ def step_shape(st, k, out, ups):
         out.append(f'{name}: "refs" must be a list of strings, each one sentence with a path:line in it (restep {k} refs "…")')
 
 
-def new_id(used):
-    while True:
-        i = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-        if i not in used:
-            return i
-
-
-def save(repo, slug, j):
-    # every step has a stable short id (the extension follows a step by it when steps move); never changed here
-    used = {s.get('id') for s in j.get('steps', [])}
-    for k, s in enumerate(j.get('steps', [])):
-        if not s.get('id'):
-            j['steps'][k] = {'id': new_id(used), **s}
-            used.add(j['steps'][k]['id'])
-    raw = json.dumps(j, indent=2, ensure_ascii=False) + '\n'
-    write_atomic(jpath(repo, slug), raw)
-    keep_bak(repo, slug, raw)
-
-
-def lines_of(repo, rel):
-    try:
-        return open(os.path.join(repo, rel), encoding='utf-8', errors='replace').read().split('\n')
-    except (FileNotFoundError, IsADirectoryError):
-        sys.exit(f'{rel}: no such file in {repo}')
-
-
-ECHO = None        # a list while a step is being written: its anchor lines are printed after the step's header
-
-
-def say(line):
-    if ECHO is None:
-        print(line)
-    else:
-        ECHO.append(line)
-
-
-def wrote(line):
-    """Every write command says what it wrote, in one line; the anchor lines it collected follow, indented."""
-    global ECHO
-    print(line)
-    for l in ECHO or []:
-        print(l)
-    ECHO = None
-
-
-def shown(v, n=160):
-    """A value for the echo line: one line, quoted, cut when long, with its length."""
-    one = ' '.join(str(v).split())
-    return f'"{one[:n]}{"…" if len(one) > n else ""}" ({len(str(v))} chars)'
-
-
-def question_problem(q):
-    """The question is the map header (one bold line) and the sidebar row's tooltip."""
-    if len(q.strip()) > MAX_QUESTION:
-        return (f'is {len(q.strip())} chars (max {MAX_QUESTION}: one natural question a developer would ask; '
-                f'the lists and qualifiers go in the summary)')
-    return ''
-
-
-# --- near-duplicate journeys. Words of question + title, without the words every question has.
-STOP = set('a an the and or but of in into to on for from with by at as is are was be it its this that i we you my our '
-           'how does do did what when why where which who can gets get got happen happens work works used use using '
-           'end up e g eg ie etc there their them then than so not'.split())
-SIMILAR, SAME_CODE = 0.5, 0.7
-
-
-def key_words(*texts):
-    out = set()
-    for w in re.findall(r'[a-z0-9]+', ' '.join(texts).lower()):
-        if w in STOP or len(w) < 2:
-            continue
-        for suf in ('ing', 'ed', 'es', 's'):
-            if w.endswith(suf) and len(w) - len(suf) >= 4:
-                w = w[:-len(suf)]
-                break
-        out.add(w)
-    return out
-
-
-def other_journeys(repo, slug):
-    d = jdir(repo)
-    out = []
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if not f.endswith('.json') or f[:-5] == slug:
-            continue
-        try:
-            o = json.load(open(os.path.join(d, f), encoding='utf-8'))
-        except (OSError, ValueError):
-            continue
-        if isinstance(o, dict) and o.get('version') == 2:
-            out.append((f[:-5], o))
-    return out
-
-
-def similar_journeys(repo, slug, j):
-    """WARNING texts naming every other journey that asks nearly the same thing or walks mostly the same code."""
-    out = []
-    mine = key_words(j.get('question', ''), j.get('title', ''))
-    spans = [(s.get('file'), s.get('range', {}).get('start', 0), s.get('range', {}).get('end', 0)) for s in j.get('steps', [])]
-    for other, o in other_journeys(repo, slug):
-        name = f'journey {other} ("{o.get("question") or o.get("title", "")}")'
-        same_title = j.get('title', '').strip().lower() == o.get('title', '').strip().lower() != ''
-        theirs = key_words(o.get('question', ''), o.get('title', ''))
-        both = mine & theirs
-        ratio = len(both) / len(mine | theirs) if mine | theirs else 0
-        if same_title:
-            out.append(f'title "{j["title"]}" is also the title of {name}: two sidebar rows that read the same; '
-                       f'rename one, or extend that journey instead')
-        elif ratio >= SIMILAR:
-            out.append(f'question and title are very similar to {name}: {len(both)} of {len(mine | theirs)} words shared '
-                       f'({", ".join(sorted(both))}); extend that journey instead of adding a near-duplicate')
-        os_ = [(s.get('file'), s.get('range', {}).get('start', 0), s.get('range', {}).get('end', 0)) for s in o.get('steps', [])]
-        hit = sum(1 for f, a, b in spans if any(f == g and a <= d and c <= b for g, c, d in os_))
-        if spans and hit >= 3 and hit / len(spans) >= SAME_CODE:
-            out.append(f'{hit} of {len(spans)} steps are anchored on the same code as {name}: '
-                       f'it tells the same story; extend that journey instead')
-    return out
-
-
-def anchor(repo, rel, start, end, quiet=False):
-    lines = lines_of(repo, rel)
-    if not (1 <= start <= end <= len(lines)):
-        sys.exit(f'{rel} has {len(lines)} lines: range {start}-{end} is outside it')
-    s, e = start - 1, end - 1
-    if not quiet:
-        say(f'  {rel} L{start}: {lines[s].strip()[:100]}')
-        if end > start:
-            say(f'  {rel} L{end}: {lines[e].strip()[:100]}')
-    return make_anchor(lines[s:e + 1], *around(lines, s, e))
-
-
-# --- a range that starts or ends on a stray closing brace, or stops in the middle of a statement, highlights
-# sloppily in the editor. Heuristics on code files only (brackets are counted naively, like `range`): a WARNING.
-CODE_EXT = ('.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.py', '.rs', '.java', '.kt', '.c', '.h',
-            '.cc', '.cpp', '.cs', '.swift')
-TAIL_OPS = ('&&', '||', '+', '-', '*', '/', '%', '=', '|', '&', '^', '\\')
-
-
-def code_of(line, py=False):
-    """The line without string literals and comments ('' for a blank or comment-only line)."""
-    t = line.strip()
-    if t.startswith(('*', '/*', '<!--')) or t.startswith('#' if py else '//'):
-        return ''
-    t = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`', '""', t)
-    return re.sub(r'\s#.*$' if py else r'//.*$', '', t).strip()
-
-
-def unfinished(code, py=False):
-    """Why this line cannot be the end of a statement ('' when it can)."""
-    if code.endswith(','):
-        return 'a comma'
-    if code.endswith(('(', '[')):
-        return f'an open "{code[-1]}"'
-    if code.endswith(TAIL_OPS) and not code.endswith(('++', '--', '*/')):
-        return f'the operator "{code[-1]}"'
-    if py and code.endswith(':') and not code.startswith(('case ', 'default')):
-        return 'a block opener ":"'
-    return ''
-
-
-def range_warnings(lines, rel, start, end):
-    """Problems with where the range start-end (1-based) begins and ends; [] for a file that is not code."""
-    if not rel.endswith(CODE_EXT) or not (1 <= start <= end <= len(lines)):
-        return []
-    py = rel.endswith('.py')
-    code = {k: code_of(lines[k - 1], py) for k in range(start, end + 1)}
-    lone = lambda c: bool(re.fullmatch(r'[\])}]+[;,]?', c))
-    stack, unmatched = [], set()          # open brackets inside the range; lines closing one opened above it
-    for k in range(start, end + 1):
-        for ch in code[k]:
-            if ch in '([{':
-                stack.append(k)
-            elif ch in ')]}':
-                if stack:
-                    stack.pop()
-                else:
-                    unmatched.add(k)
-
-    def nxt(k, step):                     # the nearest line with code in that direction, inside the range
-        k += step
-        while start <= k <= end and not code[k]:
-            k += step
-        return k if start <= k <= end else None
-    out = []
-    first, last = code[start], code[end]
-    if lone(first):
-        a = nxt(start, 1)
-        hint = f'did you mean {a}-{end}?' if a else 'pick the statement itself'
-        out.append(f'{rel}:{start}-{end} starts on a lone closing "{first[0]}" (the end of the block above): {hint}')
-    if end > start and lone(last) and end in unmatched:
-        b = nxt(end, -1)
-        hint = f'did you mean {start}-{b}?' if b and not (b == start and lone(first)) else 'pick the statement itself'
-        out.append(f'{rel}:{start}-{end} ends on a lone closing "{last[0]}" of a block opened above the range: {hint}')
-    if end > start and re.match(r'return\b', first):
-        # `return …` first, other code after it: the range starts at the tail of the block above
-        depth, r = 0, None
-        for k in range(start, end + 1):
-            c = code[k]
-            if not c:
-                continue
-            depth += sum(c.count(x) for x in '([{') - sum(c.count(x) for x in ')]}')
-            if depth <= 0 and not unfinished(c, py):
-                r = k                     # the line the return statement ends on
-                break
-        a = nxt(r, 1) if r else None
-        while a and lone(code[a]):
-            a = nxt(a, 1)
-        if a:
-            out.append(f'{rel}:{start}-{end} starts on a bare `{first[:40]}` (the end of the block above; the lines '
-                       f'after it are other code): did you mean {a}-{end}?')
-    why = unfinished(last, py) if last and not lone(last) else ''
-    if why == 'a comma' and not stack and not unmatched:
-        why = ''                          # whole elements of a list or literal: balanced, each ends with its comma
-    prev = nxt(end, -1) if end > start else None
-    if not why and last.endswith('{') and prev and not unfinished(code[prev], py) and not code[prev].endswith('{'):
-        why = 'the opening "{" of a new block'     # a head on its own, or one spread over lines, is a fine anchor
-    if why:
-        close, depth = None, 0            # where the statement that is cut off ends: brackets back to level
-        for k in range(end, min(len(lines), end + 400) + 1):
-            c = code_of(lines[k - 1], py)
-            depth += sum(c.count(x) for x in '([{') - sum(c.count(x) for x in ')]}')
-            if k > end and depth <= 0 and c and not unfinished(c, py):
-                close = k
-                break
-            if k == end and depth <= 0 and not last.endswith(('(', '[', '{')):
-                depth = 0                 # a comma or operator inside an already balanced line: the next full line ends it
-        opts = [f'{start}-{prev} (without it)'] if prev and last.endswith(('(', '[', '{')) else []
-        if close:
-            opts.append(f'{start}-{close} (where it ends)')
-        out.append(f'{rel}:{start}-{end} ends in the middle of a statement (the last line ends with {why})'
-                   + (': did you mean ' + ' or '.join(opts) + '?' if opts else ''))
-    return out
-
-
-def parse_at(at):
-    f, _, r = at.rpartition(':')
-    a, _, b = r.partition('-')
-    return f, int(a), int(b or a)
-
-
-def stdin_text():
-    return '' if sys.stdin.isatty() else sys.stdin.read().strip()
-
-
-def body(what='text'):
-    b = stdin_text()
-    if not b:
-        sys.exit(f'nothing on stdin: {what} is missing (pass it with <<EOF … EOF)')
-    return b
-
-
-def value_of(v):
-    return body() if v == '-' else v
-
-
-def ref_tokens(ref):
-    """The path:line tokens inside a ref (a sentence, or an old bare `path:line`), as regex matches."""
-    return list(re.finditer(r'(?<![\w/.@-])' + REF, ref))
-
-
-def ref_token(ref):
-    """The ref's first path:line as a string ('' when it has none): what is checked, compared and linked."""
-    t = ref_tokens(ref)
-    return t[0].group(0) if t else ''
-
-
-def ref_bare(ref):
-    return bool(re.fullmatch(REF, ref.strip()))
-
-
-MAX_REF_WORDS = 15
-
-
-def parse_refs(s):
-    """One ref per line (or several on one line separated by " | "): a sentence with one path:line in it. A line
-    made only of bare path:line tokens (the old form, space or comma separated) gives one bare ref per token."""
-    out = []
-    for line in re.split(r'\n|\s\|\s', s.strip()):
-        line = re.sub(r'^\s*(?:[-*]|\d+[.)])\s+', '', line.strip()).strip()
-        if not line:
-            continue
-        parts = [r for r in re.split(r'[\s,]+', line) if r]
-        if all(re.fullmatch(REF, r) for r in parts):
-            out.extend(parts)
-        else:
-            out.append(' '.join(line.split()))
-    return out
-
-
-def ref_warnings(k, s):
-    """A ref is one short sentence saying what is there, with exactly one path:line in it."""
-    out = []
-    for i, ref in enumerate(s.get('refs', []), 1):
-        n = len(ref_tokens(ref))
-        if ref_bare(ref):
-            out.append(f'step {k}: ref {i} "{ref}" is a bare path:line: write one sentence saying what the reader will '
-                       f'see there, with the path:line in it (restep {k} refs -)')
-            continue
-        if n > 1:
-            out.append(f'step {k}: ref {i} holds {n} path:line tokens ("{ref}"): one place per ref; split it or keep one')
-        w = words(ref)
-        if w > MAX_REF_WORDS:
-            out.append(f'step {k}: ref {i} is {w} words (max ~{MAX_REF_WORDS}: one short sentence saying what is there): "{ref}"')
-    return out
-
-
-def parse_step_text(text):
-    """first paragraph = lead; the rest = details; a last block `refs:` + one sentence per line (each with one
-    path:line), or the old last line `refs: a:1 b:2`, = refs."""
-    refs = None
-    lines = text.strip().split('\n')
-    for i in range(len(lines) - 1, -1, -1):          # the last `refs:` line whose following lines all carry a path:line
-        m = re.match(r'(?i)^refs?:\s*(.*)$', lines[i].strip())
-        if m:
-            tail = [l for l in lines[i + 1:] if l.strip()]
-            if all(ref_tokens(l) for l in tail) and (tail or m.group(1).strip()):
-                refs = parse_refs('\n'.join([m.group(1)] + tail))
-                lines = lines[:i]
-            break
-    lead, _, details = '\n'.join(lines).strip().partition('\n\n')
-    return ' '.join(lead.split()), details.strip(), refs
-
-
-def flags(args, *names):
-    """Pulls --name value pairs out of args."""
-    out, rest, i = {}, [], 0
-    while i < len(args):
-        if args[i].startswith('--') and args[i][2:] in names and i + 1 < len(args):
-            out[args[i][2:]] = args[i + 1]
-            i += 2
-        else:
-            rest.append(args[i])
-            i += 1
-    return out, rest
-
-
-def cmd_new(repo, slug, question, title):
-    if os.path.exists(jpath(repo, slug)):
-        sys.exit(f'journey {slug} exists')
-    if journey_title_problem(title):
-        sys.exit(f'title "{title}" {journey_title_problem(title)}; nothing was written')
-    if question_problem(question):
-        sys.exit(f'question {question_problem(question)}; nothing was written: "{question}"')
-    commit = subprocess.run(['git', '-C', repo, 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip()
-    j = {'version': 2, 'id': slug, 'question': question, 'title': title,
-         'summary': body(f'the summary of journey {slug} (<= 2 plain sentences)')}
-    if os.environ.get('JOURNEY_MODEL'):
-        j['model'] = os.environ['JOURNEY_MODEL']
-    j.update({'commit': commit, 'createdAt': now(), 'nodes': [], 'edges': [], 'steps': []})
-    save(repo, slug, j)
-    print(jpath(repo, slug))
-    print(f'new journey {slug}: title = {shown(j["title"])}; question = {shown(j["question"])}; '
-          f'summary = {shown(j["summary"])}')
-    for w in similar_journeys(repo, slug, j):
-        print('WARNING: ' + w)
-
-
-def cmd_meta(repo, slug, field, value):
-    j = load(repo, slug)
-    if field == 'start':             # the one journey a newcomer should open first: the list marks it "Start here"
-        on = value_of(value).strip().lower()
-        if on not in ('true', 'false'):
-            sys.exit('start is true or false')
-        if on == 'true':
-            j['start'] = True
-        else:
-            j.pop('start', None)
-        save(repo, slug, j)
-        wrote(f'start = {on}')
-        return
-    if field not in ('title', 'question', 'summary', 'model'):
-        sys.exit('field is title, question, summary, model or start')
-    j[field] = value_of(value)
-    if field == 'title' and journey_title_problem(j[field]):
-        sys.exit(f'title "{j[field]}" {journey_title_problem(j[field])}; nothing was written')
-    if field == 'question' and question_problem(j[field]):
-        sys.exit(f'question {question_problem(j[field])}; nothing was written: "{j[field]}"')
-    save(repo, slug, j)
-    wrote(f'{field} = {shown(j[field])}')
-    if field in ('title', 'question'):
-        for w in similar_journeys(repo, slug, j):
-            print('WARNING: ' + w)
-
-
-def refuse(why):
-    sys.exit(f'{why}; nothing was written')
-
-
-def label_limit(label):
-    if len(label) > MAX_LABEL:
-        refuse(f'label is {len(label)} chars (max {MAX_LABEL}; a path goes in --path / `set <node> path`, '
-               f'the sentence in the summary): "{label}"')
-
-
-def blurb_limit(blurb):
-    if len(blurb) > MAX_BLURB:
-        refuse(f'blurb is {len(blurb)} chars (max {MAX_BLURB}): "{blurb}"')
-
-
-def child_limit(j, parent, nid):
-    """The box `parent` ('' = the top level) can take `nid` as one more child."""
-    n = sum(1 for x in j['nodes'] if x.get('parent', '') == parent and x['id'] != nid)
-    if n >= MAX_CHILDREN:
-        where = f'box {parent}' if parent else 'the top level'
-        refuse(f'{where} already has {n} children (max {MAX_CHILDREN}): group some of them under a new box first')
-
-
-def node_line(n):
-    return (f'node {n["id"]} [{n["kind"]}] "{n["label"]}"' + (f' — {n["blurb"]}' if n.get('blurb') else '')
-            + (f'  in {n["parent"]}' if n.get('parent') else '') + (f'  path {n["path"]}' if n.get('path') else '')
-            + (f'  @ {n["at"]["file"]}:{n["at"]["start"]}-{n["at"]["end"]}' if 'at' in n else ''))
-
-
-def edge_line(e):
-    return (f'edge {e["from"]} -> {e["to"]}: {e["label"]}{"  (async)" if e.get("async") else ""}'
-            + (f' — {e["detail"]}' if e.get('detail') else ''))
-
-
-def cmd_node(repo, slug, nid, kind, label, *rest):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    opt, rest = flags(list(rest), 'blurb', 'path')
-    parent = rest[0] if rest else ''
-    at = rest[1] if len(rest) > 1 else ''
-    if parent and not at and re.search(r':\d+(-\d+)?$', parent):      # `node id function "x" file:1-2` has no parent
-        sys.exit('a function node needs a parent before its file:start-end')
-    if kind not in KINDS:
-        sys.exit(f'kind is one of {", ".join(KINDS)}')
-    if any(n['id'] == nid for n in j['nodes']):
-        sys.exit(f'node {nid} exists')
-    if parent and not any(p['id'] == parent for p in j['nodes']):
-        sys.exit(f'parent {parent} not defined yet (define parents first)')
-    pk = next((p['kind'] for p in j['nodes'] if p['id'] == parent), None)
-    if kind == 'store' and pk not in PARENT_KINDS['store']:
-        refuse(f'a store box sits in a system or a module (parent {parent or "none"} is {pk or "the top level"})')
-    if pk == 'store':
-        refuse(f'{parent} is a store box: it has no children (put the function that reads or writes it in its module, '
-               f'with an edge to {parent})')
-    label_limit(label)
-    blurb_limit(opt.get('blurb', ''))
-    child_limit(j, parent, nid)
-    n = {'id': nid, 'kind': kind, 'label': label, **opt,
-         'summary': body(f'the summary of node {nid} (one sentence, the tooltip: what "{label}" is in this journey)')}
-    if parent:
-        n['parent'] = parent
-    if at:
-        f, a, b = parse_at(at)
-        n['at'] = {'file': f, 'start': a, 'end': b, 'anchor': anchor(repo, f, a, b)}
-    j['nodes'].append(n)
-    save(repo, slug, j)
-    wrote(node_line(n))
-    for w in (label_warning(n), node_text_warning(n)):
-        if w:
-            print('WARNING: ' + w)
-
-
-def make_edge(a, b, label, flag='', detail=''):
-    if flag not in ('', 'async', 'sync'):
-        sys.exit('after the label: async or sync, then optionally the detail')
-    if len(label) > MAX_EDGE_LABEL:
-        refuse(f'edge label is {len(label)} chars (max {MAX_EDGE_LABEL}; the sentence goes in the detail): "{label}"')
-    return {'from': a, 'to': b, 'label': label, **({'async': True} if flag == 'async' else {}),
-            **({'detail': detail} if detail else {})}
-
-
-def cmd_edge(repo, slug, a, b, label, flag='', detail=''):
-    j = load(repo, slug)
-    ids = {n['id'] for n in j['nodes']}
-    for x in (a, b):
-        if x not in ids:
-            sys.exit(f'node {x} not defined')
-    if any(e['from'] == a and e['to'] == b for e in j['edges']):
-        sys.exit(f'edge {a} -> {b} exists: one edge per pair (setedge to change it)')
-    if any(n['id'] == a and n['kind'] == 'store' for n in j['nodes']):
-        refuse(f'{a} is a store box and a store never acts: draw the edge from the box that reads, writes or polls it '
-               f'(edge {b} {a} "polls …" async)')
-    j['edges'].append(make_edge(a, b, label, flag, detail))
-    save(repo, slug, j)
-    wrote(edge_line(j['edges'][-1]))
-    if edge_text_warning(j['edges'][-1]):
-        print('WARNING: ' + edge_text_warning(j['edges'][-1]))
-
-
-def find_edge(j, a, b):
-    for i, e in enumerate(j['edges']):
-        if e['from'] == a and e['to'] == b:
-            return i
-    sys.exit(f'no edge {a} -> {b}')
-
-
-def cmd_rmedge(repo, slug, a, b):
-    j = load(repo, slug)
-    e = j['edges'].pop(find_edge(j, a, b))
-    save(repo, slug, j)
-    wrote('removed ' + edge_line(e))
-
-
-def cmd_setedge(repo, slug, a, b, label, flag='', detail=''):
-    j = load(repo, slug)
-    i = find_edge(j, a, b)
-    old = j['edges'][i]
-    if not flag:                                   # label only: async and detail stay as they were
-        flag, detail = ('async' if old.get('async') else 'sync'), old.get('detail', '')
-    elif not detail:
-        detail = old.get('detail', '')
-    j['edges'][i] = make_edge(a, b, label, flag, detail)
-    save(repo, slug, j)
-    wrote(edge_line(j['edges'][i]))
-    if edge_text_warning(j['edges'][i]):
-        print('WARNING: ' + edge_text_warning(j['edges'][i]))
-
-
-def cmd_set(repo, slug, nid, field, value):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    n = next((x for x in j['nodes'] if x['id'] == nid), None) or sys.exit(f'no node {nid}')
-    value = value_of(value)
-    if field in ('label', 'summary', 'blurb', 'path'):
-        if field == 'label':
-            label_limit(value)
-        if field == 'blurb':
-            blurb_limit(value)
-        n[field] = value
-    elif field == 'kind':
-        if value not in KINDS:
-            sys.exit(f'kind is one of {", ".join(KINDS)}')
-        if value not in STEP_KINDS and any(s['node'] == nid for s in j['steps']):
-            refuse(f'{nid} holds steps; steps go on a function, external or store box (move them first: stepnode)')
-        if value == 'store' and any(x.get('parent') == nid for x in j['nodes']):
-            refuse(f'{nid} has children; a store box has none (move them first: set <node> parent)')
-        if value == 'store' and any(e['from'] == nid for e in j['edges']):
-            refuse(f'{nid} is the `from` of an edge; a store never acts: turn the edge round first (rmedge, then edge '
-                   f'<reader or writer> {nid} "polls …" async)')
-        n['kind'] = value
-    elif field == 'parent':
-        if value and not any(p['id'] == value for p in j['nodes']):
-            sys.exit(f'no node {value}')
-        if value != n.get('parent', ''):
-            child_limit(j, value, nid)
-        if value:
-            n['parent'] = value
-        else:
-            n.pop('parent', None)
-    elif field == 'at':
-        f, a, b = parse_at(value)
-        n['at'] = {'file': f, 'start': a, 'end': b, 'anchor': anchor(repo, f, a, b)}
-    else:
-        sys.exit('field is label, blurb, path, summary, kind, at or parent')
-    save(repo, slug, j)
-    if field == 'at':
-        wrote(f'{nid}.at = {n["at"]["file"]}:{n["at"]["start"]}-{n["at"]["end"]}')
-    elif field in ('kind', 'parent', 'path'):
-        wrote(f'{nid}.{field} = {n.get(field) or "(none: top level)"}')
-    else:
-        wrote(f'{nid}.{field} = {shown(n[field])}')
-    for w in (field == 'label' and label_warning(n), field in ('label', 'blurb') and node_text_warning(n)):
-        if w:
-            print('WARNING: ' + w)
-
-
-def cmd_rmnode(repo, slug, nid):
-    j = load(repo, slug)
-    if any(s['node'] == nid for s in j['steps']) or any(n.get('parent') == nid for n in j['nodes']):
-        sys.exit(f'{nid} still has steps or children')
-    gone = next((n for n in j['nodes'] if n['id'] == nid), None) or sys.exit(f'no node {nid}')
-    j['nodes'] = [n for n in j['nodes'] if n['id'] != nid]
-    print('removed ' + node_line(gone))
-    for e in j['edges']:
-        if nid in (e['from'], e['to']):
-            print(f'removed edge {e["from"]} -> {e["to"]}: {e["label"]}')
-    j['edges'] = [e for e in j['edges'] if nid not in (e['from'], e['to'])]
-    save(repo, slug, j)
-
-
-def step_at(j, n):
-    if not str(n).isdigit() or not 1 <= int(n) <= len(j['steps']):
-        sys.exit(f'step {n}: there are {len(j["steps"])} steps')
-    return int(n) - 1
-
-
-def need_node(j, node):
-    if not any(x['id'] == node for x in j['nodes']):
-        sys.exit(f'node {node} not defined')
-
-
-def need_step_box(repo, slug, j, node, rel='<file>', line='<line>'):
-    """A step sits on a function, external or store box; a system or module box is refused when it is written."""
-    need_node(j, node)
-    n = next(x for x in j['nodes'] if x['id'] == node)
-    if n['kind'] not in STEP_KINDS:
-        refuse(f'{node} is a {n["kind"]} box ("{n["label"]}"); steps go on a function, external or store box. Add the '
-               f'function inside it first: journey.py node {repo} {slug} <id> function "<name>" {node} <file:start-end> '
-               f'(`journey.py range {repo} {rel} {line}` prints the function around that line), then put the step on <id>')
-
-
-def same_lines(j, s):
-    """The numbers of the other steps anchored on exactly the lines of step s."""
-    key = lambda x: (x.get('file'), x.get('range', {}).get('start'), x.get('range', {}).get('end'))
-    return [k for k, x in enumerate(j['steps'], 1) if x is not s and key(x) == key(s)]
-
-
-def say_same_lines(j, s):
-    twins = same_lines(j, s)
-    if twins:
-        say(f'WARNING: step{"s" if len(twins) > 1 else ""} {", ".join(map(str, twins))} '
-            f'{"are" if len(twins) > 1 else "is"} anchored on the same lines ({s["file"]}:{s["range"]["start"]}-'
-            f'{s["range"]["end"]}): each step shows the lines its own title is about (restep N range <file> <start> <end>)')
-
-
-def set_range(repo, s, rel, a, b):
-    a, b = int(a), int(b)
-    s['file'], s['range'], s['anchor'] = rel, {'start': a, 'end': b}, anchor(repo, rel, a, b)
-    for w in range_warnings(lines_of(repo, rel), rel, a, b):
-        say(f'WARNING: {w}')
-
-
-def cmd_step(repo, slug, node, rel, start, end, title, after_kw='', after=''):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    need_step_box(repo, slug, j, node, rel, start)
-    pos = len(j['steps'])
-    if after_kw:
-        if after_kw != 'after' or not after.isdigit() or int(after) > len(j['steps']):
-            sys.exit(f'insert with: after N (0..{len(j["steps"])})')
-        pos = int(after)
-    lead, details, refs = parse_step_text(body(f'the text of step "{title}" (lead, blank line, details, refs: …)'))
-    s = {'id': new_id({x.get('id') for x in j['steps']}), 'title': title, 'node': node}
-    set_range(repo, s, rel, start, end)
-    say_same_lines(j, s)
-    s['lead'] = lead
-    if details:
-        s['details'] = details
-    s['refs'] = refs or []
-    step_limits(s)
-    j['steps'].insert(pos, s)
-    save(repo, slug, j)
-    echo_step(pos + 1, s)
-
-
-def echo_step(k, s):
-    global ECHO
-    w = words(s.get('lead', ''))
-    print(f'step {k} [{s["id"]}] {s["title"]}  ({len(s["title"])} chars; lead {w} words; '
-          f'{len(s.get("refs", []))} refs{"; details" if s.get("details") else ""})')
-    for line in ECHO or []:      # what it is anchored on, under its header
-        print(line)
-    ECHO = None
-    for w in (repeat_warning(k, s), lead_warning(k, s), span_warning(k, s), *style_warnings(k, s), near_ref_warning(k, s),
-              *ref_warnings(k, s), *link_warnings(k, s)):
-        if w:
-            print('WARNING: ' + w)
-
-
-def step_limits(s):
-    """An over-limit title or lead is refused when it is written, not found later by check."""
-    t, w = s.get('title', ''), words(s.get('lead', ''))
-    if len(t) > MAX_STEP_TITLE:
-        sys.exit(f'title is {len(t)} chars (max {MAX_STEP_TITLE}); nothing was written: "{t}"')
-    if w > MAX_LEAD_WORDS:
-        sys.exit(f'lead is {w} words (max {MAX_LEAD_WORDS}; move the rest to details); nothing was written')
-
-
-def cmd_restep(repo, slug, n, *rest):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    s = j['steps'][step_at(j, n)]
-    rest = list(rest)
-    left = None
-    if rest and rest[0] in STEP_FIELDS:
-        field, args = rest[0], rest[1:]
-        if field == 'range':
-            if len(args) != 3:
-                sys.exit('restep N range <file> <start> <end>')
-            set_range(repo, s, *args)
-            say_same_lines(j, s)
-        elif len(args) != 1:
-            sys.exit(f'restep N {field} <value>   ("-" reads stdin)')
-        elif field == 'node':
-            need_step_box(repo, slug, j, args[0], s['file'], s['range']['start'])
-            left = {x for x, _ in unvisited(j)}
-            s['node'] = args[0]
-        elif field == 'refs':
-            s['refs'] = parse_refs(value_of(args[0]) if args[0] else '')
-        elif field == 'details':
-            v = value_of(args[0]) if args[0] else ''
-            if v:
-                s['details'] = v
-            else:
-                s.pop('details', None)
-        elif field == 'lead':
-            s['lead'] = ' '.join(value_of(args[0]).split())
-        else:
-            s['title'] = value_of(args[0])
-    else:
-        if len(rest) >= 3:
-            set_range(repo, s, *rest[:3])
-            say_same_lines(j, s)
-            rest = rest[3:]
-        if rest:
-            s['title'] = rest[0]
-        text = stdin_text()
-        if text:
-            lead, details, refs = parse_step_text(text)
-            s['lead'] = lead
-            if details:
-                s['details'] = details
-            else:
-                s.pop('details', None)
-            if refs is not None:
-                s['refs'] = refs
-    step_limits(s)
-    save(repo, slug, j)
-    if rest and rest[0] in STEP_FIELDS and rest[0] != 'title':     # the one field that changed, before the step's line
-        f = rest[0]
-        v = (f'{s["file"]}:{s["range"]["start"]}-{s["range"]["end"]}' if f == 'range' else s['node'] if f == 'node'
-             else ' | '.join(s.get('refs', [])) or '(none)' if f == 'refs' else shown(s.get(f, '')))
-        print(f'step {int(n)} {f} = {v}')
-    echo_step(int(n), s)
-    if left is not None:
-        say_left_empty(j, left)
-
-
-def unvisited(j):
-    """Boxes the storyline does not reach: [(node id, what is wrong and what to do)]. Shared by check and by the
-    commands that take a step off a box."""
-    stepped = {s['node'] for s in j['steps']}
-    parents = {n.get('parent') for n in j['nodes']}
-    out = []
-    for n in j['nodes']:
-        if n['id'] in stepped or n['id'] in parents:
-            continue
-        if n['kind'] == 'function':
-            out.append((n['id'], f'no step visits this function box "{n["label"]}" (rmnode {n["id"]}, or add a step)'))
-        if n['kind'] == 'external':     # visited through a function that has an edge with it
-            via = {e['from'] if e['to'] == n['id'] else e['to'] for e in j['edges'] if n['id'] in (e['from'], e['to'])}
-            if not via & stepped:
-                out.append((n['id'], f'no step visits this external box "{n["label"]}" (put a step on it or on a '
-                                     f'function with an edge to it, or rmnode {n["id"]})'))
-    return out
-
-
-def say_left_empty(j, before):
-    """After a step left a box: names every box that has no step now and had one before."""
-    for nid, what in unvisited(j):
-        if nid not in before:
-            print(f'WARNING: {nid}: {what}')
-
-
-def cmd_stepnode(repo, slug, n, node):
-    j = load(repo, slug)
-    s = j['steps'][step_at(j, n)]
-    need_step_box(repo, slug, j, node, s['file'], s['range']['start'])
-    before = {x for x, _ in unvisited(j)}
-    was = s['node']
-    s['node'] = node
-    save(repo, slug, j)
-    print(f'step {int(n)} [{s["id"]}] node = {node} (was {was}): {s["title"]}')
-    say_left_empty(j, before)
-
-
-def cmd_rmstep(repo, slug, n):
-    j = load(repo, slug)
-    before = {x for x, _ in unvisited(j)}
-    s = j['steps'].pop(step_at(j, n))
-    save(repo, slug, j)
-    print(f'removed step {int(n)} [{s.get("id", "")}]: {s["title"]}  ({len(j["steps"])} steps left)')
-    say_left_empty(j, before)
-
-
-def cmd_mvstep(repo, slug, n, after_kw, after):
-    """Moves a step (it keeps its id, text and anchor): `mvstep N after M`, M = 0 puts it first."""
-    j = load(repo, slug)
-    i = step_at(j, n)
-    if after_kw != 'after' or not after.isdigit() or int(after) > len(j['steps']) or int(after) == int(n):
-        sys.exit(f'move with: mvstep N after M (M = 0..{len(j["steps"])}, not N itself)')
-    s = j['steps'].pop(i)
-    pos = int(after) - (1 if int(after) > i else 0)
-    j['steps'].insert(pos, s)
-    save(repo, slug, j)
-    print(f'step {n} is now step {pos + 1}: {s["title"]}')
-
-
-def cmd_reset(repo, slug):
-    if not os.path.exists(jpath(repo, slug)):
-        no_journey(repo, slug)
-    os.remove(jpath(repo, slug))
-    print(f'deleted {jpath(repo, slug)}')
-
-
-def cmd_restore(repo, slug):
-    """Puts back .bak/<slug>.json. A current file that differs is kept as .bak/<slug>.replaced.json."""
-    b, p = bak_path(repo, slug), jpath(repo, slug)
-    if not os.path.exists(b):
-        sys.exit(f'no backup of {slug} ({b} does not exist)')
-    raw = open(b, encoding='utf-8').read()
-    try:
-        json.loads(raw)
-    except json.JSONDecodeError as e:
-        sys.exit(f'the backup {b} does not parse either ({e.msg} at line {e.lineno} column {e.colno}); nothing was changed')
-    cur = open(p, encoding='utf-8', errors='replace').read() if os.path.exists(p) else None
-    if cur == raw:
-        print(f'{p} already is the last good copy; nothing to restore')
-        return
-    if cur is not None:
-        write_atomic(bak_path(repo, slug, '.replaced'), cur)
-        print(f'kept the current file as {bak_path(repo, slug, ".replaced")}')
-    write_atomic(p, raw)
-    t = datetime.datetime.fromtimestamp(os.path.getmtime(b)).strftime('%Y-%m-%d %H:%M')
-    print(f'restored {p} from the copy of {t}; run `journey.py check {repo} {slug}`')
-
-
-def cmd_migrate(repo, slug):
-    """v1 -> v2: each step's note is folded into the journey (file/range/anchor from the note; body -> lead, details,
-    refs). The notes are deleted only after the v2 file is on disk. Refuses when a note is missing."""
-    j = load(repo, slug, v1=True)
-    if j.get('version') == 2:
-        sys.exit(f'{slug} is already v2')
-    d = os.path.join(repo, '.code-notes')
-    notes = []
-    for k, s in enumerate(j['steps'], 1):
-        p = os.path.join(d, s['note'] + '.json')
-        if not os.path.exists(p):
-            sys.exit(f'step {k}: note {s["note"]} is missing; nothing was changed (restore it or remove the step from the v1 file)')
-        notes.append((p, json.load(open(p, encoding='utf-8'))))
-    steps = []
-    for s, (p, note) in zip(j['steps'], notes):
-        text = note['messages'][0]['body']
-        text = re.sub(r'^\*\*\d+\. .*?\*\*\s*', '', text, count=1, flags=re.S).strip()   # the repeated title
-        m = re.search(r'(?<=[.!?])\s+(?=[A-Z`*(\["])', text)                            # first sentence = lead
-        lead, details = (text[:m.start()], text[m.end():]) if m else (text, '')
-        refs = []
-        for r in re.finditer(LINK, text):
-            if r.group(0) not in refs:
-                refs.append(r.group(0))
-        st = {'id': new_id({x['id'] for x in steps}), 'title': s['title'], 'node': s['node'], 'file': note['file'], 'range': note['range'],
-              'anchor': note['anchor'], 'lead': ' '.join(lead.split())}
-        if details.strip():
-            st['details'] = details.strip()
-        st['refs'] = refs[:3]
-        steps.append(st)
-    out = {'version': 2}
-    for key in ('id', 'question', 'title', 'summary', 'model', 'commit', 'createdAt', 'nodes', 'edges'):
-        if key in j:
-            out[key] = j[key]
-    out['steps'] = steps
-    save(repo, slug, out)
-    if json.load(open(jpath(repo, slug), encoding='utf-8')).get('version') != 2:
-        sys.exit('the v2 file did not read back; the step notes were kept')
-    for p, _ in notes:
-        os.remove(p)
-    print(f'{slug}: v2 written, {len(steps)} step notes folded in and deleted. Now rewrite leads/details/refs (check).')
-
-
-def cmd_range(repo, rel, what):
-    """Prints file:start-end of a function/type: by name (`name`, `Class.method`), or the innermost one around a
-    line. Never prints a range that does not contain the requested line. Ends are found by the closing line at the
-    declaration's indentation (formatted code), else by counting braces (Python: by indentation)."""
-    lines = lines_of(repo, rel)
-    py = rel.endswith('.py')
-    decl = re.compile(r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:func|function\*?|def|class|type|interface|const|let|var|struct|fn|enum)\b')
-    named = re.compile(r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:func\s+(?:\(([^)]*)\)\s*)?|(?:function\*?|def|class|type|interface|struct|fn|enum|const|let|var)\s+)([A-Za-z_$][\w$]*)')
-    nested = re.compile(r'^\s+(?:export\s+)?(?:async\s+)?(?:function\*?|class)\s+[A-Za-z_$]')
-    mods = r'(?:(?:public|private|protected|static|async|override|abstract|readonly|get|set)\s+)*'
-    method = re.compile(r'^\s+' + mods + r'\*?\s*(#?[A-Za-z_$][\w$]*)\s*(?:<[^(]*>)?\s*\(')
-    arrow = re.compile(r'^\s*(?:export\s+)?' + mods + r'(?:(?:const|let|var)\s+)?(#?[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\(|[\w$]+\s*=>).*=>\s*\{\s*$')
-    notname = {'if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'await', 'new', 'throw', 'typeof',
-               'super', 'else', 'do', 'try', 'with', 'yield', 'delete', 'void', 'in', 'of'}
-
-    def indent(i):
-        return len(lines[i]) - len(lines[i].lstrip())
-
-    def code_of(k):
-        return re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`|/\*.*?\*/|//.*$', '', lines[k])
-
-    def method_name(i):
-        """The name when line i opens a TS/JS method (`private async click(…): T {`), else None."""
-        m = method.match(lines[i])
-        if not m or m.group(1) in notname or lines[i].lstrip().startswith(('}', ')', '.', '?', ':')):
-            return None
-        depth, started = 0, False
-        for k in range(i, min(i + 40, len(lines))):
-            code = code_of(k)
-            for pos, c in enumerate(code):
-                if c == '(':
-                    depth += 1
-                    started = True
-                elif c == ')':
-                    depth -= 1
-                    if started and depth == 0:
-                        return m.group(1) if re.match(r'^\s*(?::.*)?\{\s*$', code[pos + 1:]) else None
-        return None
-
-    def name_of(i):
-        """(name, receiver type) when line i declares something `range` may return, else None."""
-        l = lines[i]
-        if py:
-            m = re.match(r'^\s*(?:async\s+)?(?:def|class)\s+(\w+)', l)
-            return (m.group(1), '') if m else None
-        if not l.strip() or l.lstrip().startswith(('//', '*', '/*')):
-            return None
-        m = arrow.match(l)
-        if m and m.group(1) not in notname:
-            return (m.group(1), '')
-        if decl.match(l) and (indent(i) == 0 or nested.match(l)):
-            m = named.match(l)
-            recv = re.sub(r'^.*?\*?([\w$]+)(?:\[[^\]]*\])?\s*$', r'\1', m.group(1)) if m and m.group(1) else ''
-            return (m.group(2), recv) if m else ('', '')
-        if indent(i) > 0:
-            n = method_name(i)
-            if n:
-                return (n, '')
-        return None
-
-    def end_of(i):
-        if py:
-            last = i
-            for k in range(i + 1, len(lines)):
-                if lines[k].strip():
-                    if indent(k) <= indent(i) and not lines[k].lstrip().startswith(')'):
-                        break
-                    last = k
-            return last
-        depth, seen, counted, first, tpl = 0, False, None, None, False
-        for k in range(i, len(lines)):
-            code = code_of(k)
-            if code.count('`') % 2:      # a multi-line `…` string opens or closes here: skip what is inside it
-                code = code[code.index('`'):] if tpl else code[:code.index('`')]
-                tpl = not tpl
-                if tpl:
-                    seen = True
-            elif tpl:
-                continue
-            if tpl:
-                for c in code:
-                    depth += (c in '{([') - (c in '})]')
-                first = first if k != i else max(depth, 0)
-                continue
-            for c in code:
-                if c in '{([':
-                    depth += 1
-                    seen = True
-                elif c in '})]':
-                    depth -= 1
-            if k == i:
-                first = depth
-            if depth <= 0 and (seen or not code.rstrip().endswith(('=', ','))):
-                counted = k
-                break
-        if counted is None:
-            counted = len(lines) - 1
-        if first and first > 0:
-            # The declaration stays open after its first line: in formatted code it ends on the first closing line
-            # at the same indentation (a `): T {` that only ends the parameter list is not it). This survives
-            # braces inside regex literals and multi-line template strings, which the count above does not.
-            for k in range(i + 1, len(lines)):
-                s = lines[k].strip()
-                if not s:
-                    continue
-                if indent(k) < indent(i):
-                    break
-                if indent(k) == indent(i) and s[0] in '})]' and not code_of(k).rstrip().endswith(('{', '(', '[')):
-                    return k
-        return counted
-
-    decls = [(i, n) for i in range(len(lines)) for n in [name_of(i)] if n]
-    spans = {}
-
-    def span(i):
-        if i not in spans:
-            spans[i] = end_of(i)
-        return spans[i]
-
-    def show(i, also=()):
-        e = span(i)
-        print(f'{rel}:{i + 1}-{e + 1}')
-        print(f'  L{i + 1}: {lines[i].strip()[:100]}')
-        print(f'  L{e + 1}: {lines[e].strip()[:100]}')
-        for o in also:
-            print(f'  inside {rel}:{o + 1}-{span(o) + 1}  {lines[o].strip()[:70]}')
-
-    if what.isdigit():
-        n = int(what) - 1
-        if n < 0 or n >= len(lines):
-            sys.exit(f'{rel}: no line {what} (the file has {len(lines)} lines)')
-        around = [i for i, _ in decls if i <= n <= span(i)]
-        if not around:
-            prev = [i for i, _ in decls if i <= n]
-            hint = f'; the declaration above it is {rel}:{prev[-1] + 1}-{span(prev[-1]) + 1}, which ends before it' if prev else ''
-            sys.exit(f'{rel}:{what}: no function or type contains this line{hint}. Nothing printed: read the file and '
-                     f'pass the lines yourself.')
-        show(around[-1], reversed(around[:-1]))
-        return
-    owner, _, name = what.rpartition('.')
-    starts = [i for i, (nm, _) in decls if nm == name]
-    if owner:
-        inside = [(i, span(i)) for i, (nm, _) in decls if nm == owner]
-        starts = [i for i in starts if decls_recv(decls, i) == owner or any(a < i <= b for a, b in inside)]
-    if not starts:
-        near = sorted({(o + '.' if o else '') + nm for i, (nm, _) in decls if nm and name.lower() in nm.lower()
-                       for o in [next((dn for j, (dn, _) in reversed(decls) if j < i and indent(j) < indent(i)
-                                       and i <= span(j)), '')]})[:6]
-        sys.exit(f'{rel}: no definition of {what} found' + (f' (close: {", ".join(near)})' if near else '')
-                 + ' (try Class.method or a line number)')
-    for i in starts:
-        show(i)
-
-
-def decls_recv(decls, i):
-    return next((r for j, (_, r) in decls if j == i), '')
-
+# ======================================================================================================================
+# Text: words, sentences, the words that carry meaning.
+# ======================================================================================================================
 
 def words(s):
     return len(s.split())
@@ -1573,46 +674,81 @@ def sentences(s):
     return [x for x in re.split(SENT, s.strip()) if x.strip()]
 
 
-def title_problem(t, labels):
-    if len(t) > 70:
-        return f'is {len(t)} chars (max 70)'
-    if re.match(r'(?i)^(step|part|phase|stage|hop)\s*\d+\b', t):
-        return 'is a heading; write the fact that happens here ("The server only stores a pending record")'
-    if re.match(r'(?i)^(what|how|why|where|when|which|about|overview|intro)\b', t):
-        return 'names a topic; state the fact instead ("The request carries the spec and the built image tags")'
-    if t.strip().lower() in labels or words(t) < 4:
-        return 'is a name, not a fact: say what happens (subject + verb, at least 4 words)'
-    if t.rstrip().endswith((':', '?')):
-        return 'ends with ":" or "?"; state the fact'
-    return ''
+def shown(v, n=160):
+    """A value for the echo line: one line, quoted, cut when long, with its length."""
+    one = ' '.join(str(v).split())
+    return f'"{one[:n]}{"…" if len(one) > n else ""}" ({len(str(v))} chars)'
 
 
-MAX_TITLE = 28
+# Words that say nothing about what a title or question is about.
+STOP_WORDS = set("""a an the and or but of to in on at by for from with without into onto as is are was were be been
+being it its this that these those then than so not no only one each every all any which who what when where how why if
+there here can will would may has have had do does did up out over under after before per via also own same just now
+more most them they their he she we you i""".split())
 
 
-def journey_title_problem(t):
-    """The journey's title is a short topic name for a sidebar row that cannot wrap."""
-    t = t.strip()
-    if len(t) > MAX_TITLE:
-        return f'is {len(t)} chars (max {MAX_TITLE}: a short topic name, subject first, e.g. "Checkout flow")'
-    if t.endswith('?') or re.match(r'(?i)^(how|why|what|when)\b', t):
-        return 'is a question; the title is a topic name (noun phrase, subject first: "Upgrade in place"); the question stays in `question`'
-    return ''
+def stem(w):
+    """A crude stem: -ing, -ed, -es or -s off a word that keeps at least 4 letters."""
+    for suf in ('ing', 'ed', 'es', 's'):
+        if len(w) > len(suf) + 3 and w.endswith(suf):
+            return w[:-len(suf)]
+    return w
 
 
-def check_ref(repo, ref):
-    """Returns (problem, [(line number, text)...])."""
-    m = re.fullmatch(REF, ref)
-    if not m:
-        return 'not a full path:line (or path:line-line)', []
-    f, a, b = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
-    p = os.path.join(repo, f)
-    if not os.path.isfile(p):
-        return 'no such file', []
-    ls = open(p, encoding='utf-8', errors='replace').read().split('\n')
-    if b > len(ls) or b < a or a < 1:
-        return f'the file has {len(ls)} lines', []
-    return '', [(a, ls[a - 1].strip()[:90])] + ([(b, ls[b - 1].strip()[:90])] if b > a else [])
+def key_words(*texts):
+    """The stems of the texts' words that carry meaning (letters and digits only)."""
+    return {stem(w) for w in re.findall(r'[a-z0-9]+', ' '.join(texts).lower()) if w not in STOP_WORDS and len(w) >= 2}
+
+
+def content_words(text):
+    """The stems of a prose text's words that carry meaning (code spans and URLs left out)."""
+    return [stem(w) for w in re.findall(r"[a-z0-9][a-z0-9'-]*", plain(text).lower()) if w not in STOP_WORDS and len(w) > 1]
+
+
+# ======================================================================================================================
+# Near-duplicate journeys. Two journeys that ask the same thing, or walk the same code, are one journey to extend:
+# `new`, `meta question|title` and `check` say so (a WARNING, never a refusal).
+# ======================================================================================================================
+
+# Asking the same thing: the question and title of both, as key words (stop words dropped, crude stems); shared
+# words over all words (Jaccard). At 0.5 half of what either asks is in the other: "How is an order paid?" and "How
+# does the shop charge an order?" stay apart, "How is an order placed and paid?" and "How does an order get placed
+# and paid?" meet.
+SIMILAR = 0.5
+# Walking the same code: steps anchored inside the other journey's step ranges. 3 at least, and 70 % of the steps:
+# a journey that crosses another one for two steps is a neighbour, not a copy.
+SAME_CODE = 0.7
+SAME_CODE_MIN = 3
+
+
+def similar_journeys(journeys, slug, j):
+    """WARNING texts naming every other journey that asks nearly the same thing or walks mostly the same code."""
+    out = []
+    mine = key_words(j.get('question', ''), j.get('title', ''))
+    spans = [(s.get('file'), s.get('range', {}).get('start', 0), s.get('range', {}).get('end', 0)) for s in j.get('steps', [])]
+    for other, o in journeys.others(slug):
+        name = f'journey {other} ("{o.get("question") or o.get("title", "")}")'
+        same_title = j.get('title', '').strip().lower() == o.get('title', '').strip().lower() != ''
+        theirs = key_words(o.get('question', ''), o.get('title', ''))
+        both = mine & theirs
+        ratio = len(both) / len(mine | theirs) if mine | theirs else 0
+        if same_title:
+            out.append(f'title "{j["title"]}" is also the title of {name}: two sidebar rows that read the same; '
+                       f'rename one, or extend that journey instead')
+        elif ratio >= SIMILAR:
+            out.append(f'question and title are very similar to {name}: {len(both)} of {len(mine | theirs)} words shared '
+                       f'({", ".join(sorted(both))}); extend that journey instead of adding a near-duplicate')
+        os_ = [(s.get('file'), s.get('range', {}).get('start', 0), s.get('range', {}).get('end', 0)) for s in o.get('steps', [])]
+        hit = sum(1 for f, a, b in spans if any(f == g and a <= d and c <= b for g, c, d in os_))
+        if spans and hit >= SAME_CODE_MIN and hit / len(spans) >= SAME_CODE:
+            out.append(f'{hit} of {len(spans)} steps are anchored on the same code as {name}: '
+                       f'it tells the same story; extend that journey instead')
+    return out
+
+
+# ======================================================================================================================
+# Anchors: where a step or a box is in the code, and finding it again after the code moved.
+# ======================================================================================================================
 
 
 # --- finding a step again after the code moved. With node, the extension's own rules (src/core/anchors, through
@@ -1712,67 +848,26 @@ def place(lines, a, start0):
     return best[1:] if best else None
 
 
-RENAMES = None
-GIT_ERROR = ''         # the first thing git said when it failed (dubious ownership, not a repository, no git)
+def line_at(repo, f, line, text):
+    """Where a link's, value's or beat's line is in file f now (0-based), found by its text near `line`; -1: gone."""
+    got = RULES.ask('line', repo=repo, file=f, line=line, text=text)
+    return find_line(lines_of(repo, f), line, text) if got is FALLBACK else got
 
 
-def renames(repo, since):
-    """old path -> new path from git: renames committed since the journey's commit (or in the last 500 commits),
-    then staged/uncommitted ones (git diff -M HEAD, git status)."""
-    global RENAMES
-    if RENAMES is not None:
-        return RENAMES
-    RENAMES = {}
-
-    def git(*a):
-        global GIT_ERROR
-        try:
-            r = subprocess.run(['git', '-C', repo, *a], capture_output=True, text=True)
-        except OSError as e:     # no git binary
-            GIT_ERROR = GIT_ERROR or f'{e.strerror or e}'
-            return ''
-        if r.returncode != 0 and r.stderr.strip():     # a git that did not run is not "no rename"
-            GIT_ERROR = GIT_ERROR or ' '.join(r.stderr.strip().split('\n')[0].split())[:200]
-        return r.stdout if r.returncode == 0 else ''
-    ok = since and git('rev-parse', '--verify', '--quiet', since + '^{commit}').strip()
-    rng = [f'{since}..HEAD'] if ok else ['-n', '500']
-    out = git('log', '-M', '--diff-filter=R', '--name-status', '--format=', '--reverse', *rng)
-    out += git('diff', '-M', '--name-status', 'HEAD')
-    for line in out.splitlines():
-        f = line.split('\t')
-        if len(f) == 3 and f[0].startswith('R'):
-            RENAMES[f[1]] = f[2]
-    for line in git('status', '--porcelain=v1').splitlines():
-        if line[:1] == 'R' and ' -> ' in line:
-            a, b = line[3:].split(' -> ', 1)
-            RENAMES[a.strip('"')] = b.strip('"')
-    return RENAMES
-
-
-def renamed(repo, since, f):
-    seen = {f}
-    while f in renames(repo, since):
-        f = renames(repo, since)[f]
-        if f in seen:
-            break
-        seen.add(f)
-    return f
-
-
-def renamed_path(repo, since, p):
-    """Where a box's `path` (a file or a directory) went, from the same git renames; '' when git does not say."""
-    p = p.rstrip('/')
-    new = renamed(repo, since, p)
-    if new != p:
-        return new
-    dirs = set()
-    for old in renames(repo, since):
-        if old.startswith(p + '/'):
-            rest, to = old[len(p):], renamed(repo, since, old)
-            if not to.endswith(rest):
-                return ''        # files of the directory were renamed, not the directory
-            dirs.add(to[:-len(rest)])
-    return dirs.pop() if len(dirs) == 1 else ''
+def find_line(lines, line, text):
+    """line_at's rule (src/core/anchors/lineFollow.ts findLine): the written line if it still says `text` (trimmed), else the nearest line within
+    FIND_NEAR that does; -1 when none does. 0-based."""
+    want = (text or '').strip()
+    if not want:
+        return -1
+    at = line - 1
+    if 0 <= at < len(lines) and lines[at].strip() == want:
+        return at
+    for d in range(1, FIND_NEAR + 1):
+        for i in (at - d, at + d):
+            if 0 <= i < len(lines) and lines[i].strip() == want:
+                return i
+    return -1
 
 
 def nearest(repo, file, a):
@@ -1807,29 +902,6 @@ def nearest(repo, file, a):
     return start + 1, end, diff
 
 
-def where(repo, since, file, start, end, a):
-    """Where anchored code is now, as the extension finds it: in its file, or in the file git renamed it to.
-    Returns (state, file, start, end, detail); state is ok (fresh, in place), moved (fresh, elsewhere), changed
-    (found by its head and tail, other content), gone (not found; detail: the renamed file) or nofile."""
-    files = [file] if os.path.isfile(os.path.join(repo, file)) else []
-    new = renamed(repo, since, file)
-    if new != file and os.path.isfile(os.path.join(repo, new)):
-        files.append(new)
-    if not files:
-        return 'nofile', file, start, end, ''
-    changed = None
-    for f in files:
-        got = anchor_place(repo, f, a, start - 1 if f == file else 0)
-        if not got:
-            continue
-        s0, e0, same = got
-        if same:
-            here = f == file and (s0 + 1, e0 + 1) == (start, end)
-            return ('ok' if here else 'moved'), f, s0 + 1, e0 + 1, ''
-        changed = changed or ('changed', f, s0 + 1, e0 + 1, '')
-    return changed or ('gone', file, start, end, (f'renamed to {new}' if new != file else ''))
-
-
 def code_at(repo, at):
     """The lines a box is anchored on, as they are now."""
     if not at:
@@ -1849,71 +921,419 @@ def old_diff(a, now):
     return ''.join('\n      ' + x[:140] for x in d)
 
 
-def cmd_migrate_anchors(repo, slug):
-    """Full-text (v2) anchors -> compact v3, from the text they stored: no file is read, so `check` afterwards still
-    says whether the code moved or changed since the anchor was written."""
-    if slug in ('--all', 'all'):
-        slugs = sorted(f[:-5] for f in os.listdir(jdir(repo)) if f.endswith('.json')) if os.path.isdir(jdir(repo)) else []
-        if not slugs:
-            sys.exit(f'no journeys in {jdir(repo)}')
-    else:
-        slugs = [slug]
-    for sl in slugs:
-        p = jpath(repo, sl)
-        if not os.path.exists(p):
-            no_journey(repo, sl)
-        size = os.path.getsize(p)
-        j = load(repo, sl)
-        holders = [s for s in j['steps']] + [n['at'] for n in j['nodes'] if 'at' in n]
-        todo = [h for h in holders if h['anchor'].get('v') != 3]
-        for h in todo:
-            h['anchor'] = as_v3(h['anchor'])
-        if todo:
-            save(repo, sl, j)
-        print(f'{sl}: {len(todo)} of {len(holders)} anchors rewritten as v3, {size} -> {os.path.getsize(p)} bytes')
+def anchor(repo, rel, start, end, echo=None):
+    """The anchor of lines start-end of rel, for a write; its first and last line said to `echo` (none: quiet)."""
+    lines = lines_of(repo, rel)
+    if not (1 <= start <= end <= len(lines)):
+        fail(f'{rel} has {len(lines)} lines: range {start}-{end} is outside it')
+    s, e = start - 1, end - 1
+    if echo:
+        echo.say(f'  {rel} L{start}: {lines[s].strip()[:100]}')
+        if end > start:
+            echo.say(f'  {rel} L{end}: {lines[e].strip()[:100]}')
+    return make_anchor(lines[s:e + 1], *around(lines, s, e))
 
 
-STOP = set("""a an the and or but of to in on at by for from with without into onto as is are was were be been being it
-its this that these those then than so not no only one each every all any which who what when where how why if there
-here can will would may has have had do does did up out over under after before per via also own same just now more
-most them they their he she we you i""".split())
+class State(enum.Enum):
+    """Where anchored code is now, as the extension finds it."""
+    OK = 'ok'                # fresh, in place
+    MOVED = 'moved'          # fresh, elsewhere
+    CHANGED = 'changed'      # found by its head and tail, other content
+    GONE = 'gone'            # not found (detail: the file git renamed it to)
+    NO_FILE = 'nofile'
 
 
-def stem(w):
-    for suf in ('ing', 'ed', 'es', 's'):
-        if len(w) > len(suf) + 3 and w.endswith(suf):
-            return w[:-len(suf)]
-    return w
+Located = namedtuple('Located', 'state file start end detail')
 
 
-def content_words(text):
-    return [stem(w) for w in re.findall(r"[a-z0-9][a-z0-9'-]*", plain(text).lower()) if w not in STOP and len(w) > 1]
+def where(code, file, start, end, a):
+    """Where anchored code is now, as the extension finds it: in its file, or in the file git renamed it to."""
+    files = [file] if code.isfile(file) else []
+    new = code.renamed(file)
+    if new != file and code.isfile(new):
+        files.append(new)
+    if not files:
+        return Located(State.NO_FILE, file, start, end, '')
+    changed = None
+    for f in files:
+        got = anchor_place(code.repo, f, a, start - 1 if f == file else 0)
+        if not got:
+            continue
+        s0, e0, same = got
+        if same:
+            here = f == file and (s0 + 1, e0 + 1) == (start, end)
+            return Located(State.OK if here else State.MOVED, f, s0 + 1, e0 + 1, '')
+        changed = changed or Located(State.CHANGED, f, s0 + 1, e0 + 1, '')
+    return changed or Located(State.GONE, file, start, end, (f'renamed to {new}' if new != file else ''))
 
 
-def lead_repeats_title(title, lead):
-    """A lead that says the title again adds nothing to the card. The share of the title's words (stop words
-    dropped, crude stems) found again in one sentence of the lead, or in the whole lead; returns that share when one
-    sentence carries >= 70 % of them or the lead >= 85 %, else None. Titles under 4 such words are not judged."""
-    tw = set(content_words(title))
-    if len(tw) < 4:
-        return None
-    one = max((len(tw & set(content_words(x))) / len(tw) for x in sentences(lead)), default=0)
-    whole = len(tw & set(content_words(lead))) / len(tw)
-    return max(one, whole) if one >= 0.7 or whole >= 0.85 else None
+# ======================================================================================================================
+# Ranges. A naive, per-language reading of source lines: whether a step's range starts or ends in the middle of a
+# statement (`range_warnings`, a WARNING), and where a declaration starts and ends (`SourceFile`, for `range`).
+# Brackets are counted without a parser: strings and comments are stripped first, which is enough for formatted code.
+# ======================================================================================================================
+
+CODE_EXT = ('.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.py', '.rs', '.java', '.kt', '.c', '.h',
+            '.cc', '.cpp', '.cs', '.swift')
+TAIL_OPS = ('&&', '||', '+', '-', '*', '/', '%', '=', '|', '&', '^', '\\')
+STATEMENT_END_SEARCH = 400   # lines after a range searched for the end of a statement it cuts off
+PARAMS_SEARCH = 40           # lines a method's parameter list may span
 
 
-SOFT_LABEL = 20
+def code_of(line, py=False):
+    """The line without string literals and comments ('' for a blank or comment-only line)."""
+    t = line.strip()
+    if t.startswith(('*', '/*', '<!--')) or t.startswith('#' if py else '//'):
+        return ''
+    t = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`', '""', t)
+    return re.sub(r'\s#.*$' if py else r'//.*$', '', t).strip()
 
 
-def label_warning(n):
-    """A box label is read at a glance; over 20 chars it wraps or shrinks (a function box is a symbol name)."""
-    if n.get('kind') != 'function' and SOFT_LABEL < len(n.get('label', '')) <= MAX_LABEL:
-        return (f'{n["id"]}: label "{n["label"]}" is {len(n["label"])} chars; aim for <= {SOFT_LABEL} ("CLI", "Worker"): '
-                f'the rest goes in the blurb (set {n["id"]} label "…")')
+def bracket_depth(code):
+    """Brackets opened minus brackets closed on a line of code."""
+    return sum(code.count(x) for x in '([{') - sum(code.count(x) for x in ')]}')
+
+
+def unfinished(code, py=False):
+    """Why this line cannot be the end of a statement ('' when it can)."""
+    if code.endswith(','):
+        return 'a comma'
+    if code.endswith(('(', '[')):
+        return f'an open "{code[-1]}"'
+    if code.endswith(TAIL_OPS) and not code.endswith(('++', '--', '*/')):
+        return f'the operator "{code[-1]}"'
+    if py and code.endswith(':') and not code.startswith(('case ', 'default')):
+        return 'a block opener ":"'
     return ''
 
 
-NEAR_REF = 20        # a ref this close to the step's own lines shows nothing new
+def lone_closer(code):
+    """A line that only closes brackets (`}`, `});`)."""
+    return bool(re.fullmatch(r'[\])}]+[;,]?', code))
+
+
+def range_warnings(lines, rel, start, end):
+    """Problems with where the range start-end (1-based) begins and ends; [] for a file that is not code."""
+    if not rel.endswith(CODE_EXT) or not (1 <= start <= end <= len(lines)):
+        return []
+    py = rel.endswith('.py')
+    code = {k: code_of(lines[k - 1], py) for k in range(start, end + 1)}
+    stack, unmatched = [], set()          # open brackets inside the range; lines closing one opened above it
+    for k in range(start, end + 1):
+        for ch in code[k]:
+            if ch in '([{':
+                stack.append(k)
+            elif ch in ')]}':
+                if stack:
+                    stack.pop()
+                else:
+                    unmatched.add(k)
+
+    def nxt(k, step):                     # the nearest line with code in that direction, inside the range
+        k += step
+        while start <= k <= end and not code[k]:
+            k += step
+        return k if start <= k <= end else None
+    out = []
+    first, last = code[start], code[end]
+    if lone_closer(first):
+        a = nxt(start, 1)
+        hint = f'did you mean {a}-{end}?' if a else 'pick the statement itself'
+        out.append(f'{rel}:{start}-{end} starts on a lone closing "{first[0]}" (the end of the block above): {hint}')
+    if end > start and lone_closer(last) and end in unmatched:
+        b = nxt(end, -1)
+        hint = f'did you mean {start}-{b}?' if b and not (b == start and lone_closer(first)) else 'pick the statement itself'
+        out.append(f'{rel}:{start}-{end} ends on a lone closing "{last[0]}" of a block opened above the range: {hint}')
+    if end > start and re.match(r'return\b', first):
+        # `return …` first, other code after it: the range starts at the tail of the block above
+        depth, r = 0, None
+        for k in range(start, end + 1):
+            c = code[k]
+            if not c:
+                continue
+            depth += bracket_depth(c)
+            if depth <= 0 and not unfinished(c, py):
+                r = k                     # the line the return statement ends on
+                break
+        a = nxt(r, 1) if r else None
+        while a and lone_closer(code[a]):
+            a = nxt(a, 1)
+        if a:
+            out.append(f'{rel}:{start}-{end} starts on a bare `{first[:40]}` (the end of the block above; the lines '
+                       f'after it are other code): did you mean {a}-{end}?')
+    why = unfinished(last, py) if last and not lone_closer(last) else ''
+    if why == 'a comma' and not stack and not unmatched:
+        why = ''                          # whole elements of a list or literal: balanced, each ends with its comma
+    prev = nxt(end, -1) if end > start else None
+    if not why and last.endswith('{') and prev and not unfinished(code[prev], py) and not code[prev].endswith('{'):
+        why = 'the opening "{" of a new block'     # a head on its own, or one spread over lines, is a fine anchor
+    if why:
+        opts = [f'{start}-{prev} (without it)'] if prev and last.endswith(('(', '[', '{')) else []
+        close = statement_end(lines, end, last, py)
+        if close:
+            opts.append(f'{start}-{close} (where it ends)')
+        out.append(f'{rel}:{start}-{end} ends in the middle of a statement (the last line ends with {why})'
+                   + (': did you mean ' + ' or '.join(opts) + '?' if opts else ''))
+    return out
+
+
+def statement_end(lines, end, last, py):
+    """The line (1-based) where the statement cut off at line `end` ends: brackets back to level; None if not near."""
+    depth = 0
+    for k in range(end, min(len(lines), end + STATEMENT_END_SEARCH) + 1):
+        c = code_of(lines[k - 1], py)
+        depth += bracket_depth(c)
+        if k > end and depth <= 0 and c and not unfinished(c, py):
+            return k
+        if k == end and depth <= 0 and not last.endswith(('(', '[', '{')):
+            depth = 0                 # a comma or operator inside an already balanced line: the next full line ends it
+    return None
+
+
+# What `range` takes for a declaration: Go, TS/JS, Python, Rust and C-like heads at the top level, nested functions
+# and classes, TS/JS methods and arrow functions assigned to a name.
+_MODS = r'(?:(?:public|private|protected|static|async|override|abstract|readonly|get|set)\s+)*'
+DECL = re.compile(r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?'
+                  r'(?:func|function\*?|def|class|type|interface|const|let|var|struct|fn|enum)\b')
+NAMED = re.compile(r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?'
+                   r'(?:func\s+(?:\(([^)]*)\)\s*)?|(?:function\*?|def|class|type|interface|struct|fn|enum|const|let|var)\s+)'
+                   r'([A-Za-z_$][\w$]*)')
+NESTED = re.compile(r'^\s+(?:export\s+)?(?:async\s+)?(?:function\*?|class)\s+[A-Za-z_$]')
+METHOD = re.compile(r'^\s+' + _MODS + r'\*?\s*(#?[A-Za-z_$][\w$]*)\s*(?:<[^(]*>)?\s*\(')
+ARROW = re.compile(r'^\s*(?:export\s+)?' + _MODS + r'(?:(?:const|let|var)\s+)?(#?[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*'
+                   r'(?:async\s*)?(?:\(|[\w$]+\s*=>).*=>\s*\{\s*$')
+NOT_NAMES = {'if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'await', 'new', 'throw', 'typeof',
+             'super', 'else', 'do', 'try', 'with', 'yield', 'delete', 'void', 'in', 'of'}
+
+
+class SourceFile:
+    """A source file's declarations, for `range`: what each line declares, and where it ends. Ends are found by the
+    closing line at the declaration's indentation (formatted code), else by counting brackets (Python: indentation).
+    Lines are 0-based here."""
+    def __init__(self, lines, py):
+        self.lines, self.py = lines, py
+        self.ends = {}
+        self.decls = [(i, n) for i in range(len(lines)) for n in [self.name_of(i)] if n]   # (line, (name, receiver))
+
+    def indent(self, i):
+        return len(self.lines[i]) - len(self.lines[i].lstrip())
+
+    def stripped_line(self, k):
+        """Line k without strings and comments, block comments too (unlike `code_of`, its indentation stays)."""
+        return re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`|/\*.*?\*/|//.*$', '', self.lines[k])
+
+    def method_name(self, i):
+        """The name when line i opens a TS/JS method (`private async click(…): T {`), else None."""
+        m = METHOD.match(self.lines[i])
+        if not m or m.group(1) in NOT_NAMES or self.lines[i].lstrip().startswith(('}', ')', '.', '?', ':')):
+            return None
+        depth, started = 0, False
+        for k in range(i, min(i + PARAMS_SEARCH, len(self.lines))):
+            code = self.stripped_line(k)
+            for pos, c in enumerate(code):
+                if c == '(':
+                    depth += 1
+                    started = True
+                elif c == ')':
+                    depth -= 1
+                    if started and depth == 0:
+                        return m.group(1) if re.match(r'^\s*(?::.*)?\{\s*$', code[pos + 1:]) else None
+        return None
+
+    def name_of(self, i):
+        """(name, receiver type) when line i declares something `range` may return, else None."""
+        l = self.lines[i]
+        if self.py:
+            m = re.match(r'^\s*(?:async\s+)?(?:def|class)\s+(\w+)', l)
+            return (m.group(1), '') if m else None
+        if not l.strip() or l.lstrip().startswith(('//', '*', '/*')):
+            return None
+        m = ARROW.match(l)
+        if m and m.group(1) not in NOT_NAMES:
+            return (m.group(1), '')
+        if DECL.match(l) and (self.indent(i) == 0 or NESTED.match(l)):
+            m = NAMED.match(l)
+            recv = re.sub(r'^.*?\*?([\w$]+)(?:\[[^\]]*\])?\s*$', r'\1', m.group(1)) if m and m.group(1) else ''
+            return (m.group(2), recv) if m else ('', '')
+        if self.indent(i) > 0:
+            n = self.method_name(i)
+            if n:
+                return (n, '')
+        return None
+
+    def span(self, i):
+        """The last line of the declaration on line i."""
+        if i not in self.ends:
+            self.ends[i] = self.end_by_indent(i) if self.py else self.end_of(i)
+        return self.ends[i]
+
+    def end_by_indent(self, i):
+        """Python: the last line indented deeper than line i."""
+        last = i
+        for k in range(i + 1, len(self.lines)):
+            if self.lines[k].strip():
+                if self.indent(k) <= self.indent(i) and not self.lines[k].lstrip().startswith(')'):
+                    break
+                last = k
+        return last
+
+    def end_of(self, i):
+        counted, first = self.end_by_count(i)
+        if first and first > 0:
+            # The declaration stays open after its first line: in formatted code it ends on the first closing line
+            # at the same indentation (a `): T {` that only ends the parameter list is not it). This survives
+            # braces inside regex literals and multi-line template strings, which the count does not.
+            closing = self.closing_line(i)
+            if closing is not None:
+                return closing
+        return counted
+
+    def end_by_count(self, i):
+        """(the line where the brackets opened from line i close again, the depth line i leaves open)."""
+        depth, seen, first, tpl = 0, False, None, False
+        for k in range(i, len(self.lines)):
+            code = self.stripped_line(k)
+            if code.count('`') % 2:      # a multi-line `…` string opens or closes here: skip what is inside it
+                code = code[code.index('`'):] if tpl else code[:code.index('`')]
+                tpl = not tpl
+                if tpl:
+                    seen = True
+            elif tpl:
+                continue
+            if tpl:
+                for c in code:
+                    depth += (c in '{([') - (c in '})]')
+                first = first if k != i else max(depth, 0)
+                continue
+            for c in code:
+                if c in '{([':
+                    depth += 1
+                    seen = True
+                elif c in '})]':
+                    depth -= 1
+            if k == i:
+                first = depth
+            if depth <= 0 and (seen or not code.rstrip().endswith(('=', ','))):
+                return k, first
+        return len(self.lines) - 1, first
+
+    def closing_line(self, i):
+        """The first line at line i's indentation that closes a bracket (and opens none), or None."""
+        for k in range(i + 1, len(self.lines)):
+            s = self.lines[k].strip()
+            if not s:
+                continue
+            if self.indent(k) < self.indent(i):
+                return None
+            if self.indent(k) == self.indent(i) and s[0] in '})]' and not self.stripped_line(k).rstrip().endswith(('{', '(', '[')):
+                return k
+        return None
+
+    def around(self, n):
+        """The declarations containing line n, outermost first."""
+        return [i for i, _ in self.decls if i <= n <= self.span(i)]
+
+    def receiver(self, i):
+        return next((r for j, (_, r) in self.decls if j == i), '')
+
+    def named(self, what):
+        """The declarations of `what`: a name, or Owner.name (a method in a class, a Go method of a type)."""
+        owner, _, name = what.rpartition('.')
+        starts = [i for i, (nm, _) in self.decls if nm == name]
+        if owner:
+            inside = [(i, self.span(i)) for i, (nm, _) in self.decls if nm == owner]
+            starts = [i for i in starts if self.receiver(i) == owner or any(a < i <= b for a, b in inside)]
+        return starts
+
+    def owner(self, i):
+        """The name of the declaration around declaration i ('' at the top level)."""
+        return next((dn for j, (dn, _) in reversed(self.decls)
+                     if j < i and self.indent(j) < self.indent(i) and i <= self.span(j)), '')
+
+    def close_names(self, name):
+        """Up to 6 declared names that contain `name`, as Owner.name when they are inside something."""
+        near = set()
+        for i, (nm, _) in self.decls:
+            if nm and name.lower() in nm.lower():
+                o = self.owner(i)
+                near.add(f'{o}.{nm}' if o else nm)
+        return sorted(near)[:6]
+
+
+# ======================================================================================================================
+# Refs: one sentence with one path:line in it, saying what the reader will see there.
+# ======================================================================================================================
+
+
+def parse_at(at):
+    f, _, r = at.rpartition(':')
+    a, _, b = r.partition('-')
+    return f, int(a), int(b or a)
+
+
+def ref_tokens(ref):
+    """The path:line tokens inside a ref (a sentence, or an old bare `path:line`), as regex matches."""
+    return list(re.finditer(r'(?<![\w/.@-])' + REF, ref))
+
+
+def ref_token(ref):
+    """The ref's first path:line as a string ('' when it has none): what is checked, compared and linked."""
+    t = ref_tokens(ref)
+    return t[0].group(0) if t else ''
+
+
+def ref_bare(ref):
+    return bool(re.fullmatch(REF, ref.strip()))
+
+
+def parse_refs(s):
+    """One ref per line (or several on one line separated by " | "): a sentence with one path:line in it. A line
+    made only of bare path:line tokens (the old form, space or comma separated) gives one bare ref per token."""
+    out = []
+    for line in re.split(r'\n|\s\|\s', s.strip()):
+        line = re.sub(r'^\s*(?:[-*]|\d+[.)])\s+', '', line.strip()).strip()
+        if not line:
+            continue
+        parts = [r for r in re.split(r'[\s,]+', line) if r]
+        if all(re.fullmatch(REF, r) for r in parts):
+            out.extend(parts)
+        else:
+            out.append(' '.join(line.split()))
+    return out
+
+
+def ref_warnings(k, s):
+    """A ref is one short sentence saying what is there, with exactly one path:line in it."""
+    out = []
+    for i, ref in enumerate(s.get('refs', []), 1):
+        n = len(ref_tokens(ref))
+        if ref_bare(ref):
+            out.append(f'step {k}: ref {i} "{ref}" is a bare path:line: write one sentence saying what the reader will '
+                       f'see there, with the path:line in it (restep {k} refs -)')
+            continue
+        if n > 1:
+            out.append(f'step {k}: ref {i} holds {n} path:line tokens ("{ref}"): one place per ref; split it or keep one')
+        w = words(ref)
+        if w > MAX_REF_WORDS:
+            out.append(f'step {k}: ref {i} is {w} words (max ~{MAX_REF_WORDS}: one short sentence saying what is there): "{ref}"')
+    return out
+
+
+def parse_step_text(text):
+    """first paragraph = lead; the rest = details; a last block `refs:` + one sentence per line (each with one
+    path:line), or the old last line `refs: a:1 b:2`, = refs."""
+    refs = None
+    lines = text.strip().split('\n')
+    for i in range(len(lines) - 1, -1, -1):          # the last `refs:` line whose following lines all carry a path:line
+        m = re.match(r'(?i)^refs?:\s*(.*)$', lines[i].strip())
+        if m:
+            tail = [l for l in lines[i + 1:] if l.strip()]
+            if all(ref_tokens(l) for l in tail) and (tail or m.group(1).strip()):
+                refs = parse_refs('\n'.join([m.group(1)] + tail))
+                lines = lines[:i]
+            break
+    lead, _, details = '\n'.join(lines).strip().partition('\n\n')
+    return ' '.join(lead.split()), details.strip(), refs
 
 
 def near_refs(s):
@@ -1939,6 +1359,106 @@ def near_ref_warning(k, s):
     return (f'step {k}: ref{"s" if len(near) > 1 else ""} {" ".join(map(ref_token, near))} point{"" if len(near) > 1 else "s"} at the '
             f'step\'s own code ({s["file"]}:{r["start"]}-{r["end"]}, or within {NEAR_REF} lines of it): it is already on '
             f'screen; a ref points elsewhere (another function or file). Drop it: restep {k} refs "{" | ".join(keep)}"')
+
+
+def check_ref(repo, ref):
+    """Returns (problem, [(line number, text)...])."""
+    m = re.fullmatch(REF, ref)
+    if not m:
+        return 'not a full path:line (or path:line-line)', []
+    f, a, b = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
+    p = os.path.join(repo, f)
+    if not os.path.isfile(p):
+        return 'no such file', []
+    ls = open(p, encoding='utf-8', errors='replace').read().split('\n')
+    if b > len(ls) or b < a or a < 1:
+        return f'the file has {len(ls)} lines', []
+    return '', [(a, ls[a - 1].strip()[:90])] + ([(b, ls[b - 1].strip()[:90])] if b > a else [])
+
+
+# ======================================================================================================================
+# Style: what a title, a lead, a label says; refused when written over a hard limit, a WARNING otherwise.
+# ======================================================================================================================
+
+
+def question_problem(q):
+    """The question is the map header (one bold line) and the sidebar row's tooltip."""
+    if len(q.strip()) > MAX_QUESTION:
+        return (f'is {len(q.strip())} chars (max {MAX_QUESTION}: one natural question a developer would ask; '
+                f'the lists and qualifiers go in the summary)')
+    return ''
+
+
+def title_problem(t, labels):
+    if len(t) > MAX_STEP_TITLE:
+        return f'is {len(t)} chars (max {MAX_STEP_TITLE})'
+    if re.match(r'(?i)^(step|part|phase|stage|hop)\s*\d+\b', t):
+        return 'is a heading; write the fact that happens here ("The server only stores a pending record")'
+    if re.match(r'(?i)^(what|how|why|where|when|which|about|overview|intro)\b', t):
+        return 'names a topic; state the fact instead ("The request carries the spec and the built image tags")'
+    if t.strip().lower() in labels or words(t) < 4:
+        return 'is a name, not a fact: say what happens (subject + verb, at least 4 words)'
+    if t.rstrip().endswith((':', '?')):
+        return 'ends with ":" or "?"; state the fact'
+    return ''
+
+
+def journey_title_problem(t):
+    """The journey's title is a short topic name for a sidebar row that cannot wrap."""
+    t = t.strip()
+    if len(t) > MAX_TITLE:
+        return f'is {len(t)} chars (max {MAX_TITLE}: a short topic name, subject first, e.g. "Checkout flow")'
+    if t.endswith('?') or re.match(r'(?i)^(how|why|what|when)\b', t):
+        return 'is a question; the title is a topic name (noun phrase, subject first: "Upgrade in place"); the question stays in `question`'
+    return ''
+
+
+def label_limit(label):
+    if len(label) > MAX_LABEL:
+        refuse(f'label is {len(label)} chars (max {MAX_LABEL}; a path goes in --path / `set <node> path`, '
+               f'the sentence in the summary): "{label}"')
+
+
+def blurb_limit(blurb):
+    if len(blurb) > MAX_BLURB:
+        refuse(f'blurb is {len(blurb)} chars (max {MAX_BLURB}): "{blurb}"')
+
+
+def child_limit(j, parent, nid):
+    """The box `parent` ('' = the top level) can take `nid` as one more child."""
+    n = sum(1 for x in j['nodes'] if x.get('parent', '') == parent and x['id'] != nid)
+    if n >= MAX_CHILDREN:
+        where = f'box {parent}' if parent else 'the top level'
+        refuse(f'{where} already has {n} children (max {MAX_CHILDREN}): group some of them under a new box first')
+
+
+def step_limits(s):
+    """An over-limit title or lead is refused when it is written, not found later by check."""
+    t, w = s.get('title', ''), words(s.get('lead', ''))
+    if len(t) > MAX_STEP_TITLE:
+        fail(f'title is {len(t)} chars (max {MAX_STEP_TITLE}); nothing was written: "{t}"')
+    if w > MAX_LEAD_WORDS:
+        fail(f'lead is {w} words (max {MAX_LEAD_WORDS}; move the rest to details); nothing was written')
+
+
+def lead_repeats_title(title, lead):
+    """A lead that says the title again adds nothing to the card. The share of the title's words (stop words
+    dropped, crude stems) found again in one sentence of the lead, or in the whole lead; returns that share when one
+    sentence carries >= 70 % of them or the lead >= 85 %, else None. Titles under 4 such words are not judged."""
+    tw = set(content_words(title))
+    if len(tw) < 4:
+        return None
+    one = max((len(tw & set(content_words(x))) / len(tw) for x in sentences(lead)), default=0)
+    whole = len(tw & set(content_words(lead))) / len(tw)
+    return max(one, whole) if one >= REPEAT_SENTENCE or whole >= REPEAT_LEAD else None
+
+
+def label_warning(n):
+    """A box label is read at a glance; over 20 chars it wraps or shrinks (a function box is a symbol name)."""
+    if n.get('kind') != 'function' and SOFT_LABEL < len(n.get('label', '')) <= MAX_LABEL:
+        return (f'{n["id"]}: label "{n["label"]}" is {len(n["label"])} chars; aim for <= {SOFT_LABEL} ("CLI", "Worker"): '
+                f'the rest goes in the blurb (set {n["id"]} label "…")')
+    return ''
 
 
 CODE_IN_LABEL = (
@@ -2024,98 +1544,12 @@ def repeat_warning(k, s):
     return ''
 
 
-# --- step extras (format: media/journey-scene.js, src/core/codeLinkText.ts, src/codeLinks/valueHints.ts): a step's
-# animation (`scene`), its code links (`links`: phrases of the lead/details that open the lines doing that part) and
-# its value hints (`values`: what a variable holds in the example run, above its line). Every line is read from the
-# source by the commands below; the author never types a line's text.
-FIND_NEAR = 400        # how far the same trimmed text is still taken for a line that moved (the extension's SAME_TEXT_RADIUS)
-SOFT_LINK_LINES = 15
-MAX_VALUE, SOFT_NOTE = 40, 60          # valueHints.ts cuts a value at 40 (capValue); a note is a few words
-VALUE_NEAR, BEAT_NEAR = 25, 12         # a hint sits near the step's lines, or near a beat or link of the step
-
-# A scene's limits, for the Python rules (without node). The helper reads them from the extension's journey schema
-# (src/core/format/schema/journey.schema.json); the extension's tests check that these say the same.
-MIN_BEATS, SOFT_BEATS, MAX_BEATS = 3, 6, 7
-MAX_ACTORS = 4
-SOFT_CAPTION, SOFT_CAPTION_ALL = 70, 110
-MAX_CHECKS, MAX_CHECK, MAX_ROWS, MAX_TERM_LINE = 5, 28, 3, 36
-MAX_PACKET = 24
-# What each actor type reads (anything else is ignored by the engine), what a beat's `set` may change on it, and the
-# beat's own keys.
-APP_OLD_KEYS = {'test', 'env', 'findings', 'timeline', 'status', 'provider', 'chat'}     # older journeys' flat fields
-ACTOR_KEYS = {'app': {'brand', 'logo', 'tabs', 'dialog', 'detail', 'signin', 'pages', 'screen'} | APP_OLD_KEYS,
-              'service': {'fn', 'checks'}, 'table': {'rows'}, 'cluster': {'pods', 'inner'},
-              'browser': {'url', 'title', 'shop', 'products', 'button', 'cart', 'markLabel', 'lock'}, 'terminal': {'lines'},
-              'file': {'from', 'lines'}, 'chat': {'messages'}, 'queue': {'slots', 'cap'}, 'gauge': {'max', 'unit', 'used'}}
-TYPE_ALIAS = {'console': 'app'}                      # the app actor's type in older journeys
-COMMON_KEYS = {'id', 'type', 'col', 'label', 'sub'}
-SET_KEYS = {'app': {'screen', 'status', 'tone', 'findings', 'cards', 'events', 'newFinding', 'newCard', 'newEvent', 'ended',
-                    'notice', 'redirecting', 'busy', 'pane', 'desktop', 'picture', 'chat', 'newChat', 'typing', 'rows',
-                    'hiRow', 'banner'},
-            'service': {'done'}, 'table': {'show', 'hi', 'chips'},
-            'cluster': {'mark', 'made', 'gone', 'inner', 'innerMade', 'innerMark', 'innerGone'},
-            'browser': {'click', 'mark', 'lock'}, 'terminal': {'show', 'hi'}, 'file': {'show', 'hi', 'text'},
-            'chat': {'show', 'hi'}, 'queue': {'fill', 'drop', 'note'}, 'gauge': {'used', 'want', 'note'}}
-BEAT_KEYS = {'focus', 'caption', 'muted', 'set', 'packet', 'click', 'flash', 'code', 'example', 'hold', 'marks'}
-SCREENS = ('dialog', 'detail', 'signin')             # and the names of the actor's own `pages`
-SCREEN_ALIAS = ('run-dialog', 'run-page', 'login')   # older journeys' names of the three
-PANES = ('picture', 'chat', 'desktop')               # desktop: the older name of picture
-TONES = ('neutral', 'active', 'good', 'bad')
-LOCKS = ('ok', 'warn')
-DEFAULT_LABEL = {'app': 'Web app', 'browser': 'Browser', 'terminal': 'Terminal', 'file': 'file', 'chat': 'Chat'}
-STARTS_EMPTY = ('terminal', 'chat')                  # nothing is shown until a beat sets `show`
-# Characters that fit a box. Over these a label is cut or sticks out of its box (the panel check fails).
-LABEL_CHARS = {'service': 38, 'app': 42, 'browser': 42, 'terminal': 42, 'file': 42, 'chat': 42, 'table': 46,
-               'cluster': 46, 'queue': 46, 'gauge': 46}
-MAX_TABS, TAB_CHARS = 3, 10
-DIALOG_CHARS = {'title': 24, 'item': 24, 'button': 18}
-DIALOG_LINES, LINE_KEY, LINE_VALUE = 2, 12, 18
-DETAIL_CHARS = {'title': 22, 'status': 12, 'empty': 30, 'picture': 38, 'placeholder': 32}
-TITLE_CHIP = 30                                      # a page's title and its status chip share one line
-SIGNIN_CHARS = {'title': 22, 'notice': 40, 'provider': 10, 'button': 24}
-OLD_CHARS = {'test': 22, 'env': LINE_VALUE, 'provider': SIGNIN_CHARS['provider'], 'status': DETAIL_CHARS['status']}
-BROWSER_CHARS = {'url': 32, 'title': 20, 'shop': 20, 'button': 13, 'cart': 10, 'markLabel': 18}
-SHOP_TOP = 26                                        # the shop's name and the cart share one line
-FN_CHARS, CARD_CHARS, TIMELINE_CHARS, PRODUCT_CHARS, INNER_LABEL_CHARS = 28, 32, 36, 14, 40
-FILE_CHARS, FILE_NUM_CHARS = 34, 30                  # a file's line; with line numbers (`from`)
-CHAT_CHARS, CHAT_TOOL_CHARS = 38, 32                 # a chat message; a tool call
-APP_CHAT_CHARS, NOTE_CHARS, QUEUE_SLOTS = 32, 44, 8
-PAGE_ROWS, PAGE_KEY, PAGE_VALUE, PAGE_BANNER = 4, 12, 20, 38
-PAGE_ITEMS = 4                                       # rows, the banner and the button: what fits under the title
-PAGE_CHARS = {'title': 22, 'chip': 12, 'tab': TAB_CHARS, 'button': 20}
-# Widths in pixels, estimated from character counts (media/journey-scene.css; calibrated with the extension's panel
-# check, test/journey-scene/check.mjs).
-TOP_PX, BRAND_PX, TAB_PX, TAB_GAP = 280, 7.8, 6.8, 12   # the app window's top bar; its brand (12.5 px bold), tabs (12 px)
-ROW_PX, MONO_13_PX, ROW_ID_MIN_PX = 300, 7.8, 70     # a table row; its id in 13 px mono, at least 70 px wide
-PILL_PX, PILL_GAP, PILL_PAD = 6.2, 9, 18             # a row's pills: 12 px text, 9 px apart
-PODS_PX, INNER_PODS_PX = 320, 296                    # pods side by side
-LABEL_14_PX, NOTE_12_PX = 7.2, 6.4                   # a pod's 14 px label over its 12 px note
-
-
-def is_int(v):
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
-def line_at(repo, f, line, text):
-    """Where a link's, value's or beat's line is in file f now (0-based), found by its text near `line`; -1: gone."""
-    got = RULES.ask('line', repo=repo, file=f, line=line, text=text)
-    return find_line(lines_of(repo, f), line, text) if got is FALLBACK else got
-
-
-def find_line(lines, line, text):
-    """line_at's rule (src/core/anchors/lineFollow.ts findLine): the written line if it still says `text` (trimmed), else the nearest line within
-    FIND_NEAR that does; -1 when none does. 0-based."""
-    want = (text or '').strip()
-    if not want:
-        return -1
-    at = line - 1
-    if 0 <= at < len(lines) and lines[at].strip() == want:
-        return at
-    for d in range(1, FIND_NEAR + 1):
-        for i in (at - d, at + d):
-            if 0 <= i < len(lines) and lines[i].strip() == want:
-                return i
-    return -1
+# ======================================================================================================================
+# Links and values of a step (format: src/core/codeLinkText.ts, src/codeLinks/valueHints.ts): its code links
+# (`links`: phrases of the lead/details that open the lines doing that part) and its value hints (`values`:
+# what a variable holds in the example run, above its line). Every line is read from the source by the
+# commands; the author never types a line's text.
+# ======================================================================================================================
 
 
 def source_line(repo, rel, line, what):
@@ -2241,6 +1675,178 @@ def value_issues(k, s, v, others):
         out.append(Issue(WARN, f'{where} is neither within {VALUE_NEAR} lines of the step\'s range nor within {BEAT_NEAR} '
                          f'lines of a beat or link of this step: the reader never sees it there (rmvalue {k} {name})'))
     return out
+
+
+def link_issues(k, s, l):
+    """The Issues of one code link, without its anchor (checked apart)."""
+    out = []
+    ph = str(l.get('phrase', ''))
+    where = f'step {k}: link "{ph}"'
+    r = s.get('range') or {}
+    a, b = l.get('start'), l.get('end')
+    if is_int(a) and is_int(b) and b < a:
+        out.append(Issue(PROBLEM, f'{where}: end {b} is before start {a}'))
+    elif is_int(a) and is_int(b):
+        if l.get('file') == s.get('file') and (a, b) == (r.get('start'), r.get('end')):
+            out.append(Issue(REFUSE, f'{where} points at the step\'s whole own range ({s["file"]}:{a}-{b}): that is already '
+                             f'lit; a link opens the few lines that do what the phrase says'))
+        if b - a + 1 > SOFT_LINK_LINES:
+            out.append(Issue(WARN, f'{where} marks {b - a + 1} lines ({l.get("file")}:{a}-{b}); aim for 1-8, max ~'
+                             f'{SOFT_LINK_LINES}: the lines that do what the phrase says'))
+    same = [o for o in s.get('links', []) if o is not l and (o.get('file'), o.get('start'), o.get('end')) == (l.get('file'), a, b)]
+    if same:
+        out.append(Issue(REFUSE, f'{where} points at the same lines as the link "{same[0].get("phrase")}" '
+                         f'({l.get("file")}:{a}-{b}): one link per place'))
+    if [o.get('phrase') for o in s.get('links', [])].count(ph) > 1:
+        out.append(Issue(PROBLEM, f'{where}: two links of this step have this phrase (only the first can be a link)'))
+    return out
+
+
+def say_issues(issues, write):
+    """For a write: refuses on a PROBLEM or REFUSE issue (nothing written); returns the warnings to print after the echo."""
+    stop = [m for lv, m in issues if lv in (PROBLEM, REFUSE)] if write else []
+    if stop:
+        print('\n'.join('PROBLEM: ' + m for m in stop[1:]))
+        refuse(stop[0])
+    return [m for lv, m in issues if lv == WARN]
+
+
+def extras_line(s):
+    """`, 5 links, 3 values, scene 5 beats` for the storyline row."""
+    sc = s.get('scene') if isinstance(s.get('scene'), dict) else None
+    nm = sum(len(ms) for _, ms, _, _, _ in marks_groups(s) if isinstance(ms, list))
+    return (f', {len(s.get("links", []))} links, {len(s.get("values", []))} values'
+            + (f', {nm} marks' if nm else '')
+            + (f', scene {len(sc.get("beats") or [])} beats' if sc else ''))
+
+
+def relocate(code, name, h, fkey, lkey, how, span=None):
+    """A link's, value's or beat's line (h[fkey]:h[lkey]) found again by its text, the way the extension finds it:
+    None in place, an Issue when it can't be found, a Fix when it moved."""
+    f, ln, text = h.get(fkey), h.get(lkey), str(h.get('text', ''))
+    if not isinstance(f, str) or not is_int(ln):
+        return Issue(PROBLEM, f'{name}: needs a file and a line number ({how})')
+    if not text.strip():
+        return Issue(PROBLEM, f'{name}: no "text" (the line it is on); rewrite it with the command ({how})')
+    cur = f
+    if not code.isfile(f):
+        cur = code.renamed(f)
+        if cur == f or not code.isfile(cur):
+            asked = ' (git could not be asked about a rename)' if code.git.error else ''
+            return Issue(PROBLEM, f'{name}: {f} no longer exists{asked} ({how})')
+    i = line_at(code.repo, cur, ln, text)
+    if i < 0:
+        return Issue(PROBLEM, f'{name}: {f}:{ln} no longer reads "{text[:70]}", and no line within {FIND_NEAR} lines does: '
+                              f'the code changed; re-read it and rewrite this ({how})')
+    if (cur, i + 1) == (f, ln):
+        return None
+
+    def move():
+        h[fkey], h[lkey] = cur, i + 1
+        if span:
+            h[span] = h.get(span, ln) + i + 1 - ln
+    return Fix(f'{name} moved to {cur}:{i + 1} (was {f}:{ln}; run check fix)', f'{name}: {f}:{ln} -> {cur}:{i + 1}', move)
+
+
+def scene_found(code, k, sc):
+    """A step's scene: its Issues, then each beat's line found again (Fix or Issue) and what it lights."""
+    found = scene_issues(k, sc)
+    if any(lv == PROBLEM for lv, _ in found):
+        return found
+    for i, b in enumerate(sc['beats'], 1):
+        c = b.get('code')
+        if not isinstance(c, dict):
+            continue
+        found.append(relocate(code, f'step {k} scene: beat {i} ("{str(b.get("caption", ""))[:40]}")', c, 'file',
+                              'line', f'scene {k}: give the beat its line again'))
+        why = odd_line(str(c.get('text', '')), str(c.get('file', '')))
+        if why:
+            found.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c.get("file")}:{c.get("line")}): '
+                                     f'light the line that DOES what the caption says'))
+    return found
+
+
+def check_extras(code, j):
+    """`check` on every step's links, values, scene and marks: the static rules above, and each stored line found
+    again the way the extension finds it. Issues and Fixes (moved: `check fix` applies them), in the order found."""
+    found = []
+    any_extra = False
+    some_links = any(x.get('links') for x in j['steps'])
+    for k, s in enumerate(j['steps'], 1):
+        links, vals, sc = s.get('links', []), s.get('values', []), s.get('scene')
+        any_extra = any_extra or bool(links or vals or sc)
+        for l in links:
+            found.append(relocate(code, f'step {k}: link "{l.get("phrase")}"', l, 'file', 'start',
+                                  f'link {k} "{l.get("phrase")}" <file> <start> <end>', 'end'))
+            found.extend(link_issues(k, s, l))
+        found.extend(Issue(WARN, w) for w in link_warnings(k, s))      # dead links: refused when written; old files stay valid
+        for v in vals:
+            found.append(relocate(code, f'step {k}: value {v.get("name")}', v, 'file', 'line',
+                                  f'value {k} {v.get("name")} "<value>" <file> <line>'))
+            found.extend(value_issues(k, s, v, vals))
+        if sc is not None:
+            found.extend(scene_found(code, k, sc))
+        found.extend(marks_issues(code, k, s))
+        if some_links and not links:
+            found.append(Issue(WARN, f'step {k}: no code links (aim for 3-6: the phrases of the lead and details that '
+                                     f'name what a few lines do; link {k} "<phrase>" <file> <start> <end>)'))
+    if not any_extra and j['steps']:
+        found.append(Issue(WARN, 'no step has code links, value hints or an animation: add them once the steps are '
+                                 'written (link, value, scene: SKILL.md "Links, values, marks, scenes")'))
+    return [x for x in found if x]
+
+
+def as_issues(found):
+    """Issues and Fixes as Issues: a Fix not applied is a WARNING."""
+    return [Issue(WARN, x.warning) if isinstance(x, Fix) else x for x in found]
+
+
+# ======================================================================================================================
+# Scenes: a step's animation (format: media/journey-scene.js). With node, the extension's rules
+# (cli/journey/scene.ts, sizes from the journey schema); without, the Python rules below.
+# ======================================================================================================================
+
+
+# What each actor type reads (anything else is ignored by the engine), what a beat's `set` may change on it, and the
+# beat's own keys.
+APP_OLD_KEYS = {'test', 'env', 'findings', 'timeline', 'status', 'provider', 'chat'}     # older journeys' flat fields
+ACTOR_KEYS = {'app': {'brand', 'logo', 'tabs', 'dialog', 'detail', 'signin', 'pages', 'screen'} | APP_OLD_KEYS,
+              'service': {'fn', 'checks'}, 'table': {'rows'}, 'cluster': {'pods', 'inner'},
+              'browser': {'url', 'title', 'shop', 'products', 'button', 'cart', 'markLabel', 'lock'}, 'terminal': {'lines'},
+              'file': {'from', 'lines'}, 'chat': {'messages'}, 'queue': {'slots', 'cap'}, 'gauge': {'max', 'unit', 'used'}}
+TYPE_ALIAS = {'console': 'app'}                      # the app actor's type in older journeys
+COMMON_KEYS = {'id', 'type', 'col', 'label', 'sub'}
+SET_KEYS = {'app': {'screen', 'status', 'tone', 'findings', 'cards', 'events', 'newFinding', 'newCard', 'newEvent', 'ended',
+                    'notice', 'redirecting', 'busy', 'pane', 'desktop', 'picture', 'chat', 'newChat', 'typing', 'rows',
+                    'hiRow', 'banner'},
+            'service': {'done'}, 'table': {'show', 'hi', 'chips'},
+            'cluster': {'mark', 'made', 'gone', 'inner', 'innerMade', 'innerMark', 'innerGone'},
+            'browser': {'click', 'mark', 'lock'}, 'terminal': {'show', 'hi'}, 'file': {'show', 'hi', 'text'},
+            'chat': {'show', 'hi'}, 'queue': {'fill', 'drop', 'note'}, 'gauge': {'used', 'want', 'note'}}
+BEAT_KEYS = {'focus', 'caption', 'muted', 'set', 'packet', 'click', 'flash', 'code', 'example', 'hold', 'marks'}
+SCREENS = ('dialog', 'detail', 'signin')             # and the names of the actor's own `pages`
+SCREEN_ALIAS = ('run-dialog', 'run-page', 'login')   # older journeys' names of the three
+PANES = ('picture', 'chat', 'desktop')               # desktop: the older name of picture
+TONES = ('neutral', 'active', 'good', 'bad')
+LOCKS = ('ok', 'warn')
+DEFAULT_LABEL = {'app': 'Web app', 'browser': 'Browser', 'terminal': 'Terminal', 'file': 'file', 'chat': 'Chat'}
+STARTS_EMPTY = ('terminal', 'chat')                  # nothing is shown until a beat sets `show`
+# Widths in pixels, estimated from character counts (media/journey-scene.css; calibrated with the extension's panel
+# check, test/journey-scene/check.mjs).
+TOP_PX = 280               # the app window's top bar …
+BRAND_PX = 7.8             # … its brand (12.5 px bold) …
+TAB_PX = 6.8               # … and tabs (12 px)
+TAB_GAP = 12
+ROW_PX = 300               # a table row …
+MONO_13_PX = 7.8           # … its id in 13 px mono …
+ROW_ID_MIN_PX = 70         # … at least 70 px wide
+PILL_PX = 6.2              # a row's pills: 12 px text …
+PILL_GAP = 9               # … 9 px apart
+PILL_PAD = 18
+PODS_PX = 320              # pods side by side
+INNER_PODS_PX = 296
+LABEL_14_PX = 7.2          # a pod's 14 px label …
+NOTE_12_PX = 6.4           # … over its 12 px note
 
 
 def scene_issues(k, sc):
@@ -2874,283 +2480,13 @@ STATE_RULES = {'app': app_state, 'service': service_state, 'table': table_state,
                'queue': queue_state, 'gauge': gauge_state}
 
 
-def link_issues(k, s, l):
-    """The Issues of one code link, without its anchor (checked apart)."""
-    out = []
-    ph = str(l.get('phrase', ''))
-    where = f'step {k}: link "{ph}"'
-    r = s.get('range') or {}
-    a, b = l.get('start'), l.get('end')
-    if is_int(a) and is_int(b) and b < a:
-        out.append(Issue(PROBLEM, f'{where}: end {b} is before start {a}'))
-    elif is_int(a) and is_int(b):
-        if l.get('file') == s.get('file') and (a, b) == (r.get('start'), r.get('end')):
-            out.append(Issue(REFUSE, f'{where} points at the step\'s whole own range ({s["file"]}:{a}-{b}): that is already '
-                             f'lit; a link opens the few lines that do what the phrase says'))
-        if b - a + 1 > SOFT_LINK_LINES:
-            out.append(Issue(WARN, f'{where} marks {b - a + 1} lines ({l.get("file")}:{a}-{b}); aim for 1-8, max ~'
-                             f'{SOFT_LINK_LINES}: the lines that do what the phrase says'))
-    same = [o for o in s.get('links', []) if o is not l and (o.get('file'), o.get('start'), o.get('end')) == (l.get('file'), a, b)]
-    if same:
-        out.append(Issue(REFUSE, f'{where} points at the same lines as the link "{same[0].get("phrase")}" '
-                         f'({l.get("file")}:{a}-{b}): one link per place'))
-    if [o.get('phrase') for o in s.get('links', [])].count(ph) > 1:
-        out.append(Issue(PROBLEM, f'{where}: two links of this step have this phrase (only the first can be a link)'))
-    return out
+# ======================================================================================================================
+# Marks: the part of a line a step or beat is about (docs/journey-format.md "Marks"; a podcast segment's
+# marks have the same shape plus phrase and at). With node, the extension's src/core/format/marks.ts
+# checks them (mark_check); the Python rules below are the same, and its tests run both on the same marks.
+# ======================================================================================================================
 
 
-def say_issues(issues, write):
-    """For a write: refuses on a PROBLEM or REFUSE issue (nothing written); returns the warnings to print after the echo."""
-    stop = [m for lv, m in issues if lv in (PROBLEM, REFUSE)] if write else []
-    if stop:
-        print('\n'.join('PROBLEM: ' + m for m in stop[1:]))
-        refuse(stop[0])
-    return [m for lv, m in issues if lv == WARN]
-
-
-def extras_line(s):
-    """`, 5 links, 3 values, scene 5 beats` for the storyline row."""
-    sc = s.get('scene') if isinstance(s.get('scene'), dict) else None
-    nm = sum(len(ms) for _, ms, _, _, _ in marks_groups(s) if isinstance(ms, list))
-    return (f', {len(s.get("links", []))} links, {len(s.get("values", []))} values'
-            + (f', {nm} marks' if nm else '')
-            + (f', scene {len(sc.get("beats") or [])} beats' if sc else ''))
-
-
-def cmd_link(repo, slug, n, phrase, rel, start, end=''):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    phrase = phrase.strip()
-    if not phrase:
-        refuse('the phrase is empty: give the words of the lead or details that become the link')
-    text = source_line(repo, rel, start, f'link "{phrase}"')
-    a = int(start)
-    if end and not end.isdigit():
-        refuse(f'link "{phrase}": end "{end}" is not a line number')
-    b = int(end or start)
-    ls = lines_of(repo, rel)
-    if not a <= b <= len(ls):
-        refuse(f'link "{phrase}": {rel}:{a}-{b} is not a range in the file ({len(ls)} lines)')
-    links = list(s.get('links', []))
-    old = next((i for i, l in enumerate(links) if l.get('phrase') == phrase), None)
-    new = {'phrase': phrase, 'file': rel, 'start': a, 'end': b, 'text': text}
-    if old is None:
-        links.append(new)
-    else:
-        links[old] = new
-    trial = {**s, 'links': links}
-    if links.index(new) not in placed_links(trial):
-        refuse(f'link "{phrase}": the phrase {why_unplaced(s, new)}')
-    warns = say_issues(link_issues(k, trial, new), True)
-    s['links'] = links
-    save(repo, slug, j)
-    say(f'  {rel} L{a}: {text[:100]}')
-    if b > a:
-        say(f'  {rel} L{b}: {ls[b - 1].strip()[:100]}')
-    wrote(f'step {k} link "{phrase}" -> {rel}:{a}-{b}{" (replaced)" if old is not None else ""}  ({len(links)} links)')
-    for w in warns:
-        print('WARNING: ' + w)
-
-
-def cmd_rmlink(repo, slug, n, phrase):
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    links = s.get('links', [])
-    gone = next((l for l in links if l.get('phrase') == phrase.strip()), None)
-    if gone is None:
-        sys.exit(f'step {k} has no link "{phrase}" (its links: {", ".join(repr(l.get("phrase")) for l in links) or "none"})')
-    s['links'] = [l for l in links if l is not gone]
-    if not s['links']:
-        s.pop('links')
-    save(repo, slug, j)
-    print(f'removed step {k} link "{gone["phrase"]}" -> {gone["file"]}:{gone["start"]}-{gone["end"]}')
-
-
-def cmd_value(repo, slug, n, name, value, rel, line, note=''):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    name, value, note = name.strip(), ' '.join(value_of(value).split()), ' '.join(note.split())
-    text = source_line(repo, rel, line, f'value {name}')
-    v = {'name': name, 'value': value, **({'note': note} if note else {}), 'file': rel, 'line': int(line), 'text': text}
-    vals = list(s.get('values', []))
-    old = next((i for i, o in enumerate(vals) if o.get('name') == name and o.get('file') == rel and o.get('line') == int(line)), None)
-    if old is None:
-        vals.append(v)
-    else:
-        vals[old] = v
-    warns = say_issues(value_issues(k, s, v, vals), True)
-    s['values'] = vals
-    save(repo, slug, j)
-    say(f'  {rel} L{line}: {text[:100]}')
-    wrote(f'step {k} value {name} = {shown(value, 60)}{f"  · {note}" if note else ""}  @ {rel}:{line}'
-          f'{" (replaced)" if old is not None else ""}')
-    for w in warns:
-        print('WARNING: ' + w)
-
-
-def cmd_rmvalue(repo, slug, n, name, line=''):
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    hits = [v for v in s.get('values', []) if v.get('name') == name and (not line or str(v.get('line')) == line)]
-    if not hits:
-        have = ', '.join(f'{v.get("name")} @ {v.get("line")}' for v in s.get('values', [])) or 'none'
-        sys.exit(f'step {k} has no value hint {name}{f" on line {line}" if line else ""} (its hints: {have})')
-    if len(hits) > 1:
-        sys.exit(f'step {k} has {len(hits)} hints {name} (lines {", ".join(str(v["line"]) for v in hits)}): '
-                 f'rmvalue {k} {name} <line>')
-    s['values'] = [v for v in s['values'] if v is not hits[0]]
-    if not s['values']:
-        s.pop('values')
-    save(repo, slug, j)
-    print(f'removed step {k} value {name} @ {hits[0]["file"]}:{hits[0]["line"]}')
-
-
-def cmd_scene(repo, slug, n):
-    global ECHO
-    ECHO = []
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    raw = body(f'the scene of step {k} (JSON: {{"actors": […], "wires": […], "beats": […]}})')
-    try:
-        sc = json.loads(raw)
-    except json.JSONDecodeError as e:
-        refuse(f'the scene is not valid JSON (line {e.lineno} column {e.colno}: {e.msg})')
-    issues = scene_issues(k, sc)
-    if not any(lv == PROBLEM for lv, _ in issues):
-        for i, b in enumerate(sc['beats'], 1):     # the script reads each beat's line; a given text must agree
-            c = b.get('code')
-            if not c:
-                continue
-            text = source_line(repo, c['file'], c['line'], f'beat {i}')
-            if 'text' in c and str(c['text']).strip() != text:
-                refuse(f'beat {i}: {c["file"]}:{c["line"]} reads "{text[:80]}", not "{str(c["text"])[:80]}" (give file and '
-                       f'line only; the script reads the text)')
-            b['code'] = {'file': c['file'], 'line': c['line'], 'text': text}
-            why = odd_line(text, c['file'])
-            if why:
-                issues.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c["file"]}:{c["line"]}): light the line '
-                                    f'that DOES what the caption says (the call, the assignment, the check)'))
-    warns = say_issues(issues, True)
-    s['scene'] = {'actors': sc['actors'], 'wires': sc.get('wires', []), 'beats': sc['beats']}
-    save(repo, slug, j)
-    coded = sum(1 for b in sc['beats'] if b.get('code'))
-    print(f'step {k} scene: {len(sc["actors"])} actors ({", ".join(a["id"] for a in sc["actors"])}), '
-          f'{len(sc["beats"])} beats ({coded} with code)')
-    for i, b in enumerate(sc['beats'], 1):
-        c = b.get('code')
-        print(f'  beat {i} [{b["focus"]}] {b["caption"]}' + (f'\n      {c["file"]} L{c["line"]}: {c["text"][:90]}' if c else '  (no code)'))
-    ECHO = None
-    for w in warns:
-        print('WARNING: ' + w)
-
-
-def cmd_rmscene(repo, slug, n):
-    j = load(repo, slug)
-    k = step_at(j, n) + 1
-    s = j['steps'][k - 1]
-    if 'scene' not in s:
-        sys.exit(f'step {k} has no scene')
-    sc = s.pop('scene')
-    save(repo, slug, j)
-    print(f'removed step {k} scene ({len(sc.get("beats", []))} beats)')
-
-
-def relocate(repo, since, name, h, fkey, lkey, how, span=None):
-    """A link's, value's or beat's line (h[fkey]:h[lkey]) found again by its text, the way the extension finds it:
-    None in place, an Issue when it can't be found, a Fix when it moved."""
-    f, ln, text = h.get(fkey), h.get(lkey), str(h.get('text', ''))
-    if not isinstance(f, str) or not is_int(ln):
-        return Issue(PROBLEM, f'{name}: needs a file and a line number ({how})')
-    if not text.strip():
-        return Issue(PROBLEM, f'{name}: no "text" (the line it is on); rewrite it with the command ({how})')
-    cur = f
-    if not os.path.isfile(os.path.join(repo, f)):
-        cur = renamed(repo, since, f)
-        if cur == f or not os.path.isfile(os.path.join(repo, cur)):
-            return Issue(PROBLEM, f'{name}: {f} no longer exists{" (git could not be asked about a rename)" if GIT_ERROR else ""} ({how})')
-    i = line_at(repo, cur, ln, text)
-    if i < 0:
-        return Issue(PROBLEM, f'{name}: {f}:{ln} no longer reads "{text[:70]}", and no line within {FIND_NEAR} lines does: '
-                              f'the code changed; re-read it and rewrite this ({how})')
-    if (cur, i + 1) == (f, ln):
-        return None
-
-    def move():
-        h[fkey], h[lkey] = cur, i + 1
-        if span:
-            h[span] = h.get(span, ln) + i + 1 - ln
-    return Fix(f'{name} moved to {cur}:{i + 1} (was {f}:{ln}; run check fix)', f'{name}: {f}:{ln} -> {cur}:{i + 1}', move)
-
-
-def scene_found(repo, since, k, sc):
-    """A step's scene: its Issues, then each beat's line found again (Fix or Issue) and what it lights."""
-    found = scene_issues(k, sc)
-    if any(lv == PROBLEM for lv, _ in found):
-        return found
-    for i, b in enumerate(sc['beats'], 1):
-        c = b.get('code')
-        if not isinstance(c, dict):
-            continue
-        found.append(relocate(repo, since, f'step {k} scene: beat {i} ("{str(b.get("caption", ""))[:40]}")', c, 'file',
-                              'line', f'scene {k}: give the beat its line again'))
-        why = odd_line(str(c.get('text', '')), str(c.get('file', '')))
-        if why:
-            found.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c.get("file")}:{c.get("line")}): '
-                                     f'light the line that DOES what the caption says'))
-    return found
-
-
-def check_extras(repo, since, j):
-    """`check` on every step's links, values, scene and marks: the static rules above, and each stored line found
-    again the way the extension finds it. Issues and Fixes (moved: `check fix` applies them), in the order found."""
-    found = []
-    any_extra = False
-    some_links = any(x.get('links') for x in j['steps'])
-    for k, s in enumerate(j['steps'], 1):
-        links, vals, sc = s.get('links', []), s.get('values', []), s.get('scene')
-        any_extra = any_extra or bool(links or vals or sc)
-        for l in links:
-            found.append(relocate(repo, since, f'step {k}: link "{l.get("phrase")}"', l, 'file', 'start',
-                                  f'link {k} "{l.get("phrase")}" <file> <start> <end>', 'end'))
-            found.extend(link_issues(k, s, l))
-        found.extend(Issue(WARN, w) for w in link_warnings(k, s))      # dead links: refused when written; old files stay valid
-        for v in vals:
-            found.append(relocate(repo, since, f'step {k}: value {v.get("name")}', v, 'file', 'line',
-                                  f'value {k} {v.get("name")} "<value>" <file> <line>'))
-            found.extend(value_issues(k, s, v, vals))
-        if sc is not None:
-            found.extend(scene_found(repo, since, k, sc))
-        found.extend(marks_issues(repo, since, k, s))
-        if some_links and not links:
-            found.append(Issue(WARN, f'step {k}: no code links (aim for 3-6: the phrases of the lead and details that '
-                                     f'name what a few lines do; link {k} "<phrase>" <file> <start> <end>)'))
-    if not any_extra and j['steps']:
-        found.append(Issue(WARN, 'no step has code links, value hints or an animation: add them once the steps are '
-                                 'written (link, value, scene: SKILL.md "Links, values, marks, scenes")'))
-    return [x for x in found if x]
-
-
-def as_issues(found):
-    """Issues and Fixes as Issues: a Fix not applied is a WARNING."""
-    return [Issue(WARN, x.warning) if isinstance(x, Fix) else x for x in found]
-
-
-# ---------- marks: the part of a line a step or beat is about (docs/journey-format.md "Marks"; a podcast segment's
-# marks have the same shape plus phrase and at). With node, the extension's src/core/format/marks.ts checks them
-# (mark_check); the Python rules below are the same, and its tests run both on the same marks. ----------
-
-MAX_MARKS = 3             # per step or beat: more, and nothing stands out
-MARK_REFIND = 20          # a match is looked for this many lines up and down when the code moved
-MARK_SLACK = 0.05         # s: a podcast mark this close to its segment is in it
 # shape: what is wrong with its fields; code: (what, moved) against the code; spot: (line, col, end line, end col) lit.
 MarkCheck = namedtuple('MarkCheck', 'shape code spot')
 
@@ -3313,14 +2649,15 @@ def names_match(named, match):
     return not ws or any(near(w, t) for w in ws for t in named)
 
 
-def mark_file_lines(repo, since, f):
-    """A mark's file's lines now (followed through a git rename), and its path; (None, f) when it is gone."""
+def mark_file_lines(code, f):
+    """A mark's file's lines now (followed through a git rename when the code has a commit to follow from), and its
+    path; (None, f) when it is gone."""
     cur = f
-    if not os.path.isfile(os.path.join(repo, f)):
-        cur = renamed(repo, since, f) if since else f
-        if not os.path.isfile(os.path.join(repo, cur)):
+    if not code.isfile(f):
+        cur = code.renamed(f) if code.since else f
+        if not code.isfile(cur):
             return None, f
-    return lines_of(repo, cur), cur
+    return lines_of(code.repo, cur), cur
 
 
 def marks_groups(s):
@@ -3337,7 +2674,7 @@ def marks_groups(s):
     return out
 
 
-def marks_issues(repo, since, k, s):
+def marks_issues(code, k, s):
     """A step's marks and its beats': Issues (a PROBLEM lights nothing or can't be read; a WARNING: too many, not on
     the step's lines, not named by the text, the step's whole range) and a Fix for a match a few lines off."""
     out = []
@@ -3348,14 +2685,14 @@ def marks_issues(repo, since, k, s):
             continue
         if len(ms) > MAX_MARKS:
             out.append(Issue(WARN, f'{name}: {len(ms)} marks (aim for <= {MAX_MARKS}: only what the text names, so it stands out)'))
-        group = MarkGroup(repo, since, s, own, {stem(w.lower()) for w in words_of(text)}, beat,
+        group = MarkGroup(code, s, own, {stem(w.lower()) for w in words_of(text)}, beat,
                           f'mark {k}{"." + where.split()[-1] if where else ""} …')
         for n, m in enumerate(ms, 1):
             out.extend(group.issues(f'{name}: mark {n}', m))
     return out
 
 
-class MarkGroup(namedtuple('MarkGroup', 'repo since step own named beat again')):
+class MarkGroup(namedtuple('MarkGroup', 'code step own named beat again')):
     """A step's or a beat's marks: their default file, the words its text names, and the command that marks one
     again."""
     def issues(self, label, m):
@@ -3367,7 +2704,7 @@ def mark_issues(g, label, m):
     if not isinstance(m, dict):
         return [Issue(PROBLEM, f'{label}: not an object {{ lines, match? }}')]
     f = m.get('file') or g.own
-    doc = mark_file_lines(g.repo, g.since, f)[0] if isinstance(f, str) and f.strip() else None
+    doc = mark_file_lines(g.code, f)[0] if isinstance(f, str) and f.strip() else None
     got = mark_check(m, f if isinstance(f, str) else '', doc, 'drop')
     if got.shape:
         return [Issue(PROBLEM, f'{label}: {got.shape}')]
@@ -3402,126 +2739,14 @@ def mark_warnings(label, g, m, f, doc):
     return out
 
 
-def parse_mark_target(j, target):
-    """`N` (step N) or `N.B` (beat B of step N): (k, step, beat dict or None)."""
-    mt = re.match(r'^(\d+)(?:\.(\d+))?$', str(target))
-    if not mt:
-        refuse(f'{target!r}: give the step as N, or a beat as N.B (beat B of step N)')
-    k = step_at(j, mt.group(1)) + 1
-    s = j['steps'][k - 1]
-    if not mt.group(2):
-        return k, s, None
-    beats = ((s.get('scene') or {}).get('beats') or []) if isinstance(s.get('scene'), dict) else []
-    bi = int(mt.group(2))
-    if not 1 <= bi <= len(beats):
-        refuse(f'step {k} has {len(beats)} beats; there is no beat {bi}')
-    return k, s, beats[bi - 1]
+# ======================================================================================================================
+# Podcasts: <slug>.podcast.json next to the journey (docs/podcast-format.md of the Code Notes extension).
+# With node, the extension's own validator (src/core/format/podcast/validate.ts) checks it; without, the
+# Python rules below, which its tests run on the same cases (test/fixtures/podcast/cases.json).
+# ======================================================================================================================
 
-
-def cmd_mark(repo, slug, target, rel, lines, match='', nth=''):
-    """Adds a mark to step N (or beat N.B): `lines` a or a-b, `match` the characters within them (none: whole lines)."""
-    j = load(repo, slug)
-    k, s, beat = parse_mark_target(j, target)
-    ml = re.match(r'^(\d+)(?:-(\d+))?$', lines)
-    if not ml:
-        refuse(f'lines {lines!r}: give a line or a range (12 or 12-14)')
-    a, b = int(ml.group(1)), int(ml.group(2) or ml.group(1))
-    if b < a:
-        refuse(f'lines {a}-{b}: the end is before the start')
-    if nth and not nth.isdigit():
-        refuse(f'nth {nth!r} is not a number (1 = the first occurrence)')
-    holder = beat if beat is not None else s
-    own = ((beat.get('code') or {}).get('file') if beat is not None else None) or s.get('file')
-    m = {'lines': [a, b], **({'match': match} if match else {}), **({'nth': int(nth)} if nth and int(nth) > 1 else {})}
-    if rel != own:
-        m = {'file': rel, **m}
-    doc, _ = mark_file_lines(repo, None, rel)
-    check = mark_check(m, rel, doc, 'drop')
-    got = check.code
-    if got:
-        refuse(f'mark: {got[0]}' if got[1] is None else f'mark: {_js(match)} isn\'t on {rel}:{a}-{b} (it is {abs(got[1])} line{"" if abs(got[1]) == 1 else "s"} {"up" if got[1] < 0 else "down"}): give the lines it is on')
-    ms = list(holder.get('marks', []))
-    same = next((i for i, o in enumerate(ms) if isinstance(o, dict) and o.get('lines') == m['lines'] and o.get('match') == m.get('match') and o.get('file', own) == rel), None)
-    if same is None:
-        ms.append(m)
-    else:
-        ms[same] = m
-    holder['marks'] = ms
-    issues = [x for x in as_issues(marks_issues(repo, None, k, s)) if (f'step {k}{f" beat {target.split(".")[1]}" if beat is not None else ""}: ' in x[1])]
-    if any(lv == PROBLEM for lv, _ in issues):
-        refuse(next(t for lv, t in issues if lv == PROBLEM))
-    save(repo, slug, j)
-    where = f'step {k}' + (f' beat {target.split(".")[1]}' if beat is not None else '')
-    print(f'{where} mark {ms.index(m) + 1}{" (replaced)" if same is not None else ""}: {rel}:{a}{"-" + str(b) if b > a else ""}'
-          f'{" " + _js(match) if match else " (whole lines)"}  ({len(ms)} mark{"" if len(ms) == 1 else "s"})')
-    print('\n'.join(mark_preview(doc, check.spot, '  ')))
-    for lv, t in issues:
-        print('WARNING: ' + t)
-
-
-def cmd_rmmark(repo, slug, target, which):
-    """Removes mark `which` (1-based, or "all") of step N (or beat N.B)."""
-    j = load(repo, slug)
-    k, s, beat = parse_mark_target(j, target)
-    holder = beat if beat is not None else s
-    ms = holder.get('marks', [])
-    where = f'step {k}' + (f' beat {target.split(".")[1]}' if beat is not None else '')
-    if which == 'all':
-        gone = len(ms)
-        holder.pop('marks', None)
-    else:
-        if not which.isdigit() or not 1 <= int(which) <= len(ms):
-            sys.exit(f'{where} has {len(ms)} marks; give 1-{len(ms)} or "all"')
-        gone = 1
-        holder['marks'] = [m for i, m in enumerate(ms, 1) if i != int(which)]
-        if not holder['marks']:
-            holder.pop('marks')
-    save(repo, slug, j)
-    print(f'removed {gone} mark{"s" if gone != 1 else ""} of {where}')
-
-
-def cmd_marks(repo, slug, n=''):
-    """Prints every mark (of step n) with the characters it lights, and what check says about them."""
-    j = load(repo, slug)
-    ks = [step_at(j, n) + 1] if n else range(1, len(j['steps']) + 1)
-    total, issues = 0, []
-    for k in ks:
-        s = j['steps'][k - 1]
-        groups = marks_groups(s)
-        if not groups:
-            if n:
-                print(f'step {k} has no marks')
-            continue
-        r = s.get('range') or {}
-        print(f'step {k} {s.get("title", "")}   @ {s.get("file")}:{r.get("start")}-{r.get("end")}')
-        for where, ms, own, text, beat in groups:
-            if beat is not None:
-                print(f'  {where.strip()}: {str(beat.get("caption", ""))[:90]}')
-            for i, m in enumerate(ms if isinstance(ms, list) else [], 1):
-                f = m.get('file') or own if isinstance(m, dict) else ''
-                doc = mark_file_lines(repo, None, f)[0] if isinstance(f, str) and f.strip() else None
-                check = mark_check(m, f if isinstance(f, str) else '', doc, 'drop')
-                if check.shape:
-                    continue
-                total += 1
-                head = f'    mark {i}: {f}:{m["lines"][0]}{"-" + str(m["lines"][1]) if m["lines"][1] > m["lines"][0] else ""}'
-                print(head + (f' {_js(m["match"])}' if 'match' in m else ' (whole lines)') + (f' #{m["nth"]}' if 'nth' in m else ''))
-                print('\n'.join(mark_preview(doc, check.spot)) if doc else '      (file not found)')
-        issues += as_issues(marks_issues(repo, None, k, s))
-    for lv, t in issues:
-        print(('PROBLEM: ' if lv == PROBLEM else 'WARNING: ') + t)
-    np = sum(1 for lv, _ in issues if lv == PROBLEM)
-    print(f'{total} mark{"s" if total != 1 else ""}, {np} problem{"s" if np != 1 else ""}, {len(issues) - np} warning{"s" if len(issues) - np != 1 else ""}')
-    sys.exit(1 if np else 0)
-
-
-# ---------- podcasts: <slug>.podcast.json next to the journey (docs/podcast-format.md of the Code Notes extension).
-# With node, the extension's own validator (src/core/format/podcast/validate.ts) checks it; without, the Python
-# rules below, which its tests run on the same cases (test/fixtures/podcast/cases.json). ----------
 
 POD_CUES = ('map', 'open', 'beat')
-POD_SLACK = 0.05          # s: times this close are the same time
-POD_DUR_SLACK = 1         # s, or 1 % of the audio: the declared duration may differ this much from the audio
 
 
 def _pnum(v):
@@ -3982,18 +3207,13 @@ def _pod_place(i, start):
     return _clock_ms(t) if t is not None and t >= 0 else f'#{i + 1}'
 
 
-# --- the podcast next to a journey
-def podcast_changed_steps(repo, commit, j):
+def podcast_changed_steps(git, commit, j):
     """The journey's steps (numbers) whose file changed since `commit` (committed or not); None: git can't say."""
     if not re.match(r'^[0-9a-f]{4,40}$', commit or '', re.I):
         return None
-    try:
-        r = subprocess.run(['git', '-C', repo, 'diff', '--name-only', '--relative', commit, '--'], capture_output=True, text=True)
-    except OSError:
+    files = git.changed_files(commit)
+    if files is None:
         return None
-    if r.returncode != 0:
-        return None
-    files = {l.strip() for l in r.stdout.splitlines() if l.strip()}
     return [k + 1 for k, s in enumerate(j.get('steps', [])) if s.get('file') in files]
 
 
@@ -4030,9 +3250,9 @@ def journey_shape_of(j, slug):
                                                   'beatFiles': [beat_file(b) for b in beats(s)]} for s in j.get('steps', [])]}
 
 
-def podcast_report(repo, slug, j, seconds=None):
+def podcast_report(ctx, slug, j, seconds=None):
     """(problems, warnings, summary) for <slug>.podcast.json next to the journey; None when there is none."""
-    pf = os.path.join(jdir(repo), slug + '.podcast.json')
+    pf = ctx.journeys.podcast(slug)
     if not os.path.exists(pf):
         return None
     try:
@@ -4051,8 +3271,8 @@ def podcast_report(repo, slug, j, seconds=None):
         audio = {'exists': os.path.isfile(ap), 'size': os.path.getsize(ap) if os.path.isfile(ap) else 0}
         length = float(seconds) if seconds else (audio_seconds(ap) if audio['exists'] else None)
     commit = d['journey'].get('commit') if isinstance(d.get('journey'), dict) else None
-    changed = podcast_changed_steps(repo, commit, j) if isinstance(commit, str) else None
-    found = podcast_findings(raw, journey_shape_of(j, slug), audio, length, changed, repo=repo)
+    changed = podcast_changed_steps(ctx.git, commit, j) if isinstance(commit, str) else None
+    found = podcast_findings(raw, journey_shape_of(j, slug), audio, length, changed, repo=ctx.repo)
     problems = [f'podcast: {p["message"]}' for p in found if p['level'] == 'error']
     warnings = [f'podcast: {p["message"]}' for p in found if p['level'] == 'warning']
     summary = '' if length else ' (audio length unknown: pass it as <audio seconds>, or install ffprobe, to check the times against it)'
@@ -4074,26 +3294,9 @@ def _repo_text(repo, f):
         return None
 
 
-def cmd_podcast(repo, slug, seconds=''):
-    if seconds:
-        try:
-            float(seconds)
-        except ValueError:
-            sys.exit(f'podcast: <audio seconds> must be a number (got {seconds!r})')
-    j = load(repo, slug)
-    r = podcast_report(repo, slug, j, seconds or None)
-    if r is None:
-        print(f'PROBLEM: no podcast for {slug}: {os.path.join(jdir(repo), slug + ".podcast.json")} does not exist')
-        sys.exit(1)
-    problems, warnings, note = r
-    for w in warnings:
-        print('WARNING: ' + w)
-    for p in problems:
-        print('PROBLEM: ' + p)
-    plural = lambda n, w: f'{n} {w}{"" if n == 1 else "s"}'
-    print(f'{"FAILED" if problems else "ok"}: podcast of {slug}, {plural(len(problems), "problem")}, '
-          f'{plural(len(warnings), "warning")}{note}')
-    sys.exit(1 if problems else 0)
+# ======================================================================================================================
+# Check: the whole journey against the rules and the code, as `check` reports it.
+# ======================================================================================================================
 
 
 class Report:
@@ -4209,30 +3412,49 @@ class JourneyMap:
                 f'one really reaches the other (a call, an HTTP request, a watch), labelled with how')
 
 
-def follow(repo, since, r, name, loc, a, how):
+def unvisited(j):
+    """Boxes the storyline does not reach: [(node id, what is wrong and what to do)]. Shared by check and by the
+    commands that take a step off a box."""
+    stepped = {s['node'] for s in j['steps']}
+    parents = {n.get('parent') for n in j['nodes']}
+    out = []
+    for n in j['nodes']:
+        if n['id'] in stepped or n['id'] in parents:
+            continue
+        if n['kind'] == 'function':
+            out.append((n['id'], f'no step visits this function box "{n["label"]}" (rmnode {n["id"]}, or add a step)'))
+        if n['kind'] == 'external':     # visited through a function that has an edge with it
+            via = {e['from'] if e['to'] == n['id'] else e['to'] for e in j['edges'] if n['id'] in (e['from'], e['to'])}
+            if not via & stepped:
+                out.append((n['id'], f'no step visits this external box "{n["label"]}" (put a step on it or on a '
+                                     f'function with an edge to it, or rmnode {n["id"]})'))
+    return out
+
+
+def follow(code, r, name, loc, a, how):
     """Where anchored code is now: loc is a box's `at` (file/start/end) or a step; a its anchor. Moved: fixed with
     fix, else a WARNING; changed, gone or no file: a PROBLEM. Returns where it is now (file, start, end)."""
     rng = loc.get('range', loc)
-    st, f, s0, e0, more = where(repo, since, loc['file'], rng['start'], rng['end'], a)
+    st, f, s0, e0, more = where(code, loc['file'], rng['start'], rng['end'], a)
     old = f'{loc["file"]}:{rng["start"]}-{rng["end"]}'
     k = name.split()[-1]
-    if st == 'moved':
+    if st is State.MOVED:
         if r.fix:
             loc['file'] = f
             rng['start'], rng['end'] = s0, e0
             if 'anchor' in loc:      # its hash is the same; the line count and the lines around it may not be
-                loc['anchor'] = anchor(repo, f, s0, e0, quiet=True)
+                loc['anchor'] = anchor(code.repo, f, s0, e0)
             r.fixed.append(f'{name}: {old} -> {f}:{s0}-{e0}')
         else:
             r.warn(f'{name} moved to {f}:{s0}-{e0} (was {old}; run check --fix)')
-    elif st == 'nofile':
-        if GIT_ERROR:
+    elif st is State.NO_FILE:
+        if code.git.error:
             r.problem(f'{name}: {old} no longer exists; git could not be asked about a rename (see the WARNING): {how}')
         else:
             r.problem(f'{name}: {old} no longer exists (and git shows no rename): {how}')
-    elif st in ('changed', 'gone'):
+    elif st in (State.CHANGED, State.GONE):
         # changed code may have made the step false; moving the anchor alone would bless it
-        verb, seen, diff = what_changed(repo, st, loc, a, f, s0, e0, old, more)
+        verb, seen, diff = what_changed(code.repo, st, loc, a, f, s0, e0, old, more)
         if 'range' in loc:
             r.problem(f'{name} "{loc.get("title", "")}": its code {verb} ({seen}). Re-read the code and re-verify the '
                       f'title and the lead: if they are still true, {how}; if not, correct them first '
@@ -4245,7 +3467,7 @@ def follow(repo, since, r, name, loc, a, how):
 
 def what_changed(repo, st, loc, a, f, s0, e0, old, more):
     """(verb, where it is now, the diff lines) for code that changed or is gone."""
-    if st == 'changed':
+    if st is State.CHANGED:
         return 'changed', f'now at {f}:{s0}-{e0}, was {old}', old_diff(a, lines_of(repo, f)[s0 - 1:e0])
     cur = more.replace('renamed to ', '') if more else loc['file']
     near = nearest(repo, cur, a)
@@ -4258,7 +3480,7 @@ def what_changed(repo, st, loc, a, f, s0, e0, old, more):
     return 'is gone', seen, ''
 
 
-def check_header(repo, slug, j, r):
+def check_header(journeys, slug, j, r):
     """The journey's title, question and summary, and the journeys like it."""
     tp = journey_title_problem(j['title'])
     if tp:
@@ -4267,18 +3489,18 @@ def check_header(repo, slug, j, r):
         r.problem('no question (meta question "…")')
     elif question_problem(j['question']):
         r.problem(f'question {question_problem(j["question"])} (meta question "…")')
-    r.warnings.extend(similar_journeys(repo, slug, j))
+    r.warnings.extend(similar_journeys(journeys, slug, j))
     sm = sentences(j.get('summary', ''))
     if not sm:
         r.problem('no summary')
     else:
-        if len(sm) > 2:
-            r.problem(f'summary has {len(sm)} sentences (max 2, plain words; the rest belongs in the steps)')
+        if len(sm) > MAX_SUMMARY_SENTENCES:
+            r.problem(f'summary has {len(sm)} sentences (max {MAX_SUMMARY_SENTENCES}, plain words; the rest belongs in the steps)')
         if '`' in re.split(SENT, j['summary'].strip())[0]:
             r.problem('summary: code (backticks) in the first sentence; say it in plain words')
 
 
-def check_node(repo, since, j, g, n, r):
+def check_node(code, j, g, n, r):
     """One box: its parent, label, blurb, path and the code it is anchored on."""
     want = PARENT_KINDS[n['kind']]
     par = g.ids.get(n.get('parent', ''))
@@ -4294,21 +3516,21 @@ def check_node(repo, since, j, g, n, r):
         r.problem(f'{n["id"]}: no blurb (set {n["id"]} blurb "<= {MAX_BLURB} chars")')
     if len(n.get('blurb', '')) > MAX_BLURB:
         r.problem(f'{n["id"]}: blurb is {len(n["blurb"])} chars (max {MAX_BLURB})')
-    if n.get('path') and not os.path.exists(os.path.join(repo, n['path'])):
-        to = renamed_path(repo, since, n['path'])          # a box path follows a git rename like an anchor
-        if to and os.path.exists(os.path.join(repo, to)):
+    if n.get('path') and not os.path.exists(code.path(n['path'])):
+        to = code.renamed_path(n['path'])          # a box path follows a git rename like an anchor
+        if to and os.path.exists(code.path(to)):
             if r.fix:
                 r.fixed.append(f'{n["id"]} path: {n["path"]} -> {to}')
                 n['path'] = to
             else:
                 r.warn(f'{n["id"]}: path {n["path"]} moved to {to} (run check --fix)')
-        elif GIT_ERROR:
+        elif code.git.error:
             r.problem(f'{n["id"]}: path {n["path"]} does not exist; git could not be asked about a rename (see the WARNING) '
                       f'(set {n["id"]} path <dir or file>)')
         else:
             r.problem(f'{n["id"]}: path {n["path"]} does not exist (set {n["id"]} path <dir or file>)')
     if 'at' in n:
-        follow(repo, since, r, f'box {n["id"]}', n['at'], n['at']['anchor'], f'set {n["id"]} at file:start-end')
+        follow(code, r, f'box {n["id"]}', n['at'], n['at']['anchor'], f'set {n["id"]} at file:start-end')
 
 
 def check_edges(g, r):
@@ -4333,10 +3555,10 @@ def check_edges(g, r):
         r.warn(edge_text_warning(e))
 
 
-def check_map(repo, since, j, g, r):
+def check_map(code, j, g, r):
     """The boxes and edges. Returns the boxes without a step (id -> what to do)."""
     for n in j['nodes']:
-        check_node(repo, since, j, g, n, r)
+        check_node(code, j, g, n, r)
     for p, ks in g.kids.items():
         if len(ks) > MAX_CHILDREN:
             r.problem(f'{p or "top level"}: {len(ks)} children (max {MAX_CHILDREN}: group them)')
@@ -4355,11 +3577,12 @@ def check_map(repo, since, j, g, r):
     return {nid: what for nid, what in stray.items() if nid not in unused}
 
 
-def check_steps(repo, since, j, g, stray, r):
+def check_steps(code, j, g, stray, r, steps):
     """The storyline: its length, its path through the map, each step. Returns the lines its refs and links point
     at, for the report."""
-    if not MIN_STEPS <= len(j['steps']) <= MAX_STEPS:
-        r.problem(f'{len(j["steps"])} steps (want {MIN_STEPS}-{MAX_STEPS}: merge or split)')
+    least, most = steps
+    if not least <= len(j['steps']) <= most:
+        r.problem(f'{len(j["steps"])} steps (want {least}-{most}: merge or split)')
     for nid, what in stray.items():
         r.problem(f'{nid}: {what}')
     for k in range(1, len(j['steps'])):
@@ -4375,7 +3598,7 @@ def check_steps(repo, since, j, g, stray, r):
     labels = {n['label'].lower() for n in j['nodes']}
     links, placed = [], {}
     for k, s in enumerate(j['steps'], 1):
-        sf, ss, se = check_step(repo, since, g, labels, k, s, links, r)
+        sf, ss, se = check_step(code, g, labels, k, s, links, r)
         placed.setdefault((sf, ss, se), []).append(k)
     for (sf, ss, se), ks in placed.items():      # two steps showing the very same lines
         if len(ks) > 1:
@@ -4384,7 +3607,7 @@ def check_steps(repo, since, j, g, stray, r):
     return links
 
 
-def check_step(repo, since, g, labels, k, s, links, r):
+def check_step(code, g, labels, k, s, links, r):
     """One step: its box, title, lead, refs and the code it is anchored on. Returns where that code is now."""
     name = f'step {k}'
     kind = g.ids.get(s['node'], {}).get('kind')
@@ -4406,13 +3629,17 @@ def check_step(repo, since, g, labels, k, s, links, r):
     r.warnings.extend(style_warnings(k, s))
     r.warn(near_ref_warning(k, s))
     r.warnings.extend(ref_warnings(k, s))
-    sf, ss, se = follow(repo, since, r, name, s, s['anchor'], f'restep {k} range <file> <start> <end>')
-    if os.path.isfile(os.path.join(repo, sf)):
-        for w in range_warnings(lines_of(repo, sf), sf, ss, se):
+    sf, ss, se = follow(code, r, name, s, s['anchor'], f'restep {k} range <file> <start> <end>')
+    if code.isfile(sf):
+        for w in range_warnings(lines_of(code.repo, sf), sf, ss, se):
             r.warn(f'{name}: {w} (restep {k} range <file> <start> <end>)')
     at = g.ids.get(s['node'], {}).get('at')
     if at:
-        af, aa, ab = (at['file'], at['start'], at['end']) if r.fix else where(repo, since, at['file'], at['start'], at['end'], at['anchor'])[1:4]
+        if r.fix:
+            af, aa, ab = at['file'], at['start'], at['end']
+        else:
+            now = where(code, at['file'], at['start'], at['end'], at['anchor'])
+            af, aa, ab = now.file, now.start, now.end
         if af == sf and (se < aa or ss > ab):
             r.problem(f'{name}: anchored at {sf}:{ss}-{se}, outside its box "{g.ids[s["node"]]["label"]}" '
                       f'({aa}-{ab} in the same file): move the step (restep {k} node|range) or fix the box (set {s["node"]} at)')
@@ -4425,7 +3652,7 @@ def check_step(repo, since, g, labels, k, s, links, r):
             r.problem(f'{name}: ref "{ref}" has no full path:line (or path:line-line) in it: a ref is one sentence with '
                       f'the repo-relative path:line inside (restep {k} refs -)')
             continue
-        prob, got = check_ref(repo, tok)
+        prob, got = check_ref(code.repo, tok)
         if prob:
             r.problem(f'{name}: ref {tok}: {prob}')
         links.append((k, 'ref', tok, got, '' if ref_bare(ref) else ref))
@@ -4433,7 +3660,7 @@ def check_step(repo, since, g, labels, k, s, links, r):
     for m in re.finditer(LINK, text):
         if m.group(0) in [ref_token(x) for x in refs]:
             continue
-        prob, got = check_ref(repo, m.group(0))
+        prob, got = check_ref(code.repo, m.group(0))
         if prob:
             r.problem(f'{name}: link {m.group(0)}: {prob}')
         links.append((k, 'link', m.group(0), got, ''))
@@ -4494,91 +3721,1425 @@ def print_links(j, links):
             print(f'  {kind:4} {ref}: {txt}' if i == 0 else f'       … L{ln}: {txt}')
 
 
-def cmd_check(repo, slug, flag=''):
-    flag = {'--fix': 'fix'}.get(flag, flag)
+# ======================================================================================================================
+# The commands. Each is declared once, with @command: its name, the line `journey.py` lists, its usage block (for
+# `help` and the manual) and its arguments after <repo>; argparse reads them from that declaration. A command gets the
+# run's context and its arguments by name, prints what it did, and returns its exit code (None: 0).
+# ======================================================================================================================
+
+Command = namedtuple('Command', 'name summary usage args options section fn')
+COMMANDS = {}            # name -> Command, in the manual's order
+
+
+def command(name, summary, usage, args='', options=(), section=None):
+    """Declares a command. `usage`: its lines in the manual (the ones starting with `journey.py` are its usage lines
+    in an error). `args`: its arguments after <repo>; `x?` may be left out ('' then), `x*` takes the rest. `options`:
+    its --options. `section`: a heading the manual puts before it."""
+    def declare(fn):
+        COMMANDS[name] = Command(name, summary, usage.strip('\n'), tuple(args.split()), tuple(options), section, fn)
+        return fn
+    return declare
+
+
+@contextmanager
+def step_edit(ctx, slug, n):
+    """`with step_edit(ctx, slug, n) as (j, k, s)`: journey j, its step k (1-based) and the step itself; saved when the
+    block ends without failing."""
+    j = ctx.journeys.load(slug)
+    k = step_at(j, n) + 1
+    yield j, k, j['steps'][k - 1]
+    ctx.journeys.save(slug, j)
+
+
+def upsert(items, item, same):
+    """Puts `item` in place of the first item `same(old)` holds for, else at the end; the replaced index or None."""
+    old = next((i for i, x in enumerate(items) if same(x)), None)
+    if old is None:
+        items.append(item)
+    else:
+        items[old] = item
+    return old
+
+
+def warn_all(*warnings):
+    for w in warnings:
+        if w:
+            print('WARNING: ' + w)
+
+
+def step_at(j, n):
+    if not str(n).isdigit() or not 1 <= int(n) <= len(j['steps']):
+        fail(f'step {n}: there are {len(j["steps"])} steps')
+    return int(n) - 1
+
+
+def node_line(n):
+    """`node api [system] "API" — blurb  in parent  path api  @ file:a-b`: a box in one line."""
+    parts = [f'node {n["id"]} [{n["kind"]}] "{n["label"]}"']
+    if n.get('blurb'):
+        parts.append(f' — {n["blurb"]}')
+    if n.get('parent'):
+        parts.append(f'  in {n["parent"]}')
+    if n.get('path'):
+        parts.append(f'  path {n["path"]}')
+    if 'at' in n:
+        parts.append(f'  @ {n["at"]["file"]}:{n["at"]["start"]}-{n["at"]["end"]}')
+    return ''.join(parts)
+
+
+def edge_line(e):
+    """`edge a -> b: label  (async) — detail`: an arrow in one line."""
+    parts = [f'edge {e["from"]} -> {e["to"]}: {e["label"]}']
+    if e.get('async'):
+        parts.append('  (async)')
+    if e.get('detail'):
+        parts.append(f' — {e["detail"]}')
+    return ''.join(parts)
+
+
+# --- the journey and its map
+
+@command('new', 'starts a journey', f'''
+  journey.py new   <repo> <slug> "<question>" "<title>"      < summary     (<= 2 plain sentences, no code in the first)
+                   question: one natural question, <= {MAX_QUESTION} chars (it is the map header and the row's tooltip)
+                   title: a topic name <= {MAX_TITLE} chars, subject first, not a question ("Checkout flow")
+                   --model <name>: the model writing it (default: $JOURNEY_MODEL), kept in the journey
+''', 'slug question title', options=('--model',))
+def cmd_new(ctx, slug, question, title, model=None):
+    if os.path.exists(ctx.journeys.path(slug)):
+        fail(f'journey {slug} exists')
+    if journey_title_problem(title):
+        fail(f'title "{title}" {journey_title_problem(title)}; nothing was written')
+    if question_problem(question):
+        fail(f'question {question_problem(question)}; nothing was written: "{question}"')
+    commit = ctx.git.head()
+    j = {'version': 2, 'id': slug, 'question': question, 'title': title,
+         'summary': ctx.body(f'the summary of journey {slug} (<= 2 plain sentences)')}
+    if model:
+        j['model'] = model
+    j.update({'commit': commit, 'createdAt': now(), 'nodes': [], 'edges': [], 'steps': []})
+    ctx.journeys.save(slug, j)
+    print(ctx.journeys.path(slug))
+    print(f'new journey {slug}: title = {shown(j["title"])}; question = {shown(j["question"])}; '
+          f'summary = {shown(j["summary"])}')
+    warn_all(*similar_journeys(ctx.journeys, slug, j))
+
+
+@command('node', 'adds a box to the map', f'''
+  journey.py node  <repo> <slug> <id> <system|module|external|store|function> "<label>" [parent] [file:start-end]
+                   [--blurb "<= {MAX_BLURB} chars, shown in the box"] [--path src/x]              < summary (tooltip)
+                   store: the app's OWN record, queue or table that two parts meet through (never third-party:
+                   that is external); a side box in a system or module; it may hold no step and never acts
+''', 'slug nid kind label parent? at?', options=('--blurb', '--path'))
+def cmd_node(ctx, slug, nid, kind, label, parent='', at='', blurb=None, path=None):
+    echo = Echo()
+    j = ctx.journeys.load(slug)
+    if parent and not at and re.search(r':\d+(-\d+)?$', parent):      # `node id function "x" file:1-2` has no parent
+        fail('a function node needs a parent before its file:start-end')
+    if kind not in KINDS:
+        fail(f'kind is one of {", ".join(KINDS)}')
+    if any(n['id'] == nid for n in j['nodes']):
+        fail(f'node {nid} exists')
+    if parent and not any(p['id'] == parent for p in j['nodes']):
+        fail(f'parent {parent} not defined yet (define parents first)')
+    pk = next((p['kind'] for p in j['nodes'] if p['id'] == parent), None)
+    if kind == 'store' and pk not in PARENT_KINDS['store']:
+        refuse(f'a store box sits in a system or a module (parent {parent or "none"} is {pk or "the top level"})')
+    if pk == 'store':
+        refuse(f'{parent} is a store box: it has no children (put the function that reads or writes it in its module, '
+               f'with an edge to {parent})')
+    label_limit(label)
+    blurb_limit(blurb or '')
+    child_limit(j, parent, nid)
+    opt = {k: v for k, v in (('blurb', blurb), ('path', path)) if v is not None}
+    n = {'id': nid, 'kind': kind, 'label': label, **opt,
+         'summary': ctx.body(f'the summary of node {nid} (one sentence, the tooltip: what "{label}" is in this journey)')}
+    if parent:
+        n['parent'] = parent
+    if at:
+        f, a, b = parse_at(at)
+        n['at'] = {'file': f, 'start': a, 'end': b, 'anchor': anchor(ctx.repo, f, a, b, echo)}
+    j['nodes'].append(n)
+    ctx.journeys.save(slug, j)
+    echo.wrote(node_line(n))
+    warn_all(label_warning(n), node_text_warning(n))
+
+
+def make_edge(a, b, label, flag='', detail=''):
+    if flag not in ('', 'async', 'sync'):
+        fail('after the label: async or sync, then optionally the detail')
+    if len(label) > MAX_EDGE_LABEL:
+        refuse(f'edge label is {len(label)} chars (max {MAX_EDGE_LABEL}; the sentence goes in the detail): "{label}"')
+    return {'from': a, 'to': b, 'label': label, **({'async': True} if flag == 'async' else {}),
+            **({'detail': detail} if detail else {})}
+
+
+def find_edge(j, a, b):
+    for i, e in enumerate(j['edges']):
+        if e['from'] == a and e['to'] == b:
+            return i
+    fail(f'no edge {a} -> {b}')
+
+
+@command('edge', 'adds an arrow between two boxes', f'''
+  journey.py edge  <repo> <slug> <from> <to> "<label>" [async|sync] ["<detail>"]
+                   from = the side that ACTS (caller, poller, watcher): a poll is poller -> polled, "polls …"
+                   label <= {MAX_EDGE_LABEL} chars, says HOW or WHAT FOR in words ("start run", "polls every 2 s"), never "calls"
+''', 'slug a b label flag? detail?')
+def cmd_edge(ctx, slug, a, b, label, flag='', detail=''):
+    j = ctx.journeys.load(slug)
+    ids = {n['id'] for n in j['nodes']}
+    for x in (a, b):
+        if x not in ids:
+            fail(f'node {x} not defined')
+    if any(e['from'] == a and e['to'] == b for e in j['edges']):
+        fail(f'edge {a} -> {b} exists: one edge per pair (setedge to change it)')
+    if any(n['id'] == a and n['kind'] == 'store' for n in j['nodes']):
+        refuse(f'{a} is a store box and a store never acts: draw the edge from the box that reads, writes or polls it '
+               f'(edge {b} {a} "polls …" async)')
+    j['edges'].append(make_edge(a, b, label, flag, detail))
+    ctx.journeys.save(slug, j)
+    print(edge_line(j['edges'][-1]))
+    warn_all(edge_text_warning(j['edges'][-1]))
+
+
+# --- the storyline
+
+def need_node(j, node):
+    if not any(x['id'] == node for x in j['nodes']):
+        fail(f'node {node} not defined')
+
+
+def need_step_box(repo, slug, j, node, rel='<file>', line='<line>'):
+    """A step sits on a function, external or store box; a system or module box is refused when it is written."""
+    need_node(j, node)
+    n = next(x for x in j['nodes'] if x['id'] == node)
+    if n['kind'] not in STEP_KINDS:
+        refuse(f'{node} is a {n["kind"]} box ("{n["label"]}"); steps go on a function, external or store box. Add the '
+               f'function inside it first: journey.py node {repo} {slug} <id> function "<name>" {node} <file:start-end> '
+               f'(`journey.py range {repo} {rel} {line}` prints the function around that line), then put the step on <id>')
+
+
+def same_lines(j, s):
+    """The numbers of the other steps anchored on exactly the lines of step s."""
+    key = lambda x: (x.get('file'), x.get('range', {}).get('start'), x.get('range', {}).get('end'))
+    return [k for k, x in enumerate(j['steps'], 1) if x is not s and key(x) == key(s)]
+
+
+def say_same_lines(j, s, echo):
+    twins = same_lines(j, s)
+    if twins:
+        echo.say(f'WARNING: step{"s" if len(twins) > 1 else ""} {", ".join(map(str, twins))} '
+                 f'{"are" if len(twins) > 1 else "is"} anchored on the same lines ({s["file"]}:{s["range"]["start"]}-'
+                 f'{s["range"]["end"]}): each step shows the lines its own title is about (restep N range <file> <start> <end>)')
+
+
+def set_range(repo, s, rel, a, b, echo):
+    a, b = int(a), int(b)
+    s['file'], s['range'], s['anchor'] = rel, {'start': a, 'end': b}, anchor(repo, rel, a, b, echo)
+    for w in range_warnings(lines_of(repo, rel), rel, a, b):
+        echo.say(f'WARNING: {w}')
+
+
+def echo_step(k, s, echo):
+    """The step's line, what it is anchored on, then its warnings."""
+    w = words(s.get('lead', ''))
+    echo.wrote(f'step {k} [{s["id"]}] {s["title"]}  ({len(s["title"])} chars; lead {w} words; '
+               f'{len(s.get("refs", []))} refs{"; details" if s.get("details") else ""})')
+    warn_all(repeat_warning(k, s), lead_warning(k, s), span_warning(k, s), *style_warnings(k, s), near_ref_warning(k, s),
+             *ref_warnings(k, s), *link_warnings(k, s))
+
+
+@command('step', 'adds a step to the storyline', f'''
+  journey.py step  <repo> <slug> <node> <file> <start> <end> "<title>" [after N]   < text
+                   <node>: a function, external or store box (a system or module box is refused: add the
+                   function box first). title: a fact, <= {MAX_STEP_TITLE} chars. <start> <end>: the lines that matter (the call,
+                   the branch), <= {SOFT_RANGE_LINES} lines (WARNING above that; the whole function is the box). text on stdin:
+                       first paragraph  = lead: ONE sentence, <= {SOFT_LEAD_WORDS} plain words (WARNING above that; {MAX_LEAD_WORDS} is refused)
+                       later paragraphs = details (optional markdown, folded in the UI)
+                       last lines       = refs (optional, <= {MAX_REFS}): a line `refs:` and under it ONE SENTENCE PER LINE,
+                                          each saying what the reader will see there, with exactly one
+                                          path:line (or path:a-b) in it, <= {MAX_REF_WORDS} words:
+                                              refs:
+                                              The 30 s retry delay is set in worker/src/queue.ts:42.
+                                          (old form, still read: `refs: path:line path:line` = bare refs; check warns)
+''', 'slug node rel start end title after_kw? after?')
+def cmd_step(ctx, slug, node, rel, start, end, title, after_kw='', after=''):
+    echo = Echo()
+    j = ctx.journeys.load(slug)
+    need_step_box(ctx.repo, slug, j, node, rel, start)
+    pos = len(j['steps'])
+    if after_kw:
+        if after_kw != 'after' or not after.isdigit() or int(after) > len(j['steps']):
+            fail(f'insert with: after N (0..{len(j["steps"])})')
+        pos = int(after)
+    lead, details, refs = parse_step_text(ctx.body(f'the text of step "{title}" (lead, blank line, details, refs: …)'))
+    s = {'id': new_id({x.get('id') for x in j['steps']}), 'title': title, 'node': node}
+    set_range(ctx.repo, s, rel, start, end, echo)
+    say_same_lines(j, s, echo)
+    s['lead'] = lead
+    if details:
+        s['details'] = details
+    s['refs'] = refs or []
+    step_limits(s)
+    j['steps'].insert(pos, s)
+    ctx.journeys.save(slug, j)
+    echo_step(pos + 1, s, echo)
+
+
+@command('range', "prints a function's file:start-end", '''
+  journey.py range <repo> <file> <symbol-or-line>     prints file:start-end of that function/type (for node/step)
+                   symbol: a function, type, or method (`click`, `Session.click`, Go `envs.List`). line: the
+                   innermost function/method around it (outer ones listed as "inside …"); a line outside any
+                   function is refused (exit 1), never answered with a range that does not contain it
+''', 'rel what')
+def cmd_range(ctx, rel, what):
+    """Prints file:start-end of a function/type: by name (`name`, `Class.method`), or the innermost one around a
+    line. Never prints a range that does not contain the requested line."""
+    lines = lines_of(ctx.repo, rel)
+    src = SourceFile(lines, rel.endswith('.py'))
+
+    def show(i, outer=()):
+        e = src.span(i)
+        print(f'{rel}:{i + 1}-{e + 1}')
+        print(f'  L{i + 1}: {lines[i].strip()[:100]}')
+        print(f'  L{e + 1}: {lines[e].strip()[:100]}')
+        for o in outer:
+            print(f'  inside {rel}:{o + 1}-{src.span(o) + 1}  {lines[o].strip()[:70]}')
+
+    if what.isdigit():
+        n = int(what) - 1
+        if n < 0 or n >= len(lines):
+            fail(f'{rel}: no line {what} (the file has {len(lines)} lines)')
+        around = src.around(n)
+        if not around:
+            prev = [i for i, _ in src.decls if i <= n]
+            hint = (f'; the declaration above it is {rel}:{prev[-1] + 1}-{src.span(prev[-1]) + 1}, which ends before it'
+                    if prev else '')
+            fail(f'{rel}:{what}: no function or type contains this line{hint}. Nothing printed: read the file and '
+                 f'pass the lines yourself.')
+        show(around[-1], reversed(around[:-1]))
+        return
+    starts = src.named(what)
+    if not starts:
+        near = src.close_names(what.rpartition('.')[2])
+        fail(f'{rel}: no definition of {what} found' + (f' (close: {", ".join(near)})' if near else '')
+             + ' (try Class.method or a line number)')
+    for i in starts:
+        show(i)
+
+
+@command('check', 'validates a journey', '''
+  journey.py check <repo> <slug> [quiet|story|refs|fix]   validates; prints the outline, the storyline and every
+                   referenced line (quiet: only PROBLEM/WARNING lines and one summary line, "ok: 14 steps, 0 problems";
+                   story: storyline only; refs: ref lines only). A step or box
+                   whose code moved (lines inserted above it, a git rename) is found again the way the extension
+                   finds it: a WARNING; `fix` (or --fix) rewrites file:start-end of every one found unambiguously,
+                   and a box `path` that git renamed. Code that CHANGED under a step is a PROBLEM that shows where it
+                   is now and what changed: re-read it and re-verify the title and lead before re-anchoring. A git
+                   that fails (dubious ownership, no repository) is reported as a git error, once. A hand-edited
+                   file with a wrong shape (e.g. "at": "file:a-b") gives PROBLEM lines, exit 1, never a traceback;
+                   a box with no step and no edge is one PROBLEM
+''', 'slug flag?', options=('--fix',))
+def cmd_check(ctx, slug, flag='', fix=False):
+    if fix:
+        if flag:
+            raise UsageError('check', '1 argument(s) too many')
+        flag = 'fix'
     if flag not in ('', 'quiet', 'story', 'refs', 'fix'):
-        sys.exit('check <repo> <slug> [quiet|story|refs|fix]   quiet: PROBLEM/WARNING lines + a one-line summary; story: storyline only; '
-                 'refs: ref lines only; fix: repoint steps/boxes whose code moved')
-    j = load(repo, slug)
+        fail('check <repo> <slug> [quiet|story|refs|fix]   quiet: PROBLEM/WARNING lines + a one-line summary; story: storyline only; '
+             'refs: ref lines only; fix: repoint steps/boxes whose code moved')
+    hand_edits = []
+    j = ctx.journeys.load(slug, notes=hand_edits)
     r = Report(flag == 'fix')
-    g = JourneyMap(repo, j)
-    since = j.get('commit', '')
-    check_header(repo, slug, j, r)
-    stray = check_map(repo, since, j, g, r)
-    links = check_steps(repo, since, j, g, stray, r)
-    r.add(check_extras(repo, since, j))
-    pod = podcast_report(repo, slug, j)       # its podcast, when it has one (`journey.py podcast` for the details)
+    code = ctx.code(j.get('commit', ''))
+    g = JourneyMap(ctx.repo, j)
+    check_header(ctx.journeys, slug, j, r)
+    stray = check_map(code, j, g, r)
+    links = check_steps(code, j, g, stray, r, ctx.steps)
+    r.add(check_extras(code, j))
+    pod = podcast_report(ctx, slug, j)       # its podcast, when it has one (`journey.py podcast` for the details)
     if pod:
         r.problems.extend(pod[0])
         r.warnings.extend(pod[1])
-    r.problems.extend(SHAPE_NOTES)
-    if GIT_ERROR and any('git could not be asked about a rename' in p for p in r.problems):      # said once, as what it is
-        r.warnings.insert(0, f'git failed ({GIT_ERROR}), so renames cannot be followed and `check fix` cannot repoint moved '
+    r.problems.extend(hand_edits)
+    if ctx.git.error and any('git could not be asked about a rename' in p for p in r.problems):      # said once, as what it is
+        r.warnings.insert(0, f'git failed ({ctx.git.error}), so renames cannot be followed and `check fix` cannot repoint moved '
                              f'files: run check as the owner of the repo, or `git config --global --add safe.directory '
-                             f'{os.path.abspath(repo)}`, then check again')
+                             f'{os.path.abspath(ctx.repo)}`, then check again')
     if r.fixed:
-        save(repo, slug, j)
+        ctx.journeys.save(slug, j)
     print_check(j, g, flag, links, r)
-    sys.exit(1 if r.problems else 0)
+    return 1 if r.problems else 0
+
+
+@command('migrate', 'converts an old (v1) journey', '''
+  journey.py migrate <repo> <slug>         v1 (one note per step) -> v2; deletes the step notes after writing
+''', 'slug')
+def cmd_migrate(ctx, slug):
+    """v1 -> v2: each step's note is folded into the journey (file/range/anchor from the note; body -> lead, details,
+    refs). The notes are deleted only after the v2 file is on disk. Refuses when a note is missing."""
+    j = ctx.journeys.load(slug, v1=True)
+    if j.get('version') == 2:
+        fail(f'{slug} is already v2')
+    d = os.path.join(ctx.repo, '.code-notes')
+    notes = []
+    for k, s in enumerate(j['steps'], 1):
+        p = os.path.join(d, s['note'] + '.json')
+        if not os.path.exists(p):
+            fail(f'step {k}: note {s["note"]} is missing; nothing was changed (restore it or remove the step from the v1 file)')
+        notes.append((p, json.load(open(p, encoding='utf-8'))))
+    used, steps = set(), []
+    for s, (p, note) in zip(j['steps'], notes):
+        steps.append(migrated_step(s, note, used))
+    out = {'version': 2}
+    for key in ('id', 'question', 'title', 'summary', 'model', 'commit', 'createdAt', 'nodes', 'edges'):
+        if key in j:
+            out[key] = j[key]
+    out['steps'] = steps
+    ctx.journeys.save(slug, out)
+    if json.load(open(ctx.journeys.path(slug), encoding='utf-8')).get('version') != 2:
+        fail('the v2 file did not read back; the step notes were kept')
+    for p, _ in notes:
+        os.remove(p)
+    print(f'{slug}: v2 written, {len(steps)} step notes folded in and deleted. Now rewrite leads/details/refs (check).')
+
+
+def migrated_step(s, note, used):
+    """A v1 step and its note as a v2 step (an id not in `used`, which it joins)."""
+    text = note['messages'][0]['body']
+    text = re.sub(r'^\*\*\d+\. .*?\*\*\s*', '', text, count=1, flags=re.S).strip()   # the repeated title
+    m = re.search(r'(?<=[.!?])\s+(?=[A-Z`*(\["])', text)                            # first sentence = lead
+    lead, details = (text[:m.start()], text[m.end():]) if m else (text, '')
+    refs = []
+    for r in re.finditer(LINK, text):
+        if r.group(0) not in refs:
+            refs.append(r.group(0))
+    st = {'id': new_id(used), 'title': s['title'], 'node': s['node'], 'file': note['file'], 'range': note['range'],
+          'anchor': note['anchor'], 'lead': ' '.join(lead.split())}
+    used.add(st['id'])
+    if details.strip():
+        st['details'] = details.strip()
+    st['refs'] = refs[:MAX_REFS]
+    return st
+
+
+@command('migrate-anchors', 'rewrites old anchors in the compact form', '''
+  journey.py migrate-anchors <repo> <slug>|--all   rewrites full-text (v2) anchors as compact v3 anchors, from the
+                   text they stored (so `check` still tells whether the code moved or changed since)
+''', 'slug?', options=('--all',))
+def cmd_migrate_anchors(ctx, slug='', all=False):
+    """Full-text (v2) anchors -> compact v3, from the text they stored: no file is read, so `check` afterwards still
+    says whether the code moved or changed since the anchor was written."""
+    if all or slug == 'all':
+        slugs = ctx.journeys.slugs()
+        if not slugs:
+            fail(f'no journeys in {ctx.journeys.dir}')
+    elif slug:
+        slugs = [slug]
+    else:
+        raise UsageError('migrate-anchors', 'missing <slug>')
+    for sl in slugs:
+        p = ctx.journeys.path(sl)
+        if not os.path.exists(p):
+            ctx.journeys.no_journey(sl)
+        size = os.path.getsize(p)
+        j = ctx.journeys.load(sl)
+        holders = [s for s in j['steps']] + [n['at'] for n in j['nodes'] if 'at' in n]
+        todo = [h for h in holders if h['anchor'].get('v') != 3]
+        for h in todo:
+            h['anchor'] = as_v3(h['anchor'])
+        if todo:
+            ctx.journeys.save(sl, j)
+        print(f'{sl}: {len(todo)} of {len(holders)} anchors rewritten as v3, {size} -> {os.path.getsize(p)} bytes')
+
+
+# --- links, values, scenes and marks of a step
+
+@command('link', 'links a phrase of a step to the lines doing it', '''
+  journey.py link  <repo> <slug> N "<phrase>" <file> <start> [<end>]
+                   the phrase (exact words of the lead or details, outside backticks and Markdown links) becomes a
+                   link to the 1-8 lines that do what it says; the same phrase again replaces it
+''', 'slug n phrase rel start end?',
+         section="Links, values, marks, scenes (once the steps are written; N = the step's number; the script reads every line's text):")
+def cmd_link(ctx, slug, n, phrase, rel, start, end=''):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        phrase = phrase.strip()
+        if not phrase:
+            refuse('the phrase is empty: give the words of the lead or details that become the link')
+        text = source_line(ctx.repo, rel, start, f'link "{phrase}"')
+        a = int(start)
+        if end and not end.isdigit():
+            refuse(f'link "{phrase}": end "{end}" is not a line number')
+        b = int(end or start)
+        ls = lines_of(ctx.repo, rel)
+        if not a <= b <= len(ls):
+            refuse(f'link "{phrase}": {rel}:{a}-{b} is not a range in the file ({len(ls)} lines)')
+        links = list(s.get('links', []))
+        new = {'phrase': phrase, 'file': rel, 'start': a, 'end': b, 'text': text}
+        old = upsert(links, new, lambda l: l.get('phrase') == phrase)
+        trial = {**s, 'links': links}
+        if links.index(new) not in placed_links(trial):
+            refuse(f'link "{phrase}": the phrase {why_unplaced(s, new)}')
+        warns = say_issues(link_issues(k, trial, new), True)
+        s['links'] = links
+    print(f'step {k} link "{phrase}" -> {rel}:{a}-{b}{" (replaced)" if old is not None else ""}  ({len(links)} links)')
+    print(f'  {rel} L{a}: {text[:100]}')
+    if b > a:
+        print(f'  {rel} L{b}: {ls[b - 1].strip()[:100]}')
+    warn_all(*warns)
+
+
+@command('value', 'adds a value hint above a line', f'''
+  journey.py value <repo> <slug> N <name> "<value>" <file> <line> ["<note>"]
+                   a faint hint above that line: `name = value  · note`. The line mentions <name>; value <= {MAX_VALUE}
+                   chars, one line ("-" reads stdin); note = a few words on what it IS in this run. The same name
+                   on the same line again replaces it
+''', 'slug n name value rel line note?')
+def cmd_value(ctx, slug, n, name, value, rel, line, note=''):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        name, value, note = name.strip(), ' '.join(ctx.value_of(value).split()), ' '.join(note.split())
+        text = source_line(ctx.repo, rel, line, f'value {name}')
+        v = {'name': name, 'value': value, **({'note': note} if note else {}), 'file': rel, 'line': int(line), 'text': text}
+        vals = list(s.get('values', []))
+        old = upsert(vals, v, lambda o: (o.get('name'), o.get('file'), o.get('line')) == (name, rel, int(line)))
+        warns = say_issues(value_issues(k, s, v, vals), True)
+        s['values'] = vals
+    print(f'step {k} value {name} = {shown(value, 60)}{f"  · {note}" if note else ""}  @ {rel}:{line}'
+          f'{" (replaced)" if old is not None else ""}')
+    print(f'  {rel} L{line}: {text[:100]}')
+    warn_all(*warns)
+
+
+@command('scene', "sets a step's animation", '''
+  journey.py scene <repo> <slug> N   < scene JSON  {"actors": [...], "wires": [[a, b]], "beats": [...]}
+                   replaces the step's animation; a beat's code is {"file", "line"} (the script adds "text").
+                   Actors and what a beat's "set" changes: `journey.py help scene`
+''', 'slug n')
+def cmd_scene(ctx, slug, n):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        raw = ctx.body(f'the scene of step {k} (JSON: {{"actors": […], "wires": […], "beats": […]}})')
+        try:
+            sc = json.loads(raw)
+        except json.JSONDecodeError as e:
+            refuse(f'the scene is not valid JSON (line {e.lineno} column {e.colno}: {e.msg})')
+        issues = scene_issues(k, sc)
+        if not any(lv == PROBLEM for lv, _ in issues):
+            issues += beat_lines(ctx.repo, k, sc['beats'])
+        warns = say_issues(issues, True)
+        s['scene'] = {'actors': sc['actors'], 'wires': sc.get('wires', []), 'beats': sc['beats']}
+    coded = sum(1 for b in sc['beats'] if b.get('code'))
+    print(f'step {k} scene: {len(sc["actors"])} actors ({", ".join(a["id"] for a in sc["actors"])}), '
+          f'{len(sc["beats"])} beats ({coded} with code)')
+    for i, b in enumerate(sc['beats'], 1):
+        c = b.get('code')
+        print(f'  beat {i} [{b["focus"]}] {b["caption"]}' + (f'\n      {c["file"]} L{c["line"]}: {c["text"][:90]}' if c else '  (no code)'))
+    warn_all(*warns)
+
+
+def beat_lines(repo, k, beats):
+    """Reads each beat's line into its code (a given text must agree); the warnings about the lines they light."""
+    out = []
+    for i, b in enumerate(beats, 1):
+        c = b.get('code')
+        if not c:
+            continue
+        text = source_line(repo, c['file'], c['line'], f'beat {i}')
+        if 'text' in c and str(c['text']).strip() != text:
+            refuse(f'beat {i}: {c["file"]}:{c["line"]} reads "{text[:80]}", not "{str(c["text"])[:80]}" (give file and '
+                   f'line only; the script reads the text)')
+        b['code'] = {'file': c['file'], 'line': c['line'], 'text': text}
+        why = odd_line(text, c['file'])
+        if why:
+            out.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c["file"]}:{c["line"]}): light the line '
+                                   f'that DOES what the caption says (the call, the assignment, the check)'))
+    return out
+
+
+@command('mark', 'highlights the part of a line a step or beat is about', f'''
+  journey.py mark  <repo> <slug> N|N.B <file> <line>[-<end>] ["<match>"] [<nth>]
+                   highlights ONLY "<match>" (exact characters, its nth occurrence) within those lines while step N
+                   (or beat B of step N) is open; no match: the whole lines. Use it when the text names one call,
+                   argument, condition or field; <= {MAX_MARKS} per step or beat. The same lines and match again replace it.
+                   In a scene's JSON a beat may carry "marks" itself: [{{"lines": [a, b], "match": "…"}}]
+''', 'slug target rel lines match? nth?')
+def cmd_mark(ctx, slug, target, rel, lines, match='', nth=''):
+    """Adds a mark to step N (or beat N.B): `lines` a or a-b, `match` the characters within them (none: whole lines)."""
+    j = ctx.journeys.load(slug)
+    k, s, beat, beat_label = parse_mark_target(j, target)
+    ml = re.match(r'^(\d+)(?:-(\d+))?$', lines)
+    if not ml:
+        refuse(f'lines {lines!r}: give a line or a range (12 or 12-14)')
+    a, b = int(ml.group(1)), int(ml.group(2) or ml.group(1))
+    if b < a:
+        refuse(f'lines {a}-{b}: the end is before the start')
+    if nth and not nth.isdigit():
+        refuse(f'nth {nth!r} is not a number (1 = the first occurrence)')
+    holder = beat if beat is not None else s
+    own = ((beat.get('code') or {}).get('file') if beat is not None else None) or s.get('file')
+    m = {'lines': [a, b], **({'match': match} if match else {}), **({'nth': int(nth)} if nth and int(nth) > 1 else {})}
+    if rel != own:
+        m = {'file': rel, **m}
+    code = ctx.code(None)
+    doc, _ = mark_file_lines(code, rel)
+    check = mark_check(m, rel, doc, 'drop')
+    if check.code:
+        why, moved = check.code
+        if moved is None:
+            refuse(f'mark: {why}')
+        away = f'{abs(moved)} line{"" if abs(moved) == 1 else "s"} {"up" if moved < 0 else "down"}'
+        refuse(f'mark: {_js(match)} isn\'t on {rel}:{a}-{b} (it is {away}): give the lines it is on')
+    ms = list(holder.get('marks', []))
+    same = upsert(ms, m, lambda o: isinstance(o, dict) and o.get('lines') == m['lines'] and o.get('match') == m.get('match')
+                  and o.get('file', own) == rel)
+    holder['marks'] = ms
+    where = f'step {k}{beat_label}'
+    issues = [x for x in as_issues(marks_issues(code, k, s)) if f'{where}: ' in x[1]]
+    if any(lv == PROBLEM for lv, _ in issues):
+        refuse(next(t for lv, t in issues if lv == PROBLEM))
+    ctx.journeys.save(slug, j)
+    replaced = ' (replaced)' if same is not None else ''
+    range_text = f'{rel}:{a}' + (f'-{b}' if b > a else '')
+    match_text = f' {_js(match)}' if match else ' (whole lines)'
+    count = f'{len(ms)} mark{"" if len(ms) == 1 else "s"}'
+    print(f'{where} mark {ms.index(m) + 1}{replaced}: {range_text}{match_text}  ({count})')
+    print('\n'.join(mark_preview(doc, check.spot, '  ')))
+    warn_all(*(t for lv, t in issues))
+
+
+@command('marks', "previews a journey's marks", '''
+  journey.py marks <repo> <slug> [N]  prints every mark with ^^^ under the characters it lights, and its problems
+''', 'slug n?')
+def cmd_marks(ctx, slug, n=''):
+    """Prints every mark (of step n) with the characters it lights, and what check says about them."""
+    j = ctx.journeys.load(slug)
+    code = ctx.code(None)
+    ks = [step_at(j, n) + 1] if n else range(1, len(j['steps']) + 1)
+    total, issues = 0, []
+    for k in ks:
+        s = j['steps'][k - 1]
+        groups = marks_groups(s)
+        if not groups:
+            if n:
+                print(f'step {k} has no marks')
+            continue
+        r = s.get('range') or {}
+        print(f'step {k} {s.get("title", "")}   @ {s.get("file")}:{r.get("start")}-{r.get("end")}')
+        for where, ms, own, text, beat in groups:
+            if beat is not None:
+                print(f'  {where.strip()}: {str(beat.get("caption", ""))[:90]}')
+            for i, m in enumerate(ms if isinstance(ms, list) else [], 1):
+                f = m.get('file') or own if isinstance(m, dict) else ''
+                doc = mark_file_lines(code, f)[0] if isinstance(f, str) and f.strip() else None
+                check = mark_check(m, f if isinstance(f, str) else '', doc, 'drop')
+                if check.shape:
+                    continue
+                total += 1
+                a, b = m['lines'][0], m['lines'][1]
+                head = f'    mark {i}: {f}:{a}' + (f'-{b}' if b > a else '')
+                print(head + (f' {_js(m["match"])}' if 'match' in m else ' (whole lines)') + (f' #{m["nth"]}' if 'nth' in m else ''))
+                print('\n'.join(mark_preview(doc, check.spot)) if doc else '      (file not found)')
+        issues += as_issues(marks_issues(code, k, s))
+    for lv, t in issues:
+        print(('PROBLEM: ' if lv == PROBLEM else 'WARNING: ') + t)
+    np = sum(1 for lv, _ in issues if lv == PROBLEM)
+    plural = lambda n, w: f'{n} {w}{"" if n == 1 else "s"}'
+    print(f'{plural(total, "mark")}, {plural(np, "problem")}, {plural(len(issues) - np, "warning")}')
+    return 1 if np else 0
+
+
+@command('rmlink', 'removes a code link', '''
+  journey.py rmlink <repo> <slug> N "<phrase>"
+''', 'slug n phrase')
+def cmd_rmlink(ctx, slug, n, phrase):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        links = s.get('links', [])
+        gone = next((l for l in links if l.get('phrase') == phrase.strip()), None)
+        if gone is None:
+            fail(f'step {k} has no link "{phrase}" (its links: {", ".join(repr(l.get("phrase")) for l in links) or "none"})')
+        s['links'] = [l for l in links if l is not gone]
+        if not s['links']:
+            s.pop('links')
+    print(f'removed step {k} link "{gone["phrase"]}" -> {gone["file"]}:{gone["start"]}-{gone["end"]}')
+
+
+@command('rmvalue', 'removes a value hint', '''
+  journey.py rmvalue <repo> <slug> N <name> [<line>]
+''', 'slug n name line?')
+def cmd_rmvalue(ctx, slug, n, name, line=''):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        hits = [v for v in s.get('values', []) if v.get('name') == name and (not line or str(v.get('line')) == line)]
+        if not hits:
+            have = ', '.join(f'{v.get("name")} @ {v.get("line")}' for v in s.get('values', [])) or 'none'
+            fail(f'step {k} has no value hint {name}{f" on line {line}" if line else ""} (its hints: {have})')
+        if len(hits) > 1:
+            fail(f'step {k} has {len(hits)} hints {name} (lines {", ".join(str(v["line"]) for v in hits)}): '
+                 f'rmvalue {k} {name} <line>')
+        s['values'] = [v for v in s['values'] if v is not hits[0]]
+        if not s['values']:
+            s.pop('values')
+    print(f'removed step {k} value {name} @ {hits[0]["file"]}:{hits[0]["line"]}')
+
+
+@command('rmscene', "removes a step's animation", '''
+  journey.py rmscene <repo> <slug> N
+''', 'slug n')
+def cmd_rmscene(ctx, slug, n):
+    with step_edit(ctx, slug, n) as (j, k, s):
+        if 'scene' not in s:
+            fail(f'step {k} has no scene')
+        sc = s.pop('scene')
+    print(f'removed step {k} scene ({len(sc.get("beats", []))} beats)')
+
+
+@command('rmmark', 'removes a mark', '''
+  journey.py rmmark <repo> <slug> N|N.B <i>|all
+''', 'slug target which')
+def cmd_rmmark(ctx, slug, target, which):
+    """Removes mark `which` (1-based, or "all") of step N (or beat N.B)."""
+    j = ctx.journeys.load(slug)
+    k, s, beat, beat_label = parse_mark_target(j, target)
+    holder = beat if beat is not None else s
+    ms = holder.get('marks', [])
+    where = f'step {k}{beat_label}'
+    if which == 'all':
+        gone = len(ms)
+        holder.pop('marks', None)
+    else:
+        if not which.isdigit() or not 1 <= int(which) <= len(ms):
+            fail(f'{where} has {len(ms)} marks; give 1-{len(ms)} or "all"')
+        gone = 1
+        holder['marks'] = [m for i, m in enumerate(ms, 1) if i != int(which)]
+        if not holder['marks']:
+            holder.pop('marks')
+    ctx.journeys.save(slug, j)
+    print(f'removed {gone} mark{"s" if gone != 1 else ""} of {where}')
+
+
+def parse_mark_target(j, target):
+    """`N` (step N) or `N.B` (beat B of step N): (k, step, beat dict or None, ' beat B' or '')."""
+    mt = re.match(r'^(\d+)(?:\.(\d+))?$', str(target))
+    if not mt:
+        refuse(f'{target!r}: give the step as N, or a beat as N.B (beat B of step N)')
+    k = step_at(j, mt.group(1)) + 1
+    s = j['steps'][k - 1]
+    if not mt.group(2):
+        return k, s, None, ''
+    beats = ((s.get('scene') or {}).get('beats') or []) if isinstance(s.get('scene'), dict) else []
+    bi = int(mt.group(2))
+    if not 1 <= bi <= len(beats):
+        refuse(f'step {k} has {len(beats)} beats; there is no beat {bi}')
+    return k, s, beats[bi - 1], f' beat {mt.group(2)}'
+
+
+# --- fixing things
+
+def restep_title(ctx, slug, j, s, args, echo):
+    s['title'] = ctx.value_of(args[0])
+
+
+def restep_lead(ctx, slug, j, s, args, echo):
+    s['lead'] = ' '.join(ctx.value_of(args[0]).split())
+
+
+def restep_details(ctx, slug, j, s, args, echo):
+    v = ctx.value_of(args[0]) if args[0] else ''
+    if v:
+        s['details'] = v
+    else:
+        s.pop('details', None)
+
+
+def restep_refs(ctx, slug, j, s, args, echo):
+    s['refs'] = parse_refs(ctx.value_of(args[0]) if args[0] else '')
+
+
+def restep_node(ctx, slug, j, s, args, echo):
+    """Puts the step on another box; returns the boxes that had no step before (to name the ones it leaves empty)."""
+    need_step_box(ctx.repo, slug, j, args[0], s['file'], s['range']['start'])
+    left = {x for x, _ in unvisited(j)}
+    s['node'] = args[0]
+    return left
+
+
+def restep_range(ctx, slug, j, s, args, echo):
+    set_range(ctx.repo, s, *args, echo)
+    say_same_lines(j, s, echo)
+
+
+def said(field):
+    """The changed field's value as `restep` says it."""
+    return lambda s: shown(s.get(field, ''))
+
+
+# `restep N <field> …`: what each field takes, how it is set, and how its new value is said (None: the step's own
+# line says it).
+StepField = namedtuple('StepField', 'args set show')
+STEP_FIELDS = {
+    'title': StepField(1, restep_title, None),
+    'lead': StepField(1, restep_lead, said('lead')),
+    'details': StepField(1, restep_details, said('details')),
+    'refs': StepField(1, restep_refs, lambda s: ' | '.join(s.get('refs', [])) or '(none)'),
+    'node': StepField(1, restep_node, lambda s: s['node']),
+    'range': StepField(3, restep_range, lambda s: f'{s["file"]}:{s["range"]["start"]}-{s["range"]["end"]}'),
+}
+
+
+@command('restep', 'changes a step', '''
+  journey.py restep  <repo> <slug> N [<file> <start> <end>] ["<title>"]  < text    (empty stdin keeps the text)
+  journey.py restep  <repo> <slug> N <title|lead|details|refs|node> <value>          one field ("-" reads stdin;
+                                                                    refs: one sentence per line ("-" = stdin), or
+                                                                    several in one argument separated by " | ";
+                                                                    "" clears details/refs)
+  journey.py restep  <repo> <slug> N range <file> <start> <end>
+''', 'slug n rest*', section='Fixing things:')
+def cmd_restep(ctx, slug, n, rest):
+    if rest and rest[0] in STEP_FIELDS:
+        return restep_field(ctx, slug, n, rest[0], rest[1:])
+    return restep_text(ctx, slug, n, rest)
+
+
+def restep_field(ctx, slug, n, field, args):
+    """`restep N <field> <value>` (range: <file> <start> <end>): one field of the step."""
+    echo = Echo()
+    j = ctx.journeys.load(slug)
+    s = j['steps'][step_at(j, n)]
+    f = STEP_FIELDS[field]
+    if len(args) != f.args:
+        fail('restep N range <file> <start> <end>' if field == 'range' else f'restep N {field} <value>   ("-" reads stdin)')
+    left = f.set(ctx, slug, j, s, args, echo)
+    step_limits(s)
+    ctx.journeys.save(slug, j)
+    if f.show:
+        print(f'step {int(n)} {field} = {f.show(s)}')
+    echo_step(int(n), s, echo)
+    if left is not None:
+        say_left_empty(j, left)
+
+
+def restep_text(ctx, slug, n, rest):
+    """`restep N [<file> <start> <end>] ["<title>"] < text`: the step's range, title and text (lead, details, refs)."""
+    echo = Echo()
+    j = ctx.journeys.load(slug)
+    s = j['steps'][step_at(j, n)]
+    if len(rest) >= 3:
+        restep_range(ctx, slug, j, s, rest[:3], echo)
+        rest = rest[3:]
+    if rest:
+        s['title'] = rest[0]
+    text = ctx.stdin_text()
+    if text:
+        lead, details, refs = parse_step_text(text)
+        s['lead'] = lead
+        if details:
+            s['details'] = details
+        else:
+            s.pop('details', None)
+        if refs is not None:
+            s['refs'] = refs
+    step_limits(s)
+    ctx.journeys.save(slug, j)
+    echo_step(int(n), s, echo)
+
+
+@command('rmstep', 'removes a step', '''
+  journey.py rmstep  <repo> <slug> N                later steps renumber (number = position); names the boxes it
+                                                    leaves without a step (rmnode them, or add a step)
+''', 'slug n')
+def cmd_rmstep(ctx, slug, n):
+    j = ctx.journeys.load(slug)
+    before = {x for x, _ in unvisited(j)}
+    s = j['steps'].pop(step_at(j, n))
+    ctx.journeys.save(slug, j)
+    print(f'removed step {int(n)} [{s.get("id", "")}]: {s["title"]}  ({len(j["steps"])} steps left)')
+    say_left_empty(j, before)
+
+
+@command('mvstep', 'moves a step', '''
+  journey.py mvstep  <repo> <slug> N after M        moves step N behind step M (0 = first); the step keeps its id
+''', 'slug n after_kw after')
+def cmd_mvstep(ctx, slug, n, after_kw, after):
+    """Moves a step (it keeps its id, text and anchor): `mvstep N after M`, M = 0 puts it first."""
+    j = ctx.journeys.load(slug)
+    i = step_at(j, n)
+    if after_kw != 'after' or not after.isdigit() or int(after) > len(j['steps']) or int(after) == int(n):
+        fail(f'move with: mvstep N after M (M = 0..{len(j["steps"])}, not N itself)')
+    s = j['steps'].pop(i)
+    pos = int(after) - (1 if int(after) > i else 0)
+    j['steps'].insert(pos, s)
+    ctx.journeys.save(slug, j)
+    print(f'step {n} is now step {pos + 1}: {s["title"]}')
+
+
+@command('stepnode', 'puts a step on another box', '''
+  journey.py stepnode <repo> <slug> N <node>        puts step N on another box
+''', 'slug n node')
+def cmd_stepnode(ctx, slug, n, node):
+    j = ctx.journeys.load(slug)
+    s = j['steps'][step_at(j, n)]
+    need_step_box(ctx.repo, slug, j, node, s['file'], s['range']['start'])
+    before = {x for x, _ in unvisited(j)}
+    was = s['node']
+    s['node'] = node
+    ctx.journeys.save(slug, j)
+    print(f'step {int(n)} [{s["id"]}] node = {node} (was {was}): {s["title"]}')
+    say_left_empty(j, before)
+
+
+def say_left_empty(j, before):
+    """After a step left a box: names every box that has no step now and had one before."""
+    for nid, what in unvisited(j):
+        if nid not in before:
+            print(f'WARNING: {nid}: {what}')
+
+
+@command('meta', "changes the journey's own fields", '''
+  journey.py meta    <repo> <slug> <title|question|summary|model> <value>           ("-" reads stdin)
+  journey.py meta    <repo> <slug> start <true|false>     the journey to open first ("Start here" in the list)
+''', 'slug field value')
+def cmd_meta(ctx, slug, field, value):
+    j = ctx.journeys.load(slug)
+    if field == 'start':             # the one journey a newcomer should open first: the list marks it "Start here"
+        on = ctx.value_of(value).strip().lower()
+        if on not in ('true', 'false'):
+            fail('start is true or false')
+        if on == 'true':
+            j['start'] = True
+        else:
+            j.pop('start', None)
+        ctx.journeys.save(slug, j)
+        print(f'start = {on}')
+        return
+    if field not in ('title', 'question', 'summary', 'model'):
+        fail('field is title, question, summary, model or start')
+    j[field] = ctx.value_of(value)
+    if field == 'title' and journey_title_problem(j[field]):
+        fail(f'title "{j[field]}" {journey_title_problem(j[field])}; nothing was written')
+    if field == 'question' and question_problem(j[field]):
+        fail(f'question {question_problem(j[field])}; nothing was written: "{j[field]}"')
+    ctx.journeys.save(slug, j)
+    print(f'{field} = {shown(j[field])}')
+    if field in ('title', 'question'):
+        warn_all(*similar_journeys(ctx.journeys, slug, j))
+
+
+def set_label(ctx, j, n, v, echo):
+    label_limit(v)
+    n['label'] = v
+
+
+def set_blurb(ctx, j, n, v, echo):
+    blurb_limit(v)
+    n['blurb'] = v
+
+
+def set_as_is(field):
+    def set_field(ctx, j, n, v, echo):
+        n[field] = v
+    return set_field
+
+
+def set_kind(ctx, j, n, v, echo):
+    nid = n['id']
+    if v not in KINDS:
+        fail(f'kind is one of {", ".join(KINDS)}')
+    if v not in STEP_KINDS and any(s['node'] == nid for s in j['steps']):
+        refuse(f'{nid} holds steps; steps go on a function, external or store box (move them first: stepnode)')
+    if v == 'store' and any(x.get('parent') == nid for x in j['nodes']):
+        refuse(f'{nid} has children; a store box has none (move them first: set <node> parent)')
+    if v == 'store' and any(e['from'] == nid for e in j['edges']):
+        refuse(f'{nid} is the `from` of an edge; a store never acts: turn the edge round first (rmedge, then edge '
+               f'<reader or writer> {nid} "polls …" async)')
+    n['kind'] = v
+
+
+def set_parent(ctx, j, n, v, echo):
+    if v and not any(p['id'] == v for p in j['nodes']):
+        fail(f'no node {v}')
+    if v != n.get('parent', ''):
+        child_limit(j, v, n['id'])
+    if v:
+        n['parent'] = v
+    else:
+        n.pop('parent', None)
+
+
+def set_at(ctx, j, n, v, echo):
+    f, a, b = parse_at(v)
+    n['at'] = {'file': f, 'start': a, 'end': b, 'anchor': anchor(ctx.repo, f, a, b, echo)}
+
+
+def said_text(n, field):
+    return shown(n[field])
+
+
+def said_name(n, field):
+    return n.get(field) or '(none: top level)'
+
+
+def said_at(n, field):
+    return f'{n["at"]["file"]}:{n["at"]["start"]}-{n["at"]["end"]}'
+
+
+# `set <node> <field> <value>`: how each field is set, how its new value is said, and the warnings it may earn.
+NodeField = namedtuple('NodeField', 'set show warnings')
+NODE_FIELDS = {
+    'label': NodeField(set_label, said_text, (lambda n: label_warning(n), lambda n: node_text_warning(n))),
+    'blurb': NodeField(set_blurb, said_text, (lambda n: node_text_warning(n),)),
+    'path': NodeField(set_as_is('path'), said_name, ()),
+    'summary': NodeField(set_as_is('summary'), said_text, ()),
+    'kind': NodeField(set_kind, said_name, ()),
+    'at': NodeField(set_at, said_at, ()),
+    'parent': NodeField(set_parent, said_name, ()),
+}
+
+
+@command('set', 'changes a box', f'''
+  journey.py set     <repo> <slug> <node> <{"|".join(NODE_FIELDS)}> <value>   ("-" reads stdin)
+''', 'slug nid field value')
+def cmd_set(ctx, slug, nid, field, value):
+    echo = Echo()
+    j = ctx.journeys.load(slug)
+    n = next((x for x in j['nodes'] if x['id'] == nid), None) or fail(f'no node {nid}')
+    value = ctx.value_of(value)
+    if field not in NODE_FIELDS:
+        names = list(NODE_FIELDS)
+        fail(f'field is {", ".join(names[:-1])} or {names[-1]}')
+    f = NODE_FIELDS[field]
+    f.set(ctx, j, n, value, echo)
+    ctx.journeys.save(slug, j)
+    echo.wrote(f'{nid}.{field} = {f.show(n, field)}')
+    warn_all(*(w(n) for w in f.warnings))
+
+
+@command('rmnode', 'removes a box and its arrows', '''
+  journey.py rmnode  <repo> <slug> <node>           (and its edges; refuses while steps or children use it)
+''', 'slug nid')
+def cmd_rmnode(ctx, slug, nid):
+    j = ctx.journeys.load(slug)
+    if any(s['node'] == nid for s in j['steps']) or any(n.get('parent') == nid for n in j['nodes']):
+        fail(f'{nid} still has steps or children')
+    gone = next((n for n in j['nodes'] if n['id'] == nid), None) or fail(f'no node {nid}')
+    j['nodes'] = [n for n in j['nodes'] if n['id'] != nid]
+    print('removed ' + node_line(gone))
+    for e in j['edges']:
+        if nid in (e['from'], e['to']):
+            print(f'removed edge {e["from"]} -> {e["to"]}: {e["label"]}')
+    j['edges'] = [e for e in j['edges'] if nid not in (e['from'], e['to'])]
+    ctx.journeys.save(slug, j)
+
+
+@command('rmedge', 'removes an arrow', '''
+  journey.py rmedge  <repo> <slug> <from> <to>
+''', 'slug a b')
+def cmd_rmedge(ctx, slug, a, b):
+    j = ctx.journeys.load(slug)
+    e = j['edges'].pop(find_edge(j, a, b))
+    ctx.journeys.save(slug, j)
+    print('removed ' + edge_line(e))
+
+
+@command('setedge', 'changes an arrow', '''
+  journey.py setedge <repo> <slug> <from> <to> "<label>" [async|sync] ["<detail>"]   (what you omit is kept)
+''', 'slug a b label flag? detail?')
+def cmd_setedge(ctx, slug, a, b, label, flag='', detail=''):
+    j = ctx.journeys.load(slug)
+    i = find_edge(j, a, b)
+    old = j['edges'][i]
+    if not flag:                                   # label only: async and detail stay as they were
+        flag, detail = ('async' if old.get('async') else 'sync'), old.get('detail', '')
+    elif not detail:
+        detail = old.get('detail', '')
+    j['edges'][i] = make_edge(a, b, label, flag, detail)
+    ctx.journeys.save(slug, j)
+    print(edge_line(j['edges'][i]))
+    warn_all(edge_text_warning(j['edges'][i]))
+
+
+@command('reset', 'deletes a journey', '''
+  journey.py reset   <repo> <slug>                  deletes the journey file (nothing else)
+''', 'slug')
+def cmd_reset(ctx, slug):
+    p = ctx.journeys.path(slug)
+    if not os.path.exists(p):
+        ctx.journeys.no_journey(slug)
+    os.remove(p)
+    print(f'deleted {p}')
+
+
+@command('restore', 'puts back the last good copy', '''
+  journey.py restore <repo> <slug>                  puts back the last good copy (journeys/.bak/<slug>.json,
+                                                    kept on every write and every load of a valid file)
+''', 'slug')
+def cmd_restore(ctx, slug):
+    """Puts back .bak/<slug>.json. A current file that differs is kept as .bak/<slug>.replaced.json."""
+    b, p = ctx.journeys.bak(slug), ctx.journeys.path(slug)
+    if not os.path.exists(b):
+        fail(f'no backup of {slug} ({b} does not exist)')
+    raw = open(b, encoding='utf-8').read()
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError as e:
+        fail(f'the backup {b} does not parse either ({e.msg} at line {e.lineno} column {e.colno}); nothing was changed')
+    cur = open(p, encoding='utf-8', errors='replace').read() if os.path.exists(p) else None
+    if cur == raw:
+        print(f'{p} already is the last good copy; nothing to restore')
+        return
+    if cur is not None:
+        write_atomic(ctx.journeys.bak(slug, '.replaced'), cur)
+        print(f'kept the current file as {ctx.journeys.bak(slug, ".replaced")}')
+    write_atomic(p, raw)
+    t = datetime.datetime.fromtimestamp(os.path.getmtime(b)).strftime('%Y-%m-%d %H:%M')
+    print(f'restored {p} from the copy of {t}; run `journey.py check {ctx.repo} {slug}`')
+
+
+@command('podcast', "checks the journey's podcast file", '''
+  journey.py podcast <repo> <slug> [<audio seconds>]   checks the journey's podcast, <slug>.podcast.json next to it
+                   (format: docs/podcast-format.md in the Code Notes repository), the way the extension does: PROBLEM =
+                   the extension won't play it (invalid JSON, version, no segments, audio missing or outside the
+                   journeys folder); WARNING = it plays, but a part is not what the file says (a step or beat the
+                   journey doesn't have, overlapping or out-of-order times, an end before its start or past the
+                   audio, written for another journey). The audio's length: <audio seconds>, else read from a .wav,
+                   else from ffprobe when it is installed. `check` runs it too when the podcast file exists.
+''', 'slug seconds?')
+def cmd_podcast(ctx, slug, seconds=''):
+    if seconds:
+        try:
+            float(seconds)
+        except ValueError:
+            fail(f'podcast: <audio seconds> must be a number (got {seconds!r})')
+    j = ctx.journeys.load(slug)
+    r = podcast_report(ctx, slug, j, seconds or None)
+    if r is None:
+        print(f'PROBLEM: no podcast for {slug}: {ctx.journeys.podcast(slug)} does not exist')
+        return 1
+    problems, warnings, note = r
+    for w in warnings:
+        print('WARNING: ' + w)
+    for p in problems:
+        print('PROBLEM: ' + p)
+    plural = lambda n, w: f'{n} {w}{"" if n == 1 else "s"}'
+    print(f'{"FAILED" if problems else "ok"}: podcast of {slug}, {plural(len(problems), "problem")}, '
+          f'{plural(len(warnings), "warning")}{note}')
+    return 1 if problems else 0
+
+
+# ======================================================================================================================
+# The manual and the command line. `journey.py help` and the usage lines of an error are made from the commands'
+# declarations (@command) and the rules below; argparse reads the command line from the same declarations.
+# ======================================================================================================================
+
+INTRO = f'''journey.py — writes a code journey (format v2): an answer to "how does X work?" as a small map (nodes, edges)
+plus an ordered storyline of steps, all in ONE file: <repo>/journeys/<slug>.json (committed, reviewed in PRs like
+code). Rules: ../SKILL.md. The folder: <repo>/journeys/, or <repo>/.code-notes/journeys/ when only that exists;
+`--dir <folder>` (anywhere on the command line; relative to <repo>) overrides. Last good copies go in its .bak/
+(git-ignored). `--steps A-B` (anywhere) changes the step count `check` wants ({MIN_STEPS}-{MAX_STEPS}), e.g. for a short tour of a change.'''
+
+RULES_HEADER = 'Rules (`journey.py help <command>` shows the ones for that command):'
+# The rules every command keeps, and the commands each one is about (`help <command>` shows that command's).
+Rule = namedtuple('Rule', 'commands text')
+RULE_BOOK = (
+    Rule(('step', 'migrate'), '''\
+- Every step has a stable short "id" (made by `step`/`migrate`, kept by every other command): the extension follows
+  a step by it when steps move.'''),
+    Rule(('edge', 'step'), '''\
+- Every write command prints one line saying what it wrote (`question = "…" (54 chars)`, `server.label = "…"`,
+  `edge a -> b: …`, `step 3 [id] …`), and under it the first/last line it anchored on.'''),
+    Rule(('check', 'restep', 'set'), '''\
+- Anchors are compact (v3; docs/journey-format.md of the extension, "In the repo"), for steps and box `at`:
+  {v: 3, head: first <= 3 non-blank lines, tail: last <= 2, lines: N, hash: sha1 of the normalized text (each
+  non-blank line through `norm`, joined with "\\n") first 12 hex, before/after: the nearest non-blank line around it}.
+  `check` finds the code again from head and tail: same hash = fresh (elsewhere: moved, a WARNING, `fix` repoints
+  it); another hash = CHANGED (a PROBLEM showing where it is now: re-verify, then `restep N range` / `set <node> at`);
+  head or tail not found = GONE (PROBLEM). Full-text (v2) anchors are still read.'''),
+    Rule(('new', 'node', 'edge', 'step', 'restep', 'meta', 'set', 'setedge'), f'''\
+- Limits are enforced when you write (exit 1, nothing is written): `new`/`meta` refuse a question > {MAX_QUESTION} chars and a
+  title > {MAX_TITLE}, `step`/`restep` an over-long title or lead, `node`/`set` a label > {MAX_LABEL} chars, a blurb > {MAX_BLURB} and an {MAX_CHILDREN + 1}th
+  child of one box, `edge`/`setedge` a label > {MAX_EDGE_LABEL}.'''),
+    Rule(('new', 'check', 'meta'), '''\
+- `check` (and `new`, `meta question|title`) print a WARNING when another journey in the repo has a very similar
+  question or title, or walks mostly the same code: extend that one.'''),
+    Rule(('step', 'check', 'restep'), '''\
+- `step`/`restep`/`check` print a WARNING when the range starts or ends on a lone closing brace, stops in the middle
+  of a statement, or starts on a bare `return …` with other code after it (fix it with `restep N range`), and when
+  two steps are anchored on identical lines.'''),
+    Rule(('step', 'check', 'restep'), '''\
+- `step`/`restep`/`check` print a WARNING when a title holds several facts (two or more of ", " "; " ": " " and "
+  " then "; a list "A, B and C" and a leading "If …," do not count) and when the lead or details carry a path:line
+  (prose names the symbol; path:line goes in refs).'''),
+    Rule(('node', 'check', 'set'), f'''\
+- `node`/`set`/`check` print a WARNING when a system/module/external/store label is over {SOFT_LABEL} chars ({MAX_LABEL} stays the hard
+  limit).'''),
+    Rule(('step', 'check', 'restep'), f'''\
+- `step`/`restep`/`check` print a WARNING when a lead is more than one sentence or more than {SOFT_LEAD_WORDS} words (the rest goes
+  in details), when a step marks more than {SOFT_RANGE_LINES} lines, and when a lead repeats its title (one sentence of the lead
+  carries >= {round(REPEAT_SENTENCE * 100)} % of the title's words, or the whole lead >= {round(REPEAT_LEAD * 100)} %): the lead should say what the title does not.'''),
+    Rule(('step', 'check', 'restep'), f'''\
+- A ref is ONE sentence saying what the reader will see there, with the path:line inside it ("The 30 s retry delay
+  is set in worker/src/queue.ts:42."): the extension shows the sentence and links the basename. `check`
+  verifies the one path:line (file exists, lines in range, prints the line); `step`/`restep`/`check` print a WARNING
+  for a bare ref without a sentence, for more than one path:line in a ref, for a ref over {MAX_REF_WORDS} words, and for a ref
+  that points inside the step's own range or within {NEAR_REF} lines of it (that code is already on screen; a ref points
+  somewhere else: another function or file).'''),
+    Rule(('node', 'edge', 'check', 'set', 'setedge'), '''\
+- `node`/`set`/`edge`/`setedge`/`check` print a WARNING when a label or blurb holds code syntax (a URL template or
+  path, an HTTP verb, a protocol name, CLI placeholders, "->"): say it in words ("start run").'''),
+    Rule(('check', 'restep', 'link'), f'''\
+- `link` refuses a phrase that is not a free part of the lead/details (missing, only in backticks or a Markdown link,
+  overlapping another link's phrase), a range equal to the step's own range, a second link on the same lines and a
+  blank or missing line (`check`: WARNING for all but a missing line); WARNING over {SOFT_LINK_LINES} lines. `restep`/`check` print
+  a WARNING naming a link whose phrase the text no longer has (a dead link).'''),
+    Rule(('check', 'value'), f'''\
+- `value` refuses a line that does not mention the name and a value over {MAX_VALUE} chars (`check`: WARNING), and a second
+  hint on one line (`check`: PROBLEM); WARNING when the line is neither within {VALUE_NEAR} lines of the step's range nor
+  within {BEAT_NEAR} of a beat or link of it.'''),
+    Rule(('check', 'scene'), f'''\
+- `scene` refuses (`check`: PROBLEM) an unknown actor type, a duplicate id, a wire, packet, focus or set naming no
+  actor, focus "all", a packet with no wire, no beat with code, more than {MAX_BEATS} beats, more than {MAX_CHECKS} checks or any over {MAX_CHECK}
+  chars, more than {MAX_ROWS} table rows, a terminal line over {MAX_TERM_LINE} chars (file {FILE_CHARS}, chat {CHAT_CHARS}), an app screen or pane that does
+  not exist, and text longer than its box holds (the message says the limit); it refuses (`check`: WARNING) more than {MAX_ACTORS} actors, fewer than {MIN_BEATS} beats, keys the engine ignores and set
+  indexes past what the actor has. WARNING: {SOFT_BEATS + 1} beats, a caption over {SOFT_CAPTION} chars (or with muted over {SOFT_CAPTION_ALL}), two code-less
+  beats in a row, a beat lighting a signature, a comment or a lone brace.'''),
+    Rule(('check', 'mark', 'marks'), f'''\
+- `mark` refuses (`check`: PROBLEM) a match that isn't on its lines (nor within {MARK_REFIND} lines: the extension then lights
+  nothing), an nth past the occurrences, lines past the end of the file. WARNING (`mark`/`check`/`marks`): more than
+  {MAX_MARKS} marks on a step or beat, a step mark outside the step's lines, a match the step's text (a beat: its caption)
+  names none of the words of, a match that is the whole line, a whole-line mark on the step's whole range; a match
+  found a few lines off (`check fix` moves its lines).'''),
+    Rule(('check',), f'''\
+- `check` finds every link, value and beat line again by its stored text the way the extension does (same trimmed
+  line, nearest within {FIND_NEAR} lines): moved = WARNING (`check fix` repoints it, apart from the step's range); not found
+  = PROBLEM. A journey with none of them gets one WARNING; a step without links, when others have some, too.'''),
+)
+
+# The limits a writer meets, for `journey.py help limits` (and SKILL.md's Limits table, which a test keeps the same).
+LIMITS = (
+    ('Steps in a journey', f'{MIN_STEPS}-{MAX_STEPS} (`--steps A-B` for a short tour); `check`: PROBLEM'),
+    ('Question', f'<= {MAX_QUESTION} chars, one natural question; refused'),
+    ('Journey title', f'<= {MAX_TITLE} chars, a topic name; refused'),
+    ('Summary', f'<= {MAX_SUMMARY_SENTENCES} plain sentences; `check`: PROBLEM'),
+    ('Step title', f'<= {MAX_STEP_TITLE} chars; refused'),
+    ('Lead', f'one sentence, <= {SOFT_LEAD_WORDS} words (WARNING); {MAX_LEAD_WORDS} refused'),
+    ('Lines a step marks', f'<= {SOFT_RANGE_LINES} (WARNING)'),
+    ('Refs of a step', f'<= {MAX_REFS} (`check`: PROBLEM), each <= {MAX_REF_WORDS} words (WARNING), not within {NEAR_REF} '
+                       f'lines of the step (WARNING)'),
+    ('Box label', f'<= {SOFT_LABEL} chars (WARNING; not for a function box), {MAX_LABEL} refused'),
+    ('Box blurb', f'<= {MAX_BLURB} chars; refused'),
+    ('Boxes in one box', f'<= {MAX_CHILDREN}; refused'),
+    ('Edge label', f'<= {MAX_EDGE_LABEL} chars; refused'),
+    ('Link', f'1-8 lines, WARNING over {SOFT_LINK_LINES}'),
+    ('Value', f'<= {MAX_VALUE} chars (refused), its note <= {SOFT_NOTE} (WARNING); within {VALUE_NEAR} lines of the step '
+              f'or {BEAT_NEAR} of a beat or link (WARNING)'),
+    ('Scene', f'{MIN_BEATS}-{MAX_BEATS} beats ({MAX_BEATS}: WARNING), <= {MAX_ACTORS} actors; a caption <= {SOFT_CAPTION} '
+              f'chars, with `muted` <= {SOFT_CAPTION_ALL} (WARNING)'),
+    ('Marks', f'<= {MAX_MARKS} per step or beat (WARNING)'),
+)
+
+
+def limits_table():
+    rows = ['| What | Limit |', '|---|---|'] + [f'| {what} | {limit} |' for what, limit in LIMITS]
+    return '\n'.join(rows)
+
+
+def scene_fields():
+    """What each scene actor draws and reads, with its sizes: `journey.py help scene` (SKILL.md says when to use which)."""
+    def chars(d):
+        return ', '.join(f'{k} <= {v}' for k, v in d.items())
+    actors = (
+        ('service', 'code at work', f'fn "name()" <= {FN_CHARS}; checks <= {MAX_CHECKS}, each <= {MAX_CHECK} chars',
+         'done: ticks'),
+        ('table', 'a database collection, nothing else', f'rows <= {MAX_ROWS}: {{id, chips: [..], old?}} (old = there before)',
+         'show new rows, hi row (-1 none), chips {i: [..]}'),
+        ('file', 'a file, folder listing or document',
+         f'lines <= {FILE_CHARS} chars ({FILE_NUM_CHARS} with from: the first line\'s number), 8 in view',
+         'show n (all if unset), hi i or [a, b], text {i: "now"}'),
+        ('cluster', 'a namespace, its pods', f'pods: {{label, note?, madeNote?, goneNote?, ghost?}}; inner (a cluster '
+         f'inside it): {{label <= {INNER_LABEL_CHARS}, sub, ghost?, pods}}',
+         'made [i], gone [i], mark i, inner true, innerMade, innerGone, innerMark'),
+        ('terminal', 'a command and its output', f'lines <= {MAX_TERM_LINE} chars, "$ " = a command',
+         'show lines so far (first beat sets it), hi i'),
+        ('chat', 'a person and a model, an agent and its tools',
+         f'messages {{from: me|them, text <= {CHAT_CHARS}, tool? <= {CHAT_TOOL_CHARS}}}, 4 in view',
+         'show n (first beat sets it), hi i'),
+        ('queue', 'a bus, channel or work queue', f'slots (<= {QUEUE_SLOTS} drawn), cap "256 events per subscriber"',
+         f'fill n, drop true, note <= {NOTE_CHARS}'),
+        ('gauge', 'a limit and how much is taken', 'max, unit, used', f'used, want (red when it does not fit), note <= {NOTE_CHARS}'),
+        ('app', 'a web app\'s window, drawn dark: dialog (a list page with a dialog over it), detail, signin, or a page '
+         'of pages',
+         f'brand (default "App"), logo 1-2 letters, tabs <= {MAX_TABS} (each <= {TAB_CHARS}; brand and tabs share the top '
+         f'bar), screen; dialog {{tab, {chars(DIALOG_CHARS)}, lines <= {DIALOG_LINES} [label <= {LINE_KEY}, value <= '
+         f'{LINE_VALUE}]}}; detail {{tab, {chars(DETAIL_CHARS)} (title + status <= {TITLE_CHIP}), tone '
+         f'{"|".join(TONES)}, cards {{sev, title <= {CARD_CHARS}}}, timeline (rows <= {TIMELINE_CHARS}), chat {{from: '
+         f'me|them, text <= {APP_CHAT_CHARS}}}}}; signin {{{chars(SIGNIN_CHARS)}}}; pages {{name: {{tab, title <= '
+         f'{PAGE_CHARS["title"]}, chip? <= {PAGE_CHARS["chip"]}, tone?, banner? <= {PAGE_BANNER}, rows <= {PAGE_ROWS} '
+         f'[label <= {PAGE_KEY}, value <= {PAGE_VALUE}], button? <= {PAGE_CHARS["button"]}}}}} (rows + banner + button '
+         f'<= {PAGE_ITEMS})',
+         'screen, status, tone, cards n, events n, newCard, newEvent, pane picture|chat, picture, chat n, newChat, typing, '
+         'rows, hiRow, banner, busy, notice, redirecting; beat click: true (presses the shown screen\'s button)'),
+        ('browser', 'a web page (a small shop)',
+         f'{chars(BROWSER_CHARS)} (title + cart <= {SHOP_TOP}), products 2, each <= {PRODUCT_CHARS}, lock {"|".join(LOCKS)}',
+         'click, mark, lock; beat click/flash: its id'),
+    )
+    out = ['Actors (each: id, col 0-3 left to right, the same col stacks; label, sub; a label fits '
+           + ', '.join(f'{t} {n}' for t, n in LABEL_CHARS.items()) + ' chars):']
+    for t, draws, fields, sets in actors:
+        out += [f'  {t}: {draws}', f'      fields: {fields}', f'      a beat\'s set: {sets}']
+    out += ['A beat: focus, caption, muted?, set?, packet? {from, to, label} (needs a wire), code {file, line} (the '
+            'script adds the text), marks? [{lines: [a, b], match?, nth?, file?}] (file: the beat\'s code file unless given).',
+            'Older journeys\' names still read: actor type console (app), screens ' + ', '.join(SCREEN_ALIAS)
+            + ', pane desktop.']
+    return '\n'.join(out)
+
+
+# Help topics that are not commands.
+TOPICS = {'limits': limits_table}
+# What `help <command>` adds after the command's rules.
+MORE = {'scene': scene_fields}
+
+
+def short_help():
+    w = max(len(c) for c in COMMANDS)
+    lines = ['journey.py: writes a code journey, <repo>/journeys/<slug>.json (rules: ../SKILL.md).', '']
+    lines += [f'  {c.name.ljust(w)}  {c.summary}' for c in COMMANDS.values()]
+    lines += ['', 'journey.py help <command>: its arguments and rules. journey.py help all: everything. '
+                  'journey.py help limits: the limits.',
+              '--dir <folder> (anywhere) reads and writes journeys there instead of <repo>/journeys/.']
+    return '\n'.join(lines)
+
+
+def manual():
+    """`journey.py help all`: what it is, every command, every rule."""
+    lines = [INTRO, '']
+    for c in COMMANDS.values():
+        if c.section:
+            lines += ['', c.section]
+        lines += c.usage.split('\n')
+    lines += ['', RULES_HEADER] + [r.text for r in RULE_BOOK]
+    return '\n'.join(lines)
+
+
+def command_help(name):
+    """The command's usage block, the rules about it, and its reference (scene: the actors)."""
+    out = [COMMANDS[name].usage]
+    hits = [r.text for r in RULE_BOOK if name in r.commands]
+    if hits:
+        out += ['', 'Rules:'] + hits
+    if name in MORE:
+        out += ['', MORE[name]()]
+    return '\n'.join(out)
+
+
+def usage_lines(name):
+    return [l.strip() for l in COMMANDS[name].usage.split('\n') if l.startswith('  journey.py ')]
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse for one command, its errors said the way journey.py says them (`<command>: <why>`, its usage, exit 2)."""
+    def __init__(self, name):
+        super().__init__(prog=f'journey.py {name}', add_help=False, allow_abbrev=False)
+        self.name = name
+
+    def error(self, message):
+        m = re.match(r'the following arguments are required: (.*)$', message)
+        if m:
+            message = 'missing ' + ' '.join(f'<{a}>' for a in m.group(1).split(', '))
+        m = re.match(r'unrecognized arguments: (.*)$', message)
+        if m:
+            message = f'{len(m.group(1).split())} argument(s) too many'
+        raise UsageError(self.name, re.sub(r'^argument \w+: ', '', message))
+
+
+FLAGS = ('--fix', '--all')       # options without a value
+# Options whose default is read from the environment: the extension runs the agent that writes a journey with
+# JOURNEY_MODEL set, as it cannot add --model to the agent's own commands.
+ENV_DEFAULTS = {'--model': 'JOURNEY_MODEL'}
+
+
+def repo_dir(v):
+    if not os.path.isdir(v):
+        raise argparse.ArgumentTypeError(f'missing <repo>: {v!r} is not a directory (the repo comes first)')
+    return v
+
+
+def parser_for(c):
+    p = Parser(c.name)
+    p.add_argument('repo', type=repo_dir)
+    for a in c.args:
+        name = a.rstrip('?*')
+        if a.endswith('?'):
+            p.add_argument(name, nargs='?', default='')
+        elif a.endswith('*'):
+            p.add_argument(name, nargs='*')
+        else:
+            p.add_argument(name)
+    for o in c.options:
+        if o in FLAGS:
+            p.add_argument(o, action='store_true')
+        else:
+            p.add_argument(o, default=os.environ.get(ENV_DEFAULTS[o]) if o in ENV_DEFAULTS else None)
+    p.add_argument('--dir')
+    p.add_argument('--steps')
+    return p
+
+
+def step_count(v):
+    """--steps A-B: the step count `check` wants."""
+    m = re.match(r'^(\d+)-(\d+)$', v)
+    if not m or int(m.group(1)) < 1 or int(m.group(1)) > int(m.group(2)):
+        raise UsageError('check', f'--steps {v}: write it as A-B (e.g. 2-3)')
+    return int(m.group(1)), int(m.group(2))
+
+
+def run(argv):
+    """Runs one command line; returns the exit code."""
+    top = argparse.ArgumentParser(prog='journey.py', add_help=False, allow_abbrev=False)
+    top.add_argument('--dir')
+    top.add_argument('--steps')
+    top.add_argument('command', nargs='?')
+    top.add_argument('rest', nargs=argparse.REMAINDER)
+    first = top.parse_known_args(argv)[0]
+    name = first.command
+    if name in (None, 'help', '-h', '--help'):
+        what = first.rest[0] if name == 'help' and first.rest else ''
+        if what == 'all':
+            print(manual())
+        elif what in COMMANDS:
+            print(command_help(what))
+        elif what in TOPICS:
+            print(TOPICS[what]())
+        elif what:
+            print(f'unknown command {what!r}\n\n{short_help()}', file=sys.stderr)
+            return 2
+        else:
+            print(short_help())
+        return 0 if argv else 2
+    if name not in COMMANDS:
+        print(f'unknown command {name!r} (journey.py alone lists them)', file=sys.stderr)
+        return 2
+    c = COMMANDS[name]
+    ns = parser_for(c).parse_intermixed_args(first.rest)
+    steps = ns.steps or first.steps
+    ctx = Ctx(ns.repo, ns.dir or first.dir, step_count(steps) if steps else (MIN_STEPS, MAX_STEPS))
+    given = {a.rstrip('?*'): getattr(ns, a.rstrip('?*')) for a in c.args}
+    given.update({o.lstrip('-'): getattr(ns, o.lstrip('-')) for o in c.options})
+    return c.fn(ctx, **given) or 0
+
+
+def main(argv=None):
+    try:
+        code = run(sys.argv[1:] if argv is None else argv)
+    except UsageError as e:
+        print(e.text, file=sys.stderr)
+        for l in usage_lines(e.command):
+            print(f'usage: {l}', file=sys.stderr)
+        code = e.code
+    except Failed as e:
+        if e.text:
+            print(e.text, file=sys.stderr)
+        code = e.code
+    sys.stdout.flush()
+    sys.exit(code)
 
 
 if __name__ == '__main__':
-    cmds = {'new': cmd_new, 'node': cmd_node, 'edge': cmd_edge, 'step': cmd_step, 'check': cmd_check,
-            'restep': cmd_restep, 'rmstep': cmd_rmstep, 'stepnode': cmd_stepnode, 'set': cmd_set, 'rmnode': cmd_rmnode,
-            'rmedge': cmd_rmedge, 'setedge': cmd_setedge, 'reset': cmd_reset, 'migrate': cmd_migrate,
-            'meta': cmd_meta, 'range': cmd_range, 'restore': cmd_restore, 'mvstep': cmd_mvstep,
-            'migrate-anchors': cmd_migrate_anchors, 'link': cmd_link, 'rmlink': cmd_rmlink, 'value': cmd_value,
-            'rmvalue': cmd_rmvalue, 'scene': cmd_scene, 'rmscene': cmd_rmscene, 'podcast': cmd_podcast,
-            'mark': cmd_mark, 'rmmark': cmd_rmmark, 'marks': cmd_marks}
-    def usage(cmd, why):
-        """A usage error is exit 2 (a failed validation is exit 1), with the command's own usage line."""
-        lines = [l.strip() for l in __doc__.split('\n') if l.strip().startswith(f'journey.py {cmd} ')]
-        print(f'{cmd}: {why}', file=sys.stderr)
-        for l in lines:
-            print(f'usage: {l}', file=sys.stderr)
-        sys.exit(2)
-    for i, x in enumerate(sys.argv):          # --dir <folder> | --dir=<folder>, anywhere
-        if x == '--dir' and i + 1 < len(sys.argv):
-            DIR = sys.argv[i + 1]
-            del sys.argv[i:i + 2]
-            break
-        if x.startswith('--dir='):
-            DIR = x[6:]
-            del sys.argv[i]
-            break
-    for i, x in enumerate(sys.argv):          # --steps A-B (anywhere): the step count to check (a short tour of a change)
-        v = sys.argv[i + 1] if x == '--steps' and i + 1 < len(sys.argv) else x[8:] if x.startswith('--steps=') else None
-        if v is not None:
-            m = re.match(r'^(\d+)-(\d+)$', v)
-            if not m or int(m.group(1)) < 1 or int(m.group(1)) > int(m.group(2)):
-                usage('check', f'--steps {v}: write it as A-B (e.g. 2-3)')
-            MIN_STEPS, MAX_STEPS = int(m.group(1)), int(m.group(2))
-            del sys.argv[i:i + (2 if x == '--steps' else 1)]
-            break
-    if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help', 'help'):
-        what = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == 'help' else ''
-        if what == 'all':
-            print(__doc__.strip())
-        elif what in cmds:
-            print(command_help(what))
-        elif what:
-            print(f'unknown command {what!r}\n\n{short_help()}', file=sys.stderr)
-            sys.exit(2)
-        else:
-            print(short_help())
-        sys.exit(0 if len(sys.argv) > 1 else 2)
-    if sys.argv[1] not in cmds:
-        print(f'unknown command {sys.argv[1]!r} (journey.py alone lists them)', file=sys.stderr)
-        sys.exit(2)
-    import inspect
-    fn = cmds[sys.argv[1]]
-    params = list(inspect.signature(fn).parameters.values())
-    need = [p.name for p in params if p.default is p.empty and p.kind is p.POSITIONAL_OR_KEYWORD]
-    given = sys.argv[2:]
-    if len(given) >= 1 and not os.path.isdir(given[0]):
-        usage(sys.argv[1], f'missing <repo>: {given[0]!r} is not a directory (the repo comes first)')
-    if len(given) < len(need):
-        usage(sys.argv[1], 'missing ' + ' '.join(f'<{n}>' for n in need[len(given):]))
-    if not any(p.kind is p.VAR_POSITIONAL for p in params) and len(given) > len(params):
-        usage(sys.argv[1], f'{len(given) - len(params)} argument(s) too many')
-    fn(*given)
+    main()
