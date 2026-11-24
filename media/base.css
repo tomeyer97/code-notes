@@ -1,0 +1,21 @@
+/* The base of the pages that show journeys (the journey panel, its scene player): the reset, the body's font, the
+   plain button, the keyboard focus ring, `.btn` (a filled button) and `.icon` (a square icon button). Linked after
+   common.css (the colours) and before each page's own sheet; journey-map.css imports it until the panel links it. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg); position: relative;
+  font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: var(--vscode-font-size, 13px);
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+/* Keyboard focus always visible: inset, so a row's clipping container never hides it. */
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; }
+.btn {
+  background: var(--vscode-button-background, var(--accent)); color: var(--vscode-button-foreground, #fff);
+  border-radius: 3px; padding: 3px 10px; white-space: nowrap;
+}
+.btn:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+.icon { font-size: 1.3em; line-height: 1; width: 24px; height: 24px; border-radius: 3px; flex: none; }
+.icon:hover:not(:disabled) { background: var(--hover); }
+.icon:disabled { opacity: 0.35; cursor: default; }

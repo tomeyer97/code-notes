@@ -1,0 +1,4 @@
+[
+  { "key": "k-place-order.json", "title": "place-order", "question": "What is place-order.json?", "steps": 13, "resume": 0, "here": true },
+  { "key": "k-other.json", "title": "other", "question": "What is other.json?", "steps": 13, "resume": 4, "start": true }
+]
