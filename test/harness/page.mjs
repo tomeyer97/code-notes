@@ -31,6 +31,6 @@ export async function openHarness(browser, url, { width, height, theme, warnings
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
   if (failedRequests) page.on('requestfailed', (r) => errors.push(`request failed: ${r.url()}`))
   await page.goto(`${url}?theme=${theme}`)
-  if (ready) await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  if (ready) await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'ready'))
   return { page, errors }
 }

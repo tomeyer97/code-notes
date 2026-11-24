@@ -10,7 +10,7 @@ import { chordKey } from '../platform/chordKey'
 import { log, stored } from '../platform/host'
 import { gitIn } from '../platform/checkout'
 import { ageOf } from '../core/list/journeyList'
-import { MapMessage, TourInfo } from '../journeys/mapPanel'
+import type { FromMap as MapMessage, TourInfo } from '../protocol/map'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { reveal } from '../notes/reveal'
 import { askedOf } from '../sidebar/journeyRows'
@@ -27,7 +27,6 @@ import { openRef } from './refs'
 import { onTutorial } from './tutorial'
 import { fireAndForget } from '../platform/run'
 import { STATE } from '../platform/state'
-import { Cmd } from '../platform/commands'
 import { OWN_MOVE_MS } from '../platform/timings'
 
 type Handler<K extends MapMessage['type']> = (lj: LoadedJourney, m: Extract<MapMessage, { type: K }>) => void
@@ -65,8 +64,6 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   walk: (_lj, m) => withJourney(m.key, (x) => fireAndForget(walkJourney(x, { keepFocus: 'panel' }), 'mapMessages: walkJourney')),
   details: (_lj, m) => { tourState().detailsOpen = m.open; mapPanel().update() },
   openFile: (lj) => fireAndForget(vscode.window.showTextDocument(lj.uri, { viewColumn: walk().codeColumn() }), 'mapMessages: window.showTextDocument'),
-  close: () => mapPanel().close(),
-  pick: () => fireAndForget(vscode.commands.executeCommand(Cmd.openJourney), 'mapMessages: command codeNotes.openJourney'),
   restore: (lj) => restoreLastGood(lj),
   authors: (lj) => showRuleBreaks(lj),
   tutorial: (lj, m) => onTutorial(lj, m),

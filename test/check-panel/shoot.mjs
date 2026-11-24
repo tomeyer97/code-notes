@@ -14,7 +14,7 @@ const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
 
 /** Has the page posted a message of `type` whose fields include `fields`? */
-const postedType = (page, type, fields = {}) => page.evaluate(([t, f]) => window.__posted.some((m) => m.type === t && Object.entries(f).every(([k, v]) => m[k] === v)), [type, fields])
+const postedType = (page, type, fields = {}) => page.evaluate(([t, f]) => window.__harness.posted.some((m) => m.type === t && Object.entries(f).every(([k, v]) => m[k] === v)), [type, fields])
 /** Draws `view` (as the extension posts it). */
 const draw = (page, view) => page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
 
@@ -44,7 +44,7 @@ async function answerBox(page, view, fail) {
   await box.focus()
   await page.keyboard.type(' it never charges twice.')
   await page.keyboard.press('Control+Enter')
-  const sent = await page.evaluate((id) => window.__posted.some((m) => m.type === 'answer' && m.id === id && /it never charges twice\.$/.test(m.text)), view.answer.id)
+  const sent = await page.evaluate((id) => window.__harness.posted.some((m) => m.type === 'answer' && m.id === id && /it never charges twice\.$/.test(m.text)), view.answer.id)
   if (!sent) fail('Ctrl+Enter didn\'t send the answer')
   if (view.answer.grade) {
     await page.click('.answer .codelink')
@@ -167,8 +167,8 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
   const fail = (what) => fails.push(`${tag}: ${what}`)
   const { page, errors } = await openHarness(browser, HARNESS, { width: w, height: 520, theme })
   await draw(page, view)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'))
-  const r = await page.evaluate(() => window.__posted.filter((m) => m.type === 'rendered').pop())
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'rendered'))
+  const r = await page.evaluate(() => window.__harness.posted.filter((m) => m.type === 'rendered').pop())
   if (r.overflow.length) fail(r.overflow.join('; '))
   if (errors.length) fail(`console: ${errors.join('; ')}`)
   for (const check of CHECKS) await check(page, view, fail)

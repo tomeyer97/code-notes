@@ -91,7 +91,8 @@ export function violations(graph, bare, rules) {
   const shared = new Set(rules.shared ?? [])
   const src = rules.src ?? 'src'
   for (const [from, deps] of graph) {
-    const lf = layerOf(from, rules)
+    // A shared folder (protocol/) is importable from every layer; it may itself import only the lowest layer.
+    const lf = shared.has(folderOf(from, src)) ? 0 : layerOf(from, rules)
     for (const to of deps) {
       if (shared.has(folderOf(to, src))) continue
       const lt = layerOf(to, rules)

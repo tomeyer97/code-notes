@@ -43,6 +43,7 @@
     "out/src/**/*.js",
     "out/cli/**/*.js",
     "out/src/webview/*.html",
+    "out/pages/*.js",
     "out/vendor/**",
     "media/**",
     "skills/code-journey/SKILL.md",

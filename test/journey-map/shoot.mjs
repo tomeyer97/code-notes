@@ -6,7 +6,7 @@
 // step card, problems, deleted and the tutorial as before; every bundled sample journey (and, optionally, every journey
 // in a folder you name) at every step; no console errors. Exits 1 on any failure.
 //
-// Usage (after `npm run build`, which puts out/src and out/vendor in place):
+// Usage (after `npm run build`, which puts out/src, out/vendor and the page's bundle, out/pages/map.js, in place):
 //   node test/journey-map/shoot.mjs [screenshot-dir] [journeys-dir]
 // screenshot-dir: where the PNGs go (none are taken without it).
 // journeys-dir: a folder of journey files (e.g. a repo's journeys/) also checked at every step.
@@ -25,9 +25,10 @@ const JOURNEYS = process.argv[3] ? path.resolve(process.argv[3]) : ''
 if (JOURNEYS && !fs.existsSync(JOURNEYS)) { console.error(`no folder ${JOURNEYS}`); process.exit(2) }
 const SAMPLES = path.join(ROOT, 'test/fixtures/journey/journeys')
 const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
-/** Run in each page before its own scripts: the contrast helpers (window.contrast) and the layout rules `check` uses. */
+/** Run in each page before its own scripts: the contrast helpers and the layout rules `check` uses (window.__harness:
+ *  ../harness/themes.js Harness). */
 const PAGE_HELPERS = [path.join(ROOT, 'test/harness/contrast.js'), path.join(ROOT, 'test/journey-map/layoutChecks.js')]
-for (const f of [path.join(ROOT, 'out/src/core/format/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js')]) {
+for (const f of [path.join(ROOT, 'out/src/core/format/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js'), path.join(ROOT, 'out/pages/map.js')]) {
   if (!fs.existsSync(f)) { console.error(`${path.relative(ROOT, f)} is missing: run \`npm run build\` first`); process.exit(2) }
 }
 /** The extension's journey reader (src/core/format/journeyModel.ts): the page gets journeys parsed, as from the extension. */
@@ -153,7 +154,7 @@ async function newPage(b, w, th) {
 }
 
 const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
-const posted = () => page.evaluate(() => window.__posted.splice(0))
+const posted = () => page.evaluate(() => window.__harness.posted.splice(0))
 /**
  * Until the page has handled what was just sent or clicked and drawn it: two animation frames. Messages and clicks
  * are handled before the next frame and the map (prefers-reduced-motion) jumps in one; nothing checked here waits
@@ -164,7 +165,7 @@ const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFram
 const open = async (j, t) => {
   await posted()
   await send({ type: 'journey', journey: j, ...tour(t) })
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered') || !document.querySelector('.gmap'), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'rendered') || !document.querySelector('.gmap'), null, { timeout: 15000 })
   await settle()
 }
 const clickPosts = async (sel, want, what) => {
@@ -180,13 +181,13 @@ const view = () => page.evaluate(() => { const m = /translate\(([-\d.]+)px, ([-\
 /** Layout checks on whatever is shown now (the rules: layoutChecks.js); in dark, the text's contrast too. */
 const check = async (what, { current = true } = {}) => {
   await page.mouse.move(0, 0)
-  const r = await page.evaluate((wantCurrent) => window.mapLayoutProblems(wantCurrent), current)
+  const r = await page.evaluate((wantCurrent) => window.__harness.mapLayoutProblems(wantCurrent), current)
   for (const x of r) fail(`${tag} ${what}: ${x}`)
   if (theme === 'dark') for (const x of await lowContrast()) fail(`${tag} ${what}: ${x}`)
 }
 /** Map text at ≥ 4.5:1 in dark (labels, numbers and names you are meant to read; faint ones are faint on purpose). */
 const lowContrast = () => page.evaluate(() => {
-  const { rgba, over, backgroundOf, ratio } = window.contrast
+  const { rgba, over, backgroundOf, ratio } = window.__harness.contrast
   const out = []
   for (const e of document.querySelectorAll('.gmap:not(.far) .glabel:not(.faint), .gmap:not(.far) .gnum:not(.cur), .gmap:not(.far) .gtitle, .gmap:not(.far) .glbl')) {
     if (e.getClientRects().length === 0 || getComputedStyle(e).visibility === 'hidden') continue
@@ -214,7 +215,7 @@ const R = (sel) => page.evaluate((q) => {
   return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }
 }, sel)
 /** Tells the page's layout rules which journey is drawn (they check every one of its boxes). */
-const setJ = (j) => page.evaluate((x) => { window.__J = x }, j)
+const setJ = (j) => page.evaluate((x) => { window.__harness.journey = x }, j)
 /**
  * Fit and the far view: the map centred in its area; far names never over each other or the buttons,
  * readable in dark (≥ 4.5:1 over the page and over a block); while walking, the current step's box ringed and its
@@ -246,14 +247,13 @@ const farCheck = async (what) => {
       if (!lit.some((b) => b.textContent === String(cur))) out.push(`far: step ${cur}'s number not shown lit`)
     }
     if (dark) {
-      const { rgba, over, ratio: contrastOf } = window.contrast
+      const { rgba, over, backgroundOf, ratio: contrastOf } = window.__harness.contrast
       const page = rgba(getComputedStyle(document.body).backgroundColor)
       const cover = document.querySelector('.gcover') ? over(rgba(getComputedStyle(document.querySelector('.gcover')).backgroundColor), page) : page
       for (const t of shown) for (const e of [t.querySelector('.gnt'), ...t.querySelectorAll('.gfn:not(.cur)')]) {
-        let bg = null
-        for (let x = e; x && x !== m; x = x.parentElement) { const q = rgba(getComputedStyle(x).backgroundColor); if (q[3] > 0) { bg = q; break } }
+        // The names float over the map: what is under them is the page or a block, not the map's own background.
         for (const under of [page, cover]) {
-          const b = bg ? over(bg, under) : under, f = over(rgba(getComputedStyle(e).color), b)
+          const b = backgroundOf(e, { stop: m, under }), f = over(rgba(getComputedStyle(e).color), b)
           const ratio = contrastOf(f, b)
           if (ratio < 4.5) { out.push(`far "${e.textContent}" at ${ratio.toFixed(2)}:1`); break }
         }
@@ -375,7 +375,7 @@ async function splitter() {
   await send({ type: 'tour', ...tour({ current: 8, prov, mapWidth: 500 }) })
   await settle()
   if (Math.abs((await R('.mapwrap')).w - 500) > 1) fail(`${tag}: a remembered width (500) from the extension is not used: ${(await R('.mapwrap')).w}`)
-  const st0 = await page.evaluate(() => window.__state && window.__state.mapW)
+  const st0 = await page.evaluate(() => window.__harness.state && window.__harness.state.mapW)
   if (st0 !== 500) fail(`${tag}: the width is not kept in the webview state (${st0})`)
   await send({ type: 'tour', ...tour({ current: 8, prov }) })
   await settle()
@@ -748,7 +748,7 @@ async function resize() {
 
 /** No page error and nothing in the console on this page. */
 async function pageErrors() {
-  const errs = await page.evaluate(() => window.__errors)
+  const errs = await page.evaluate(() => window.__harness.errors)
   for (const e of errs) fail(`${tag}: page error ${e.message}`)
   for (const e of errors) fail(`${tag}: console ${e}`)
 }
@@ -761,13 +761,13 @@ async function firstOpen(b, width) {
   const { page, errors } = await openHarness(b, HARNESS, { width, height: 900, theme: 'dark', warnings: true })
   const bodyFirst = await page.evaluate(() => { const b = document.body; const first = [...b.children].findIndex((c) => c.tagName === 'SCRIPT' && c.src); return first > [...b.children].findIndex((c) => c.id === 'app') && ![...document.head.querySelectorAll('script[src]')].length })
   if (!bodyFirst) failures.push(`first open ${width}: scripts load before the body`)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'ready'))
   await page.evaluate((x) => window.postMessage(x, '*'), { type: 'journey', journey, current: 1, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: true, list })
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
   // The bar comes with the first drawing; the console gets until then (or 2 s) to complain.
   await page.waitForSelector('.tbar', { timeout: 2000 }).catch(() => {})
   if (!(await page.$('.tbar'))) failures.push(`first open ${width}: no tutorial bar`)
-  for (const e of [...errors, ...(await page.evaluate(() => window.__errors)).map((e) => e.message)]) failures.push(`first open ${width}: ${e}`)
+  for (const e of [...errors, ...(await page.evaluate(() => window.__harness.errors)).map((e) => e.message)]) failures.push(`first open ${width}: ${e}`)
   await page.close()
 }
 

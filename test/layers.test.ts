@@ -72,6 +72,12 @@ test('a forbidden module (vscode in core/) and dynamic imports and requires coun
   ])
 })
 
+test('protocol/ may import core/ but not a feature', async () => {
+  const { check } = await script()
+  const files = { ...clean, 'src/protocol/map.ts': "import type { a } from '../core/text'\nimport type { b } from '../notes/store'\nexport type M = 1\n" }
+  assert.deepEqual(check(tree(files)).violations, ['src/protocol/map.ts -> src/notes/store.ts'])
+})
+
 test('a listed violation that is gone fails (the line has to go)', async () => {
   const r = (await script()).check(tree({ ...clean, 'scripts/layer-exceptions/core.txt': 'src/core/text.ts -> src/notes/store.ts\n' }))
   assert.deepEqual(r.problems, ['scripts/layer-exceptions/core.txt: "src/core/text.ts -> src/notes/store.ts" is fixed: remove the line'])

@@ -1,37 +1,43 @@
-// The Check view's page (media/check.js, media/checkAnswer.js) and the extension name the same messages: each page's
-// "Out" list and every type it posts are src/check/viewMessages.ts CHECK_VIEW_REQUESTS and CHECK_VIEW_REPORTS.
+// The Check view's messages: the page (media/check.js, media/checkAnswer.js, type-checked against
+// src/protocol/check.ts by scripts/build/pages.mjs) and the extension use the same types. These tests tie those types to
+// the names the extension handles: src/check/viewMessages.ts CHECK_VIEW_REQUESTS (the controller has one handler per
+// request: its handler table is typed by them) and CHECK_VIEW_REPORTS (src/check/view.ts).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as fs from 'fs'
-import * as path from 'path'
-import { CHECK_VIEW_REPORTS, CHECK_VIEW_REQUESTS } from '../src/check/viewMessages'
+import { CHECK_VIEW_REPORTS, CHECK_VIEW_REQUESTS, type CheckViewReport, type CheckViewRequest } from '../src/check/viewMessages'
+import type { FromCheck, ToCheck } from '../src/protocol/check'
 
-const page = (f: string) => fs.readFileSync(path.join(__dirname, '../../media', f), 'utf8')
-const PAGES = ['check.js', 'checkAnswer.js']
-const quoted = (s: string) => [...s.matchAll(/'(\w+)'/g)].map((m) => m[1])
+/** True when A and B are the same type (else the assignment below does not compile). */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
-/** The message types a page's header lists under "Out:" (up to the code). */
-function outList(text: string): string[] {
-  const lines = text.split('\n')
-  const from = lines.findIndex((l) => /^\/\/ Out:/.test(l))
-  const out: string[] = []
-  for (const l of lines.slice(from + 1)) {
-    if (!l.startsWith('//')) break
-    // `{ type: 'a' | 'b' }`, and the button's ids after `{ type: <the action's id> }`.
-    for (const m of l.matchAll(/\{ type: ((?:'\w+'(?: \| )?)+)/g)) out.push(...quoted(m[1]))
-    if (l.includes("<the action's id>")) out.push(...quoted(l.split("<the action's id>")[1]))
-  }
-  return out
+// Every type the page may post is a request or a report, and each of those is a type the page may post.
+const postsAreHandled: Same<FromCheck['type'], CheckViewRequest | CheckViewReport> = true
+
+/** Every type the page may post, once: the compiler says when one is missing or unknown. */
+const POSTED: Record<FromCheck['type'], true> = {
+  // The one button (src/check/viewModel.ts ACTIONS).
+  start: true, topUp: true, scm: true, commitPush: true, openFile: true, merge: true, pull: true,
+  // The view's other requests.
+  ready: true, open: true, select: true, answer: true, draft: true, link: true, next: true, regrade: true, escape: true,
+  concern: true, include: true, retry: true, modelSetting: true, pathSetting: true, install: true, tour: true,
+  writeTour: true, openMr: true,
+  // What the page reports about itself.
+  rendered: true, error: true, focused: true,
 }
 
-test('the Check view pages list under "Out" exactly the requests and reports the extension handles', () => {
-  const listed = new Set(PAGES.flatMap((f) => outList(page(f))))
-  assert.deepEqual([...listed].sort(), [...CHECK_VIEW_REQUESTS, ...CHECK_VIEW_REPORTS].sort())
+/** Every type the extension sends the page (the page has one handler each: media/check.js `handlers`). */
+const SENT: Record<ToCheck['type'], true> = { check: true, focus: true, test: true }
+
+test('the Check view page posts exactly the requests and reports the extension handles', () => {
+  assert.equal(postsAreHandled, true)
+  assert.deepEqual(Object.keys(POSTED).sort(), [...CHECK_VIEW_REQUESTS, ...CHECK_VIEW_REPORTS].sort())
 })
 
-test('every type the Check view pages post by name is a request or a report', () => {
-  const known = new Set<string>([...CHECK_VIEW_REQUESTS, ...CHECK_VIEW_REPORTS])
-  const posted = PAGES.flatMap((f) => [...page(f).matchAll(/post\(\{ type: '(\w+)'/g)].map((m) => m[1]))
-  assert.ok(posted.length > 10, `found ${posted.length} posts`)
-  assert.deepEqual(posted.filter((t) => !known.has(t)), [])
+test('the requests and reports are named once each', () => {
+  const all = [...CHECK_VIEW_REQUESTS, ...CHECK_VIEW_REPORTS]
+  assert.equal(new Set(all).size, all.length)
+})
+
+test('the extension sends the Check view three kinds of message', () => {
+  assert.deepEqual(Object.keys(SENT).sort(), ['check', 'focus', 'test'])
 })

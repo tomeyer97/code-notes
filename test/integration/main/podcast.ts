@@ -21,7 +21,7 @@ import { markTimes, marksAt } from '../../../src/core/format/podcast/model'
 const pod = () => ctx.api.podcast() as any
 /** The suite's wait, printing the podcast's state (and the walk's) on a timeout. */
 const until = waiter({ dump: () => ({ podcast: pod(), step: tour().step, map: tour().map, beat: tour().beat, file: codeFile() }) })
-const send = (m: object) => ctx.api.listenSend({ type: 'podcastCmd', ...m })
+const send = (m: { action: string; [k: string]: unknown }) => ctx.api.listenSend({ type: 'podcastCmd', ...m })
 const seek = (to: number) => send({ action: 'seek', to })
 const codeEditor = () => vscode.window.visibleTextEditors.find((e) => e.viewColumn !== tour().mapColumn && e.document.uri.scheme === 'file')
 const codeFile = () => path.basename(codeEditor()?.document.uri.fsPath ?? '')

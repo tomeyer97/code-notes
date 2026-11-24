@@ -1,10 +1,12 @@
-// Claude's question before it writes a journey (a page: webview/clarify.html, media/clarify.js and .css), and the
-// answer that lets it go on.
+// Claude's question before it writes a journey (a page: webview/clarify.html, media/clarify.js and .css; its messages:
+// src/protocol/clarify.ts), and the answer that lets it go on.
 
 import * as vscode from 'vscode'
 import { extUri, log } from '../platform/host'
 import { LoadedJourney } from '../journeys/steps'
-import { escapeHtml, pageBody, webviewPage } from '../webview/page'
+import type { FromClarify } from '../protocol/clarify'
+import { pageBody, pageScript, webviewPage } from '../webview/page'
+import { escapeHtml } from '../core/escape'
 import { writeJourney } from './writeJourney'
 import { fireAndForget } from '../platform/run'
 
@@ -23,13 +25,13 @@ export async function showClarify(question: string, session: string, text: strin
   panel.webview.html = webviewPage(panel.webview, {
     css: [media('clarify.css')],
     body: pageBody('clarify', { question: escapeHtml(question), body }),
-    scripts: [media('clarify.js')],
+    scripts: [pageScript(extUri(), 'clarify')],
     allow: { images: true, inlineStyles: true },
   })
   const c = { panel, question, session, text, model }
   clarify = c
-  // The page's messages (media/clarify.js lists them).
-  panel.webview.onDidReceiveMessage((m: { type?: string; text?: unknown }) => {
+  // The page's messages: a webview, so the fields are checked here too.
+  panel.webview.onDidReceiveMessage((m: FromClarify) => {
     if (m?.type === 'reply' && typeof m.text === 'string' && m.text.trim()) fireAndForget(answerClarify(m.text), 'clarify: answerClarify')
     else if (m?.type === 'error') log().error(`Claude asks (webview): ${String(m.text)}`)
   })

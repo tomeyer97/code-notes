@@ -1,15 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as vm from 'vm'
+import { pageModule } from './pageModule'
 
-// media/journey-layout.js runs in the webview; its pure parts are loaded here as the page loads them.
-const media = path.join(__dirname, '../../media')
-const window: Record<string, any> = {}
-const context = vm.createContext({ window })
-for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(fs.readFileSync(path.join(media, f), 'utf8'), context)
-const { verb } = window.JourneyLayout
+// media/journey-layout.js runs in the webview; its pure parts are bundled here as the page bundles them.
+const { verb } = pageModule('media/journey-layout.js')
 
 test('an arrow label is its first clause without timings', () => {
   const cases: [string, string][] = [

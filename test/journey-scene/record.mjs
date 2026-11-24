@@ -18,9 +18,10 @@ const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-await page.addInitScript((j) => { window.__journey = j }, journey)
+// The journey and the end of the video go through ../harness/themes.js Harness.
+await page.addInitScript((j) => { window.__harness = { ...window.__harness, journey: j } }, journey)
 await page.goto(`file://${here}/player.html?step=${step}&theme=${theme}&play=1`)
-await page.waitForFunction(() => window.__done === true, null, { timeout: 180000 })
+await page.waitForFunction(() => window.__harness.done === true, null, { timeout: 180000 })
 await ctx.close()
 await b.close()
 const made = fs.readdirSync(dir).find((f) => f.endsWith('.webm'))

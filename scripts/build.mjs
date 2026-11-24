@@ -1,7 +1,8 @@
 // npm run build: compiles the extension and its tests (tsc -p .), then runs every scripts/build/*.mjs in name order,
 // each one build target (the CLI bundle, the vendored libraries, the webview pages).
-// npm run watch (the F5 task in .vscode/tasks.json): the same targets once, then tsc in watch mode.
-import { spawnSync } from 'node:child_process'
+// npm run watch (the F5 task in .vscode/tasks.json): the same targets once, then the pages (scripts/build/pages.mjs
+// --watch) and tsc in watch mode.
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -20,4 +21,7 @@ function node(...args) {
 if (!watch) node(tsc, '-p', '.')
 const dir = path.join(root, 'scripts', 'build')
 for (const step of fs.readdirSync(dir).filter((n) => n.endsWith('.mjs')).sort()) node(path.join(dir, step))
-if (watch) node(tsc, '-w', '-p', '.')
+if (watch) {
+  spawn(process.execPath, [path.join(dir, 'pages.mjs'), '--watch'], { cwd: root, stdio: 'inherit' })
+  node(tsc, '-w', '-p', '.')
+}

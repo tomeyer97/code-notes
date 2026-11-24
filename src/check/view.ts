@@ -1,50 +1,44 @@
 // The Check view in the Code Notes sidebar (media/check.js, media/checkAnswer.js): where the check stands, the
-// questions as rows, one button. This side only carries messages: the controller (controller.ts) decides what they do.
+// questions as rows, one button. This side only carries messages (src/protocol/check.ts): the controller
+// (controller.ts) decides what they do.
 import * as vscode from 'vscode'
-import type { CheckViewMessage } from './viewMessages'
+import type { FromCheck, ToCheck } from '../protocol/check'
 import type { CheckView } from './viewModel'
-import { webviewPage } from '../webview/page'
+import { PAGES_DIR, pageScript, webviewPage } from '../webview/page'
+import { WebviewChannel } from '../webview/channel'
 import { fireAndForget } from '../platform/run'
 import { HiddenCmd } from '../platform/commands'
 
 export class CheckViewProvider implements vscode.WebviewViewProvider {
   private wv: vscode.WebviewView | undefined
-  private ready = false
   private last: CheckView | undefined
-  private queue: unknown[] = []
-  /** The view as last sent to the webview: the same view again is not sent (a message to the window each time). */
-  private sent: string | undefined
+  /** The page's messages: a focus asked for before the view is made waits for it. */
+  private channel: WebviewChannel<FromCheck, ToCheck>
   /** A focus request that may be tried once more (focus): which question, tries left, the caret it was asked at. */
   private focusTries: { id: string; left: number; caret: string } | undefined
   /** What the webview reported (integration test): rows drawn, layout problems, errors. */
   private reported: { rows?: number; overflow?: string[]; errors: string[]; height?: number } = { errors: [] }
 
-  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: CheckViewMessage) => void) {}
+  constructor(private extUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: FromCheck) => void) {
+    this.channel = new WebviewChannel('check view', log, { queueWithoutPage: true, onReady: () => this.post() })
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.wv = view
-    this.ready = false
-    view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media')] }
+    view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extUri, 'media'), vscode.Uri.joinPath(this.extUri, ...PAGES_DIR)] }
     const media = (f: string) => vscode.Uri.joinPath(this.extUri, 'media', f)
     view.webview.html = webviewPage(view.webview, {
       css: [media('common.css'), media('check.css'), media('checkAnswer.css')],
       body: '<div id="app"></div>',
-      scripts: [media('common.js'), media('checkAnswer.js'), media('check.js')],
+      scripts: [pageScript(this.extUri, 'check')],
     })
-    view.webview.onDidReceiveMessage((m: CheckViewMessage) => {
+    this.channel.attach(view.webview, (m) => {
       switch (m.type) {
-        case 'ready':
-          this.ready = true
-          this.sent = undefined
-          this.post()
-          for (const q of this.queue.splice(0)) fireAndForget(view.webview.postMessage(q), 'view: view.webview.postMessage')
-          break
         case 'rendered':
           this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
           break
-        case 'error':
+        case 'error': // logged by the channel
           this.reported.errors.push(String(m.message))
-          this.log.error(`check view: ${m.message}`)
           break
         case 'focused':
           if (m.id) this.focused(m.id, !!m.ok)
@@ -52,7 +46,7 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
       }
       this.onMessage(m)
     })
-    view.onDidDispose(() => { this.wv = undefined; this.ready = false; this.sent = undefined })
+    view.onDidDispose(() => { this.wv = undefined; this.channel.detach() })
   }
 
   /** Shows the view (opening the sidebar on it), keeping the keyboard where it is. */
@@ -85,18 +79,12 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
     this.send({ type: 'focus', id })
   }
 
+  /** The view to the page (once ready); the same view again is not sent. */
   private post(): void {
-    if (!this.wv || !this.ready) return
-    const msg = { type: 'check', view: this.last ?? null }
-    const text = JSON.stringify(msg, (_k, v) => (v instanceof Set ? [...v] : v))
-    if (text === this.sent) return
-    this.sent = text
-    fireAndForget(this.wv.webview.postMessage(msg), 'view: wv.webview.postMessage')
+    const msg: ToCheck = { type: 'check', view: this.last ?? null }
+    this.channel.sendChanged(msg, JSON.stringify(msg, (_k, v) => (v instanceof Set ? [...v] : v)))
   }
-  send(m: unknown): void {
-    if (this.wv && this.ready) fireAndForget(this.wv.webview.postMessage(m), 'view: wv.webview.postMessage')
-    else this.queue.push(m)
-  }
+  send(m: ToCheck): void { this.channel.send(m) }
   state() { return { open: !!this.wv, visible: !!this.wv?.visible, ...this.reported } }
 }
 

@@ -3,7 +3,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { markdownAsText, stripEmphasis, stripLineMark, stripLinks } from '../src/core/markdown'
-import { isolate, labelSafe, plain, plural, rangeLabel, shortQ } from '../src/core/text'
+import { isolate, plain, plural, rangeLabel, shortQ } from '../src/core/text'
+import { labelSafe } from '../src/core/escape'
 import { ago, ageOf, DAY_MS } from '../src/core/time'
 
 test('markdown: links and images as their text', () => {

@@ -6,12 +6,13 @@
 | layer | folders |
 |---|---|
 | core | `core/` (pure: no `vscode`) |
-| platform | `platform/` (the vscode and Node adapters) |
+| platform | `platform/` (the vscode and Node adapters), `webview/` (a webview page and its channel) |
 | features | `notes/`, `threads/`, `journeys/`, `tour/`, `podcast/`, `marks/`, `ask/`, `write/`, `check/`, `codeLinks/` |
-| ui | `sidebar/`, `webview/` |
+| ui | `sidebar/` |
 | composition | the files at the root of `src/` (`extension.ts`, …) |
 
-A file may import its own layer and the layers below it; `protocol/` is open to every layer.
+A file may import its own layer and the layers below it; `protocol/` is open to every layer and imports only
+`core/` (its exceptions are `protocol.txt`).
 
 Each `<folder>.txt` here lists the imports from that `src/` folder that break the rule today, one
 `<from> -> <to>` per line. A new violation fails the lint; so does a listed one that is gone (remove the line when you

@@ -1,5 +1,5 @@
 // The journey panel's layout rules, inside the harness page (shoot.mjs installs this file with page.addInitScript and
-// its `check` calls window.mapLayoutProblems). Each rule is a function returning what it finds wrong, as sentences.
+// its `check` calls window.__harness.mapLayoutProblems: ../harness/themes.js Harness). Each rule is a function returning what it finds wrong, as sentences.
 ;(function () {
   const rect = (e) => e.getBoundingClientRect()
   /** Do rectangles a and b overlap by more than `m` px? */
@@ -28,10 +28,10 @@
     return out
   }
 
-  /** Every box of the journey (window.__J, when the test set it) drawn, inside the box it belongs to. */
+  /** Every box of the journey (__harness.journey, when the test set it) drawn, inside the box it belongs to. */
   function boxesInsideParents(byId) {
     const out = []
-    const J = window.__J
+    const J = window.__harness.journey
     if (!J) return out
     for (const n of J.nodes) {
       const e = byId.get(n.id), p = n.parent && byId.get(n.parent)
@@ -135,7 +135,8 @@
   }
 
   /** Every layout rule on what is shown now; `wantCurrent`: a step is being walked (its box must be ringed). */
-  window.mapLayoutProblems = (wantCurrent) => {
+  const H = (window.__harness = window.__harness || {})
+  H.mapLayoutProblems = (wantCurrent) => {
     const out = [...noHorizontalOverflow()]
     const map = document.querySelector('.gmap')
     if (map) {

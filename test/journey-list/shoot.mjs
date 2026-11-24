@@ -36,7 +36,7 @@ for (const theme of ['dark', 'light']) for (const w of [320, 600, 1000]) {
   page.on('pageerror', (e) => errors.push(String(e)))
   await page.goto(`${HARNESS}?theme=${theme}`)
   const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
-  const posted = () => page.evaluate(() => window.__posted)
+  const posted = () => page.evaluate(() => window.__harness.posted)
   // The extension: answers "list" with a new model, "preview" with the journey and its stale steps, "hereAll".
   let state = { query: '', kind: 'all', area: '', sort: 'area' }
   let hereAll = false

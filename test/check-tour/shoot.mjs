@@ -34,13 +34,13 @@ for (const width of [320, 600, 1000]) for (const theme of ['dark', 'light']) {
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`) })
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
   await page.goto(`${HARNESS}?theme=${theme}`)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'ready'))
   const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
-  const posted = () => page.evaluate(() => window.__posted.splice(0))
+  const posted = () => page.evaluate(() => window.__harness.posted.splice(0))
   const show = async (t) => {
     await posted()
     await send({ type: 'journey', journey, ...tour(t) })
-    await page.waitForFunction(() => window.__posted.some((m) => m.type === 'story'), null, { timeout: 15000 })
+    await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'story'), null, { timeout: 15000 })
     await page.waitForTimeout(150)
   }
   /** What the storyline shows: rows in order (step n / question id), the current ones, what sticks out or is cut. */

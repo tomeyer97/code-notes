@@ -1,5 +1,5 @@
 // The Listen view: a webview view (in the Code Notes side bar, under Journeys) where a journey's audio plays
-// (media/listen.js, media/journey-podcast.js as the host; the panel's remote while the panel plays it: player.ts
+// (media/listen.js, with media/journey-podcast.js as the host; the panel's remote while the panel plays it: player.ts
 // hostIn). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
 // panel closes, is behind another tab, or the side bar is closed; the panel's player is mostly a remote of this one
 // (player.ts relays). The view is there only while a journey is listened to (`codeNotes.listening`, player.ts); it is
@@ -9,7 +9,9 @@
 // usually already on screen (no panel pops up over the code), and it is small enough to stay open.
 
 import * as vscode from 'vscode'
-import { webviewPage } from '../webview/page'
+import type { FromListen, ToListen } from '../protocol/listen'
+import { PAGES_DIR, pageScript, webviewPage } from '../webview/page'
+import { WebviewChannel } from '../webview/channel'
 import { journeysFolderName } from '../journeys/journeys'
 import { folderName } from '../notes/notesFolder'
 import { setCtx } from '../platform/context'
@@ -19,80 +21,55 @@ export const LISTEN_VIEW = 'codeNotes.listen'
 /** The context key that brings the view in (package.json: the view's and the transport commands' `when`). */
 export const LISTENING_CTX = 'codeNotes.listening'
 
-/** What the Listen view sends: journey-podcast.js's host messages, and its own. */
-export type ListenMessage =
-  | { type: 'ready' }
-  | { type: 'error'; message?: string }
-  | { type: 'podcastTime'; t: number; playing: boolean; rate?: number; seek?: boolean; of?: string }
-  | { type: 'podcastState'; of: string; [k: string]: unknown }
-  | { type: 'podcastError'; message: string; of?: string }
-  | { type: 'podcastMeta'; duration: number; of?: string }
-  | { type: 'podcastWhy' }
-  | { type: 'podcastOpen' }
-  | { type: 'podcastEnd'; of?: string; action: 'walk' | 'next' }
-  // While the journey panel plays the audio, the Listen view's player is its remote (src/podcast/player.ts hostIn).
-  | { type: 'podcastUnlocked' }
-  | { type: 'podcastAsk'; of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
-
 export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined
-  private ready = false
-  private queue: unknown[] = []
+  /** The page's messages (src/protocol/listen.ts): what it is sent waits until it is ready. */
+  private channel: WebviewChannel<FromListen, ToListen>
   private waiting: (() => void)[] = []
   private subs: vscode.Disposable[] = []
   /** The view's page went (the view was closed for good): the audio with it. */
   onGone: (() => void) | undefined
 
-  constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: ListenMessage) => void) {}
+  constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: FromListen) => void) {
+    this.channel = new WebviewChannel('listen view', log, { onReady: () => { for (const w of this.waiting.splice(0)) w() } })
+  }
 
   register(): vscode.Disposable {
     return vscode.window.registerWebviewViewProvider(LISTEN_VIEW, this, { webviewOptions: { retainContextWhenHidden: true } })
   }
 
   /** The page is there and listening. */
-  get alive(): boolean { return !!this.view && this.ready }
+  get alive(): boolean { return !!this.view && this.channel.ready }
   get visible(): boolean { return !!this.view?.visible }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view
-    this.ready = false
     const media = (f: string) => vscode.Uri.joinPath(this.extensionUri, 'media', f)
     view.webview.options = { enableScripts: true, localResourceRoots: this.roots() }
     view.webview.html = webviewPage(view.webview, {
       css: [media('common.css'), media('journey-podcast.css'), media('listen.css')],
       body: '<div id="app"></div>',
-      scripts: [media('common.js'), media('journey-podcast.js'), media('listen.js')],
+      scripts: [pageScript(this.extensionUri, 'listen')],
       allow: { media: true },
     })
     this.subs.push(
-      view.webview.onDidReceiveMessage((m: ListenMessage) => this.receive(m)),
+      this.channel.attach(view.webview, (m) => this.onMessage(m)),
       view.onDidDispose(() => this.disposed()),
     )
   }
 
   /** The extension's media, and the journeys folders (a podcast's audio is next to its journey). */
   private roots(): vscode.Uri[] {
-    const roots = [vscode.Uri.joinPath(this.extensionUri, 'media')]
+    const roots = [vscode.Uri.joinPath(this.extensionUri, 'media'), vscode.Uri.joinPath(this.extensionUri, ...PAGES_DIR)]
     for (const f of vscode.workspace.workspaceFolders ?? []) {
       for (const rel of new Set([journeysFolderName(), `${folderName()}/journeys`])) roots.push(vscode.Uri.joinPath(f.uri, rel))
     }
     return roots
   }
 
-  private receive(m: ListenMessage): void {
-    if (m?.type === 'ready') {
-      this.ready = true
-      for (const q of this.queue.splice(0)) fireAndForget(this.view?.webview.postMessage(q), 'listenView: view?.webview.postMessage')
-      for (const w of this.waiting.splice(0)) w()
-    }
-    if (m?.type === 'error') this.log.error(`listen view: ${m.message}`)
-    this.onMessage(m)
-  }
-
   private disposed(): void {
     this.view = undefined
-    this.ready = false
-    this.queue = []
+    this.channel.detach()
     for (const s of this.subs) s.dispose()
     this.subs = []
     this.onGone?.()
@@ -105,11 +82,10 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   ignorePauses = false
 
   /** A message for the page: sent once it is ready (dropped while there is no view: `ensure()` first). */
-  send(m: unknown): void {
+  send(m: ToListen): void {
     if (!this.view) return
-    if (this.ignorePauses && (m as { action?: string })?.action === 'pause') return
-    if (this.ready) fireAndForget(this.view.webview.postMessage(m), 'listenView: view.webview.postMessage')
-    else this.queue.push(m)
+    if (this.ignorePauses && m.type === 'podcastCmd' && m.action === 'pause') return
+    this.channel.send(m)
   }
 
   /**

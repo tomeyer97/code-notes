@@ -1,3 +1,2 @@
 # Imports from src/write/ that break the layer rule today; remove a line when you fix it.
-src/write/clarify.ts -> src/webview/page.ts
 src/write/refreshJourney.ts -> src/sidebar/listModel.ts

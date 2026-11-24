@@ -5,6 +5,7 @@ import type * as vscode from 'vscode'
 import type { LoadedJourney } from '../journeys/steps'
 import type { JourneyPos } from '../platform/state'
 import type { Check } from '../check/types'
+import type { FromPlayer, PodcastAsk } from '../protocol/podcast'
 
 /** What the step card shows of a podcast on its journey: playing or paused, following the voice or not (the follow
  *  lock), the beat being narrated (0-based, of `beats`). */
@@ -62,11 +63,11 @@ export interface TourPodcast extends WalkController {
   released(what: string): void
   play(arg?: unknown): Promise<void>
   /** The panel's own messages about its player (journey-podcast.js). */
-  fromPanel(m: { type: string; of?: string; [k: string]: unknown }): void
+  fromPanel(m: FromPlayer): void
   onBeat(lj: LoadedJourney, n: number, i: number): void
   onClosed(): void
   showWhy(lj?: LoadedJourney): Promise<void>
-  onAsk(lj: LoadedJourney, m: { of?: string; action: string; [k: string]: unknown }): Promise<void>
+  onAsk(lj: LoadedJourney, m: PodcastAsk): Promise<void>
   endAction(lj: LoadedJourney, action: 'walk' | 'next', of?: string): Promise<void>
 }
 

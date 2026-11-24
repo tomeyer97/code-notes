@@ -37,7 +37,8 @@ import { Parking } from './park'
 import { Pusher, unsavedDocument } from './push'
 import { CheckThreads } from './threads'
 import { CheckViewProvider } from './view'
-import type { CheckViewMessage, CheckViewMessageOf, CheckViewRequest } from './viewMessages'
+import type { CheckViewRequest } from './viewMessages'
+import type { FromCheck, FromCheckOf, ToCheck } from '../protocol/check'
 import { Writer } from './writer'
 import { baseName } from '../core/paths'
 import { fireAndForget } from '../platform/run'
@@ -395,10 +396,10 @@ export class CheckController implements vscode.Disposable {
 
   // ---------- the Check view's requests ----------
 
-  private onView(m: CheckViewMessage): void {
+  private onView(m: FromCheck): void {
     const handlers = this.viewHandlers()
     if (!Object.hasOwn(handlers, m.type)) return
-    const handle = handlers[m.type as CheckViewRequest] as (m: CheckViewMessage) => void
+    const handle = handlers[m.type as CheckViewRequest] as (m: FromCheck) => void
     handle(m)
   }
   /** One handler per request of the view (viewMessages.ts CheckViewRequest); a request's fields are checked here. */
@@ -560,7 +561,7 @@ export class CheckController implements vscode.Disposable {
       errors: [...this.grader.errors.values()].map((e) => e.message), refreshes: { ...this.counts },
     }
   }
-  panelSend(m: unknown): void { this.view.send(m) }
+  panelSend(m: ToCheck): void { this.view.send(m) }
   /** The worker stops; the next call starts a new one (integration test: with another PATH). */
   restartWorker(): void { this.worker?.dispose() }
 
@@ -574,7 +575,7 @@ export class CheckController implements vscode.Disposable {
 }
 
 /** Each request's handler, given that request's message. */
-type ViewHandlers = { [T in CheckViewRequest]: (m: CheckViewMessageOf<T>) => void }
+type ViewHandlers = { [T in CheckViewRequest]: (m: FromCheckOf<T>) => void }
 
 /** A check thread's state for its comments (threads/comments.ts commentsOf). */
 export interface ThreadStatus {

@@ -3,8 +3,8 @@
 import { test } from 'node:test'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as vm from 'vm'
 import { expectGolden } from './golden'
+import { pageModule } from './pageModule'
 import { FIXTURES, read, root } from './goldenJourneys'
 import { parseJourney, readAnchor, readLinks, readValues, isOldFormat } from '../src/core/format/journeyModel'
 import { codeMarkOf, findMark, markCodeProblem, markShapeProblem, readMarks, walkMarks } from '../src/core/format/marks'
@@ -17,12 +17,9 @@ const parsedOrWhy = (raw: string, name: string) => {
   return r.ok ? r.value : r.why
 }
 
-/** The map's own label rule (media/journey-layout.js), loaded as the page loads it. */
+/** The map's own label rule (media/journey-layout.js), bundled as the page bundles it. */
 function mapLabels(): { isGeneric: (label: string) => boolean } {
-  const window: Record<string, any> = {}
-  const context = vm.createContext({ window })
-  for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(read(`media/${f}`), context)
-  return window.JourneyLayout
+  return pageModule('media/journey-layout.js')
 }
 
 // ---------- parsing ----------

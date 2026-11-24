@@ -1,21 +1,15 @@
 // Golden tests (test/README.md): the pure parts of the map's layout (media/journey-layout.js) as they work today, byte
 // for byte.
 import { test } from 'node:test'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as vm from 'vm'
 import { expectGolden } from './golden'
-import { FIXTURES, parsed, root } from './goldenJourneys'
+import { FIXTURES, parsed } from './goldenJourneys'
+import { pageModule } from './pageModule'
 
 const AREA = 'journey'
 
 // ---------- the map's layout (media/journey-layout.js): its pure parts ----------
 
-const media = path.join(root, 'media')
-const window: Record<string, any> = {}
-const context = vm.createContext({ window })
-for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(fs.readFileSync(path.join(media, f), 'utf8'), context)
-const L = window.JourneyLayout
+const L = pageModule('media/journey-layout.js')
 
 test('golden: the map layout\'s pure parts for each fixture journey', () => {
   for (const name of Object.keys(FIXTURES)) {

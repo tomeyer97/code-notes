@@ -50,11 +50,3 @@ export const isolate = (t: string) => (RTL.test(t) ? `${FSI}${t}${PDI}` : t)
 
 /** A question on one line, at most `max` characters. */
 export const shortQ = (q: string, max = 60) => cut(oneSpaced(q), max)
-
-/**
- * Text for a comment thread's label: VS Code HTML-escapes a label and then shows it as text ("&lt;script&gt;"), so
- * <, > and & are drawn with look-alikes (‹ › ＆) instead.
- */
-export function labelSafe(text: string): string {
-  return text.replace(/</g, '‹').replace(/>/g, '›').replace(/&/g, '＆')
-}

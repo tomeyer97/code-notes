@@ -1,2 +1,1 @@
 # Imports from src/journeys/ that break the layer rule today; remove a line when you fix it.
-src/journeys/mapPanel.ts -> src/webview/page.ts

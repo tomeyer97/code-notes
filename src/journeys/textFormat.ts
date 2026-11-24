@@ -1,5 +1,5 @@
 // How a journey's text is written out: the paths step text names, markdown for VS Code's renderer, and a value hint's
-// value on one row. No imports, no vscode API (unit-tested in test/journeyModel.test.ts).
+// value on one row (escaping it is core/escape.ts). No imports, no vscode API (unit-tested in test/journeyModel.test.ts).
 // What a journey file holds is journeyModel.ts; a step card's text is put together in tour/stepText.ts.
 
 /** A file's name (`orders.go`) and the folders before it (`api/`): the pieces of every path in step text. */
@@ -24,18 +24,6 @@ export function linkPaths(t: string, link: (text: string, file: string, line: nu
     const line = Number(l1 ?? l2) || 1
     return link(m.replace(/`/g, ''), file, line)
   })
-}
-
-/** A code span or a fenced block: left as it is by escapeTags (the split keeps them, at odd indexes). */
-const CODE = /(```[\s\S]*?```|`[^`\n]*`)/
-
-/**
- * Markdown for VS Code's renderer (no HTML allowed): `<name>`, `<id>` outside code is text, not a tag that the sanitizer
- * swallows. Code spans and fenced blocks are left as they are; `<` and `>` elsewhere get a backslash.
- */
-export function escapeTags(md: string): string {
-  const escape = (text: string) => text.replace(/\\?([<>])/g, '\\$1')
-  return md.split(CODE).map((part, i) => (i % 2 ? part : escape(part))).join('')
 }
 
 /** A value hint's value, cut to about `max` characters so the note after it stays on screen. */

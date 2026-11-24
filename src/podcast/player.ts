@@ -32,7 +32,9 @@ import { baseName } from '../core/paths'
 import { podcastReports, PodcastRead, readPodcast, strayPodcasts } from './load'
 import { afterStep, remapTime, resumeTime } from './resume'
 import { brokenLinks, playNotice } from '../core/format/podcast/validate'
-import { LISTENING_CTX, ListenMessage, ListenView } from './listenView'
+import { LISTENING_CTX, ListenView } from './listenView'
+import type { FromListen } from '../protocol/listen'
+import type { FromPlayer, PodcastAsk, PodcastEpisode, PodcastHostState, PodcastTime, PodcastUnavailable, ToPlayer } from '../protocol/podcast'
 import { fireAndForget } from '../platform/run'
 import { LatestWins } from '../core/serial'
 import { STATE } from '../platform/state'
@@ -59,12 +61,8 @@ interface Broken { file: vscode.Uri; reason: string }
 /** What the panel says over a podcast that plays from its last good version. */
 const LAST_GOOD = 'The podcast file has errors: playing the last good version'
 
-/** What the panel sends about the audio (MapMessage podcastTime): `of`, the journey (key) whose audio it is. */
-export interface TimeReport { t: number; playing: boolean; held?: boolean; rate?: number; seek?: boolean; of?: string; sent?: number }
-/** What the audio's player shows (journey-podcast.js S()), as the Listen view says it; relayed to the panel's remote. */
-export interface HostState { of: string; t: number; playing: boolean; rate?: number; muted?: boolean; ready?: boolean; ended?: boolean; dur?: number; reach?: number; err?: string; note?: boolean; seek?: boolean }
-/** What the panel's player (a remote) asks of the audio. */
-export interface AskMessage { of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
+/** Where the host's audio is (podcastTime): `of`, the journey (key) whose audio it is. */
+export type TimeReport = Omit<PodcastTime, 'type'>
 
 export class Podcasts {
   /** By journey key. */
@@ -116,7 +114,7 @@ export class Podcasts {
   /** The Listen view, where the audio mostly plays; the journey whose episode the host has loaded, and its last state. */
   listen!: ListenView
   private hostKey: string | undefined
-  private hostState: HostState | undefined
+  private hostState: PodcastHostState | undefined
   /**
    * Where the audio plays: the Listen view, or the journey panel. VS Code's window lets a webview's audio play only
    * once a click or a key in that webview started it (an element unlocked once stays unlocked; a click in the
@@ -182,7 +180,7 @@ export class Podcasts {
         onBeat: (lj, n, i) => this.onBeat(lj, n, i),
         onClosed: () => this.onClosed(),
         showWhy: (lj) => this.showWhy(lj),
-        onAsk: (lj, m) => this.onAsk(lj, m as AskMessage),
+        onAsk: (lj, m) => this.onAsk(lj, m),
         endAction: (lj, action, of) => this.endAction(lj, action, of),
       }),
     )
@@ -329,7 +327,7 @@ export class Podcasts {
 
   /** What a player gets for `lj` (undefined: no podcast; `unavailable`: one that can't be played, and why): the
    *  panel's (a remote: what to draw) or the Listen view's (`host`: the audio too, and whether it plays once loaded). */
-  private episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string | undefined, host = false): unknown {
+  private episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string | undefined, host = false): PodcastEpisode | PodcastUnavailable | undefined {
     const l = this.eps.get(lj.key)
     if (!l) {
       const b = this.broken.get(lj.key)
@@ -372,7 +370,7 @@ export class Podcasts {
   private starting = false
   /** Episodes on their way to the Listen view (it is being made for them). */
   private hostLoading = 0
-  private stateFor(lj: LoadedJourney): HostState | undefined {
+  private stateFor(lj: LoadedJourney): PodcastHostState | undefined {
     if (!this.eps.has(lj.key)) return undefined
     if (this.hostKey === lj.key && this.hostState?.of === lj.key) return this.hostState
     // Not in the host yet: loaded there now (its length is checked, ▶ starts at once), unless another journey's
@@ -397,8 +395,8 @@ export class Podcasts {
     const play = { at: o.at ?? this.posOf(lj), play: !!o.play || o.until !== undefined, ...(o.until !== undefined ? { until: o.until } : {}) }
     if (this.panelPlays(lj.key)) { this.moveHost('panel', lj, play); return true }
     if (this.hostIn === 'panel') { this.moveHost('listen', lj, play); return true }
-    const episode = this.episodeFor(lj, (u) => this.listen.toUri(u), true) as Record<string, unknown> | undefined
-    if (!episode || episode.unavailable) return false
+    const episode = this.episodeFor(lj, (u) => this.listen.toUri(u), true)
+    if (!episode || 'unavailable' in episode) return false
     this.hostKey = lj.key
     this.hostState = undefined
     this.listen.send({ type: 'podcast', episode: { ...episode, ...(o.at !== undefined ? { at: o.at } : {}), ...(o.play ? { play: true } : {}) } })
@@ -421,7 +419,7 @@ export class Podcasts {
   }
 
   /** What the Listen view says. */
-  private onHost(m: ListenMessage): void {
+  private onHost(m: FromListen): void {
     const shown = (m as { of?: string }).of ? journeys().list.get((m as { of: string }).of) : undefined
     switch (m.type) {
       case 'podcastTime': case 'podcastState': case 'podcastError': case 'podcastMeta':
@@ -456,11 +454,12 @@ export class Podcasts {
   }
 
   /** What the host says (the Listen view, or the panel playing the audio). */
-  private hostSays(m: { type: string; of?: string; [k: string]: unknown }): void {
-    const shown = m.of ? journeys().list.get(m.of) : undefined
+  private hostSays(m: FromPlayer): void {
+    const of = 'of' in m ? m.of : undefined
+    const shown = of ? journeys().list.get(of) : undefined
     switch (m.type) {
-      case 'podcastTime': if (shown) this.timeReport(shown, m as unknown as TimeReport); break
-      case 'podcastState': this.onState(m as unknown as HostState); break
+      case 'podcastTime': if (shown) this.timeReport(shown, m); break
+      case 'podcastState': this.onState(m); break
       case 'podcastError': this.onError(shown, String(m.message), m.of); break
       case 'podcastMeta': if (shown) this.onAudioMeta(shown, Number(m.duration), m.of); break
     }
@@ -468,7 +467,7 @@ export class Podcasts {
 
   /** What the panel's player says of the audio: unlocked (a click or key there), and, while it is the host, where the
    *  audio is (a remote's or an older page's reports are not the audio's). */
-  fromPanel(m: { type: string; of?: string; [k: string]: unknown }): void {
+  fromPanel(m: FromPlayer): void {
     if (m.type === 'podcastUnlocked') { this.unlocked.panel = true; return }
     if (this.hostIn === 'panel') this.hostSays(m)
   }
@@ -484,7 +483,7 @@ export class Podcasts {
   }
 
   /** A message for the audio's host. */
-  private toHost(m: unknown): void {
+  private toHost(m: ToPlayer): void {
     if (this.hostIn === 'panel') mapPanel().send(m)
     else this.listen.send(m)
   }
@@ -597,7 +596,7 @@ export class Podcasts {
   }
 
   /** The audio's state: kept (a reopened panel draws it), the muting remembered, and passed on to the panel. */
-  private onState(m: HostState): void {
+  private onState(m: PodcastHostState): void {
     if (!m || m.of !== this.hostKey) return
     this.hostState = m
     if (typeof m.muted === 'boolean' && m.muted !== !!stored().get(STATE.podcastMuted)) fireAndForget(stored().set(STATE.podcastMuted, m.muted), 'player: store podcastMuted')
@@ -613,7 +612,7 @@ export class Podcasts {
 
   /** What a remote player asks: the panel's (the audio in the Listen view), or the Listen view's (the audio in the
    *  panel). */
-  async onAsk(lj: LoadedJourney, m: AskMessage): Promise<void> {
+  async onAsk(lj: LoadedJourney, m: PodcastAsk): Promise<void> {
     const key = m.of && journeys().list.get(m.of) ? m.of : lj.key
     const j = journeys().list.get(key)!
     if (!this.eps.has(key)) return

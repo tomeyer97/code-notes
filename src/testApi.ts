@@ -30,7 +30,9 @@ import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
-import type { MapMessage } from './journeys/mapPanel'
+import type { FromMap as MapMessage, ToMap } from './protocol/map'
+import type { ToCheck } from './protocol/check'
+import type { ToListen } from './protocol/listen'
 import { stepDraftKey } from './platform/keys'
 
 /** What `activate` returns outside Production (src/extension.ts): the integration tests import this type, not `any`. */
@@ -110,7 +112,7 @@ export function testApi(f: TestedFeatures) {
     journeysTree: () => treeAsText(journeysTree),
     /** The understanding check: status, status bar, panel view and what the panel reported. */
     check: () => check.controller.snapshot(),
-    checkPanelSend: (m: unknown) => check.controller.panelSend(m),
+    checkPanelSend: (m: ToCheck) => check.controller.panelSend(m),
     /** `force` false: as a trigger does (skipped when nothing it reads changed). */
     checkRefresh: (force = true) => check.controller.refresh(force),
     /** A new worker for the check's git work (it takes the extension host's environment as it is now). */
@@ -120,9 +122,9 @@ export function testApi(f: TestedFeatures) {
     /** The stored state (workspace, global): the round-trip test counts its writes. */
     mementos: () => f.host.stored.mementos(),
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
-    mapSend: (m: unknown) => mapPanel.send(m),
+    mapSend: (m: ToMap) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
-    listenSend: (m: unknown) => f.podcast.player().listen.send(m),
+    listenSend: (m: ToListen) => f.podcast.player().listen.send(m),
     /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
     listenIgnorePauses: (on: boolean) => { f.podcast.player().listen.ignorePauses = on },
     /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */

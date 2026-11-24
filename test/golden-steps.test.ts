@@ -3,7 +3,8 @@
 import { test } from 'node:test'
 import { expectGolden } from './golden'
 import { parsed, read } from './goldenJourneys'
-import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
+import { capValue, linkPaths } from '../src/journeys/textFormat'
+import { escapeTags } from '../src/core/escape'
 import { dropAsides, refsIn, shortPaths } from '../src/tour/stepText'
 import { captureStepAnchor, placeStep, StepAt } from '../src/journeys/steps'
 

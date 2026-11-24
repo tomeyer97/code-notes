@@ -1,5 +1,5 @@
-// npm run lint: ESLint over the extension (src/), the tests (test/), the CLI sources (cli/) and the build scripts
-// (scripts/). The webview pages (media/) are not linted yet. The layer and cycle rule is scripts/check-layers.mjs.
+// npm run lint: ESLint over the extension (src/), the webview pages (media/), the tests (test/), the CLI sources (cli/)
+// and the build scripts (scripts/). The layer and cycle rule is scripts/check-layers.mjs.
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 
@@ -26,7 +26,7 @@ const OPEN_DOCUMENT = {
 }
 
 export default tseslint.config(
-  { ignores: ['out/**', 'node_modules/**', '.vscode-test/**', 'media/**', 'examples/**', 'skills/**', 'cli/understanding.mjs'] },
+  { ignores: ['out/**', 'node_modules/**', '.vscode-test/**', 'examples/**', 'skills/**', 'cli/understanding.mjs'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -73,6 +73,13 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', WORKSPACE_FS, OPEN_DOCUMENT] },
   },
   { files: ['**/*.mjs', '**/*.js'], languageOptions: { globals: NODE } },
+  {
+    // The pages' scripts: ES modules in the browser, type-checked by media/tsconfig.json (which also knows the DOM's
+    // names, so no list of browser globals here).
+    files: ['media/**/*.js'],
+    languageOptions: { sourceType: 'module', globals: {} },
+    rules: { 'no-undef': 'off' },
+  },
   {
     // The screenshot drivers and harness pages run code in the browser (page.evaluate, <script>): TypeScript does not
     // check them and no single list of globals fits both sides.

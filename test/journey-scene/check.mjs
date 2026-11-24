@@ -6,7 +6,8 @@
 //   node test/journey-scene/check.mjs <journey.json> [<dir for screenshots>]
 // Needs Playwright with Chromium: `playwright` is imported from node_modules unless PLAYWRIGHT is set to another
 // install's playwright/index.mjs; CHROME, when set, is the Chromium or Chrome binary to launch (else Playwright's own).
-// The panel's harness (test/journey-map/harness.html) loads out/vendor/elk.bundled.js: run `npm run build` first.
+// The panel's harness (test/journey-map/harness.html) loads out/vendor/elk.bundled.js and the page's bundle,
+// out/pages/map.js: run `npm run build` first.
 // Try it on the bundled sample: node test/journey-scene/check.mjs test/journey-scene/sample.json /tmp/shots
 import fs from 'node:fs'
 import path from 'node:path'
@@ -150,7 +151,7 @@ for (const [w, theme, reduce] of [[1300, 'dark'], [900, 'light'], [620, 'light']
   const animated = journey.steps.filter((x) => x.scene).map((x) => x.n)
   if (!animated.length) { console.error('no step has a scene'); process.exit(2) }
   await send({ type: 'journey', journey, ...tour({ current: animated[0] }) })
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
   for (const n of animated) {
     await send({ type: 'tour', ...tour({ current: n }) })
     // The storyline on step n (its "Show animation" is that row's).
@@ -207,7 +208,7 @@ const ODD_SCENE = {
   page.on('pageerror', (e) => errors.push(e.message))
   const sendJson = (m) => page.evaluate((x) => window.postMessage(JSON.parse(x), '*'), JSON.stringify(m))
   await sendJson({ type: 'journey', journey: odd, ...tour({ current: 1 }) })
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'rendered'), null, { timeout: 15000 })
   const out = []
   try {
     if (!(await page.locator('.scn').count())) await page.click('li:has(.st.cur) .animbtn', { timeout: 5000 })

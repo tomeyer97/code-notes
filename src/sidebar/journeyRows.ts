@@ -11,6 +11,7 @@ import { LoadedJourney } from '../journeys/steps'
 import { isNewJourney, unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { isolate, plural } from '../core/text'
+import { escapeMarkdown } from '../core/escape'
 import { isUpdateRequest } from '../tour/texts'
 import { provenance } from '../tour/provenance'
 import { refreshing } from '../write/refreshJourney'
@@ -199,7 +200,7 @@ export function badJourneyItem(node: Extract<Node, { kind: 'badJourney' }>): vsc
   item.id = `badJourney:${node.uri}`
   item.description = `⚠ ${name}`
   const open = `command:vscode.open?${encodeURIComponent(JSON.stringify([node.uri.toString()]))}`
-  const tip = new vscode.MarkdownString(`${node.why.replace(/[\\`*_[\]<>]/g, '\\$&')}\n\n[Open file](${open})`)
+  const tip = new vscode.MarkdownString(`${escapeMarkdown(node.why)}\n\n[Open file](${open})`)
   tip.isTrusted = { enabledCommands: ['vscode.open'] }
   item.tooltip = tip
   item.accessibilityInformation = { label: `${name}: can't be read` }

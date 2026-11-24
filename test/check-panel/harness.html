@@ -1,6 +1,7 @@
 <!doctype html>
-<!-- The understanding check's panel outside VS Code: stubs acquireVsCodeApi (posted messages land in window.__posted)
-     and sets VS Code's theme variables (?theme=dark|light), both from ../harness/themes.js. Driven by shoot.mjs. -->
+<!-- The understanding check's panel outside VS Code: stubs acquireVsCodeApi (posted messages land in
+     window.__harness.posted) and sets VS Code's theme variables (?theme=dark|light), both from ../harness/themes.js;
+     then the page's bundle, the file the extension loads (out/pages/check.js). Driven by shoot.mjs. -->
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../../media/common.css">
@@ -9,15 +10,13 @@
 <style>html { background: var(--vscode-editor-background); }</style>
 <script src="../harness/themes.js"></script>
 <script>
-  stubVsCodeApi()
+  __harness.stubVsCodeApi()
   // VS Code's Modern themes' link colour (the map harness keeps the older one).
-  applyTheme(
+  __harness.applyTheme(
     { dark: { 'textLink-foreground': '#4daafc' }, light: { 'textLink-foreground': '#005fb8' } },
     { without: ['editor-foreground', 'editorWidget-background', 'badge-background', 'badge-foreground', 'codeNotes-noteBorder', 'editor-font-family'] },
   )
 </script></head>
 <body><div id="app"></div>
-<script src="../../media/common.js"></script>
-<script src="../../media/checkAnswer.js"></script>
-<script src="../../media/check.js"></script>
+<script src="../../out/pages/check.js"></script>
 </body></html>

@@ -158,12 +158,14 @@ async function pages(b, w, theme, { listenW = 300, srcUrl = src, more = {} } = {
     } else if (m.type === 'beat') st.beats.push([m.n, m.i])
     else if (m.type === 'podcastEnd') st.ends.push(m.action)
   }
+  // What each page posts comes here (../harness/themes.js Harness.onPost, through the function exposed to the page).
   await host.exposeFunction('__onPost', (m) => fromHost(m))
   await map.exposeFunction('__onPost', (m) => fromMap(m))
+  for (const pg of [host, map]) await pg.addInitScript(() => { window.__harness = { ...window.__harness, onPost: (m) => window.__onPost(m) } })
   await host.goto(`${LISTEN}?theme=${theme}`)
   await map.goto(`${MAP}?theme=${theme}`)
-  await host.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
-  await map.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  await host.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'ready'))
+  await map.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'ready'))
   await toMap({ type: 'journey', journey, ...tour(0) })
   const e = { ...episode, src: srcUrl, ...more }
   await toMap({ type: 'podcast', episode: e })
@@ -281,14 +283,14 @@ async function clickEverything(pg, where, restore) {
     return all.map((e, i) => { e.dataset.ck = String(i); return { sel: `.pod [data-ck="${i}"]`, c: e.className, text: e.textContent.trim() } })
   })
   for (const s of sels) {
-    const before = await pg.evaluate(() => window.__errors.length)
+    const before = await pg.evaluate(() => window.__harness.errors.length)
     try { await pg.click(s.sel, { timeout: 2000 }) } catch (e) {
       const over = await pg.evaluate((sel) => { const e = document.querySelector(sel); if (!e) return 'gone'; const r = e.getBoundingClientRect(); const x = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); let a = e, hid = ""; while (a) { if (getComputedStyle(a).display === "none" || a.hidden) hid += ` ${a.className}`; a = a.parentElement } return `${JSON.stringify(r.toJSON())} under ${x && x.className} connected ${e.isConnected} hidden:${hid}` }, s.sel)
       fail(`${where}: can't click ${s.c} "${s.text}": ${e.message.split('\n')[0]} (${over})`)
       continue
     }
     await sleep(120)
-    ok((await pg.evaluate(() => window.__errors.length)) === before, `${where}: clicking ${s.c} raised an error`)
+    ok((await pg.evaluate(() => window.__harness.errors.length)) === before, `${where}: clicking ${s.c} raised an error`)
     if (restore) await restore(s)
   }
   await pg.mouse.move(2, 2)
@@ -366,7 +368,7 @@ async function matrix(b) {
       await shot('unavailable')
       await clickEverything(map, `${tag} unavailable`)
       for (const e of P.errors) fail(e)
-      for (const pg of [host, map]) for (const e of await pg.evaluate(() => window.__errors.map((x) => x.message))) fail(`page: ${e}`)
+      for (const pg of [host, map]) for (const e of await pg.evaluate(() => window.__harness.errors.map((x) => x.message))) fail(`page: ${e}`)
       await P.context.close()
       console.log(`${tag}: done`)
     }
@@ -648,10 +650,10 @@ async function behaviour(b, w) {
   }
 
   // The audio's length goes to the extension (it checks the file against it).
-  ok(await host.evaluate(() => window.__posted.some((m) => m.type === 'podcastMeta' && m.duration > 30)), 'the audio\'s length reported (podcastMeta)')
+  ok(await host.evaluate(() => window.__harness.posted.some((m) => m.type === 'podcastMeta' && m.duration > 30)), 'the audio\'s length reported (podcastMeta)')
 
   for (const e of errors) fail(e)
-  for (const pg of [host, map]) for (const e of await pg.evaluate(() => window.__errors.map((x) => x.message))) fail(`page: ${e}`)
+  for (const pg of [host, map]) for (const e of await pg.evaluate(() => window.__harness.errors.map((x) => x.message))) fail(`page: ${e}`)
   await context.close()
   console.log(`${tag}: done`)
 }

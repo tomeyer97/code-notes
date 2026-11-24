@@ -23,7 +23,8 @@ export function ui(): Promise<import('playwright').Page> {
 export async function checkFrame(): Promise<import('playwright').Frame> {
   const page = await ui()
   return untilPage('the Check view frame', async () => {
-    for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).checkAnswer)) return f } catch { /* detached */ } }
+    // The frame whose page runs the Check view's bundle (out/pages/check.js).
+    for (const f of page.frames()) { try { if (await f.evaluate(() => !!(globalThis as any).document.querySelector('script[src*="/pages/check.js"]'))) return f } catch { /* detached */ } }
     return undefined
   })
 }

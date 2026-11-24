@@ -5,7 +5,8 @@ import { log, stored } from '../platform/host'
 import type { WorkspaceEvents } from '../platform/events'
 import { FollowJourneysPorts, followJourneys } from './follow'
 import { Journeys } from './journeys'
-import { MapMessage, MapPanel, TourInfo } from './mapPanel'
+import { MapPanel } from './mapPanel'
+import type { FromMap as MapMessage, TourInfo } from '../protocol/map'
 import type { LoadedJourney } from './steps'
 
 /** What the panel needs from the tour: what each of its messages does, and what it shows besides the journey. */

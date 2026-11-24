@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { chord, onDidChangeChordKey, STEP_PRIORITY, Steppers } from '../platform/chordKey'
 import type { LoadedJourney } from '../journeys/steps'
-import type { MapMessage, TourInfo } from '../journeys/mapPanel'
+import type { FromMap as MapMessage, TourInfo } from '../protocol/map'
 import { Cmd, HiddenCmd } from '../platform/commands'
 import { log } from '../platform/host'
 import { registerCommands } from '../platform/registerCommands'

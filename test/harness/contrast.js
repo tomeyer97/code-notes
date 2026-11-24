@@ -1,4 +1,4 @@
-// WCAG contrast, inside a harness page: window.contrast. A shoot script installs it with
+// WCAG contrast, inside a harness page: window.__harness.contrast (themes.js Harness). A shoot script installs it with
 // page.addInitScript({ path }) and its checks (in page.evaluate) call it.
 ;(function () {
   /** A computed colour as [r, g, b, a], r g b 0-255 (`color(srgb r g b / a)`, what color-mix() computes to, scaled up). */
@@ -11,15 +11,18 @@
   /** The colour `top` (with its alpha) laid over the opaque colour `under`. */
   const over = (top, under) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3])).concat(1)
 
-  /** What shows behind `e`: its and its ancestors' backgrounds, up to the first opaque one, laid over white. */
-  const backgroundOf = (e) => {
+  /**
+   * What shows behind `e`: its and its ancestors' backgrounds, up to the first opaque one, laid over `under` (white).
+   * `stop`: an ancestor whose background is not counted (an overlay's container: the caller says what is under it).
+   */
+  const backgroundOf = (e, { stop = null, under = [255, 255, 255, 1] } = {}) => {
     const layers = []
-    for (let x = e; x; x = x.parentElement) {
+    for (let x = e; x && x !== stop; x = x.parentElement) {
       const c = rgba(getComputedStyle(x).backgroundColor)
       if (c[3] > 0) layers.push(c)
       if (c[3] >= 1) break
     }
-    return layers.reverse().reduce((u, t) => over(t, u), [255, 255, 255, 1])
+    return layers.reverse().reduce((u, t) => over(t, u), under)
   }
 
   /** WCAG relative luminance of an opaque colour. */
@@ -37,5 +40,6 @@
     return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05)
   }
 
-  window.contrast = { rgba, over, backgroundOf, luminance, ratio }
+  const H = (window.__harness = window.__harness || {})
+  H.contrast = { rgba, over, backgroundOf, luminance, ratio }
 })()

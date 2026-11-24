@@ -17,7 +17,8 @@ export function devReload(context: vscode.ExtensionContext, log: vscode.LogOutpu
     log.info(`dev: ${what} changed; reloading the window`)
     return vscode.commands.executeCommand('workbench.action.reloadWindow')
   })
-  for (const dir of ['out/src', 'media']) {
+  // media/: the pages' styles; out/pages/: their scripts, bundled again by `npm run watch`.
+  for (const dir of ['out/src', 'out/pages', 'media']) {
     try {
       const w = fs.watch(path.join(context.extensionPath, dir), (_e, f) => {
         if (f && /\.(js|css)$/.test(String(f))) soon(`${dir}/${f}`)

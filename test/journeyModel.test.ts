@@ -4,7 +4,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { staleKind } from '../src/core/anchors/staleDiff'
 import { isOldFormat, parseJourney, readJourney, readValues } from '../src/core/format/journeyModel'
-import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
+import { capValue, linkPaths } from '../src/journeys/textFormat'
+import { escapeTags } from '../src/core/escape'
 import { journeyOf } from './formats'
 
 /** Why parseJourney refuses `raw` (the test fails when it reads it). */

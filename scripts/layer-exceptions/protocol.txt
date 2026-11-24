@@ -1,0 +1,5 @@
+# Imports from src/protocol/ that break the layer rule today; remove a line when you fix it.
+# check.ts takes the Check view's payload and names from src/check/ (types only).
+src/protocol/check.ts -> src/check/types.ts
+src/protocol/check.ts -> src/check/viewMessages.ts
+src/protocol/check.ts -> src/check/viewModel.ts
