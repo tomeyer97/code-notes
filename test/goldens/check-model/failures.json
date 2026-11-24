@@ -154,7 +154,7 @@
       {
         "line": 1,
         "col": 6,
-        "text": "Line 1: expected '."
+        "text": "Line 1: expected ',' or ']' after array element."
       }
     ],
     [
@@ -173,7 +173,7 @@
       {
         "line": 2,
         "col": 4,
-        "text": "Line 2: unexpected token } in JSON."
+        "text": "Line 2: unexpected token }."
       }
     ],
     [
