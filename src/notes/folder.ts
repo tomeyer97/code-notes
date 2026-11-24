@@ -1,7 +1,11 @@
 // The notes folder setting (moving the notes there) and keeping them out of git.
 
 import * as vscode from 'vscode'
-import { cfg, journeys, notes, showError, store, stored } from '../app'
+import { notesPorts, store } from './ports'
+import { cfg } from '../platform/settings'
+import { visibleNotes } from './visible'
+import { showError } from '../platform/run'
+import { stored } from '../platform/host'
 import { notesChanged } from './model'
 import { me } from './identity'
 import { folderProblem } from '../core/format/noteModel'
@@ -24,10 +28,10 @@ export async function changeFolder(): Promise<void> {
   currentFolder = to
   if (from === to) return
   for (const f of vscode.workspace.workspaceFolders ?? []) await offerMove(f, from, to)
-  await store.load()
-  await journeys.load()
+  await store().load()
+  await notesPorts().journeys.load()
   await rewriteReadmes()
-  if (!notes().length) notesChanged({ kind: 'view', notice: `Reading notes from ${to}/` })
+  if (!visibleNotes().length) notesChanged({ kind: 'view', notice: `Reading notes from ${to}/` })
 }
 
 /** The note files of workspace folder `f` in its notes folder `dir` (none: not there). */
@@ -70,7 +74,7 @@ async function moveNotesFolder(f: vscode.WorkspaceFolder, files: string[], from:
 
 /** Each workspace folder with notes gets its notes folder's README (for agents) written again. */
 export async function rewriteReadmes(): Promise<void> {
-  for (const f of vscode.workspace.workspaceFolders ?? []) if (notes().some((n) => n.folder === f)) await writeReadme(f, me())
+  for (const f of vscode.workspace.workspaceFolders ?? []) if (visibleNotes().some((n) => n.folder === f)) await writeReadme(f, me())
 }
 
 /** The "keep notes out of git" setting changed: add or remove the notes folder's .gitignore now. */
@@ -82,8 +86,8 @@ export async function applyIgnoreInGit(): Promise<void> {
   }
   // Said once (no lasting status-bar item); after that it is in the notes item's tooltip.
   const said = STATE_FAMILIES.gitSaid(on)
-  if (!stored.get(said)) {
-    await stored.set(said, true)
+  if (!stored().get(said)) {
+    await stored().set(said, true)
     vscode.window.setStatusBarMessage(on ? `$(eye-closed) Notes in ${folderName()}/ are kept out of git` : `$(git-commit) Notes in ${folderName()}/ can now be committed`, 4000)
   }
   notesChanged({ kind: 'settings' })

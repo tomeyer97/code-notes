@@ -2,13 +2,13 @@
 // in the scrollbar. (src/platform/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
 
 import * as vscode from 'vscode'
-import { cfg } from '../app'
+import { cfg } from '../platform/settings'
 import { setDecorations } from '../platform/editorDecorations'
 import { unread } from './seen'
 import { hiddenInEditor, NotesApi } from './model'
 import { WorkspaceEvents } from '../platform/events'
 import { Note } from './store'
-import { card } from '../tour/instances'
+import { notesPorts } from './ports'
 import { lineNotesFor } from './location'
 
 export let deco: Record<'openBar' | 'staleBar' | 'unread' | 'exact', vscode.TextEditorDecorationType>
@@ -63,13 +63,13 @@ function exactRange(doc: vscode.TextDocument, n: Note): vscode.Range | undefined
 export function refreshDecorations(): void {
   const on = cfg().get<boolean>('highlight', true)
   for (const editor of vscode.window.visibleTextEditors) {
-    const list = on && !card.narrates(editor) ? lineNotesFor(editor.document.uri).filter((n) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)) : []
+    const list = on && !notesPorts().layout.narrates(editor) ? lineNotesFor(editor.document.uri).filter((n) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)) : []
     setDecorations(editor, deco.openBar, list.filter((n) => !n.data.stale).map(linesOf))
     setDecorations(editor, deco.staleBar, list.filter((n) => n.data.stale).map(linesOf))
     setDecorations(editor, deco.unread, list.filter((n) => unread(n) > 0).map(linesOf))
     setDecorations(editor, deco.exact, list.map((n) => exactRange(editor.document, n)).filter((r): r is vscode.Range => !!r))
   }
-  card.refreshDecorations()
+  notesPorts().layout.refreshCard()
 }
 
 /** The marks follow the notes (an edit being typed too) and the editors on screen. */

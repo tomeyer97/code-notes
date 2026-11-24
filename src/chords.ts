@@ -1,55 +1,34 @@
-// The chord keys: Ctrl+' (or Ctrl+<) then C/R/D/A/V. D/A walk the steps while a tour runs, a check's open questions
-// while it has some, else unread replies.
+// The chord keys D and A: Ctrl+' (or Ctrl+<) then D or A step through whatever has the key now. Each feature
+// registers what it steps (ChordSteppers.register, by priority: a podcast's transport, the walk, the check's open
+// questions, then unread replies); this file only asks them in order.
+import type * as vscode from 'vscode'
+import type { Stepper, Steppers } from './platform/chordKey'
 
-import { KEY, mapPanel, notes, setKey, stored, understanding } from './app'
-import { resolve } from './notes/status'
-import { stepUnread } from './notes/unread'
-import { pickNotes } from './notes/which'
-import { unread } from './notes/seen'
-import { checkStepping } from './check/wiring'
-import { walk } from './tour/instances'
-import { fireAndForget } from './platform/run'
-import { STATE } from './platform/state'
+export class ChordSteppers implements Steppers {
+  private readonly list: { priority: number; stepper: Stepper }[] = []
 
-/** A chord key passes which prefix was pressed: hints then show that one. */
-export const prefixUsed = (a: unknown) => {
-  const p = a && typeof a === 'object' ? (a as { prefix?: string }).prefix : undefined
-  if (p !== "'" && p !== '<') return
-  const k = `Ctrl+${p}`
-  if (k === KEY) return
-  setKey(k)
-  fireAndForget(stored.set(STATE.chordPrefix, k), 'chords: store chordPrefix')
-  walk.updateTour()
-  mapPanel.update()
-}
+  /** `prefixUsed`: told what a chord key's command was passed (hints then show the prefix pressed). */
+  constructor(private readonly prefixUsed: (a: unknown) => void) {}
 
-/** D: the next step while a tour runs (a podcast playing, or on its Intro or Recap: its next part); else the next open
- *  question of a check; else the next unread reply. */
-export const next = (a?: unknown) => {
-  prefixUsed(a)
-  // A podcast on the map's parts (Intro, Recap) or playing: D is its ⏭ (one transport, F85).
-  if (walk.transport?.(1)) return
-  if (walk.touring()) return walk.stepBy(1)
-  // Questions of a check still open: D goes to the next one (unread replies wait until the check is done).
-  if (checkStepping()) return understanding!.step(1)
-  // No tour: D is the next unread reply, as the status bar says; resuming is the map's ▶ Resume.
-  return stepUnread(1)
-}
+  register(priority: number, stepper: Stepper): vscode.Disposable {
+    const entry = { priority, stepper }
+    this.list.push(entry)
+    this.list.sort((a, b) => a.priority - b.priority)
+    return {
+      dispose: () => {
+        const i = this.list.indexOf(entry)
+        if (i >= 0) this.list.splice(i, 1)
+      },
+    }
+  }
 
-/** A: back, as D goes on. */
-export const previous = (a?: unknown) => {
-  prefixUsed(a)
-  if (walk.transport?.(-1)) return
-  if (walk.touring()) return walk.stepBy(-1)
-  if (checkStepping()) return understanding!.step(-1)
-  return stepUnread(-1)
-}
-
-/** R: resolve the note at the cursor, then on to the next unread one. */
-export const resolveNext = async (a?: unknown) => {
-  prefixUsed(a)
-  const list = await pickNotes(undefined)
-  if (!list.length) return
-  await resolve(list)
-  if (notes().some((n) => unread(n) > 0)) await stepUnread(1)
+  /** D (1) or A (-1): the first stepper that takes the key (its step, to wait for). */
+  step(dir: 1 | -1, a?: unknown): unknown {
+    this.prefixUsed(a)
+    for (const { stepper } of this.list) {
+      const took = stepper.step(dir)
+      if (took !== false) return took
+    }
+    return undefined
+  }
 }

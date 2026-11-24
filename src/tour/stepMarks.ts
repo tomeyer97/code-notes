@@ -5,7 +5,7 @@
 // A mark whose match can't be found near its lines lights nothing, said once in the output.
 
 import * as vscode from 'vscode'
-import { journeys } from '../app'
+import { journeys } from './ports'
 import { stepFileUri } from '../journeys/codeGroup'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { MarkPainter, noneShown, Shown } from '../marks/lights'
@@ -30,7 +30,7 @@ export function stepMarks(lj: LoadedJourney, n: number, beat: number | undefined
   const sceneBeats = s.scene?.beats ?? []
   const list = walkMarks(read(s.marks, ''), sceneBeats.map((b, i) => read(b.marks, `, beat ${i + 1}`)), beat)
   if (!list.length) return []
-  const renames = journeys.renames(lj)
+  const renames = journeys().renames(lj)
   const stepUri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n)).toString()
   const at = lj.at[n - 1]
   const shift = at && !at.stale && !at.removed ? at.start - s.range.start : 0

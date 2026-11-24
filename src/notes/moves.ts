@@ -3,7 +3,9 @@
 // Files changed on disk with notes on them are re-anchored (reanchor.ts) after a burst of changes.
 
 import * as vscode from 'vscode'
-import { log, notes, store } from '../app'
+import { store } from './ports'
+import { log } from '../platform/host'
+import { visibleNotes } from './visible'
 import { relPath } from '../platform/documents'
 import { exists } from '../platform/exists'
 import { FileOnDisk, WorkspaceEvents } from '../platform/events'
@@ -31,7 +33,7 @@ export function followNoteFiles(events: WorkspaceEvents): vscode.Disposable {
 /** A pass is due: notes are on the file (or on a folder it is in), or it is new (code may have moved there). */
 function concernsNotes(f: FileOnDisk): boolean {
   if (f.kind === 'created') return true
-  return notesFor(f.uri).length > 0 || notes().some((n) => n.data.target === 'folder' && f.uri.path.startsWith(pathUri(n).path))
+  return notesFor(f.uri).length > 0 || visibleNotes().some((n) => n.data.target === 'folder' && f.uri.path.startsWith(pathUri(n).path))
 }
 
 /** Notes re-anchored, then followed into moved files. */
@@ -44,7 +46,7 @@ async function diskPass(events: WorkspaceEvents): Promise<void> {
 export async function followMovedFiles(events: WorkspaceEvents): Promise<void> {
   const changed: string[] = []
   await notesModel().batch(async () => {
-    for (const n of notes()) {
+    for (const n of visibleNotes()) {
       if (n.data.target) { if (await checkTarget(n)) changed.push(n.data.id); continue }
       if (await exists(docUri(n))) continue
       const moved = nothingToMatch(n.data.anchor) ? undefined : await events.findMovedFile(
@@ -52,7 +54,7 @@ export async function followMovedFiles(events: WorkspaceEvents): Promise<void> {
         (lines) => { const r = findAnchor(lines, n.data.anchor, locOf(n.data.range)); return r.stale ? undefined : r.loc },
       )
       if (moved) await moveNoteTo(n, moved.uri, moved.found)
-      else if (reanchor(n, undefined)) await store.save(n)
+      else if (reanchor(n, undefined)) await store().save(n)
     }
     notesChanged({ kind: 'placed', ids: changed })
   })
@@ -61,13 +63,13 @@ export async function followMovedFiles(events: WorkspaceEvents): Promise<void> {
 /** A note follows its code into the file `uri`, at `loc`. */
 async function moveNoteTo(n: Note, uri: vscode.Uri, loc: Loc): Promise<void> {
   const file = relPath(n.folder, uri)
-  log.appendLine(`note ${n.data.id}: ${n.data.file} moved to ${file}`)
+  log().appendLine(`note ${n.data.id}: ${n.data.file} moved to ${file}`)
   n.data.file = file
   n.data.range = range1Of(loc)
   n.data.stale = false
   // A past-the-end state stays as it is: reanchorAll, which runs first, left none for a file that is gone.
   placement.found(n.data.id, true)
-  await store.save(n)
+  await store().save(n)
 }
 
 /** Files or folders renamed in the editor: notes on them, or inside them, follow. */
@@ -78,13 +80,13 @@ async function followRenames(e: vscode.FileRenameEvent): Promise<void> {
 
 /** A file or folder renamed in the editor: notes on it, or inside it, follow. */
 export async function followRename(oldUri: vscode.Uri, newUri: vscode.Uri): Promise<void> {
-  for (const n of notes()) {
+  for (const n of visibleNotes()) {
     const old = pathUri(n).path
     if (old !== oldUri.path && !old.startsWith(oldUri.path + '/')) continue
     const folder = vscode.workspace.getWorkspaceFolder(newUri)
     if (!folder) continue
     n.data.file = relPath(folder, vscode.Uri.joinPath(newUri, old.slice(oldUri.path.length)))
     placement.found(n.data.id, true)
-    await store.save(n)
+    await store().save(n)
   }
 }

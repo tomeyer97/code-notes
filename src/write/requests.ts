@@ -1,13 +1,13 @@
 import * as vscode from 'vscode'
+import { claudeLinks, journeys, mapPanel, tour } from './ports'
 import * as fs from 'fs'
 import * as path from 'path'
-import { claudeLinks, extVersion, journeys, log, mapPanel, showError, stored } from '../app'
+import { extVersion, log, stored } from '../platform/host'
+import { showError } from '../platform/run'
 import { claudeAllowed, trusted } from '../ask/trust'
 import { modelProblem } from '../platform/agent/claude'
 import { linkTarget } from '../core/linkUri'
 import { posKey } from '../journeys/steps'
-import { walkJourney } from '../tour/commands'
-import { walk } from '../tour/instances'
 import { wfs } from '../platform/workspaceFs'
 import { chooseJourney, confirmWrite, matchJourneys } from './rank'
 import { writeJourney } from './writeJourney'
@@ -65,7 +65,7 @@ function writeResult(folder: vscode.WorkspaceFolder, id: string | undefined, r: 
     const flat = Object.fromEntries(Object.entries({ id, ...r }).filter(([, v]) => typeof v === 'string'))
     fs.writeFileSync(tmp, JSON.stringify(flat) + '\n')
     fs.renameSync(tmp, file)
-  } catch (e) { log.error(`explain: couldn't write ${RESULT_FILE}: ${e}`) }
+  } catch (e) { log().error(`explain: couldn't write ${RESULT_FILE}: ${e}`) }
 }
 
 /** What a request did: `outcome` for the log of requests, and `r` (if any) the script's answer. */
@@ -89,7 +89,7 @@ async function handleRequest(req: ScriptRequest, via: Via, folder?: vscode.Works
     return
   }
   lastRequest = { key, t: Date.now() }
-  log.info(`explain (${via}): ${req.action}${req.question ? ` "${req.question}"` : ''}`)
+  log().info(`explain (${via}): ${req.action}${req.question ? ` "${req.question}"` : ''}`)
   const q = req.question.trim()
   if (req.action === 'ask' && q && (await answerQuestion(q, req.model, via, outcome))) return
   // Overview: the panel's Journeys list (one marked "Start here"), not a picker; the sidebar is left as it was.
@@ -105,26 +105,26 @@ async function answerQuestion(q: string, model: string | undefined, via: Via, ou
   const found = matchJourneys(q)
   if (found.length > 1) {
     outcome('choose', { outcome: 'choose', text: found.map((x) => x.j.title).join(' / ') })
-    log.info(`explain: ${found.length} journeys answer it about equally: ${found.map((x) => x.j.id).join(', ')}: a pick`)
+    log().info(`explain: ${found.length} journeys answer it about equally: ${found.map((x) => x.j.id).join(', ')}: a pick`)
     const c = await chooseJourney(q, found)
     if (c) {
       outcome(`opened:${c.j.id}`)
-      await walkJourney(c, { fromStart: true })
+      await tour().walkJourney(c, { fromStart: true })
     }
     return true
   }
   const lj = found[0]
   if (lj) {
     outcome(`opened:${lj.j.id}`, { outcome: 'opened', title: lj.j.title })
-    log.info(`explain: opening journey ${lj.j.id}`)
+    log().info(`explain: opening journey ${lj.j.id}`)
     // A question asks about the whole flow: from step 1, not where it was left.
-    await walkJourney(lj, { fromStart: true })
+    await tour().walkJourney(lj, { fromStart: true })
     return true
   }
   if (via === 'uri') {
     // A link can come from any web page: it never starts Claude. The overview instead.
     lastRequest = undefined // the same request as a file (from the script) is still handled
-    log.info('explain: no journey answers it; a link never starts Claude: the overview')
+    log().info('explain: no journey answers it; a link never starts Claude: the overview')
     return false
   }
   if (!trusted()) {
@@ -152,26 +152,26 @@ async function confirmAndWrite(q: string, model: string | undefined, outcome: Ou
     fireAndForget(writeJourney(q, { model }), 'journey')
   } else if (c) {
     outcome(`opened:${c.j.id}`, { outcome: 'opened', title: c.j.title })
-    await walkJourney(c, { fromStart: true })
+    await tour().walkJourney(c, { fromStart: true })
   } else outcome('cancelled')
 }
 
 /** The journey panel with its Journeys list in front: over the journey being walked or last shown, else the first one. */
 async function showJourneysHome(): Promise<void> {
-  const all = journeys.all()
-  const lj = walk.tourJourney() ?? journeys.byPos(stored.get(STATE.mapJourney)) ?? all.find((x) => x.j.start) ?? all[0]
+  const all = journeys().all()
+  const lj = tour().tourJourney() ?? journeys().byPos(stored().get(STATE.mapJourney)) ?? all.find((x) => x.j.start) ?? all[0]
   if (!lj) { fireAndForget(vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'), 'requests: window.showInformationMessage'); return }
   // The walk is not ended here (a new card right after an ended walk's made VS Code's comment widgets loop on their
   // collapsed state: "Maximum call stack size exceeded"); choosing a journey switches as usual.
-  mapPanel.showHome(lj)
-  fireAndForget(stored.set(STATE.mapJourney, posKey(lj)), 'requests: store mapJourney')
+  mapPanel().showHome(lj)
+  fireAndForget(stored().set(STATE.mapJourney, posKey(lj)), 'requests: store mapJourney')
 }
 
 /** A request as the script writes it; undefined (logged) when it can't be used. `model` only from the file. */
 function parseRequest(v: any, where: string): ScriptRequest | undefined {
   const action = v?.action
   if (action !== 'overview' && action !== 'ask') {
-    log.warn(`explain: ${where}: unknown action "${String(action)}"`)
+    log().warn(`explain: ${where}: unknown action "${String(action)}"`)
     return undefined
   }
   const question = typeof v.question === 'string' ? v.question : typeof v.q === 'string' ? v.q : ''
@@ -184,19 +184,19 @@ function parseRequest(v: any, where: string): ScriptRequest | undefined {
 async function onUri(uri: vscode.Uri): Promise<void> {
   if (uri.path.replace(/\/+$/, '') === '/link') {
     const t = linkTarget(uri.query)
-    if (!t) { log.warn(`link: no file or start: ${uri.toString(true)}`); return }
+    if (!t) { log().warn(`link: no file or start: ${uri.toString(true)}`); return }
     const folder = vscode.workspace.workspaceFolders?.[0]
     const file = path.isAbsolute(t.file) || !folder ? vscode.Uri.file(t.file) : vscode.Uri.joinPath(folder.uri, t.file)
-    await claudeLinks.light(file, t.start - 1, t.end - 1)
+    await claudeLinks().light(file, t.start - 1, t.end - 1)
     return
   }
-  if (uri.path.replace(/\/+$/, '') !== '/explain') { log.warn(`unknown link: ${uri.toString(true)}`); return }
+  if (uri.path.replace(/\/+$/, '') !== '/explain') { log().warn(`unknown link: ${uri.toString(true)}`); return }
   const p = new URLSearchParams(uri.query)
   const repo = p.get('repo')
   const real = (x: string) => { try { return fs.realpathSync(x) } catch { return x } }
   const folder = repo ? (vscode.workspace.workspaceFolders ?? []).find((f) => real(f.uri.fsPath) === real(repo)) : vscode.workspace.workspaceFolders?.[0]
   // Another repository's request: the window that has it open handles it (through the request file).
-  if (repo && !folder) { log.info(`explain: a link for ${repo}, not open in this window: left to that window`); return }
+  if (repo && !folder) { log().info(`explain: a link for ${repo}, not open in this window: left to that window`); return }
   const req = parseRequest({ action: p.get('action'), question: p.get('q') ?? '' }, 'link')
   if (req) await handleRequest(req, 'uri')
 }
@@ -208,15 +208,15 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
   try { raw = new TextDecoder().decode(await wfs.readFile(uri)) } catch { return }
   let v: any
   try { v = JSON.parse(raw) } catch { v = undefined }
-  if (v && typeof v.needs === 'string' && olderThan(extVersion, v.needs)) {
-    log.info(`explain: the request needs Code Notes ${v.needs} (this is ${extVersion}): left for a reloaded window`)
+  if (v && typeof v.needs === 'string' && olderThan(extVersion(), v.needs)) {
+    log().info(`explain: the request needs Code Notes ${v.needs} (this is ${extVersion()}): left for a reloaded window`)
     requestLog.push({ action: String(v.action), question: String(v.question ?? ''), via: 'file', outcome: 'too-new' })
     return
   }
   try { await wfs.remove(uri) } catch { /* gone already */ }
-  if (!v) { log.warn(`explain: ${REQUEST_FILE} is not JSON: ignored`); return }
+  if (!v) { log().warn(`explain: ${REQUEST_FILE} is not JSON: ignored`); return }
   const at = Date.parse(typeof v?.at === 'string' ? v.at : '')
-  if (!at || Date.now() - at > REQUEST_MAX_AGE) { log.info(`explain: ${REQUEST_FILE} is ${at ? 'older than 2 minutes' : 'undated'}: ignored`); return }
+  if (!at || Date.now() - at > REQUEST_MAX_AGE) { log().info(`explain: ${REQUEST_FILE} is ${at ? 'older than 2 minutes' : 'undated'}: ignored`); return }
   const req = parseRequest(v, REQUEST_FILE)
   if (req) await handleRequest(req, 'file', folder)
   else writeResult(folder, typeof v.id === 'string' ? v.id : undefined, { outcome: 'error', message: `unknown action "${String(v.action)}"` })

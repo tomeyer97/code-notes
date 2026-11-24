@@ -1,7 +1,9 @@
 // Moving a note to other code: the selection now, or select it and click Move Here.
 
 import * as vscode from 'vscode'
-import { byId, setCtx, store } from '../app'
+import { store } from './ports'
+import { byId } from './visible'
+import { setCtx } from '../platform/context'
 import { Note } from './store'
 import { noteTitle, rangeLabel } from '../core/text'
 import { anchorAt, docUri, markPlaced, placement, saveIfClean, selectedLines } from './location'
@@ -56,11 +58,11 @@ export async function completeMove(): Promise<void> {
   if (sel) n.data.selection = sel; else delete n.data.selection
   markPlaced(n)
   cancelMove()
-  await store.save(n)
+  await store().save(n)
   notesChanged({ kind: 'placed', ids: [n.data.id] })
   offerUndo(`Note moved to ${n.data.file} ${rangeLabel(n)}`, () => notesModel().batch(async () => {
     n.data = before
-    await store.save(n)
+    await store().save(n)
     await reanchorAll()
     notesChanged({ kind: 'placed', ids: [n.data.id] })
   }))

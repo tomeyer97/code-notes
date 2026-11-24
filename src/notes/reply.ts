@@ -2,7 +2,8 @@
 // Resolve in one step.
 
 import * as vscode from 'vscode'
-import { log, now, store } from '../app'
+import { store } from './ports'
+import { log, now } from '../platform/host'
 import { askClaude } from '../ask/run'
 import { askAlways } from '../ask/settings'
 import { me } from './identity'
@@ -31,7 +32,7 @@ export const addReply = async (n: Note, text: string, status?: 'open' | 'resolve
     n.data.status = next
     // In the thread at once, before it is saved (taken back if the save fails).
     syncThread(n)
-    if (!(await store.save(n))) {
+    if (!(await store().save(n))) {
       // Field by field, not snapshot(): a save that merged a change from disk before it failed keeps the rest of it.
       n.data.messages.length = before.messages
       n.data.status = before.status

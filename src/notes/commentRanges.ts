@@ -2,7 +2,7 @@
 // while Add Note opens one. And waiting for the window's comment widgets, which follow the extension a little later.
 
 import * as vscode from 'vscode'
-import { controller } from '../app'
+import { controller } from './ports'
 import { inNotesFolder } from './notesFolder'
 
 /** Commenting ranges: none, except until this time (a note box being opened). */
@@ -38,10 +38,10 @@ export async function waitUntil(done: () => boolean, tries: number, stepMs: numb
 /** The whole file commentable for a moment; resolves once the window has the ranges and a box may be opened. */
 export async function allowComments(ms = ADDING_MS): Promise<void> {
   addingUntil = Date.now() + ms
-  controller.commentingRangeProvider = rangeProvider
+  controller().commentingRangeProvider = rangeProvider
   const t0 = Date.now()
   clearTimeout(rangesOff)
-  rangesOff = setTimeout(() => { controller.commentingRangeProvider = rangeProvider }, ms + ADDING_OFF_AFTER_MS)
+  rangesOff = setTimeout(() => { controller().commentingRangeProvider = rangeProvider }, ms + ADDING_OFF_AFTER_MS)
   // At least SETTLE_MS, and until the window has asked for the file's ranges again: over a slow link that round trip
   // takes longer, and the box would not open.
   const u = vscode.window.activeTextEditor?.document.uri.toString()

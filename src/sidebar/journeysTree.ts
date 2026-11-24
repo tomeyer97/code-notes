@@ -2,10 +2,10 @@
 // Its rows are drawn by rowItems.ts (a journey's: journeyRows.ts); its model is listModel.ts.
 
 import * as vscode from 'vscode'
-import { journeys, mapPanel, stored } from '../app'
+import { journeys, mapPanel, tour } from './ports'
+import { stored } from '../platform/host'
 import { Group, SORTS } from '../core/list/journeyList'
 import { pickOne } from '../platform/quickPick'
-import { walkJourney } from '../tour/commands'
 import type { Journeys } from '../journeys/journeys'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
@@ -48,7 +48,7 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
 
   private rowsOf(g: Group, parent: Node): Node[] {
     const rows: Node[] = g.keys.map((k) => {
-      const n: Node = journeyRowNode(journeys.list.get(k)!, g.id)
+      const n: Node = journeyRowNode(journeys().list.get(k)!, g.id)
       this.parents.set(parentKey.row(g.id, k), parent)
       return n
     }).filter((n) => n.kind !== 'journey' || !!n.lj)
@@ -107,7 +107,7 @@ export async function searchJourneys(): Promise<void> {
   qp.placeholder = 'Search journeys: words of the title, question, steps or file paths'
   // The results follow the view's sort when one was picked (else best match first).
   const sort = listSort()
-  if (sort !== 'area') qp.title = `Search journeys · ${SORTS.find((x) => x.id === sort)!.label}`
+  if (sort !== 'area') qp.title = `Search journeys() · ${SORTS.find((x) => x.id === sort)!.label}`
   qp.matchOnDescription = true
   qp.matchOnDetail = true
   const fill = () => {
@@ -126,8 +126,8 @@ export async function searchJourneys(): Promise<void> {
   fill()
   // Not awaited: the command returns while the pick is open.
   fireAndForget(pickOne(qp).then((it) => {
-    const lj = it && journeys.list.get(it.key)
-    if (lj) fireAndForget(walkJourney(lj), 'journeysTree: walkJourney')
+    const lj = it && journeys().list.get(it.key)
+    if (lj) fireAndForget(tour().walkJourney(lj), 'journeysTree: walkJourney')
   }), 'journeysTree: pickOne')
 }
 
@@ -136,9 +136,9 @@ export async function sortJourneys(): Promise<void> {
   const items = SORTS.map((x) => ({ label: x.label, id: x.id, description: x.id === cur ? 'current' : undefined }))
   const pick = await vscode.window.showQuickPick(items, { title: 'Sort journeys' })
   if (!pick) return
-  await stored.set(STATE.journeySort, pick.id)
+  await stored().set(STATE.journeySort, pick.id)
   journeysTree.refresh()
-  mapPanel.update()
+  mapPanel().update()
 }
 
 /** The Journeys view; its "In this file" follows the editor (capped again), ranked by the cursor's function, and in view. */
@@ -158,11 +158,11 @@ export function createJourneysView(context: vscode.ExtensionContext): void {
 /** The file or the function under the cursor changed: the lists follow; another file shows its "In this file". */
 function cursorMoved(editorChanged: boolean): void {
   journeysTree.refresh()
-  if (mapPanel) mapPanel.update()
+  mapPanel().update()
   if (editorChanged) revealHereGroup()
 }
 
-export const journeysHereAll = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel.update() }
+export const journeysHereAll = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel().update() }
 
 /** The rows follow where the journeys' steps are (stale counts). */
 export const followJourneyMoves = (j: Journeys) => j.onDidMoveSteps(() => journeysTree.refresh())

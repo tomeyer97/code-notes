@@ -2,7 +2,9 @@
 // hidden sessions, grouping): file rows and the commands that change the model's choices.
 
 import * as vscode from 'vscode'
-import { journeys, notes, stored } from '../app'
+import { journeys } from './ports'
+import { visibleNotes } from '../notes/visible'
+import { stored } from '../platform/host'
 import { Note } from '../notes/store'
 import { FILTERS, matchesFilter, notesModel, scopeOf } from '../notes/model'
 import { journeyOfNote } from '../notes/model/journeyLink'
@@ -27,13 +29,13 @@ export function fileGroups(list: Note[], session?: string): Node[] {
 }
 
 /** A question asked from a step: listed under its journey, in the Journeys view. */
-export const askedFromStep = (n: Note) => !!journeyOfNote(n, journeys.list.values())
+export const askedFromStep = (n: Note) => !!journeyOfNote(n, journeys().list.values())
 
 /** The visible notes listed with this one under the same file row (itself included). */
 export function sameRow(n: Note): Note[] {
   const scope = scopeOf(n)
   const sameFile = (x: Note) => x.folder === n.folder && x.data.file === n.data.file
-  return notes().filter((x) => sameFile(x) && matchesFilter(x) && scopeOf(x) === scope && !askedFromStep(x))
+  return visibleNotes().filter((x) => sameFile(x) && matchesFilter(x) && scopeOf(x) === scope && !askedFromStep(x))
 }
 
 /** A row of its own: alone in its file. */
@@ -56,11 +58,11 @@ export const pickFilter = async () => {
   if (pick) notesModel().setFilter(pick.id)
 }
 
-export const groupByFile = async () => { await stored.set(STATE.groupBy, 'file'); notesModel().setGroupMode('file') }
+export const groupByFile = async () => { await stored().set(STATE.groupBy, 'file'); notesModel().setGroupMode('file') }
 
-export const groupBySession = async () => { await stored.set(STATE.groupBy, 'session'); notesModel().setGroupMode('session') }
+export const groupBySession = async () => { await stored().set(STATE.groupBy, 'session'); notesModel().setGroupMode('session') }
 
 /** Group by file or by session, as last chosen in this workspace. */
 export function loadGroupMode(): void {
-  notesModel().query.groupMode = stored.get(STATE.groupBy) === 'session' ? 'session' : 'file'
+  notesModel().query.groupMode = stored().get(STATE.groupBy) === 'session' ? 'session' : 'file'
 }

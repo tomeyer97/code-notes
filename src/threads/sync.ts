@@ -1,7 +1,9 @@
 // The notes' comment threads in the editor: one per note shown, kept in step with the note.
 
 import * as vscode from 'vscode'
-import { byId, cfg, controller, notes, understanding } from '../app'
+import { check, controller, tour } from './ports'
+import { byId, visibleNotes } from '../notes/visible'
+import { cfg } from '../platform/settings'
 import { askErrors, asking } from '../ask/run'
 import { otherBranch } from '../platform/checkout'
 import { docUri, placement } from '../notes/location'
@@ -11,7 +13,6 @@ import { hiddenInEditor, NotesApi, onlyThese, selection } from '../notes/model'
 import { stepLinkOf } from '../notes/model/journeyLink'
 import { Note } from '../notes/store'
 import { labelSafe, shortQ } from '../core/text'
-import { tourState, walk } from '../tour/instances'
 import { commentsOf, expanded, threadRange } from './comments'
 import { afterEditorSettles, newThread, noteVisibleEditors, setThread, settling, whenSettled } from './settle'
 import { WorkspaceEvents } from '../platform/events'
@@ -38,7 +39,7 @@ export function syncThread(n: Note): void {
     if (afterEditorSettles(docUri(n), `new:${id}`, resync)) return
     t?.dispose()
     shown.delete(id)
-    t = newThread(controller, docUri(n), threadRange(n))
+    t = newThread(controller(), docUri(n), threadRange(n))
     // The note just opened (a row clicked while its editor was still opening: the thread is made only now) opens
     // expanded; any other starts collapsed.
     t.collapsibleState = expandWhenMade.delete(id) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed
@@ -56,7 +57,7 @@ export function syncThread(n: Note): void {
   setThread(t, 'canReply', true)
   // A check thread is never "resolved" in the editor: VS Code collapses a thread when it is, and the grade must stay in
   // view; and resolving a thread that has the keyboard selects its lines in the code, where typing would replace them.
-  const resolved = n.data.status === 'resolved' && !understanding?.isCheck(n)
+  const resolved = n.data.status === 'resolved' && !check()?.isCheck(n)
   const state = resolved ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved
   if (t.state !== state) t.state = state
   setThread(t, 'contextValue', threadContext(n))
@@ -70,11 +71,11 @@ export function syncThread(n: Note): void {
 function isWanted(n: Note): boolean {
   const id = n.data.id
   const showResolved = cfg().get<boolean>('showResolvedInEditor', false)
-  const listed = n.data.status === 'open' || showResolved || unread(n) > 0 || selection().revealed === id || !!understanding?.pinned(n)
+  const listed = n.data.status === 'open' || showResolved || unread(n) > 0 || selection().revealed === id || !!check()?.pinned(n)
   if (listed && !hiddenInEditor(n)) return true
   if (asking.has(id) || askErrors.has(id)) return true
-  const check = understanding?.threadStatus(n)
-  return !!check?.checking || !!check?.error
+  const status = check()?.threadStatus(n)
+  return !!status?.checking || !!status?.error
 }
 
 /** Everything the thread's comments show, as one string: the comments are rebuilt only when it changes. */
@@ -82,11 +83,11 @@ function renderKey(n: Note): string {
   const d = n.data
   const run = asking.get(d.id)
   return JSON.stringify([
-    stepLinkOf(n) ? `${tourState.key}|${walk.touring()}|${tourState.stepId}` : '',
+    stepLinkOf(n) ? `${tour().state.key}|${tour().touring()}|${tour().state.stepId}` : '',
     d.messages.length, d.messages[d.messages.length - 1]?.body.length, d.status, d.stale, d.events?.length, d.target,
     placement.missing(d.id), placement.pastEnd(d.id), d.stale && openDoc(docUri(n))?.version,
     seenCount(n), visitFrom.get(d.id), expanded.has(d.id), otherBranch(n) ?? '', d.anchor.text.length,
-    run?.text.length, run?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null),
+    run?.text.length, run?.activity, JSON.stringify(check()?.threadStatus(n) ?? null),
     // Claude's elapsed seconds are shown in 5 s steps.
     asking.has(d.id) && Math.floor((Date.now() - run!.started) / 5000),
     askErrors.get(d.id),
@@ -95,7 +96,7 @@ function renderKey(n: Note): string {
 
 /** The thread's context value, for its menus: "note;open;stale;asking;check" (the parts that apply). */
 function threadContext(n: Note): string {
-  const parts = ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', understanding?.isCheck(n) ? 'check' : '']
+  const parts = ['note', n.data.status, n.data.stale ? 'stale' : '', asking.has(n.data.id) ? 'asking' : '', check()?.isCheck(n) ? 'check' : '']
   return parts.filter(Boolean).join(';')
 }
 
@@ -122,8 +123,8 @@ export function noteOfThread(t: vscode.CommentThread): Note | undefined {
 
 /** Every note shown has its thread, and no thread is left of a note gone. Returns the ids of the notes shown. */
 export function syncThreads(): Set<string> {
-  for (const n of notes()) syncThread(n)
-  const ids = new Set(notes().map((n) => n.data.id))
+  for (const n of visibleNotes()) syncThread(n)
+  const ids = new Set(visibleNotes().map((n) => n.data.id))
   for (const id of [...threads.keys()]) {
     if (ids.has(id)) continue
     threads.get(id)!.dispose()

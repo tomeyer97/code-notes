@@ -1,11 +1,15 @@
 // The step card: the running step's text above its code (a read-only comment thread), or in the map when the step
 // has no code to sit on; the bar on the step's lines and the ref opened from the card.
 import * as vscode from 'vscode'
-import { beats, cmdLink, codeLinks, journeys, KEY, mapPanel, titledCmdLink, valueHints } from '../app'
+import { beats, codeLinks, journeys, mapPanel, valueHints } from './ports'
+import { walk } from './instances'
+import { cmdLink, titledCmdLink } from '../platform/commands'
+import { chordKey } from '../platform/chordKey'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../core/codeLinkText'
 import { setDecorations } from '../platform/editorDecorations'
 import { readLinks, readValues } from '../core/format/journeyModel'
 import { escapeTags } from '../journeys/textFormat'
+import type { PanelCard } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { Asked, askedOf, askedText } from '../sidebar/journeyRows'
 import { refreshDecorations as refreshNoteDecorations } from '../notes/decorations'
@@ -15,11 +19,11 @@ import { blocksOf } from '../platform/symbolBlocks'
 import { labelSafe } from '../core/text'
 import { afterEditorSettles, newThread, setThread, settling, whenSettled } from '../threads/settle'
 import { nextStop, seeAlsoLink } from './checkTour'
-import { TourState } from './state'
+import { TourProbe, TourState } from './state'
+import type { Narration } from './api'
 import { cardLine, stepUri } from './stepPlace'
 import { paintStepMarks, stepMarks } from './stepMarks'
 import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
-import { walk } from './instances'
 import { tutorialMark } from './tutorial'
 import { fireAndForget } from '../platform/run'
 import { Cmd, HiddenCmd } from '../platform/commands'
@@ -35,9 +39,6 @@ const CARD_COMMANDS = [
   Cmd.podcastToggle, HiddenCmd.podcastFollow,
 ]
 
-/** What the card shows of a podcast on its journey (src/podcast/player.ts): playing or paused, following the voice or
- *  not (the follow lock), the beat being narrated (0-based, of `beats`). */
-export interface Narration { playing: boolean; following: boolean; beat?: number; beats: number; key: string }
 
 /** The card's buttons that stand out while the tutorial's card about the card is up (`askStep` also matches the
  *  stale banner's `askStepUpdate`). */
@@ -62,34 +63,101 @@ function emphasizeTutorialButtons(body: string): string {
   return body.replace(TUTORIAL_BUTTONS, (_m, label: string, c: string) => `[<span style="${style}">${label}</span>](command:codeNotes.${c}`)
 }
 
-export class StepCard {
-  /** The step card: read-only comment threads of their own controller (no menus, no reply box). */
-  controller!: vscode.CommentController
+/** How the step card draws on the code: the step's lines (a bar and a faint tint), the same while the voice tells the
+ *  step, a stale step's, and a reference opened from the card. */
+const CARD_LOOKS = {
+  // A faint tint too: clear which lines the step is about; selection and find stay on top.
+  at: {
+    isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('textLink.foreground'),
+    backgroundColor: new vscode.ThemeColor('codeNotes.stepBackground'),
+    overviewRulerColor: new vscode.ThemeColor('textLink.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
+  },
+  // While the voice tells the step: a thin grey bar, no tint, nothing in the scrollbar (the marks are the colour).
+  quiet: {
+    isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorLineNumber.activeForeground'),
+  },
+  stale: {
+    isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'dashed', borderColor: new vscode.ThemeColor('editorWarning.foreground'),
+    overviewRulerColor: new vscode.ThemeColor('editorWarning.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
+  },
+  ref: {
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    overviewRulerColor: new vscode.ThemeColor('textLink.foreground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Center,
+  },
+} satisfies Record<string, vscode.DecorationRenderOptions>
+
+export class StepCard implements vscode.Disposable {
   thread: vscode.CommentThread | undefined
-  deco!: { at: vscode.TextEditorDecorationType; quiet: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType }
-  refDeco: vscode.TextEditorDecorationType | undefined
-  /** The step's marks and its beats' (stepMarks.ts), drawn as a podcast's are. */
-  marks: MarkPainter | undefined
   /** How the step's lines were drawn last (tests): the bar and tint, the thin grey bar, or nothing. */
   look: 'tint' | 'quiet' | undefined
   /** The marker line above the step ("panel") and "Back to step" above a ref: code lenses. */
   readonly lensChanged = new vscode.EventEmitter<void>()
 
-  constructor(private readonly tour: TourState) {}
+  /**
+   * The card with its own comment controller (read-only threads: no menus, no reply box), its decorations and the
+   * painter of the step's marks (a match that can't be found lights nothing). `narration`: what a podcast on the step
+   * shows on it (none without one).
+   */
+  static create(tour: TourState, probe: TourProbe, narration: (lj: LoadedJourney, n: number) => Narration | undefined, log: vscode.LogOutputChannel): StepCard {
+    const controller = vscode.comments.createCommentController('codeNotes.journey', 'Journey')
+    controller.options = { prompt: '', placeHolder: '' }
+    const deco = {
+      at: vscode.window.createTextEditorDecorationType(CARD_LOOKS.at),
+      quiet: vscode.window.createTextEditorDecorationType(CARD_LOOKS.quiet),
+      stale: vscode.window.createTextEditorDecorationType(CARD_LOOKS.stale),
+    }
+    const refDeco = vscode.window.createTextEditorDecorationType(CARD_LOOKS.ref)
+    return new StepCard(tour, probe, narration, controller, deco, refDeco, new MarkPainter(log, 'drop'))
+  }
 
-  /** The podcast on step n of `lj`, when one is in the panel for it (set by the player). */
-  narration: ((lj: LoadedJourney, n: number) => Narration | undefined) | undefined
+  private constructor(
+    private readonly tour: TourState,
+    private readonly probe: TourProbe,
+    /** The podcast on step n of `lj`, when one is in the panel for it. */
+    private readonly narration: (lj: LoadedJourney, n: number) => Narration | undefined,
+    readonly controller: vscode.CommentController,
+    readonly deco: { at: vscode.TextEditorDecorationType; quiet: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType },
+    readonly refDeco: vscode.TextEditorDecorationType,
+    /** The step's marks and its beats' (stepMarks.ts), drawn as a podcast's are. */
+    readonly marks: MarkPainter,
+  ) {}
+
+  /** What the integration tests read of the card: its thread (where, what it says), its marks and how the step's
+   *  lines were drawn. */
+  snapshot() {
+    const t = this.thread
+    return {
+      marks: this.marks.lit(),
+      stepLook: this.look,
+      card: t && {
+        file: t.uri.path,
+        line: t.range?.start.line,
+        label: t.label,
+        title: t.label?.replace(/^\d+\/\d+ · /, ''),
+        body: (t.comments[0]?.body as vscode.MarkdownString | undefined)?.value,
+        canReply: t.canReply,
+        expanded: t.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded,
+      },
+    }
+  }
+
+  dispose(): void {
+    this.clear()
+    for (const d of [this.controller, this.deco.at, this.deco.quiet, this.deco.stale, this.refDeco, this.marks, this.lensChanged]) d.dispose()
+  }
 
   /** The voice tells the walk's step now: the editor goes quiet (no step tint, beat box, value hints or note bars). */
   narrating(): boolean {
-    const lj = walk.touring() ? walk.tourJourney() : undefined
-    return !!lj && !!this.narration?.(lj, this.tour.step)?.playing
+    const lj = walk().touring() ? walk().tourJourney() : undefined
+    return !!lj && !!this.narration(lj, this.tour.step)?.playing
   }
 
   /** `e` shows the narrated code (the walk's group, or the step's file) while the voice tells the step. */
   narrates(e: vscode.TextEditor): boolean {
     if (!this.narrating()) return false
-    const lj = walk.tourJourney()!
+    const lj = walk().tourJourney()!
     return (e.viewColumn !== undefined && e.viewColumn === this.tour.walkGroup?.viewColumn)
       || e.document.uri.toString() === stepUri(lj, this.tour.step).toString()
   }
@@ -112,7 +180,7 @@ export class StepCard {
   /** Files the step's text names that don't exist, and how many lines the others have: checked when the step opens. */
   async checkRefs(lj: LoadedJourney, n: number): Promise<void> {
     const { refGone, refLines } = this.tour
-    const moved = journeys.renames(lj)
+    const moved = journeys().renames(lj)
     for (const written of refFiles(lj.j.steps[n - 1])) {
       const f = moved.get(written) ?? written
       const k = folderFileKey(lj.folder.uri, f)
@@ -129,7 +197,7 @@ export class StepCard {
 
   /** What a step's text depends on besides the journey (stepText.ts). */
   private textInput(lj: LoadedJourney): StepTextInput {
-    return { renames: journeys.renames(lj), refGone: this.tour.refGone, refLines: this.tour.refLines, detailsOpen: this.tour.detailsOpen }
+    return { renames: journeys().renames(lj), refGone: this.tour.refGone, refLines: this.tour.refLines, detailsOpen: this.tour.detailsOpen }
   }
 
   text(lj: LoadedJourney, n: number, link: (r: StepRef) => string): StepText {
@@ -155,7 +223,7 @@ export class StepCard {
    * The panel's step card (the map shows it when the step has no code to sit on). The same text as the inline card
    * (markdown); its links are `ref:i` (the panel posts the index back: tour.panelRefs) and `note:` / `ask:`.
    */
-  panelCard(lj: LoadedJourney, n: number) {
+  panelCard(lj: LoadedJourney, n: number): PanelCard {
     const tour = this.tour
     const refs: StepRef[] = []
     const t = this.text(lj, n, (r) => {
@@ -191,7 +259,7 @@ export class StepCard {
     const tutorial = tutorialMark
     const step = lj.j.steps[n - 1]
     // While the voice tells this step: the header line only (the voice and the code are enough).
-    const nar = this.narration?.(lj, n)
+    const nar = this.narration(lj, n)
     if (nar?.playing) return this.narratingMarkdown(nar)
     const t = this.text(lj, n, (r) => commandRefLink(lj, n, r))
     const asked = askedOf(lj)[n]
@@ -201,7 +269,7 @@ export class StepCard {
     const st = this.staleText(lj, n, askUpdate)
     const nav = this.navLinks(lj, n, t, asked, !!st)
     // Paused: the full card, and the way to play on.
-    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${KEY} Space)`, Cmd.podcastToggle))
+    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${chordKey()} Space)`, Cmd.podcastToggle))
     // Code links: a phrase that is a link to the lines doing what it says. Placeholders here; the markup goes in
     // after escapeTags.
     const links = readLinks(step.links)
@@ -238,8 +306,8 @@ export class StepCard {
    * back on pause.
    */
   private narratingMarkdown(nar: Narration): vscode.MarkdownString {
-    valueHints.clear()
-    codeLinks.clear()
+    valueHints().clear()
+    codeLinks().clear()
     const md = new vscode.MarkdownString(nar.following ? '' : titledCmdLink('Follow along', 'Back to what the voice is showing', HiddenCmd.podcastFollow))
     md.isTrusted = { enabledCommands: CARD_COMMANDS }
     return md
@@ -269,9 +337,9 @@ export class StepCard {
    * is open), in the text's own colour on a faint tint.
    */
   private presentLinksAndHints(lj: LoadedJourney, n: number, linkKey: string, links: ReturnType<typeof readLinks>, used: Set<number>): void {
-    valueHints.present(linkKey, lj.folder.uri, readValues(lj.j.steps[n - 1].values), journeys.renames(lj))
-    if (links.length) codeLinks.present(linkKey, lj.folder.uri, links, journeys.renames(lj), [...used])
-    else codeLinks.clear()
+    valueHints().present(linkKey, lj.folder.uri, readValues(lj.j.steps[n - 1].values), journeys().renames(lj))
+    if (links.length) codeLinks().present(linkKey, lj.folder.uri, links, journeys().renames(lj), [...used])
+    else codeLinks().clear()
   }
 
   /** The end of a check's tour: a journey of the repository that walks the same code, if there is one. */
@@ -286,16 +354,16 @@ export class StepCard {
    */
   show(lj: LoadedJourney, n: number): void {
     this.lensChanged.fire()
-    const playing = !!this.narration?.(lj, n)?.playing
+    const playing = !!this.narration(lj, n)?.playing
     if (playing !== this.paintedPlaying) {
       this.paintedPlaying = playing
       refreshNoteDecorations()
-      beats.paint()
+      beats().paint()
     }
     if (this.inMap(lj, n)) {
       this.thread?.dispose()
       this.thread = undefined
-      mapPanel.update()
+      mapPanel().update()
       return
     }
     const uri = stepUri(lj, n)
@@ -374,7 +442,7 @@ export class StepCard {
 
   /** A card shown later: only while the walk is still on that step. */
   private showIfStillOn(lj: LoadedJourney, n: number): void {
-    if (walk.isOn(lj, n)) this.show(lj, n)
+    if (walk().isOn(lj, n)) this.show(lj, n)
   }
 
   /**
@@ -384,7 +452,7 @@ export class StepCard {
    */
   restore(): void {
     const tour = this.tour
-    const lj = walk.touring() ? walk.tourJourney() : undefined
+    const lj = walk().touring() ? walk().tourJourney() : undefined
     if (!lj || this.inMap(lj, tour.step) || tour.restoring) return
     const uri = stepUri(lj, tour.step).toString()
     const isShown = (u: string) => vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === u)
@@ -424,14 +492,14 @@ export class StepCard {
    *  grey bar; a stale step's: none); its marks and its beat's (stepMarks.ts); the ref opened from the card, lit. */
   refreshDecorations(): void {
     const tour = this.tour
-    const lj = walk.touring() ? walk.tourJourney() : undefined
+    const lj = walk().touring() ? walk().tourJourney() : undefined
     const s = lj?.j.steps[tour.step - 1]
     const stepFile = lj && s ? vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, tour.step)).toString() : undefined
     const ref = tour.refHere
-    tour.marked = []
+    this.probe.marked = []
     this.look = undefined
     // While the voice tells it, the podcast's own marks are the ones on the code.
-    const marks = lj && s && this.marks && !this.narrating() ? stepMarks(lj, tour.step, beats.index, (k, line) => this.marks!.once(k, line)) : []
+    const marks = lj && s && this.marks && !this.narrating() ? stepMarks(lj, tour.step, beats().index, (k, line) => this.marks!.once(k, line)) : []
     if (this.marks) paintStepMarks(this.marks, marks)
     for (const e of vscode.window.visibleTextEditors) {
       const uri = e.document.uri.toString()
@@ -443,7 +511,7 @@ export class StepCard {
       const quiet = this.narrates(e) || marks.length > 0
       setDecorations(e, this.deco.at, quiet ? [] : lines)
       setDecorations(e, this.deco.quiet, quiet ? lines : [])
-      if (lit) { tour.marked.push(e.document.uri.path); this.look = quiet ? 'quiet' : 'tint' }
+      if (lit) { this.probe.marked.push(e.document.uri.path); this.look = quiet ? 'quiet' : 'tint' }
       setDecorations(e, this.deco.stale, [])
       const refLit = ref && lj && ref.uri === uri ? [new vscode.Range(ref.start, 0, ref.end, 0)] : []
       if (this.refDeco) setDecorations(e, this.refDeco, refLit)

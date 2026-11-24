@@ -1,7 +1,9 @@
 // An agent's ```suggestion block applied to the note's lines (the editor's Undo takes it back).
 
 import * as vscode from 'vscode'
-import { byId, showError, understanding } from '../app'
+import { notesPorts } from './ports'
+import { byId } from './visible'
+import { showError } from '../platform/run'
 import { Anchor, anchorAt, docUri, neverAnchored, placement } from './location'
 import type { Loc } from '../core/anchors/anchor'
 import { notesChanged } from './model'
@@ -60,6 +62,6 @@ export async function applySuggestion(id: string, mi: number, k: number): Promis
   vscode.window.setStatusBarMessage(`$(check) Applied to ${rangeLabel(n)}. Save to keep; Ctrl+Z undoes.`, 5000)
   // A fix suggested for a check's concern: the check offers it with Commit & push.
   const fixFor = (n.data.extra as { checkFix?: string } | undefined)?.checkFix
-  if (fixFor) fireAndForget(understanding?.fixApplied(fixFor, n.data.file), 'suggestion: understanding?.fixApplied')
+  if (fixFor) fireAndForget(notesPorts().fixApplied(fixFor, n.data.file), 'suggestion: fixApplied')
   return true
 }

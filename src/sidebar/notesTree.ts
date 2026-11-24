@@ -1,7 +1,9 @@
 // The Code Notes view: notes by file or session (its rows: rowItems.ts; which notes: notesFilter.ts).
 
 import * as vscode from 'vscode'
-import { journeys, notes, setCtx, store } from '../app'
+import { journeys, notesStore } from './ports'
+import { visibleNotes } from '../notes/visible'
+import { setCtx } from '../platform/context'
 import { unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { FILTERS, matchesFilter, NotesApi, NotesChange, notesModel, scopeOf, selection, sessionOf, whileTyping } from '../notes/model'
@@ -71,8 +73,8 @@ class NotesTree implements vscode.TreeDataProvider<Node> {
  * file. Questions asked from a step are listed under their journey, in the Journeys view, not as loose rows here.
  */
 function rootRows(): Node[] {
-  const visible = notes().filter((n) => matchesFilter(n) && !journeyOfNote(n))
-  const broken: Node[] = store.broken().map(({ uri, why }) => ({ kind: 'broken', uri, why }))
+  const visible = visibleNotes().filter((n) => matchesFilter(n) && !journeyOfNote(n))
+  const broken: Node[] = notesStore().broken().map(({ uri, why }) => ({ kind: 'broken', uri, why }))
   const grouped = visible.filter((n) => scopeOf(n) !== undefined)
   const loose = visible.filter((n) => scopeOf(n) === undefined)
   if (!grouped.length) return [...broken, ...fileGroups(loose)]
@@ -131,16 +133,16 @@ function revealInList(n: Note): void {
 /** The rows, the unread badge, and an active filter made visible (title, a message). */
 function refreshNotesView(c: NotesChange): void {
   tree.refresh()
-  const u = notes().filter((n) => unread(n) > 0).length
+  const u = visibleNotes().filter((n) => unread(n) > 0).length
   treeView.badge = u ? { value: u, tooltip: `${plural(u, 'note')} with new replies` } : undefined
   const { filter } = notesModel().query
-  const shownCount = notes().filter(matchesFilter).length
+  const shownCount = visibleNotes().filter(matchesFilter).length
   const label = FILTERS.find((f) => f.id === filter)!.label
   treeView.description = filter === 'all' ? undefined : `${label} · ${shownCount}`
-  const broken = store.brokenCount()
+  const broken = notesStore().brokenCount()
   treeView.message = c.notice ?? ([
     broken ? `${plural(broken, 'note file')} can't be used (top of the list)` : '',
     filter !== 'all' && !shownCount ? `No notes match "${label}".` : '',
-    filter !== 'all' && journeys.all().length ? 'Journeys are hidden while filtering.' : '',
+    filter !== 'all' && journeys().all().length ? 'Journeys are hidden while filtering.' : '',
   ].filter(Boolean).join(' ') || undefined)
 }

@@ -1,7 +1,9 @@
 // Unread replies: stepping through them (D / A outside a tour and a check), marking a note unread again, marking all read.
 
 import * as vscode from 'vscode'
-import { firstFolder, mapPanel, notes } from '../app'
+import { notesPorts } from './ports'
+import { firstFolder } from '../platform/host'
+import { visibleNotes } from './visible'
 import { mine } from './identity'
 import { markRead, restoreSeen, seenSnapshot, setSeen, unread, visitFrom } from './seen'
 import { hiddenSessions, order, selection, sessionOf } from './model'
@@ -26,12 +28,12 @@ const comparePlace = (n: Note, at: { file: string; line: number }) =>
 
 /** Next/previous note with unread replies after the cursor, across files in the sidebar's order. Hidden sessions are skipped. */
 export async function stepUnread(dir: 1 | -1): Promise<void> {
-  const list = notes().filter((n) => (unread(n) > 0 || visitFrom.has(n.data.id)) && !hiddenSessions().has(sessionOf(n)))
+  const list = visibleNotes().filter((n) => (unread(n) > 0 || visitFrom.has(n.data.id)) && !hiddenSessions().has(sessionOf(n)))
     .sort((a, b) => a.data.file.localeCompare(b.data.file) || order(a, b))
   const pending = list.filter((n) => unread(n) > 0)
   if (!pending.length) {
     // With a map open, say what D does outside a tour, and how to walk the steps instead.
-    const text = mapPanel.journey ? '$(check) No unread replies · to walk the steps, press ▶ on the map' : '$(check) No unread replies'
+    const text = notesPorts().map.journey ? '$(check) No unread replies · to walk the steps, press ▶ on the map' : '$(check) No unread replies'
     vscode.window.setStatusBarMessage(text, 4000)
     return
   }
@@ -56,7 +58,7 @@ export const markUnread = async (arg?: any) => {
 
 /** codeNotes.markAllRead, with Undo. */
 export const markAllRead = async () => {
-  const list = notes().filter((n) => unread(n) > 0)
+  const list = visibleNotes().filter((n) => unread(n) > 0)
   if (!list.length) return
   const before = seenSnapshot()
   await markRead(list)

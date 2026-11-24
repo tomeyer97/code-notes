@@ -2,14 +2,15 @@
 // the function a step is about; while walking, "← Back to step n" above a ref opened from the card.
 
 import * as vscode from 'vscode'
-import { cfg, journeys, understanding } from '../app'
+import { check, journeys } from './ports'
+import { card, tourState, walk } from './instances'
+import { cfg } from '../platform/settings'
 import { Block, blockAt, groupSteps } from '../core/codeBlocks'
 import { fileOf } from '../journeys/steps'
 import { blocksOf } from '../platform/symbolBlocks'
 import { notesFor } from '../notes/location'
 import { inNotesFolder } from '../notes/notesFolder'
 import { relPath } from '../platform/documents'
-import { card, tourState, walk } from './instances'
 import { Cmd, HiddenCmd } from '../platform/commands'
 
 /** A journey step whose lines are in a file (for the lenses). */
@@ -20,7 +21,7 @@ interface LensStep { line: number; end: number; journey: string; title: string; 
  * is about, "◇ Step 3 of Place an order" (only where its code is found); click = that step.
  */
 export async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeLens[]> {
-  if (walk.touring()) return backToStepLens(doc)
+  if (walk().touring()) return backToStepLens(doc)
   if (!cfg().get<boolean>('journeys.codeLens', true) || doc.uri.scheme !== 'file') return []
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
   if (!folder || inNotesFolder(doc.uri)) return []
@@ -35,10 +36,10 @@ export async function stepLenses(doc: vscode.TextDocument): Promise<vscode.CodeL
 
 /** "← Back to step n" above the ref opened from the card, when it is in this document. */
 function backToStepLens(doc: vscode.TextDocument): vscode.CodeLens[] {
-  const lj = walk.tourJourney()!
-  const ref = tourState.refHere
+  const lj = walk().tourJourney()!
+  const ref = tourState().refHere
   if (!ref || ref.uri !== doc.uri.toString()) return []
-  const n = tourState.step
+  const n = tourState().step
   const range = new vscode.Range(ref.start, 0, ref.start, 0)
   return [new vscode.CodeLens(range, { title: `← Back to step ${n}`, command: Cmd.backToStep, tooltip: lj.j.steps[n - 1].title })]
 }
@@ -46,7 +47,7 @@ function backToStepLens(doc: vscode.TextDocument): vscode.CodeLens[] {
 /** The steps of this folder's journeys whose code is found in file `rel`. */
 function stepsIn(folder: vscode.WorkspaceFolder, rel: string): LensStep[] {
   const hits: LensStep[] = []
-  for (const lj of journeys.all()) {
+  for (const lj of journeys().all()) {
     if (lj.folder.uri.toString() !== folder.uri.toString()) continue
     for (const s of lj.j.steps) {
       const at = lj.at[s.n - 1]
@@ -65,7 +66,7 @@ function retryWhenSymbolsReady(doc: vscode.TextDocument): void {
   const key = `${doc.uri}|${doc.version}`
   if (lensRetried.has(key)) return
   lensRetried.add(key)
-  setTimeout(() => card.lensChanged.fire(), 2000)
+  setTimeout(() => card().lensChanged.fire(), 2000)
 }
 
 /**
@@ -73,8 +74,8 @@ function retryWhenSymbolsReady(doc: vscode.TextDocument): void {
  * function of such a question (or within 2 lines of it, outside any function); the rest of the file keeps its lenses.
  */
 function askedHere(doc: vscode.TextDocument, blocks: Block[]): (line: number) => boolean {
-  const open = new Set(understanding?.openIn(doc.uri) ?? [])
-  const isOpenQuestion = (n: ReturnType<typeof notesFor>[number]) => open.has(understanding!.questionOf(n)?.id ?? '')
+  const open = new Set(check()?.openIn(doc.uri) ?? [])
+  const isOpenQuestion = (n: ReturnType<typeof notesFor>[number]) => open.has(check()!.questionOf(n)?.id ?? '')
   const asked = open.size ? notesFor(doc.uri).filter(isOpenQuestion).map((n) => n.data.range) : []
   return (line) => asked.some((r) => {
     const b = blockAt(r.start - 1, blocks)

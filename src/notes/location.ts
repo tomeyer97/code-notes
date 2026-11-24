@@ -3,8 +3,9 @@
 // reanchor.ts; following moved and renamed files: moves.ts; following edits: followEdits.ts.
 
 import * as vscode from 'vscode'
+import { store } from './ports'
 import { isDeepStrictEqual } from 'util'
-import { notes, store } from '../app'
+import { visibleNotes } from './visible'
 import { commitInfo, otherBranch } from '../platform/checkout'
 import { openDoc } from '../platform/documents'
 import { captureAnchor, NoteData } from '../core/format/noteModel'
@@ -30,7 +31,7 @@ export function pathUri(n: Note): vscode.Uri { return vscode.Uri.joinPath(n.fold
 export function docUri(n: Note): vscode.Uri { return n.data.target === 'folder' ? folderPage(n.folder, n.data.file) : pathUri(n) }
 
 export function notesFor(uri: vscode.Uri): Note[] {
-  return notes().filter((n) => docUri(n).toString() === uri.toString())
+  return visibleNotes().filter((n) => docUri(n).toString() === uri.toString())
 }
 
 /** Notes on lines (not a whole file or folder) of this document: the ones that follow edits. */
@@ -68,7 +69,7 @@ export function onlyLocalPlacementChanged(n: Note): boolean {
 export async function saveIfClean(n: Note): Promise<void> {
   if (openDoc(docUri(n))?.isDirty) return
   if (onlyLocalPlacementChanged(n)) return
-  await store.save(n)
+  await store().save(n)
 }
 
 /** The lines of a selection: one ending at column 0 or inside the indentation of a line does not include that line. */

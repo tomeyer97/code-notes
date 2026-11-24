@@ -1,6 +1,5 @@
 import * as vscode from 'vscode'
 import type { ListKind, ListModel, Sort } from '../core/list/journeyList'
-import type { StepCard } from '../tour/card'
 import { escapeHtml, webviewPage } from '../webview/page'
 import { fileName } from '../platform/jsonFolder'
 import { LoadedJourney } from './steps'
@@ -81,6 +80,14 @@ export type MapMessage =
 /** A row of the panel's own short journey list (TourInfo.list). */
 export interface PanelListRow { key: string; title: string; question: string; steps: number; resume: number; here?: boolean; start?: boolean }
 
+/** The step card as the map shows it (tour/card.ts panelCard), when the step has no code to sit on. */
+export interface PanelCard {
+  n: number; lead: string; details?: string; refs: string; stale: boolean; staleText: string; open: boolean
+  notice?: string; title: string
+  /** Where each of its links goes (`src/a.ts:40-42`). */
+  paths: string[]
+}
+
 /** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
 export interface TourInfo {
   current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]
@@ -99,13 +106,23 @@ export interface TourInfo {
   /** Files the steps followed through a rename (old -> new path): box paths say where the code went. */
   moved: Record<string, string>
   /** The step card, when it lives in the map ("panel"). */
-  card?: ReturnType<StepCard['panelCard']>
+  card?: PanelCard
   /** One muted line under the question: "Written by AI · 2 days ago · 3 commits behind"; `changed` stale steps. */
   prov?: { text: string; tip: string; changed: number }
   /** Steps someone asked about. */
   asked?: Record<number, { id: string; state: 'q' | 'a'; unread: boolean }>
   /** A check's tour: its questions, each a row after the step that shows its answer; `cur`: the walk is at it. */
   stops?: { id: string; n: number; step: number; text: string; state: string; cur?: boolean }[]
+}
+
+/** What the podcast player gives the panel (src/podcast/player.ts registers it: MapPanel.setPodcast). */
+export interface PanelPodcast {
+  /** The journey's podcast for the panel's bar: undefined when it has none. `toUri`: a file as the webview loads it. */
+  episodeFor(lj: LoadedJourney, toUri: (u: vscode.Uri) => string): unknown
+  /** Where the audio of `lj` is (the panel's player draws it): sent right after the episode. */
+  stateFor(lj: LoadedJourney): object | undefined
+  /** The panel came on screen, went off it (a tab in front of it, its group hidden) or closed. */
+  viewChanged(): void
 }
 
 export const MAP_VIEW = 'codeNotes.journey'
@@ -134,23 +151,29 @@ export class MapPanel implements vscode.Disposable {
   focus = ''
   private ready = false
   private queue: unknown[] = []
-  /** The journey's podcast for the panel's bar (src/podcast/player.ts): undefined when it has none. `toUri`: a file
-   *  as the webview loads it. */
-  podcastFor: ((lj: LoadedJourney, toUri: (u: vscode.Uri) => string) => unknown) | undefined
-  /** Where the audio of `lj` is (the panel's player draws it): sent right after the episode. */
-  podcastStateFor: ((lj: LoadedJourney) => object | undefined) | undefined
+  /** The podcast player's side of the panel (setPodcast), if one is registered. */
+  private podcast: PanelPodcast | undefined
   /** The editor groups may have changed size (the panel drawn, groups opened or closed): tour/panelLayout.ts checks
    *  notes the widths to keep (noteLayout). */
   layoutChanged: (() => void) | undefined
   /** The panel became the active editor: tour/panelLayout.ts undoes VS Code widening it (keepWidthOnFocus). */
   activated: (() => void) | undefined
-  /** The panel came on screen, went off it (a tab in front of it, its group hidden) or closed. */
-  viewChanged: (() => void) | undefined
+
+  /** The podcast player draws its bar in the panel and hears when the panel comes and goes, until disposed. */
+  setPodcast(p: PanelPodcast): vscode.Disposable {
+    this.podcast = p
+    return new vscode.Disposable(() => { if (this.podcast === p) this.podcast = undefined })
+  }
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
     private tourOf: (lj: LoadedJourney) => TourInfo, private stored: StateStore) {}
 
   get journey(): LoadedJourney | undefined { return this.panel ? this.shown : undefined }
+
+  /** What the integration tests read of the panel: what it shows and where, as the page reported it. */
+  snapshot() {
+    return { story: this.story, map: this.journey?.j.id, mapTitle: this.tabTitle, mapBoxes: this.rendered, mapFocus: this.focus, mapColumn: this.viewColumn }
+  }
   /** The tab's title (for the integration test). */
   get tabTitle(): string | undefined { return this.panel?.title }
   /** The map is on screen (not a hidden tab). Not while it closes (asked from its own `closed`: VS Code throws then). */
@@ -192,7 +215,7 @@ export class MapPanel implements vscode.Disposable {
       if (switched) this.post(true)
     }
     this.panel!.title = this.title()
-    this.viewChanged?.()
+    this.podcast?.viewChanged()
   }
 
   private options(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -230,7 +253,7 @@ export class MapPanel implements vscode.Disposable {
     remember()
     this.subs.push(
       panel.webview.onDidReceiveMessage((m: MapMessage) => this.receive(panel, m)),
-      panel.onDidChangeViewState((e) => { remember(); this.viewChanged?.(); if (e.webviewPanel.active) this.activated?.() }),
+      panel.onDidChangeViewState((e) => { remember(); this.podcast?.viewChanged(); if (e.webviewPanel.active) this.activated?.() }),
       panel.onDidDispose(() => this.disposed()),
       vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutChanged?.() }),
     )
@@ -303,7 +326,7 @@ export class MapPanel implements vscode.Disposable {
     this.queue = []
     for (const s of this.subs) s.dispose()
     this.subs = []
-    this.viewChanged?.()
+    this.podcast?.viewChanged()
   }
 
   /** A message for the webview itself (tutorial, tests): sent once it is ready. */
@@ -350,9 +373,9 @@ export class MapPanel implements vscode.Disposable {
   sendPodcast(): void {
     const panel = this.panel
     if (!panel || !this.shown || !this.ready) return
-    const episode = this.podcastFor?.(this.shown, (u) => panel.webview.asWebviewUri(u).toString())
+    const episode = this.podcast?.episodeFor(this.shown, (u) => panel.webview.asWebviewUri(u).toString())
     fireAndForget(panel.webview.postMessage({ type: 'podcast', episode }), 'mapPanel: panel.webview.postMessage')
-    const st = episode ? this.podcastStateFor?.(this.shown) : undefined
+    const st = episode ? this.podcast?.stateFor(this.shown) : undefined
     if (st) fireAndForget(panel.webview.postMessage({ type: 'podcastState', ...st }), 'mapPanel: panel.webview.postMessage')
   }
 

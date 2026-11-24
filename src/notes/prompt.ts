@@ -2,7 +2,8 @@
 // note waiting for an answer.
 
 import * as vscode from 'vscode'
-import { byId, log, notes } from '../app'
+import { byId, visibleNotes } from './visible'
+import { log } from '../platform/host'
 import { me, waitingForAgent } from './identity'
 import { selection } from './model'
 import { Note } from './store'
@@ -37,14 +38,14 @@ export function agentPrompt(list?: Note[]): string {
 
 /** The toast says what is in the clipboard: the ticked notes, or the waiting ones. */
 export const copyAgentPrompt = async () => {
-  const waiting = notes().filter(waitingForAgent).length
+  const waiting = visibleNotes().filter(waitingForAgent).length
   const ticked = [...selection().checked].map(byId).filter((n): n is Note => !!n)
   if (!ticked.length && !waiting) {
     fireAndForget(vscode.window.showInformationMessage('No notes are waiting for an agent. Select notes (Ctrl+click) to ask about them.'), 'prompt: window.showInformationMessage')
     return
   }
   await vscode.env.clipboard.writeText(agentPrompt(ticked.length ? ticked : undefined))
-  log.info(`copied a prompt for ${ticked.length ? ticked.map((n) => n.data.id).join(', ') : `the ${waiting} waiting notes`}`)
+  log().info(`copied a prompt for ${ticked.length ? ticked.map((n) => n.data.id).join(', ') : `the ${waiting} waiting notes`}`)
   const k = ticked.length || waiting
   fireAndForget(vscode.window.showInformationMessage(`Copied a prompt for ${plural(k, `${ticked.length ? 'selected' : 'waiting'} note`)}.`), 'prompt: window.showInformationMessage')
 }

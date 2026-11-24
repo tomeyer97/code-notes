@@ -2,7 +2,7 @@
 // and the page of a note whose file is gone.
 
 import * as vscode from 'vscode'
-import { byId } from '../app'
+import { byId } from './visible'
 import { Note } from './store'
 import { plain, rangeLabel } from '../core/text'
 import { wfs } from '../platform/workspaceFs'

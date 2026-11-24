@@ -1,8 +1,11 @@
 // New notes: on lines (the editor's comment box, or a one-line box), on a whole file or folder.
 
 import * as vscode from 'vscode'
+import { store } from './ports'
 import { Loc } from '../core/anchors/anchor'
-import { KEY, log, now, showError, store } from '../app'
+import { chordKey } from '../platform/chordKey'
+import { log, now } from '../platform/host'
+import { showError } from '../platform/run'
 import { askClaude } from '../ask/run'
 import { askAlways, askOnQuestion } from '../ask/settings'
 import { me } from './identity'
@@ -48,7 +51,7 @@ async function newNote(folder: vscode.WorkspaceFolder, body: string, place: () =
   const at = now()
   const id = newId()
   return {
-    folder, uri: store.uriFor(folder, id),
+    folder, uri: store().uriFor(folder, id),
     data: {
       id, ...(await place()), status: 'open', stale: false, createdAt: at,
       messages: [{ author: me(), role: 'human', body, at }],
@@ -96,7 +99,7 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
 /** A new note saved, and read (its first message is yours): stored in the background (a round trip to the window),
  *  read back from memory at once. */
 async function save(n: Note): Promise<boolean> {
-  if (!(await store.save(n))) return false
+  if (!(await store().save(n))) return false
   fireAndForget(setSeen([[n.data.id, 1]]), 'seen')
   return true
 }
@@ -128,7 +131,7 @@ export async function addNote(): Promise<void> {
 
 /** No text editor (the first click on "Add a Note"): say what to do instead of doing nothing. */
 async function noEditor(): Promise<void> {
-  const pick = await vscode.window.showInformationMessage(`Open a file and select code, then press ${KEY} C.`, 'Open File…')
+  const pick = await vscode.window.showInformationMessage(`Open a file and select code, then press ${chordKey()} C.`, 'Open File…')
   if (pick) await vscode.commands.executeCommand('workbench.action.quickOpen')
 }
 

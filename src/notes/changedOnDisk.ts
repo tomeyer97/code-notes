@@ -3,7 +3,8 @@
 // the notes re-anchored after the burst.
 
 import * as vscode from 'vscode'
-import { log, store } from '../app'
+import { store } from './ports'
+import { log } from '../platform/host'
 import { isAgent, mine } from './identity'
 import { Message, NoteData, NoteEvent } from '../core/format/noteModel'
 import { DiskChange, Note } from './store'
@@ -18,7 +19,7 @@ const REANCHOR_AFTER_MS = 200
 /** Changes on disk: their rules, then announced (all read again: the store says 'loaded' itself). */
 export function followNotesOnDisk(): vscode.Disposable {
   const later = new Debouncer('notes: re-anchor after changes on disk')
-  const sub = store.onDidChangeOnDisk((c) => notesModel().batch(async () => {
+  const sub = store().onDidChangeOnDisk((c) => notesModel().batch(async () => {
     await notesChangedOnDisk(c)
     later.later('reanchor', REANCHOR_AFTER_MS, reanchorAll)
   }))
@@ -49,15 +50,15 @@ async function statusChangedOnDisk(n: Note, before: NoteData): Promise<void> {
   if (before.status === 'resolved' && n.data.status === 'resolved' && replied) {
     n.data.status = 'open'
     addEventOf(n, 'reopened', lastMessage(n))
-    log.appendLine(`note ${n.data.id}: reopened by a reply from ${lastMessage(n)?.author}`)
-    await store.save(n)
+    log().appendLine(`note ${n.data.id}: reopened by a reply from ${lastMessage(n)?.author}`)
+    await store().save(n)
   } else if (before.status !== n.data.status) {
-    log.info(`note ${n.data.id}: ${n.data.status} on disk (by someone else)`)
+    log().info(`note ${n.data.id}: ${n.data.status} on disk (by someone else)`)
     const evs = n.data.events ?? []
     const type = statusEvent(n.data.status)
     if (evs.length === (before.events?.length ?? 0) && evs[evs.length - 1]?.type !== type) {
       addEventOf(n, type, [...n.data.messages].reverse().find((m) => !mine(m)))
-      await store.save(n)
+      await store().save(n)
     }
   }
 }

@@ -1,12 +1,12 @@
 // Which journeys answer a question: ranked by its telling words; a pick when several do, a confirm before writing one.
 
 import * as vscode from 'vscode'
-import { journeys } from '../app'
+import { journeys } from './ports'
 import { LoadedJourney } from '../journeys/steps'
 import { scoreJourney } from '../core/list/match'
 import { pickOne } from '../platform/quickPick'
 import { shortQ } from '../core/text'
-import { questionBesidesTitle } from '../tour/pick'
+import { questionBesidesTitle } from '../tour/texts'
 import { journeyModel, modelLabel } from './claudeRun'
 
 /** A journey's texts as match.ts scores them. */
@@ -14,7 +14,7 @@ const journeyText = (x: LoadedJourney) => ({ title: x.j.title, question: x.j.que
 
 /** Journeys by how well they answer a question: most telling words matched, title and question first. */
 function rankJourneys(question: string): { x: LoadedJourney; s: ReturnType<typeof scoreJourney> }[] {
-  return journeys.all().map((x) => ({ x, s: scoreJourney(journeyText(x), question) })).filter((v) => v.s.matched > 0)
+  return journeys().all().map((x) => ({ x, s: scoreJourney(journeyText(x), question) })).filter((v) => v.s.matched > 0)
     .sort((a, b) => b.s.matched - a.s.matched || b.s.weight - a.s.weight)
 }
 
@@ -25,7 +25,7 @@ function rankJourneys(question: string): { x: LoadedJourney; s: ReturnType<typeo
 export function matchJourneys(question: string): LoadedJourney[] {
   const flat = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const q = flat(question)
-  const same = journeys.all().find((x) => flat(x.j.question) === q || flat(x.j.title) === q)
+  const same = journeys().all().find((x) => flat(x.j.question) === q || flat(x.j.title) === q)
   if (same) return [same]
   const ok = rankJourneys(question).filter((v) => v.s.answers)
   if (!ok.length) return []
@@ -37,7 +37,7 @@ export function matchJourneys(question: string): LoadedJourney[] {
 export async function chooseJourney(question: string, list: LoadedJourney[]): Promise<LoadedJourney | undefined> {
   type It = vscode.QuickPickItem & { lj: LoadedJourney }
   const qp = vscode.window.createQuickPick<It>()
-  qp.title = `Several journeys answer “${shortQ(question, 60)}”`
+  qp.title = `Several journeys() answer “${shortQ(question, 60)}”`
   qp.placeholder = 'Open one'
   qp.ignoreFocusOut = true
   qp.items = list.map((x) => ({ label: `$(map) ${x.j.title}`, description: questionBesidesTitle(x), lj: x }))

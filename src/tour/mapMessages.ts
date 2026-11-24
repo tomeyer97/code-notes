@@ -2,14 +2,18 @@
 // does, and mapState, what the panel is told besides the journey.
 
 import * as vscode from 'vscode'
-import { beats, byId, cfg, journeys, KEY, log, mapPanel, stored, understanding } from '../app'
+import { beats, check, journeys, mapPanel, refreshJourneyList } from './ports'
+import { card, podcast, tourState, walk } from './instances'
+import { byId } from '../notes/visible'
+import { cfg } from '../platform/settings'
+import { chordKey } from '../platform/chordKey'
+import { log, stored } from '../platform/host'
 import { gitIn } from '../platform/checkout'
 import { ageOf } from '../core/list/journeyList'
 import { MapMessage, TourInfo } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { reveal } from '../notes/reveal'
 import { askedOf } from '../sidebar/journeyRows'
-import { journeysTree } from '../sidebar/journeysTree'
 import { listModel, listState } from '../sidebar/listModel'
 import { relPath } from '../platform/documents'
 import { wfs } from '../platform/workspaceFs'
@@ -20,9 +24,7 @@ import { rememberPanelWidth } from './panelLayout'
 import { endJourney, finishTour, walkJourney } from './commands'
 import { provenance } from './provenance'
 import { openRef } from './refs'
-import { card, tourState, walk } from './instances'
 import { onTutorial } from './tutorial'
-import { podcasts } from '../podcast/player'
 import { fireAndForget } from '../platform/run'
 import { STATE } from '../platform/state'
 import { Cmd } from '../platform/commands'
@@ -32,38 +34,38 @@ type Handler<K extends MapMessage['type']> = (lj: LoadedJourney, m: Extract<MapM
 
 /** What each message from the journey panel does (the panel's own state messages have none). */
 const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
-  step: (lj, m) => fireAndForget(walk.goToStep(lj, m.n, { focus: false }), 'mapMessages: walk.goToStep'),
+  step: (lj, m) => fireAndForget(walk().goToStep(lj, m.n, { focus: false }), 'mapMessages: walk.goToStep'),
   end: () => fireAndForget(endJourney(), 'mapMessages: endJourney'),
   finish: () => fireAndForget(finishTour(), 'mapMessages: finishTour'),
   question: (_lj, m) => revealNoteById(m.id),
   checkpoint: (lj, m) => fireAndForget(openCheckpoint(lj, m.id), 'mapMessages: openCheckpoint'),
-  nextStop: () => fireAndForget(walk.stepBy(1), 'mapMessages: walk.stepBy'),
+  nextStop: () => fireAndForget(walk().stepBy(1), 'mapMessages: walk.stepBy'),
   ref: (lj, m) => openPanelRef(lj, m.i),
   ask: (_lj, m) => fireAndForget(m.update ? askUpdate() : askStep(), 'mapMessages: ask'),
   openPath: (lj, m) => fireAndForget(openBoxPath(lj, m.path), 'mapMessages: openBoxPath'),
   // The list over the walk: the walk keeps its place, card and status item.
   home: () => undefined,
-  beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); fireAndForget(showBeat(lj, m.n, m.i), 'mapMessages: showBeat') },
-  closed: () => { beats.clear(); card.refreshDecorations(); podcasts.onClosed() },
+  beat: (lj, m) => { if (m.user) podcast()?.onBeat(lj, m.n, m.i); fireAndForget(showBeat(lj, m.n, m.i), 'mapMessages: showBeat') },
+  closed: () => { beats().clear(); card().refreshDecorations(); podcast()?.onClosed() },
   // The panel's player as the audio's host, or unlocked (src/podcast/player.ts).
-  podcastTime: (_lj, m) => podcasts.fromPanel(m),
-  podcastState: (_lj, m) => podcasts.fromPanel(m),
-  podcastError: (_lj, m) => podcasts.fromPanel(m),
-  podcastMeta: (_lj, m) => podcasts.fromPanel(m),
-  podcastUnlocked: (_lj, m) => podcasts.fromPanel(m),
-  podcastWhy: (lj) => fireAndForget(podcasts.showWhy(lj), 'mapMessages: podcasts.showWhy'),
-  podcastAsk: (lj, m) => fireAndForget(podcasts.onAsk(lj, m), 'mapMessages: podcasts.onAsk'),
-  podcastEnd: (lj, m) => fireAndForget(podcasts.endAction(lj, m.action, m.of), 'mapMessages: podcasts.endAction'),
+  podcastTime: (_lj, m) => podcast()?.fromPanel(m),
+  podcastState: (_lj, m) => podcast()?.fromPanel(m),
+  podcastError: (_lj, m) => podcast()?.fromPanel(m),
+  podcastMeta: (_lj, m) => podcast()?.fromPanel(m),
+  podcastUnlocked: (_lj, m) => podcast()?.fromPanel(m),
+  podcastWhy: (lj) => fireAndForget(podcast()?.showWhy(lj), 'mapMessages: podcast.showWhy'),
+  podcastAsk: (lj, m) => fireAndForget(podcast()?.onAsk(lj, m), 'mapMessages: podcast.onAsk'),
+  podcastEnd: (lj, m) => fireAndForget(podcast()?.endAction(lj, m.action, m.of), 'mapMessages: podcast.endAction'),
   panelWidth: () => fireAndForget(rememberPanelWidth(), 'mapMessages: rememberPanelWidth'),
-  mapWidth: (_lj, m) => fireAndForget(stored.set(STATE.mapWidth, m.w > 0 ? Math.round(m.w) : undefined), 'mapMessages: store mapWidth'),
+  mapWidth: (_lj, m) => fireAndForget(stored().set(STATE.mapWidth, m.w > 0 ? Math.round(m.w) : undefined), 'mapMessages: store mapWidth'),
   list: (_lj, m) => homeQueryChanged(m),
   preview: (_lj, m) => withJourney(m.key, (x) => fireAndForget(sendPreview(x), 'mapMessages: sendPreview')),
   refresh: (_lj, m) => withJourney(m.key, (x) => fireAndForget(refreshJourney(x), 'mapMessages: refreshJourney')),
-  hereAll: () => { listState.hereAll = true; mapPanel.update() },
+  hereAll: () => { listState.hereAll = true; mapPanel().update() },
   walk: (_lj, m) => withJourney(m.key, (x) => fireAndForget(walkJourney(x, { keepFocus: 'panel' }), 'mapMessages: walkJourney')),
-  details: (_lj, m) => { tourState.detailsOpen = m.open; mapPanel.update() },
-  openFile: (lj) => fireAndForget(vscode.window.showTextDocument(lj.uri, { viewColumn: walk.codeColumn() }), 'mapMessages: window.showTextDocument'),
-  close: () => mapPanel.close(),
+  details: (_lj, m) => { tourState().detailsOpen = m.open; mapPanel().update() },
+  openFile: (lj) => fireAndForget(vscode.window.showTextDocument(lj.uri, { viewColumn: walk().codeColumn() }), 'mapMessages: window.showTextDocument'),
+  close: () => mapPanel().close(),
   pick: () => fireAndForget(vscode.commands.executeCommand(Cmd.openJourney), 'mapMessages: command codeNotes.openJourney'),
   restore: (lj) => restoreLastGood(lj),
   authors: (lj) => showRuleBreaks(lj),
@@ -76,7 +78,7 @@ export function onMapMessage(lj: LoadedJourney, m: MapMessage): void {
 
 /** A journey the panel names by key, when it is still there. */
 function withJourney(key: string, f: (lj: LoadedJourney) => void): void {
-  const lj = journeys.list.get(key)
+  const lj = journeys().list.get(key)
   if (lj) f(lj)
 }
 
@@ -88,26 +90,26 @@ function revealNoteById(id: string): void {
 
 /** A link of the panel's step card (its index in tourState.panelRefs): opened as from the inline card. */
 function openPanelRef(lj: LoadedJourney, i: number): void {
-  const r = tourState.panelRefs[i]
-  if (r) fireAndForget(openRef(lj, r.file, r.line, r.end, tourState.step), 'mapMessages: openRef')
+  const r = tourState().panelRefs[i]
+  if (r) fireAndForget(openRef(lj, r.file, r.line, r.end, tourState().step), 'mapMessages: openRef')
 }
 
 /** A journey's preview in the panel's list: the journey, and which steps are stale since when. */
 async function sendPreview(lj: LoadedJourney): Promise<void> {
   const stale = await staleInfo(lj)
-  mapPanel.send({ type: 'preview', key: lj.key, journey: lj.j, stale })
+  mapPanel().send({ type: 'preview', key: lj.key, journey: lj.j, stale })
 }
 
 /** The panel home's search, chips or sort changed. */
 function homeQueryChanged(m: Extract<MapMessage, { type: 'list' }>): void {
   listState.homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? ''), searchSort: m.searchSort }
-  if (m.sort) fireAndForget(stored.set(STATE.journeySort, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }), 'mapMessages: store journeySort')
-  else mapPanel.update()
+  if (m.sort) fireAndForget(stored().set(STATE.journeySort, m.sort).then(() => { refreshJourneyList(); mapPanel().update() }), 'mapMessages: store journeySort')
+  else mapPanel().update()
 }
 
 /** A journey file that can't be read: back to its last good version. */
 function restoreLastGood(lj: LoadedJourney): void {
-  const raw = journeys.lastGood.get(lj.key)
+  const raw = journeys().lastGood.get(lj.key)
   if (!raw) return
   const restored = () => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000)
   fireAndForget(wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(restored), 'mapMessages: wfs.writeFile')
@@ -116,8 +118,8 @@ function restoreLastGood(lj: LoadedJourney): void {
 /** Author mode: the journey's rule breaks, in the Output channel. */
 function showRuleBreaks(lj: LoadedJourney): void {
   const list = lj.j.problems.map((p) => `  - ${p}`).join('\n')
-  log.info(`journey ${lj.j.id} (${relPath(lj.folder, lj.uri)}): ${lj.j.problems.length} rule break(s) for its author:\n${list}`)
-  log.show(true)
+  log().info(`journey ${lj.j.id} (${relPath(lj.folder, lj.uri)}): ${lj.j.problems.length} rule break(s) for its author:\n${list}`)
+  log().show(true)
 }
 
 /**
@@ -126,33 +128,33 @@ function showRuleBreaks(lj: LoadedJourney): void {
  */
 export async function showBeat(lj: LoadedJourney, n: number, i: number): Promise<void> {
   // A beat of a step left just now (the map learns of the move after its scene drew): nothing.
-  if (i >= 0 && (lj.key !== tourState.key || n !== tourState.step)) return
-  const was = beats.lit
+  if (i >= 0 && (lj.key !== tourState().key || n !== tourState().step)) return
+  const was = beats().lit
   // The caret goes to the lit line: arriving is not reading a note there.
-  tourState.cursorUntil = Date.now() + OWN_MOVE_MS
-  beats.index = i >= 0 ? i : undefined
-  const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), walk.codeColumn)
+  tourState().cursorUntil = Date.now() + OWN_MOVE_MS
+  beats().index = i >= 0 ? i : undefined
+  const shown = await beats().show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys().renames(lj), walk().codeColumn)
   // The beat's marks, and the step's dimmed (stepMarks.ts).
-  if (shown !== 'superseded') card.refreshDecorations()
+  if (shown !== 'superseded') card().refreshDecorations()
   // The panel shows those lines itself, under the caption, when it has the room.
-  if (shown !== 'superseded' && i >= 0) mapPanel.send({ type: 'code', n, i, code: shown === 'lit' ? beats.preview : undefined })
-  const givenBack = shown === 'none' && was && !tourState.stepping && walk.touring() && tourState.key === lj.key && tourState.step
-  if (givenBack) await walk.goToStep(lj, tourState.step, { focus: false })
+  if (shown !== 'superseded' && i >= 0) mapPanel().send({ type: 'code', n, i, code: shown === 'lit' ? beats().preview : undefined })
+  const givenBack = shown === 'none' && was && !tourState().stepping && walk().touring() && tourState().key === lj.key && tourState().step
+  if (givenBack) await walk().goToStep(lj, tourState().step, { focus: false })
 }
 
 /** Ctrl+' P: the current step's animation on or off, in the journey panel. */
 export function toggleAnimation(): void {
-  const lj = walk.tourJourney()
-  if (!lj || !walk.touring()) {
+  const lj = walk().tourJourney()
+  if (!lj || !walk().touring()) {
     void vscode.window.setStatusBarMessage('Open a journey step first: its animation plays in the journey panel.', 4000)
     return
   }
-  if (!lj.j.steps[tourState.step - 1]?.scene?.beats?.length) {
-    void vscode.window.setStatusBarMessage(`Step ${tourState.step} has no animation.`, 4000)
+  if (!lj.j.steps[tourState().step - 1]?.scene?.beats?.length) {
+    void vscode.window.setStatusBarMessage(`Step ${tourState().step} has no animation.`, 4000)
     return
   }
-  if (mapPanel.journey?.key !== lj.key || !mapPanel.visible) walk.showMap(lj, true)
-  mapPanel.send({ type: 'anim', action: 'toggle' })
+  if (mapPanel().journey?.key !== lj.key || !mapPanel().visible) walk().showMap(lj, true)
+  mapPanel().send({ type: 'anim', action: 'toggle' })
 }
 
 /** A box without steps (a store): open what its `path` names: a file, else the folder in the Explorer. */
@@ -169,7 +171,7 @@ async function openBoxPath(lj: LoadedJourney, p: string): Promise<void> {
     const a = lines ? Math.max(0, Number(lines[1]) - 1) : 0
     const b = lines ? Math.max(a, Number(lines[2] ?? lines[1]) - 1) : 0
     const selection = lines ? { selection: new vscode.Range(a, 0, b, 0) } : {}
-    await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk.codeColumn(), ...selection })
+    await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk().codeColumn(), ...selection })
   } catch { vscode.window.setStatusBarMessage(`$(info) ${p} isn't in this folder`, 3000) }
 }
 
@@ -196,26 +198,26 @@ async function lastChange(lj: LoadedJourney, file: string): Promise<string> {
 
 /** What the journey panel shows of a journey besides the journey itself: the walk, the tutorial, the list, its home. */
 export function mapState(lj: LoadedJourney): TourInfo {
-  const walking = lj.key === tourState.key
-  const mapWidth = stored.get(STATE.mapWidth)
-  const cardInMap = walking && tourState.step && card.inMap(lj, tourState.step) ? card.panelCard(lj, tourState.step) : undefined
-  const done = tourState.finishedKey === lj.key && !(walking && tourState.step)
+  const walking = lj.key === tourState().key
+  const mapWidth = stored().get(STATE.mapWidth)
+  const cardInMap = walking && tourState().step && card().inMap(lj, tourState().step) ? card().panelCard(lj, tourState().step) : undefined
+  const done = tourState().finishedKey === lj.key && !(walking && tourState().step)
   return {
-    key: KEY,
-    tutorial: !stored.get(STATE.tutorialSeen),
-    current: walking ? tourState.step : 0,
-    marks: walk.stepMarks(lj),
-    resume: walk.resumeAt(lj),
-    legendHidden: stored.get(STATE.legendHidden), // on demand (M99)
+    key: chordKey(),
+    tutorial: !stored().get(STATE.tutorialSeen),
+    current: walking ? tourState().step : 0,
+    marks: walk().stepMarks(lj),
+    resume: walk().resumeAt(lj),
+    legendHidden: stored().get(STATE.legendHidden), // on demand (M99)
     ...(mapWidth ? { mapWidth } : {}),
     problems: lj.readError ? [lj.readError] : [],
     authors: cfg().get<boolean>('journeys.authorMode') ? lj.j.problems.length : 0,
-    moved: Object.fromEntries(journeys.renames(lj)),
+    moved: Object.fromEntries(journeys().renames(lj)),
     ...(cardInMap ? { card: cardInMap } : {}),
     asked: askedOf(lj),
     prov: provenance(lj),
     ...(lj.check ? { stops: checkStops(lj) } : {}),
-    list: journeys.all().map((x) => listRow(x, lj)),
+    list: journeys().all().map((x) => listRow(x, lj)),
     home: withPodcasts(listModel(listState.homeQuery)),
     ...(done ? { done: true } : {}),
   }
@@ -225,8 +227,8 @@ export function mapState(lj: LoadedJourney): TourInfo {
  *  has one (journey-home.js marks them). */
 function withPodcasts<M extends { rows: Record<string, object> }>(m: M): M {
   for (const [key, row] of Object.entries(m.rows)) {
-    const lj = journeys.list.get(key)
-    const p = lj && podcasts.status(lj)
+    const lj = journeys().list.get(key)
+    const p = lj && podcast()?.status(lj)
     if (p?.state === 'ok') Object.assign(row, { podcast: { duration: p.duration ?? 0, playing: !!p.playing, at: p.session && !p.playing ? p.t ?? 0 : undefined } })
   }
   return m
@@ -234,8 +236,8 @@ function withPodcasts<M extends { rows: Record<string, object> }>(m: M): M {
 
 /** A check's tour: its questions, the one the walk is at marked `cur`. */
 function checkStops(lj: LoadedJourney) {
-  const atQuestion = (q: { id: string; step: number }) => lj.key === tourState.key && tourState.checkpointId === q.id && tourState.step === q.step
-  return (understanding?.tourStops() ?? []).map((q) => (atQuestion(q) ? { ...q, cur: true } : { ...q }))
+  const atQuestion = (q: { id: string; step: number }) => lj.key === tourState().key && tourState().checkpointId === q.id && tourState().step === q.step
+  return (check()?.tourStops() ?? []).map((q) => (atQuestion(q) ? { ...q, cur: true } : { ...q }))
 }
 
 /** A journey in the panel home's list (`here`: the one the panel is about). */
@@ -245,7 +247,7 @@ function listRow(x: LoadedJourney, shown: LoadedJourney) {
     title: x.j.title,
     question: x.j.question,
     steps: x.j.steps.length,
-    resume: walk.resumeAt(x),
+    resume: walk().resumeAt(x),
     ...(x.key === shown.key ? { here: true } : {}),
     ...(x.j.start ? { start: true } : {}),
   }
@@ -259,5 +261,5 @@ export const toggleAuthorMode = async () => {
   await cfg().update('journeys.authorMode', false, vscode.ConfigurationTarget.Global)
   if (cfg().inspect('journeys.authorMode')?.workspaceValue) await cfg().update('journeys.authorMode', false, vscode.ConfigurationTarget.Workspace)
   vscode.window.setStatusBarMessage('$(info) Journey author mode off', 2500)
-  mapPanel.update()
+  mapPanel().update()
 }

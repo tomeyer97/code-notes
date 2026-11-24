@@ -3,7 +3,8 @@
 // memory (read once, written through): unread() is asked per note on every change. Commands about reading (mark
 // read or unread, the next unread note) are notes/unread.ts.
 
-import { journeys, stored } from '../app'
+import { stored } from '../platform/host'
+import { notesPorts } from './ports'
 import { evMine, mine } from './identity'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { notesChanged } from './model'
@@ -14,7 +15,7 @@ import { STATE, StateKey } from '../platform/state'
 class Counts {
   private cache: Record<string, number> | undefined
   constructor(private readonly key: StateKey<Record<string, number>>) {}
-  all(): Readonly<Record<string, number>> { return (this.cache ??= { ...stored.get(this.key) }) }
+  all(): Readonly<Record<string, number>> { return (this.cache ??= { ...stored().get(this.key) }) }
   get(n: Note): number { return this.all()[n.data.id] ?? 0 }
   /** These counts set; the others kept. */
   async set(entries: [string, number][]): Promise<void> {
@@ -23,7 +24,7 @@ class Counts {
   }
   async replace(all: Record<string, number>): Promise<void> {
     this.cache = all
-    await stored.set(this.key, all)
+    await stored().set(this.key, all)
   }
   /** Read again from the workspace state (it was written elsewhere: a migration). */
   forget(): void { this.cache = undefined }
@@ -88,7 +89,7 @@ export async function restoreSeen(before: ReturnType<typeof seenSnapshot>): Prom
 }
 
 function seenJourneys(): Set<string> | undefined {
-  const v = stored.get(STATE.journeysSeen)
+  const v = stored().get(STATE.journeysSeen)
   return v ? new Set(v) : undefined
 }
 
@@ -101,10 +102,10 @@ export function isNewJourney(lj: LoadedJourney): boolean {
 export async function markJourneysSeen(only?: LoadedJourney): Promise<void> {
   const seen = seenJourneys()
   if (!seen) {
-    await stored.set(STATE.journeysSeen, journeys.all().map(posKey))
+    await stored().set(STATE.journeysSeen, notesPorts().journeys.all().map(posKey))
     return
   }
   if (!only || seen.has(posKey(only))) return
   seen.add(posKey(only))
-  await stored.set(STATE.journeysSeen, [...seen])
+  await stored().set(STATE.journeysSeen, [...seen])
 }

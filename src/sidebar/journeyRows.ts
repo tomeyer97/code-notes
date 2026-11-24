@@ -2,16 +2,17 @@
 // be read, and revealing rows in the Journeys view.
 
 import * as vscode from 'vscode'
-import { journeys, notes, stored } from '../app'
+import { journeys, podcastStatus, tour } from './ports'
+import { visibleNotes } from '../notes/visible'
+import { stored } from '../platform/host'
 import { mine } from '../notes/identity'
 import { ListModel } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { isNewJourney, unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { isolate, plural } from '../core/text'
-import { isUpdateRequest } from '../tour/askStep'
+import { isUpdateRequest } from '../tour/texts'
 import { provenance } from '../tour/provenance'
-import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
 import { journeysTree, journeysView } from './journeysTree'
 import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
@@ -19,18 +20,17 @@ import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node,
 import { matchesFilter, order } from '../notes/model'
 import { journeyOfNote as journeyOf, stepLinkOf } from '../notes/model/journeyLink'
 import { fileName } from '../platform/jsonFolder'
-import { podcasts } from '../podcast/player'
 import { clock } from '../core/format/podcast/model'
 import { STATE } from '../platform/state'
 import { Cmd } from '../platform/commands'
 
 /** Every journey's row, then the journey files that can't be read. */
-export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
+export const journeyRows = (): Node[] => [...journeys().all().map(journeyNode), ...badJourneyNodes()]
 
-export const showIntro = () => !stored.get(STATE.journeyOpened)
+export const showIntro = () => !stored().get(STATE.journeyOpened)
 
 /** The journey a note was asked from (notes/model/journeyLink.ts), among the journeys read. */
-export const journeyOfNote = (n: Note): LoadedJourney | undefined => journeyOf(n, journeys.list.values())
+export const journeyOfNote = (n: Note): LoadedJourney | undefined => journeyOf(n, journeys().list.values())
 
 /**
  * Step n -> its questions: the note to open (the first unread, else the newest), whether any was answered
@@ -40,7 +40,7 @@ export type Asked = { id: string; state: 'q' | 'a'; unread: boolean; count: numb
 
 export function askedOf(lj: LoadedJourney): Record<number, Asked> {
   const out: Record<number, Asked> = {}
-  for (const note of notes().sort(order)) {
+  for (const note of visibleNotes().sort(order)) {
     if (journeyOfNote(note) !== lj || note.data.status !== 'open') continue
     const link = stepLinkOf(note)!
     const stepIndex = link.step ? lj.j.steps.findIndex((s) => s.id === link.step) : link.n - 1
@@ -66,7 +66,7 @@ export function askedOf(lj: LoadedJourney): Record<number, Asked> {
 export const askedText = (a: Asked) => `${a.count} asked${a.unread ? ' · new reply' : ''}`
 
 export function questionsNode(lj: LoadedJourney): Node | undefined {
-  const qs = notes().filter((n) => matchesFilter(n) && journeyOfNote(n) === lj)
+  const qs = visibleNotes().filter((n) => matchesFilter(n) && journeyOfNote(n) === lj)
   return qs.length ? cached(`questions:${lj.key}`, { kind: 'questions' as const, lj, notes: qs }) : undefined
 }
 
@@ -92,9 +92,9 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   const q = questionsNode(lj)
   // A reply to a step question shows on the folded row, like an unread note.
   const qs = q && q.kind === 'questions' ? q.notes : []
-  const active = lj.key === tourState.key && tourState.step > 0
+  const active = lj.key === tour().state.key && tour().state.step > 0
   // Where it is (walking) or was left past step 1, quietly (as in the panel's list); opening one is not reading it.
-  const left = active ? tourState.step : walk.resumeAt(lj) > 1 ? walk.resumeAt(lj) : 0
+  const left = active ? tour().state.step : tour().resumeAt(lj) > 1 ? tour().resumeAt(lj) : 0
   const s: JourneyState = { active, left, newReplies: qs.filter((n) => unread(n) > 0).length }
   const nestsQuestions = !group || group === 'all' || group.startsWith('area:')
   // The title isolated: right-to-left text in it never pulls the description into the label.
@@ -128,7 +128,7 @@ function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | 
   return [
     pod,
     // Listened to: no step (the player has where it is).
-    podcasts.status(lj)?.session ? '' : s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
+    podcastStatus(lj)?.session ? '' : s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
     refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '',
     s.newReplies ? replies(s.newReplies) : '',
     lj.readError ? '⚠ unreadable' : '',
@@ -153,19 +153,19 @@ function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
 
 /** The podcast's line in the tooltip: only for one that can't be played, and why (the row offers no ▶ then). */
 function podcastLine(lj: LoadedJourney): string {
-  const pod = podcasts.status(lj)
+  const pod = podcastStatus(lj)
   return pod?.state === 'broken' ? `Podcast unavailable: ${pod.text}` : ''
 }
 
 /** The row's quiet podcast mark: its length, always (listening or not: the player has the state and the time). */
 function podcastText(lj: LoadedJourney): string {
-  const pod = podcasts.status(lj)
+  const pod = podcastStatus(lj)
   return pod?.state === 'ok' ? `♪ ${clock(pod.duration ?? 0)}` : ''
 }
 
 /** Whether the row offers ▶ Listen: a podcast that plays, unless it is playing (paused, ▶ goes on where it was). */
 function podcastContext(lj: LoadedJourney): string {
-  const pod = podcasts.status(lj)
+  const pod = podcastStatus(lj)
   if (!pod) return ''
   if (pod.state !== 'ok') return ';podcastBroken'
   return pod.playing ? ';podcastPlaying' : ';podcast'
@@ -174,9 +174,9 @@ function podcastContext(lj: LoadedJourney): string {
 /** What a screen reader says: the title, then where the walk is, unread replies, new. */
 function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
   const total = lj.j.steps.length
-  const where = s.active ? `walking, step ${tourState.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
+  const where = s.active ? `walking, step ${tour().state.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
   const unreadReplies = s.newReplies ? plural(s.newReplies, 'unread reply', 'unread replies') : ''
-  const pod = podcasts.status(lj)
+  const pod = podcastStatus(lj)
   const listen = pod?.state === 'ok' ? `podcast ${clock(pod.duration ?? 0)}` : ''
   return [lj.j.title, where, listen, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }
@@ -231,7 +231,7 @@ export function revealJourneyRow(lj: LoadedJourney): void {
 
 /** The editor changed (and stayed): the Journeys view shows "In this file" (the top), not a row deep in All. */
 export function revealHereGroup(): void {
-  if (walk.touring()) return
+  if (tour().touring()) return
   revealSettled((m) => {
     const g = m.groups.find((x) => x.id === 'here')
     return g ? jgroupNode(g) : undefined

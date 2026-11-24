@@ -2,7 +2,10 @@
 // the keyboard in its thread; a file at a line (a link in a thread).
 
 import * as vscode from 'vscode'
-import { byId, log, mapPanel, showError } from '../app'
+import { notesPorts } from './ports'
+import { byId } from './visible'
+import { log } from '../platform/host'
+import { showError } from '../platform/run'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { markRead, visitFrom } from './seen'
 import { notesModel, selection } from './model'
@@ -10,8 +13,6 @@ import { Note } from './store'
 import { threadRange } from '../threads/comments'
 import { editorSettling, editorShownAt, setCollapse, settling } from '../threads/settle'
 import { expandWhenMade, syncThread, threads } from '../threads/sync'
-import { openRef } from '../tour/refs'
-import { walk } from '../tour/instances'
 import { wfs } from '../platform/workspaceFs'
 import { rangesAskedAt, waitUntil } from './commentRanges'
 import { docUri, notesFor, placement } from './location'
@@ -60,9 +61,10 @@ async function revealGone(n: Note): Promise<void> {
  *  its preview tab); else VS Code's choice (undefined). */
 function targetColumn(n: Note): vscode.ViewColumn | undefined {
   const uri = docUri(n)
-  if (vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === uri.toString())) return walk.columnFor(uri)
-  const inMapGroup = mapPanel.viewColumn !== undefined && vscode.window.tabGroups.activeTabGroup.viewColumn === mapPanel.viewColumn
-  return inMapGroup ? walk.codeColumn() : undefined
+  if (vscode.window.visibleTextEditors.some((e) => e.document.uri.toString() === uri.toString())) return notesPorts().layout.columnFor(uri)
+  const mapColumn = notesPorts().map.viewColumn
+  const inMapGroup = mapColumn !== undefined && vscode.window.tabGroups.activeTabGroup.viewColumn === mapColumn
+  return inMapGroup ? notesPorts().layout.codeColumn() : undefined
 }
 
 /** A range taller than this is shown from its end. */
@@ -126,8 +128,8 @@ const revealInList = (n: Note) => notesModel().revealed(n)
 
 /** codeNotes.openAt (a link in a thread): the file at a line; a step's reference while its journey is walked. */
 export const openAt = async (folderUri: string, file: string, line: number, end?: number, step?: number) => {
-  const lj = walk.tourJourney()
-  if (step && lj && walk.touring() && lj.folder.uri.toString() === folderUri) return openRef(lj, file, line, end ?? line, step)
+  const lj = notesPorts().layout.walking()
+  if (step && lj && lj.folder.uri.toString() === folderUri) return notesPorts().layout.openRef(lj, file, line, end ?? line, step)
   const uri = vscode.Uri.joinPath(vscode.Uri.parse(folderUri), file)
   try { await wfs.stat(uri) } catch { fireAndForget(showError(`${file} doesn't exist in this folder.`), 'reveal: showError'); return }
   const ed = await vscode.window.showTextDocument(uri, { preview: true })

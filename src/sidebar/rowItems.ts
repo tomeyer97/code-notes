@@ -2,14 +2,14 @@
 // journey's row and its questions' are in journeyRows.ts.
 
 import * as vscode from 'vscode'
-import { journeys, notes, store } from '../app'
+import { journeys, notesStore, tour } from './ports'
+import { visibleNotes } from '../notes/visible'
 import { askErrors, asking } from '../ask/run'
 import { mine } from '../notes/identity'
 import { unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { ago, isolate, plain, plural, rangeLabel } from '../core/text'
 import { placement } from '../notes/location'
-import { tourState, walk } from '../tour/instances'
 import { badJourneyItem, journeyItem, questionsItem, showIntro } from './journeyRows'
 import { journeyOfNote, stepLinkOf } from '../notes/model/journeyLink'
 import { listState } from './listModel'
@@ -41,7 +41,7 @@ export function itemOf(node: Node): vscode.TreeItem {
 
 /** Open the first time (with one quiet line saying what it is), then folded: reading material, not an inbox. */
 function journeysItem(): vscode.TreeItem {
-  const open = (walk.tourJourney() && tourState.step) || showIntro()
+  const open = (tour().tourJourney() && tour().state.step) || showIntro()
   const item = new vscode.TreeItem('Journeys', open ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed)
   // Its name only: the rows below are the count and the explanation.
   item.id = 'journeys'
@@ -89,7 +89,7 @@ function sessionItem(node: Extract<Node, { kind: 'session' }>): vscode.TreeItem 
   const item = new vscode.TreeItem(node.name || 'Notes', hidden ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded)
   item.id = `session:${node.name}`
   const u = node.notes.filter((n) => unread(n) > 0).length
-  const all = notes().filter((n) => sessionOf(n) === node.name)
+  const all = visibleNotes().filter((n) => sessionOf(n) === node.name)
   const done = all.filter((n) => n.data.status === 'resolved').length
   item.description = [`${node.notes.length}`, u ? `${u} new` : '', done ? `${done}/${all.length} resolved` : '', hidden ? 'hidden' : ''].filter(Boolean).join(' · ')
   item.iconPath = new vscode.ThemeIcon(hidden ? 'eye-closed' : 'notebook')
@@ -101,9 +101,9 @@ function sessionItem(node: Extract<Node, { kind: 'session' }>): vscode.TreeItem 
 
 /** A note file that can't be used. */
 function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
-  const known = store.atUri(node.uri)
+  const known = notesStore().atUri(node.uri)
   const name = baseName(vscode.Uri.parse(node.uri).path)
-  const title = store.brokenAt(node.uri)?.title ?? known?.data.messages[0]?.body
+  const title = notesStore().brokenAt(node.uri)?.title ?? known?.data.messages[0]?.body
   const item = new vscode.TreeItem(title ? plain(title, 50) : name)
   item.id = `broken:${node.uri}`
   item.description = `⚠ ${node.why}`
@@ -161,7 +161,7 @@ function noteItem(node: Extract<Node, { kind: 'note' }>): vscode.TreeItem {
 function noteLabel(n: Note, f: NoteFlags): string {
   const link = stepLinkOf(n)
   const stale = f.unread && n.data.stale ? '⚠ ' : ''
-  const step = link && journeyOfNote(n, journeys.list.values()) ? `Step ${link.n} · ` : ''
+  const step = link && journeyOfNote(n, journeys().list.values()) ? `Step ${link.n} · ` : ''
   return `${stale}${step}${isolate(plain(n.data.messages[0]?.body ?? '(empty note)', 60))}`
 }
 

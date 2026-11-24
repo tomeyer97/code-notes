@@ -2,7 +2,7 @@
 // answer that lets it go on.
 
 import * as vscode from 'vscode'
-import { extUri, log } from '../app'
+import { extUri, log } from '../platform/host'
 import { LoadedJourney } from '../journeys/steps'
 import { escapeHtml, pageBody, webviewPage } from '../webview/page'
 import { writeJourney } from './writeJourney'
@@ -18,7 +18,7 @@ export async function showClarify(question: string, session: string, text: strin
   if (!body) body = `<pre>${escapeHtml(text)}</pre>`
   const panel = vscode.window.createWebviewPanel('codeNotes.claudeAsks', 'Claude asks',
     { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, retainContextWhenHidden: true })
-  const media = (f: string) => vscode.Uri.joinPath(extUri, 'media', f)
+  const media = (f: string) => vscode.Uri.joinPath(extUri(), 'media', f)
   // Claude's text is rendered Markdown: its images (https:, data:) and style attributes are let in.
   panel.webview.html = webviewPage(panel.webview, {
     css: [media('clarify.css')],
@@ -31,7 +31,7 @@ export async function showClarify(question: string, session: string, text: strin
   // The page's messages (media/clarify.js lists them).
   panel.webview.onDidReceiveMessage((m: { type?: string; text?: unknown }) => {
     if (m?.type === 'reply' && typeof m.text === 'string' && m.text.trim()) fireAndForget(answerClarify(m.text), 'clarify: answerClarify')
-    else if (m?.type === 'error') log.error(`Claude asks (webview): ${String(m.text)}`)
+    else if (m?.type === 'error') log().error(`Claude asks (webview): ${String(m.text)}`)
   })
   panel.onDidDispose(() => { if (clarify === c) clarify = undefined })
 }

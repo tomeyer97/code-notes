@@ -1,10 +1,12 @@
 // The walk through a journey: which step is open, opening a step (its file, its card, the map beside), moving on,
 // the status bar item, and where each journey was left.
 import * as vscode from 'vscode'
-import { beats, codeLinks, journeys, log, mapPanel, now, setCtx, stored, tourItems } from '../app'
+import { beats, codeLinks, isCheckLink, journeys, mapPanel } from './ports'
+import { tourItems } from './instances'
+import { log, now, stored } from '../platform/host'
+import { setCtx } from '../platform/context'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
-import { checkLinkNote } from '../check/wiring'
 import { revealJourneyRow } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
 import { editorSettling } from '../threads/settle'
@@ -15,7 +17,8 @@ import { openCheckpoint, stopBy } from './checkTour'
 import { panelFits } from './panelLayout'
 import { endJourney, finishTour } from './commands'
 import { pickJourney } from './pick'
-import { ShownAt, TourState } from './state'
+import { ShownAt, TourProbe, TourState } from './state'
+import type { Narration, WalkController } from './api'
 import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
 import { cardLine, stepUri, wroteAt } from './stepPlace'
 import { baseName } from '../core/paths'
@@ -24,36 +27,52 @@ import { fireAndForget } from '../platform/run'
 import { JourneyPos, STATE } from '../platform/state'
 import { OWN_MOVE_MS } from '../platform/timings'
 
-export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
-
 /** A group with the reader's own work in it: an unsaved file, or an untitled one (a scratch or notes draft). */
 function readersOwn(g: vscode.TabGroup): boolean {
   return g.tabs.some((t) => t.isDirty || (t.input instanceof vscode.TabInputText && t.input.uri.scheme === 'untitled'))
 }
 
 export class Walk {
-  constructor(private readonly tour: TourState, private readonly card: StepCard) {}
+  constructor(private readonly tour: TourState, private readonly card: StepCard, private readonly probe: TourProbe) {}
 
-  /** Called once the walk has moved, or the journeys changed (updateTour): the podcast follows a reader's move. */
-  onMoved: (() => void) | undefined
-  /** The step on screen was removed from the journey: true when the podcast puts the walk where its time is now. */
-  onStepRemoved: ((lj: LoadedJourney) => boolean) | undefined
-  /** Next / Previous (the card, the keys) while a podcast drives the walk: true when the podcast's own ⏮ ⏭ did it. */
-  transport: ((dir: 1 | -1) => boolean) | undefined
-  /** A podcast is playing or paused on this journey (its row, Open Journey… on it: focus, never reopen). */
-  podcastOn: ((lj: LoadedJourney) => boolean) | undefined
+  /** The podcast deciding for the walk, if one is registered (setController). */
+  private controller: WalkController | undefined
+  private readonly moved = new vscode.EventEmitter<void>()
+  private readonly restored = new vscode.EventEmitter<LoadedJourney>()
+  /** The walk has moved, or the journeys changed (updateTour): the podcast follows a reader's move. */
+  readonly onDidMove = this.moved.event
   /** The walk was restored after a reload (commands.ts restoreTour): the podcast lights the beat it was at. */
-  onRestored: ((lj: LoadedJourney) => void) | undefined
+  readonly onDidRestore = this.restored.event
+
+  /** The podcast decides for the walk where it must (api.ts WalkController), until disposed. */
+  setController(c: WalkController): vscode.Disposable {
+    this.controller = c
+    return new vscode.Disposable(() => { if (this.controller === c) this.controller = undefined })
+  }
+
+  /** commands.ts restoreTour, once the walk is back on its step. */
+  wasRestored(lj: LoadedJourney): void { this.restored.fire(lj) }
 
   /** The editor follows the walk (scrolls to what it shows); false while the reader looks around on their own during
    *  a podcast (the follow lock, podcast/follow.ts): it only highlights. */
-  following: () => boolean = () => true
+  readonly following = (): boolean => this.controller?.following() ?? true
+  /** A podcast is playing or paused on this journey (its row, Open Journey… on it: focus, never reopen). */
+  listening(lj: LoadedJourney): boolean { return !!this.controller?.listening(lj) }
+  /** What the step card shows of the podcast on step n of `lj`. */
+  narration(lj: LoadedJourney, n: number): Narration | undefined { return this.controller?.narration(lj, n) }
+  /** An episode is on: the panel opens at the listening width. */
+  episodeOn(): boolean { return !!this.controller?.episodeOn() }
 
-  tourJourney(): LoadedJourney | undefined { return this.tour.key ? journeys.list.get(this.tour.key) : undefined }
+  dispose(): void {
+    this.moved.dispose()
+    this.restored.dispose()
+  }
+
+  tourJourney(): LoadedJourney | undefined { return this.tour.key ? journeys().list.get(this.tour.key) : undefined }
   /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
   touring(): boolean { return !!this.tourJourney() && this.tour.step > 0 }
 
-  positions(): Record<string, JourneyPos> { return stored.get(STATE.journeyPos) }
+  positions(): Record<string, JourneyPos> { return stored().get(STATE.journeyPos) }
   /** Where this journey was left (0: never started): the same step by id when it still exists, else the same number. */
   resumeAt(lj: LoadedJourney): number {
     const p = this.positions()[posKey(lj)]
@@ -62,7 +81,7 @@ export class Walk {
     return i >= 0 ? i + 1 : Math.min(p.step, lj.j.steps.length)
   }
   async savePos(lj: LoadedJourney, step: number): Promise<void> {
-    await stored.set(STATE.journeyPos, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: now() } })
+    await stored().set(STATE.journeyPos, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: now() } })
   }
 
   /** The step a journey opens on: the one being walked, else where it was left, else step 1. */
@@ -92,7 +111,7 @@ export class Walk {
     const was = tour.shownAt
     if (was && was.key === lj.key && was.id === lj.j.steps[i].id) {
       // Maybe re-anchored by the agent (other file or lines): found again, then the editor follows the card.
-      fireAndForget(journeys.locate(lj, (k) => k === n).then(() => this.onRelocated(lj, n, was)), 'walk: journeys.locate')
+      fireAndForget(journeys().locate(lj, (k) => k === n).then(() => this.onRelocated(lj, n, was)), 'walk: journeys.locate')
     } else this.redrawStep(lj)
     tree.refresh()
   }
@@ -107,7 +126,7 @@ export class Walk {
    *  driving the walk decides instead (the view its time has now: onStepRemoved). */
   private followRemovedStep(lj: LoadedJourney): void {
     const { tour } = this
-    if (this.onStepRemoved?.(lj)) return
+    if (this.controller?.stepRemoved(lj)) return
     const total = lj.j.steps.length
     if (!total) {
       fireAndForget(endJourney(), 'walk: endJourney')
@@ -171,10 +190,10 @@ export class Walk {
     syncStepNotes()
     fireAndForget(setCtx('codeNotes.journeyActive', this.touring()), 'walk: setCtx codeNotes.journeyActive')
     this.card.lensChanged.fire() // the step lenses show only outside a walk
-    fireAndForget(setCtx('codeNotes.hasJourneys', journeys.all().length > 0), 'walk: setCtx codeNotes.hasJourneys')
-    mapPanel.update()
+    fireAndForget(setCtx('codeNotes.hasJourneys', journeys().all().length > 0), 'walk: setCtx codeNotes.hasJourneys')
+    mapPanel().update()
     this.renderStatusItem(lj)
-    this.onMoved?.()
+    this.moved.fire()
   }
 
   /** A code link's way back is to the step it was clicked on: the walk moved on or ended, the link (and its Back) goes. */
@@ -183,16 +202,16 @@ export class Walk {
     const back = tour.linkBack
     if (!back || (back.journey === tour.key && back.step === tour.step)) return
     tour.linkBack = undefined
-    if (!checkLinkNote(codeLinks.state.key ?? '')) codeLinks.unlight()
+    if (!isCheckLink(codeLinks().state.key ?? '')) codeLinks().unlight()
   }
 
   /** The journey file was deleted: the tour ends with one notice; the map says so. */
   private endDeletedJourney(key: string): void {
     const { tour } = this
     if (tour.step) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
-    mapPanel.markDeleted(key)
+    mapPanel().markDeleted(key)
     this.forgetTour()
-    fireAndForget(stored.set(STATE.tour, undefined), 'walk: store tour')
+    fireAndForget(stored().set(STATE.tour, undefined), 'walk: store tour')
   }
 
   /** No tour in memory any more (no journey, step, document or card); what was saved stays. */
@@ -211,19 +230,19 @@ export class Walk {
    *  its journey is listened to (the podcast's item is the one then: src/podcast/player.ts). */
   private renderStatusItem(lj: LoadedJourney | undefined): void {
     const step = this.tour.step
-    if (!lj || !step || this.podcastOn?.(lj)) {
-      for (const i of Object.values(tourItems)) i.hide()
+    if (!lj || !step || this.listening(lj)) {
+      for (const i of Object.values(tourItems())) i.hide()
       return
     }
     // The journey's name is the map tab's title; a one-line tooltip.
     const total = lj.j.steps.length
-    tourItems.pos.text = `$(map) ${step}/${total}`
-    tourItems.pos.accessibilityInformation = { label: `${lj.j.title}, step ${step} of ${total}. Opens the map.` }
-    tourItems.pos.tooltip = `${lj.j.title}: open the map`
-    tourItems.pos.show()
-    tourItems.prev.hide()
-    tourItems.next.hide()
-    tourItems.end.hide()
+    tourItems().pos.text = `$(map) ${step}/${total}`
+    tourItems().pos.accessibilityInformation = { label: `${lj.j.title}, step ${step} of ${total}. Opens the map.` }
+    tourItems().pos.tooltip = `${lj.j.title}: open the map`
+    tourItems().pos.show()
+    tourItems().prev.hide()
+    tourItems().next.hide()
+    tourItems().end.hide()
   }
 
   /**
@@ -233,7 +252,7 @@ export class Walk {
    * step code never lands on a notes draft and never shows in two groups (F16, F109, F122).
    */
   readonly codeColumn = (): vscode.ViewColumn | undefined => {
-    const mapCol = mapPanel.viewColumn
+    const mapCol = mapPanel().viewColumn
     const groups = vscode.window.tabGroups.all
     const kept = this.tour.walkGroup
     if (kept && groups.includes(kept) && kept.viewColumn !== mapCol) return kept.viewColumn
@@ -256,15 +275,15 @@ export class Walk {
    * stack size exceeded"; the card or thread then stays collapsed). See SETTLE_MS.
    */
   columnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
-    const mapCol = mapPanel.viewColumn
+    const mapCol = mapPanel().viewColumn
     const showing = vscode.window.visibleTextEditors.find((e) =>
       e.document.uri.toString() === uri.toString() && e.viewColumn !== undefined && e.viewColumn !== mapCol)
     return showing?.viewColumn ?? this.codeColumn()
   }
 
   showMap(lj: LoadedJourney, preserveFocus = false): void {
-    mapPanel.show(lj, preserveFocus, this.tour.doc?.column)
-    fireAndForget(stored.set(STATE.mapJourney, posKey(lj)), 'walk: store mapJourney')
+    mapPanel().show(lj, preserveFocus, this.tour.doc?.column)
+    fireAndForget(stored().set(STATE.mapJourney, posKey(lj)), 'walk: store mapJourney')
   }
 
   /**
@@ -300,7 +319,7 @@ export class Walk {
     // Another step: the last one's beat is no longer lit (its scene sends the new step's beats); a message about the
     // step before ("this step is now 4/14") goes with it.
     if (!tour.isAt(lj, n)) {
-      beats.clear()
+      beats().clear()
       tour.notice?.dispose()
       tour.notice = undefined
     }
@@ -317,11 +336,12 @@ export class Walk {
     tour.finishedKey = undefined
     tour.stepId = lj.j.steps[n - 1].id
     // The map shows the journey being walked: another journey's map (a look) gives way when a step moves.
-    if (mapPanel.journey && mapPanel.journey.key !== lj.key) this.showMap(lj, true)
+    const shown = mapPanel().journey
+    if (shown && shown.key !== lj.key) this.showMap(lj, true)
     // Stored, not waited for (each a round trip to the window; what is read back is in memory already).
-    fireAndForget(stored.set(STATE.tour, posKey(lj)), 'tour')
+    fireAndForget(stored().set(STATE.tour, posKey(lj)), 'tour')
     fireAndForget(this.savePos(lj, n), 'tour')
-    await journeys.locate(lj, (k) => k === n)
+    await journeys().locate(lj, (k) => k === n)
     if (superseded()) return false
     this.updateTour()
     tree.refresh()
@@ -361,7 +381,7 @@ export class Walk {
       tour.walkGroup = vscode.window.tabGroups.all.find((g) => g.viewColumn === editor.viewColumn)
     }
     // Steps right after opening the file: anchoring against the open document (unsaved edits count).
-    await journeys.locate(lj, (k) => k === n)
+    await journeys().locate(lj, (k) => k === n)
     if (superseded()) return undefined
     tour.shownAt = this.shownAt(lj, n, file)
     tour.refHere = undefined
@@ -373,7 +393,7 @@ export class Walk {
     if (beat === undefined || lj.at[n - 1]?.removed) return false
     const code = lj.j.steps[n - 1]?.scene?.beats?.[beat]?.code
     if (!code || typeof code.file !== 'string') return false
-    return stepFileUri(lj.folder.uri, journeys.renames(lj), code.file).toString() !== uri.toString()
+    return stepFileUri(lj.folder.uri, journeys().renames(lj), code.file).toString() !== uri.toString()
   }
 
   /** Step n opened on a beat in another file: the beat opens its file (showBeat); the step's card is made, unseen. */
@@ -404,7 +424,7 @@ export class Walk {
     }
     card.show(lj, n)
     // The card lives in the map ("panel"): the map is open beside the code.
-    if (card.inMap(lj, n) && mapPanel.journey?.key !== lj.key) this.showMap(lj, true)
+    if (card.inMap(lj, n) && mapPanel().journey?.key !== lj.key) this.showMap(lj, true)
     const at = lj.at[n - 1]
     const first = Math.max(0, at.removed ? 0 : at.start - 1)
     tour.cursorUntil = Date.now() + 600
@@ -429,10 +449,10 @@ export class Walk {
     let beatBroughtBack = false
     return () => {
       const here = this.tour.isAt(lj, n)
-      if (beats.lit) {
+      if (beats().lit) {
         if (here && !beatBroughtBack) {
           beatBroughtBack = true
-          fireAndForget(beats.again(this.codeColumn), 'walk: beats.again')
+          fireAndForget(beats().again(this.codeColumn), 'walk: beats.again')
         }
         return
       }
@@ -451,13 +471,13 @@ export class Walk {
     const lj = this.tourJourney()
     const n = this.tour.step
     await endJourney()
-    if (lj && n) this.tour.lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
+    if (lj && n) this.probe.lastLeft = { title: lj.j.title, at: `${n}/${lj.j.steps.length}` }
   }
 
   /** Next or previous: a step, or on a check's tour a stop (its open questions are stops between the steps). */
   async stepBy(dir: 1 | -1): Promise<void> {
     // One transport while a podcast plays: the card's Previous / Next and the keys are the player's ⏮ ⏭ (F71).
-    if (this.transport?.(dir)) return
+    if (this.controller?.transport(dir)) return
     if (!this.touring()) return this.startOrResume()
     const lj = this.tourJourney()!
     const to = lj.check ? stopBy(lj, dir) : this.stepAt(lj, this.tour.step + dir)
@@ -486,7 +506,7 @@ export class Walk {
     // Just finished: next is not step 1 again; the panel says Done.
     if (this.tour.finishedKey === lj.key) {
       vscode.window.setStatusBarMessage('$(check) Journey finished', 2500)
-      if (mapPanel.journey || (await panelFits())) this.showMap(lj)
+      if (mapPanel().journey || (await panelFits())) this.showMap(lj)
       return
     }
     await this.goToStep(lj, this.resumeAt(lj) || 1)

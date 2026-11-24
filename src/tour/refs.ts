@@ -2,13 +2,13 @@
 // the read-only pages they may open (a step whose file is gone, a copy of the step's own file).
 
 import * as vscode from 'vscode'
-import { showError } from '../app'
+import { card, tourProbe, tourState, walk } from './instances'
+import { showError } from '../platform/run'
 import { setDecorations } from '../platform/editorDecorations'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { clampLines } from '../notes/model/lines'
 import { wfs } from '../platform/workspaceFs'
 import { cardLine } from './stepPlace'
-import { card, tourState, walk } from './instances'
 import { fireAndForget } from '../platform/run'
 
 /** A read-only copy of a file (its text now, unsaved edits included), peeked for a ref into the step's own file. */
@@ -40,7 +40,7 @@ export function registerRefPages(context: vscode.ExtensionContext): void {
  * under the card; else a tab with "← Back to step n" above the lines.
  */
 export async function openRef(lj: LoadedJourney, file: string, line: number, end: number, n: number): Promise<void> {
-  tourState.lastPeek = undefined
+  tourProbe().lastPeek = undefined
   const uri = vscode.Uri.joinPath(lj.folder.uri, file)
   try { await wfs.stat(uri) } catch {
     fireAndForget(showError(`${file} doesn't exist in this folder.`), 'refs: showError')
@@ -48,7 +48,7 @@ export async function openRef(lj: LoadedJourney, file: string, line: number, end
   }
   const stepUri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))
   const stepEditor = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === stepUri.toString())
-  if (stepEditor && !tourState.fileGone) await peekRefUnderCard(lj, n, stepEditor, stepUri, uri, line, end)
+  if (stepEditor && !tourState().fileGone) await peekRefUnderCard(lj, n, stepEditor, stepUri, uri, line, end)
   else await openRefInTab(lj, n, stepEditor, uri, line, end)
 }
 
@@ -69,7 +69,7 @@ async function peekRefUnderCard(
   const lastLine = stepEditor.document.lineCount - 1
   const under = new vscode.Position(Math.max(0, Math.min(at.removed ? 0 : cardLine(lj, n), lastLine)), 0)
   await vscode.window.showTextDocument(stepEditor.document, { viewColumn: stepEditor.viewColumn, preview: true, preserveFocus: false })
-  tourState.lastPeek = { uri: target.toString(), start: a, end: b, under: under.line }
+  tourProbe().lastPeek = { uri: target.toString(), start: a, end: b, under: under.line }
   const location = new vscode.Location(target, new vscode.Range(a, 0, b, doc.lineAt(b).text.length))
   await vscode.commands.executeCommand('editor.action.peekLocations', stepUri, under, [location], 'peek')
 }
@@ -84,13 +84,14 @@ async function openRefInTab(
     const stepLine = Math.max(0, (at.removed ? 1 : at.start) - 1)
     stepEditor.selection = new vscode.Selection(stepLine, 0, stepLine, 0)
   }
-  const ed = await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk.codeColumn() })
+  const ed = await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk().codeColumn() })
   const { start: a, end: b } = clampLines(ed.document, line, end)
-  tourState.refHere = { uri: uri.toString(), start: a, end: b }
+  const here = { uri: uri.toString(), start: a, end: b }
+  tourState().refHere = here
   ed.selection = new vscode.Selection(a, 0, a, 0)
   ed.revealRange(new vscode.Range(Math.max(0, a - 1), 0, b, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
   for (const e of vscode.window.visibleTextEditors) {
-    setDecorations(e, card.refDeco!, e.document.uri.toString() === tourState.refHere.uri ? [new vscode.Range(a, 0, b, 0)] : [])
+    setDecorations(e, card().refDeco!, e.document.uri.toString() === here.uri ? [new vscode.Range(a, 0, b, 0)] : [])
   }
-  card.lensChanged.fire()
+  card().lensChanged.fire()
 }

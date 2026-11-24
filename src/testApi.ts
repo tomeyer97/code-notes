@@ -1,37 +1,39 @@
-// For the integration test (test/integration): a read-only view of what the extension shows, and hooks that drive
-// what a person would (answer a pick, type into a box, send the map a message).
+// The integration tests' entry (test/integration): what the extension shows, read through each feature's API, and
+// hooks that drive what a person would (answer a pick, type into a box, send the map a message). activate returns it
+// only outside Production (extension.ts loads this file then); a shipped extension has no test surface.
 
 import * as vscode from 'vscode'
-import { beats, claudeLinks, codeLinks, journeys, KEY, mapPanel, notes, store, stored, tourItems, tutorialSpot, understanding, valueHints } from './app'
+import type { CheckFeature } from './check'
+import type { CodeLinksFeature } from './codeLinks'
+import type { JourneysFeature } from './journeys'
+import type { NotesFeature } from './notes'
+import type { Host } from './platform/host'
+import type { PodcastFeature } from './podcast'
+import type { TourFeature } from './tour'
 import { askErrors, asking } from './ask/run'
 import { me } from './notes/identity'
 import { Note } from './notes/store'
 import { applySuggestion } from './notes/suggestion'
 import { unread } from './notes/seen'
+import { byId, visibleNotes } from './notes/visible'
 import { journeysTree } from './sidebar/journeysTree'
 import { journeyItem } from './sidebar/journeyRows'
 import { listModel } from './sidebar/listModel'
 import { cached, Node } from './sidebar/nodes'
-import { matchesFilter, notesModel, order, sessionOf } from './notes/model'
+import { matchesFilter, order, sessionOf } from './notes/model'
 import { tree, treeView } from './sidebar/notesTree'
 import { placement } from './notes/location'
 import { threads } from './threads/sync'
-import { askDrafts, stepAskBox } from './tour/askStep'
-import { restorePanel, restoreTour } from './tour/commands'
-import { card, tourState, walk } from './tour/instances'
-import { resetTutorial, tutorialMark, tutorialSeen } from './tour/tutorial'
+import { resetTutorial, restorePanel, tourSnapshot } from './tour/testing'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
 import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/inProgress'
-import { podcasts } from './podcast/player'
-import { onMapMessage } from './tour/mapMessages'
 import type { MapMessage } from './journeys/mapPanel'
-import { STATE } from './platform/state'
 import { stepDraftKey } from './platform/keys'
 
-/** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
+/** What `activate` returns outside Production (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
 
 /** A tree view as text: one line per row, indented by depth (kind:label · description [icon]); `foldedJourneys`: a
@@ -70,75 +72,35 @@ function noteSnapshot(n: Note) {
   }
 }
 
-/** The step card's thread as the snapshot has it. */
-function cardSnapshot() {
-  const t = card.thread
-  if (!t) return undefined
-  return {
-    file: t.uri.path,
-    line: t.range?.start.line,
-    label: t.label,
-    title: t.label?.replace(/^\d+\/\d+ · /, ''),
-    body: (t.comments[0]?.body as vscode.MarkdownString | undefined)?.value,
-    canReply: t.canReply,
-    expanded: t.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded,
-  }
+/** The features the tests read (activate made them: src/extension.ts). */
+export interface TestedFeatures {
+  host: Host
+  notes: NotesFeature
+  journeys: JourneysFeature
+  codeLinks: CodeLinksFeature
+  tour: TourFeature
+  check: CheckFeature
+  podcast: PodcastFeature
 }
 
-/** The tour, the map, the card and what lights the code, as the snapshot has them. */
-function tourSnapshot() {
-  const lj = walk.tourJourney()
-  return {
-    journey: lj?.j.id,
-    step: tourState.step,
-    touring: walk.touring(),
-    cp: tourState.checkpointId,
-    story: mapPanel.story,
-    map: mapPanel.journey?.j.id,
-    mapTitle: mapPanel.tabTitle,
-    mapBoxes: mapPanel.rendered,
-    mapFocus: mapPanel.focus,
-    beat: beats.lit,
-    beatCode: beats.preview,
-    /** The step's marks and its beat's as lit (tour/stepMarks.ts). */
-    marks: card.marks?.lit() ?? [],
-    stepLook: card.look,
-    beatBoxed: beats.boxed,
-    codeLinks: codeLinks.state,
-    values: valueHints.state,
-    mapColumn: mapPanel.viewColumn,
-    codeColumn: tourState.doc?.column,
-    status: tourItems.pos.text,
-    // None while its journey is listened to (the podcast's item then).
-    statusShown: !!tourItems.pos.text && walk.touring() && !(lj && walk.podcastOn?.(lj)),
-    tutorial: { ...tutorialSeen, seen: !!stored.get(STATE.tutorialSeen), spot: tutorialSpot.shown, mark: tutorialMark },
-    key: KEY,
-    lastLeft: tourState.lastLeft,
-    fileGone: tourState.fileGone,
-    panelCard: walk.touring() && card.inMap(lj!, tourState.step) ? card.panelCard(lj!, tourState.step) : undefined,
-    ref: tourState.refHere,
-    peek: tourState.lastPeek,
-    marked: tourState.marked,
-    card: cardSnapshot(),
-  }
-}
-
-export function testApi() {
+export function testApi(f: TestedFeatures) {
+  const { notes, journeys: { journeys, mapPanel }, codeLinks, tour, check } = f
+  const { walk, state, asks } = tour.parts
   return {
     snapshot: () => ({
-      claudeLinks: claudeLinks.state,
-      notes: notes().sort(order).map(noteSnapshot),
-      broken: store.brokenCount(),
+      claudeLinks: codeLinks.claudeLinks.state,
+      notes: visibleNotes().sort(order).map(noteSnapshot),
+      broken: notes.store.brokenCount(),
       badge: treeView.badge?.value ?? 0,
       me: me(),
       journeys: journeys.all().map((x) => ({ id: x.j.id, steps: x.j.steps.length, at: x.at, resume: walk.resumeAt(x) })),
-      tour: tourSnapshot(),
+      tour: tourSnapshot(tour, { mapPanel, ...codeLinks }),
       /** The sidebar as text: one line per row, indented by depth (label · description · icon). */
       tree: () => treeAsText(tree, true),
-      groupBy: notesModel().query.groupMode,
+      groupBy: notes.model.query.groupMode,
       /** The sidebar's children of a session, as note ids. */
       sessionOrder: (name: string) => {
-        const node = cached(`session:${name}`, { kind: 'session', name, notes: notes().filter((x) => sessionOf(x) === name && matchesFilter(x)) })
+        const node = cached(`session:${name}`, { kind: 'session', name, notes: visibleNotes().filter((x) => sessionOf(x) === name && matchesFilter(x)) })
         return tree.getChildren(node).map((x) => (x.kind === 'note' ? x.note.data.id : x.kind))
       },
     }),
@@ -147,28 +109,28 @@ export function testApi() {
     journeyList: (o?: { query?: string }) => listModel(o),
     journeysTree: () => treeAsText(journeysTree),
     /** The understanding check: status, status bar, panel view and what the panel reported. */
-    check: () => understanding?.snapshot(),
-    checkPanelSend: (m: unknown) => understanding?.panelSend(m),
+    check: () => check.controller.snapshot(),
+    checkPanelSend: (m: unknown) => check.controller.panelSend(m),
     /** `force` false: as a trigger does (skipped when nothing it reads changed). */
-    checkRefresh: (force = true) => understanding?.refresh(force),
+    checkRefresh: (force = true) => check.controller.refresh(force),
     /** A new worker for the check's git work (it takes the extension host's environment as it is now). */
-    checkRestartWorker: () => understanding?.restartWorker(),
+    checkRestartWorker: () => check.controller.restartWorker(),
     /** Opens a check question as the Check view's row does. */
-    checkOpenQuestion: (id: string) => understanding?.open(id),
+    checkOpenQuestion: (id: string) => check.controller.open(id),
     /** The stored state (workspace, global): the round-trip test counts its writes. */
-    mementos: () => stored.mementos(),
+    mementos: () => f.host.stored.mementos(),
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
-    listenSend: (m: unknown) => podcasts.listen.send(m),
+    listenSend: (m: unknown) => f.podcast.player().listen.send(m),
     /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
-    listenIgnorePauses: (on: boolean) => { podcasts.listen.ignorePauses = on },
+    listenIgnorePauses: (on: boolean) => { f.podcast.player().listen.ignorePauses = on },
     /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */
-    mapMessage: (m: MapMessage) => { if (mapPanel.journey) onMapMessage(mapPanel.journey, m) },
+    mapMessage: (m: MapMessage) => { if (mapPanel.journey) tour.onMapMessage(mapPanel.journey, m) },
     /** A map panel as VS Code hands one over after a reload, drawn once `ready` resolves (tour/commands.ts). */
     restorePanel: (panel: vscode.WebviewPanel, ready: Promise<void>) => restorePanel(panel, undefined, ready),
     /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
-    podcast: () => podcasts.snapshot(),
+    podcast: () => f.podcast.player().snapshot(),
     /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */
     journeyRow: (id: string) => {
       const lj = journeys.all().find((x) => x.j.id === id)
@@ -181,7 +143,7 @@ export function testApi() {
     reloadTour: async () => {
       walk.forgetTour()
       walk.updateTour()
-      await restoreTour()
+      await tour.restore()
     },
     applySuggestion,
     /** the picker's "Ask the agent to write a journey" item, without the picker. */
@@ -200,13 +162,13 @@ export function testApi() {
     clarify: () => clarify && { question: clarify.question, session: clarify.session, text: clarify.text },
     answerClarify: (text: string) => answerClarify(text).then((x) => x?.j.id),
     /** The open Ask box on a step: type into it and press Enter. */
-    askBox: () => stepAskBox && { title: stepAskBox.box.title, value: stepAskBox.box.value },
+    askBox: () => asks.open && { title: asks.open.box.title, value: asks.open.box.value },
     askBoxSend: (text: string) => {
-      const b = stepAskBox
+      const b = asks.open
       if (!b) return false
       b.box.value = text
       const lj = walk.tourJourney()
-      askDrafts.set(stepDraftKey(lj?.j.id, lj?.j.steps[tourState.step - 1]?.id), text)
+      asks.drafts.set(stepDraftKey(lj?.j.id, lj?.j.steps[state.step - 1]?.id), text)
       b.accept()
       return true
     },

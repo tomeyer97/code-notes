@@ -1,7 +1,7 @@
 // Ask Claude and Cancel, from wherever they are pressed: the note box, a thread's reply box, a row, a link, the cursor.
 
-import { understanding } from '../app'
 import { noteFromNewThread } from '../notes/create'
+import { check } from './ports'
 import { addReply } from '../notes/reply'
 import { CommandArg, isReply, notesFrom } from '../notes/which'
 import { noteOfThread } from '../threads/sync'
@@ -21,7 +21,7 @@ export const askClaudeCommand = async (arg?: CommandArg | any, many?: any[]) => 
     return
   }
   // A check question's box: what was typed is the question for Claude, not a reply in the check's thread.
-  if (understanding?.isCheck(existing)) { await askClaude(existing, arg.text); return }
+  if (check()?.isCheck(existing)) { await askClaude(existing, arg.text); return }
   // A reply box: what was typed is saved as a reply first.
   if (arg.text.trim() && !(await addReply(existing, arg.text.trim()))) return
   await askClaude(existing)

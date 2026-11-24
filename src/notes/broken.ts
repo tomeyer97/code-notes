@@ -2,7 +2,7 @@
 // written back.
 
 import * as vscode from 'vscode'
-import { store } from '../app'
+import { store } from './ports'
 import { serialize } from '../core/format/noteModel'
 import { BrokenRow, isRow } from './model/rows'
 import { wfs } from '../platform/workspaceFs'
@@ -27,7 +27,7 @@ export const openBroken = async (node?: unknown) => {
 /** codeNotes.restoreBroken: the last version read that was good, written back. */
 export const restoreBroken = async (node?: unknown) => {
   if (!isRow<BrokenRow>(node, 'broken')) return
-  const known = store.atUri(node.uri)
+  const known = store().atUri(node.uri)
   if (!known) return
   await wfs.writeFile(known.uri, new TextEncoder().encode(serialize(known.data)))
   vscode.window.setStatusBarMessage('$(check) Restored the last good version', 3000)

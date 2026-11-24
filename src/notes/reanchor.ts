@@ -3,7 +3,8 @@
 
 import * as vscode from 'vscode'
 import { anchor, Loc } from '../core/anchors/anchor'
-import { log, notes } from '../app'
+import { log } from '../platform/host'
+import { visibleNotes } from './visible'
 import { linesOfUri } from '../platform/documents'
 import { statOf } from '../platform/exists'
 import { NoteData } from '../core/format/noteModel'
@@ -51,9 +52,9 @@ function logMove(n: Note, range: NoteData['range'], stale: boolean, fileThere: b
   const { id, file } = n.data
   if (stale !== !!n.data.stale) {
     const why = !stale ? 'no longer stale' : fileThere ? 'stale (the code changed)' : 'stale (file not found)'
-    log.info(`note ${id}: ${why} · ${file}`)
+    log().info(`note ${id}: ${why} · ${file}`)
   } else if (range.start !== n.data.range.start) {
-    log.info(`note ${id}: followed its code ${file} L${n.data.range.start} → L${range.start}`)
+    log().info(`note ${id}: followed its code ${file} L${n.data.range.start} → L${range.start}`)
   }
 }
 
@@ -65,7 +66,7 @@ export async function checkTarget(n: Note): Promise<boolean> {
   const was = placement.missing(n.data.id)
   if (there) placement.found(n.data.id); else placement.setMissing(n.data.id)
   n.data.stale = !there
-  if (was !== !there) log.info(`note ${n.data.id}: ${there ? 'found' : 'not found'} · ${n.data.file}`)
+  if (was !== !there) log().info(`note ${n.data.id}: ${there ? 'found' : 'not found'} · ${n.data.file}`)
   return was !== !there
 }
 
@@ -74,7 +75,7 @@ export async function reanchorAll(): Promise<void> {
   const changed: string[] = []
   await notesModel().batch(async () => {
     const byFile = new Map<string, Note[]>()
-    for (const n of notes()) {
+    for (const n of visibleNotes()) {
       if (n.data.target) { if (await checkTarget(n)) changed.push(n.data.id); continue }
       const k = docUri(n).toString()
       byFile.set(k, [...(byFile.get(k) ?? []), n])
@@ -97,7 +98,7 @@ async function fixPrefix(n: Note): Promise<string[] | undefined> {
   const fixed = n.data.file.slice(prefix.length)
   const lines = await linesOfUri(vscode.Uri.joinPath(n.folder.uri, fixed))
   if (!lines) return undefined
-  log.appendLine(`note ${n.data.id}: path "${n.data.file}" fixed to "${fixed}"`)
+  log().appendLine(`note ${n.data.id}: path "${n.data.file}" fixed to "${fixed}"`)
   n.data.file = fixed
   placement.found(n.data.id, true)
   return lines
@@ -122,7 +123,7 @@ async function markPastEnd(n: Note, lineCount: number): Promise<boolean> {
   placement.setPastEnd(n.data.id, lineCount)
   if (n.data.stale) return was !== lineCount
   n.data.stale = true
-  log.warn(`note ${n.data.id}: line ${n.data.range.start} is past the end of ${n.data.file} (${lineCount} lines)`)
+  log().warn(`note ${n.data.id}: line ${n.data.range.start} is past the end of ${n.data.file} (${lineCount} lines)`)
   await saveIfClean(n)
   return true
 }

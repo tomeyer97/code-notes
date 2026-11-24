@@ -2,18 +2,18 @@
 // staging folder; it is checked, then moved into the journeys folder.
 
 import * as vscode from 'vscode'
+import { journeys, tour } from './ports'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { journeys, log, showError } from '../app'
+import { log } from '../platform/host'
+import { showError } from '../platform/run'
 import { claudeAllowed } from '../ask/trust'
 import { AskResult } from '../platform/agent/claude'
 import { LoadedJourney } from '../journeys/steps'
 import { journeysFolderName } from '../journeys/journeys'
 import { shortQ } from '../core/text'
 import { relPath } from '../platform/documents'
-import { walkJourney } from '../tour/commands'
-import { walk } from '../tour/instances'
 import { clock, journeyPrompt, journeyRules, minutes } from '../core/writing'
 import { showClarify } from './clarify'
 import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
@@ -51,14 +51,14 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
     : journeyPrompt(question, skill, staging.stage, jf, skill === bundledSkill())
   const w: Writing = { id: staging.id, question, started: Date.now(), phase: 'starting', model: modelLabel(model) }
   startWriting(w)
-  log.info(`journey: Claude (${w.model}) is writing one for "${question}"${o.resume ? ' (with your answer to its question)' : ''}`)
+  log().info(`journey: Claude (${w.model}) is writing one for "${question}"${o.resume ? ' (with your answer to its question)' : ''}`)
   // journey.py's cache of the repository, when there is one: readable too.
   const cache = `${process.env.XDG_CACHE_HOME ?? `${os.homedir()}/.cache`}/code-journey`
   const extraDirs = fs.existsSync(cache) ? [cache] : []
   const res = await runJourneySkill(w, `Writing: ${shortQ(question)}`, { cli, repo, prompt, skill, model, resume: o.resume?.session, extraDirs })
   const took = Date.now() - w.started
   if (res.cancelled) {
-    log.info('journey: writing cancelled')
+    log().info('journey: writing cancelled')
     staging.cleanup()
     return undefined
   }
@@ -72,15 +72,15 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
     staging.cleanup()
     return noJourneyWritten(question, res, o)
   }
-  if (files.length > 1) log.warn(`journey: Claude wrote ${files.length} journeys (${files.join(', ')}); only ${files[0]} is kept`)
+  if (files.length > 1) log().warn(`journey: Claude wrote ${files.length} journeys (${files.join(', ')}); only ${files[0]} is kept`)
   const written = await checkStaged(skill, repo, staging, files[0], w.model)
   if (!written) return undefined
   const { name, made } = await install(path.join(repo, jf), staging, files[0])
   const title = made?.j.title ?? written.title ?? name
-  log.info(`journey: written: "${title}" (${jf}/${name}.json) in ${clock(took)} by ${w.model}`)
+  log().info(`journey: written: "${title}" (${jf}/${name}.json) in ${clock(took)} by ${w.model}`)
   // One notice; the map opens by itself unless you are walking another journey.
-  fireAndForget(vscode.window.showInformationMessage(`Journey written: ${title} · ${minutes(took)}`, 'Open').then((b) => { if (b && made) fireAndForget(walkJourney(made), 'writeJourney: walkJourney') }), 'writeJourney: window.showInformationMessage')
-  if (made && !walk.touring()) await walkJourney(made)
+  fireAndForget(vscode.window.showInformationMessage(`Journey written: ${title} · ${minutes(took)}`, 'Open').then((b) => { if (b && made) fireAndForget(tour().walkJourney(made), 'writeJourney: walkJourney') }), 'writeJourney: window.showInformationMessage')
+  if (made && !tour().touring()) await tour().walkJourney(made)
   return made
 }
 
@@ -98,18 +98,18 @@ function stagedJourneys(dir: string): string[] {
  * asks something first: shown with a reply box (not an error).
  */
 async function noJourneyWritten(question: string, res: AskResult, o: WriteOptions): Promise<LoadedJourney | undefined> {
-  const all = [...journeys.list.values()]
+  const all = [...journeys().list.values()]
   const named = [...res.text.matchAll(/([\w./-]*journeys)\/([\w.-]+?)\.json/g)]
     .map((m) => all.find((x) => x.j.id === m[2] && relPath(x.folder, x.uri) === `${m[1].replace(/^\.\//, '')}/${m[2]}.json`) ?? all.find((x) => x.j.id === m[2]))
     .find((x): x is LoadedJourney => !!x)
   if (named) {
-    log.info(`journey: Claude says "${named.j.title}" (${relPath(named.folder, named.uri)}) already answers "${question}": opening it`)
+    log().info(`journey: Claude says "${named.j.title}" (${relPath(named.folder, named.uri)}) already answers "${question}": opening it`)
     fireAndForget(vscode.window.showInformationMessage(`A journey already answers this: ${named.j.title}`), 'writeJourney: window.showInformationMessage')
-    await walkJourney(named)
+    await tour().walkJourney(named)
     return named
   }
   if (res.text.trim() && res.sessionId) {
-    log.info(`journey: Claude asks before writing "${question}": ${res.text.trim().replace(/\s+/g, ' ').slice(0, 300)}`)
+    log().info(`journey: Claude asks before writing "${question}": ${res.text.trim().replace(/\s+/g, ' ').slice(0, 300)}`)
     await showClarify(question, res.sessionId, res.text.trim(), o.model)
     return undefined
   }
@@ -130,8 +130,8 @@ async function checkStaged(skill: string, repo: string, staging: Staging, file: 
   if (j && j.model !== model) { j.model = model; writeJson(staged, j) }
   const chk = await journeyPy(skill, repo, staging.stage, ['check', repo, slug, 'quiet'])
   if (chk.code === 0 && j) return j
-  log.error(`journey: "${slug}" didn't pass journey.py check; left in ${staging.stage}/:\n${chk.out}`)
-  fireAndForget(showError('the journey Claude wrote didn\'t pass its check, so it wasn\'t added.', 'Show Output').then((b) => { if (b) log.show(true) }), 'writeJourney: showError')
+  log().error(`journey: "${slug}" didn't pass journey.py check; left in ${staging.stage}/:\n${chk.out}`)
+  fireAndForget(showError('the journey Claude wrote didn\'t pass its check, so it wasn\'t added.', 'Show Output').then((b) => { if (b) log().show(true) }), 'writeJourney: showError')
   return undefined
 }
 
@@ -149,7 +149,7 @@ async function install(destDir: string, staging: Staging, file: string): Promise
   staging.cleanup()
   const key = vscode.Uri.file(dest).toString()
   let made: LoadedJourney | undefined
-  for (let i = 0; i < LOAD_TRIES && !(made = journeys.list.get(key)); i++) await new Promise((r) => setTimeout(r, LOAD_WAIT))
-  if (!made) { await journeys.load(); made = journeys.list.get(key) ?? [...journeys.list.values()].find((x) => x.j.id === name) }
+  for (let i = 0; i < LOAD_TRIES && !(made = journeys().list.get(key)); i++) await new Promise((r) => setTimeout(r, LOAD_WAIT))
+  if (!made) { await journeys().load(); made = journeys().list.get(key) ?? [...journeys().list.values()].find((x) => x.j.id === name) }
   return { name, made }
 }

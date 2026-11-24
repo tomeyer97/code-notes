@@ -2,7 +2,8 @@
 // Claude answers on its own (codeNotes.claude.mode).
 
 import * as vscode from 'vscode'
-import { cfg, setCtx } from '../app'
+import { cfg } from '../platform/settings'
+import { setCtx } from '../platform/context'
 import { findCli, findCliAsync } from '../platform/agent/claudeCli'
 import { fireAndForget } from '../platform/run'
 

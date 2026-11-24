@@ -1,7 +1,7 @@
 // Find a note: every word must match somewhere in it (messages as written, file, session, authors).
 
 import * as vscode from 'vscode'
-import { notes } from '../app'
+import { visibleNotes } from './visible'
 import { unread } from './seen'
 import { lastMessage, order } from './model'
 import { Note } from './store'
@@ -25,7 +25,7 @@ function findIcon(n: Note): string {
 
 /** Every word must match somewhere in the note: messages as written, file, session, authors. */
 export const findNote = async () => {
-  const all = notes().sort((a, b) => a.data.file.localeCompare(b.data.file) || order(a, b))
+  const all = visibleNotes().sort((a, b) => a.data.file.localeCompare(b.data.file) || order(a, b))
   const hay = new Map(all.map((n) => [n.data.id, haystack(n)]))
   const item = (n: Note, words: string[]) => {
     // The newest message with a word in it; else, in a thread with replies, the last one.

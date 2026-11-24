@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import * as os from 'os'
-import { stored } from '../app'
+import { stored } from '../platform/host'
 import { gitIn } from '../platform/checkout'
 import { cfg } from '../platform/settings'
 import { Message, NoteEvent } from '../core/format/noteModel'
@@ -20,7 +20,7 @@ const known: { gitName?: string; lastMe: string } = { lastMe: '' }
 
 export const me = () => cfg().get<string>('author') || known.gitName || 'You'
 
-const pastNames = () => stored.get(STATE.pastNames)
+const pastNames = () => stored().get(STATE.pastNames)
 
 const myNames = (): MyNames => ({ current: me(), past: osName ? [osName, ...pastNames()] : pastNames() })
 
@@ -49,6 +49,6 @@ export function rememberMe(): void { known.lastMe = me() }
 /** The author setting changed: messages under the old name stay yours. */
 export async function authorChanged(): Promise<void> {
   const { lastMe } = known
-  if (lastMe && lastMe !== me() && !pastNames().includes(lastMe)) await stored.set(STATE.pastNames, [...pastNames(), lastMe])
+  if (lastMe && lastMe !== me() && !pastNames().includes(lastMe)) await stored().set(STATE.pastNames, [...pastNames(), lastMe])
   known.lastMe = me()
 }

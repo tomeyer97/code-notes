@@ -3,7 +3,8 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as os from 'os'
-import { cfg, log } from '../app'
+import { cfg } from '../platform/settings'
+import { log } from '../platform/host'
 import { SKILLS_HINT } from './prompts'
 import { fireAndForget } from '../platform/run'
 
@@ -17,7 +18,7 @@ export const trusted = () => vscode.workspace.isTrusted
 /** Whether Claude may `what` here; when not, says why (once per call) with a button to the trust editor. */
 export function claudeAllowed(what: string): boolean {
   if (trusted()) return true
-  log.info(`${what}: not run: this folder is in Restricted Mode (not trusted)`)
+  log().info(`${what}: not run: this folder is in Restricted Mode (not trusted)`)
   fireAndForget(vscode.window.showInformationMessage(`Trust this folder to let Claude ${what}.`, 'Manage Trust').then((b) => {
     if (b) fireAndForget(vscode.commands.executeCommand('workbench.trust.manage'), 'trust: command workbench.trust.manage')
   }), 'trust: window.showInformationMessage')

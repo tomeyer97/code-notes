@@ -12,7 +12,7 @@ import * as vscode from 'vscode'
 import { webviewPage } from '../webview/page'
 import { journeysFolderName } from '../journeys/journeys'
 import { folderName } from '../notes/notesFolder'
-import { setCtx } from '../app'
+import { setCtx } from '../platform/context'
 import { fireAndForget } from '../platform/run'
 
 export const LISTEN_VIEW = 'codeNotes.listen'

@@ -1,7 +1,9 @@
 // Resolving and reopening notes (with their history, and Undo), and deleting them (to the notes folder's .trash).
 
 import * as vscode from 'vscode'
-import { byId, notes, now, store } from '../app'
+import { store } from './ports'
+import { byId, visibleNotes } from './visible'
+import { now } from '../platform/host'
 import { evMine, me } from './identity'
 import { markRead, seenCount, setSeen, unread } from './seen'
 import { matchesFilter, notesModel, notesChanged, selection } from './model'
@@ -29,7 +31,7 @@ export async function setStatus(list: Note[], status: 'open' | 'resolved', recor
       n.data.status = status
       selection().checked.delete(n.data.id)
       // Not saved (a file another user wrote): the note stays as the file says; the error says why.
-      if (!(await store.save(n))) n.data = before
+      if (!(await store().save(n))) n.data = before
     }
     notesChanged({ kind: 'saved', ids: list.map((n) => n.data.id) })
   })
@@ -65,13 +67,13 @@ export function undoResolveEvent(n: Note): Note {
 
 /** Notes to the trash, with Undo; `what` names them in the toast. */
 export async function trash(list: Note[], what: string): Promise<void> {
-  await notesModel().batch(async () => { for (const n of list) { selection().checked.delete(n.data.id); await store.trash(n) } })
-  offerUndo(`Deleted ${what}`, () => notesModel().batch(async () => { for (const n of list) await store.restore(n) }))
+  await notesModel().batch(async () => { for (const n of list) { selection().checked.delete(n.data.id); await store().trash(n) } })
+  offerUndo(`Deleted ${what}`, () => notesModel().batch(async () => { for (const n of list) await store().restore(n) }))
 }
 
 /** An agent deleted a note file (rm): its last version is restorable from .trash ("Code Notes: Undo"), without a toast. */
 export function offerRestore(n: Note): void {
-  offerUndo(`Note deleted on disk: "${noteTitle(n)}"`, () => store.restore(n), true)
+  offerUndo(`Note deleted on disk: "${noteTitle(n)}"`, () => store().restore(n), true)
 }
 
 /** codeNotes.reopen */
@@ -99,7 +101,7 @@ export const resolveChecked = () => {
 
 /** codeNotes.resolveAll: every open note, after asking. */
 export const resolveAll = async () => {
-  const open = notes().filter((n) => n.data.status === 'open')
+  const open = visibleNotes().filter((n) => n.data.status === 'open')
   if (!open.length) return
   const u = open.filter((n) => unread(n) > 0).length
   const question = open.length === 1 ? 'Resolve 1 note?' : `Resolve all ${open.length} notes?`
@@ -110,7 +112,7 @@ export const resolveAll = async () => {
 
 /** codeNotes.deleteResolved: every resolved note to the trash, after asking. */
 export const deleteResolved = async () => {
-  const done = notes().filter((n) => n.data.status === 'resolved')
+  const done = visibleNotes().filter((n) => n.data.status === 'resolved')
   if (!done.length) { vscode.window.setStatusBarMessage('$(info) No resolved notes', 2500); return }
   const u = done.filter((n) => unread(n) > 0).length
   const detail = `${u ? `${u} unread. ` : ''}They go to ${folderName()}/.trash; Undo brings them back.`

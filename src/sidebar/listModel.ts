@@ -2,18 +2,18 @@
 // function under the cursor, the sort and the panel home's query.
 
 import * as vscode from 'vscode'
-import { journeys, stored } from '../app'
+import { journeys, tour } from './ports'
+import { stored } from '../platform/host'
 import { blockAt } from '../core/codeBlocks'
 import { blocksOf } from '../platform/symbolBlocks'
 import { buildList, ListItem, ListKind, ListModel, Sort } from '../core/list/journeyList'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { isNewJourney } from '../notes/seen'
 import { relPath } from '../platform/documents'
-import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
 import { STATE } from '../platform/state'
 
-export const listSort = (): Sort => stored.get(STATE.journeySort)
+export const listSort = (): Sort => stored().get(STATE.journeySort)
 
 /** The active editor's file, relative to its folder. */
 export function activeRel(): string | undefined {
@@ -24,9 +24,9 @@ export function activeRel(): string | undefined {
 
 /** Journeys only: a branch's understanding check lives in the Check view, not in these lists. */
 export function listItems(): ListItem[] {
-  const pos = walk.positions()
-  return journeys.all().map((lj) => {
-    const walking = lj.key === tourState.key && tourState.step > 0
+  const pos = tour().positions()
+  return journeys().all().map((lj) => {
+    const walking = lj.key === tour().state.key && tour().state.step > 0
     return {
       key: lj.key,
       kind: 'journey' as const,
@@ -42,7 +42,7 @@ export function listItems(): ListItem[] {
       staleSteps: staleSteps(lj),
       isNew: isNewJourney(lj),
       ...(refreshing.has(lj.key) ? { refreshing: true } : {}),
-      resume: walking ? tourState.step : walk.resumeAt(lj),
+      resume: walking ? tour().state.step : tour().resumeAt(lj),
       ...(walking ? { walking: true } : {}),
       walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined,
       ...(lj.j.start ? { start: true } : {}),

@@ -3,7 +3,7 @@
 
 import { me } from '../notes/identity'
 import { Note } from '../notes/store'
-import { UPDATE_ASK } from '../tour/askStep'
+import { UPDATE_ASK } from '../tour/texts'
 
 /** How Claude works on a note and answers. */
 const RULES =

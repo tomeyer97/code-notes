@@ -1,4 +1,2 @@
 # Imports from src/check/ that break the layer rule today; remove a line when you fix it.
 src/check/view.ts -> src/webview/page.ts
-src/check/wiring.ts -> src/app.ts
-src/check/wiring.ts -> src/sidebar/journeysTree.ts

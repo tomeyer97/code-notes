@@ -1,15 +1,15 @@
 // Picking a journey: words of its title, question or steps, best match first; nothing matches: write one.
 
 import * as vscode from 'vscode'
-import { journeys } from '../app'
+import { journeys } from './ports'
+import { podcast, tourState, walk } from './instances'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { pickOne } from '../platform/quickPick'
 import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
-import { tourState, walk } from './instances'
-import { podcasts } from '../podcast/player'
 import { fireAndForget } from '../platform/run'
+import { questionBesidesTitle } from './texts'
 
 /** The ▶ on a picker row whose journey has a podcast. */
 const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('play'), tooltip: 'Listen to Journey' }
@@ -19,7 +19,7 @@ type PickItem = vscode.QuickPickItem & { ask: string | undefined; lj: LoadedJour
 
 /** The journey `arg` names (a key, an id, a posKey, a sidebar row), else the one picked. */
 export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
-  const all = journeys.all()
+  const all = journeys().all()
   if (typeof arg === 'string') return all.find((x) => x.key === arg || x.j.id === arg || posKey(x) === arg)
   if (arg && typeof arg === 'object' && (arg as Node).kind === 'journey') return (arg as { lj: LoadedJourney }).lj
   // Always a picker (the "…" promises one): the question once, and how far each one got.
@@ -32,7 +32,7 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
   const update = () => { qp.items = pickerItems(all, qp.value, multi) }
   qp.onDidChangeValue(update)
   // ▶ on a row with a podcast: that journey, listened to.
-  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); fireAndForget(podcasts.play(key), 'pick: podcasts.play') } })
+  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); fireAndForget(podcast()?.play(key), 'pick: podcast.play') } })
   update()
   const pick = await pickOne(qp)
   if (pick?.ask) {
@@ -50,7 +50,7 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
 function pickerItems(all: LoadedJourney[], value: string, multi: boolean): PickItem[] {
   const words = value.toLowerCase().split(/\s+/).filter(Boolean)
   const typed = value.trim().toLowerCase()
-  const going = (x: LoadedJourney) => (x.key === tourState.key && tourState.step ? 2 : walk.resumeAt(x) ? 1 : 0)
+  const going = (x: LoadedJourney) => (x.key === tourState().key && tourState().step ? 2 : walk().resumeAt(x) ? 1 : 0)
   const items = all.map((x) => ({ x, k: pickerScore(x, words, typed) }))
     .filter((v) => v.k >= 0)
     .sort((a, b) => b.k - a.k || going(b.x) - going(a.x))
@@ -71,10 +71,10 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
   const onlyStepMatched = step && !words.every((w) => journeyHay(x).includes(w))
   const about = onlyStepMatched ? `step ${step.n}: ${step.title}` : questionBesidesTitle(x)
   // A podcast: ♪ after the title, and a ▶ button on the row that opens it and listens.
-  const pod = podcasts.status(x)
+  const pod = podcast()?.status(x)
   const has = pod?.state === 'ok'
   const listening = has && !!pod?.session
-  const walking = x.key === tourState.key && tourState.step && !listening
+  const walking = x.key === tourState().key && tourState().step && !listening
   return {
     ask: undefined,
     label: `${walking ? '$(play-circle) ' : ''}${x.j.title}${has ? ' ♪' : ''}`,
@@ -83,11 +83,6 @@ function journeyItem(x: LoadedJourney, words: string[], multi: boolean): PickIte
     alwaysShow: true, // filtered here, not by VS Code
     lj: x,
   }
-}
-
-/** A journey's question, when it says more than its title (else ''): a picker row's description. */
-export function questionBesidesTitle(x: LoadedJourney): string {
-  return x.j.question.toLowerCase().includes(x.j.title.toLowerCase()) ? '' : x.j.question
 }
 
 /** Title, question and summary, lower case: what a word must be in for more than a step to match. */

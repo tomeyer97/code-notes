@@ -2,7 +2,10 @@
 // trusted folder. Failures are shown in the thread and kept until retried or dismissed.
 
 import * as vscode from 'vscode'
-import { byId, cfg, firstFolder, log, now, store, stored, understanding } from '../app'
+import { check, codeColumn, notesStore } from './ports'
+import { byId } from '../notes/visible'
+import { cfg } from '../platform/settings'
+import { firstFolder, log, now, stored } from '../platform/host'
 import { Ask, AskResult, modelProblem } from '../platform/agent/claude'
 import { createNote } from '../notes/create'
 import { docUri } from '../notes/location'
@@ -13,7 +16,6 @@ import { markRead } from '../notes/seen'
 import { Note } from '../notes/store'
 import { plural } from '../core/text'
 import { syncThread } from '../threads/sync'
-import { walk } from '../tour/instances'
 import { checkHint, claudePrompt, stepAskHint } from './prompts'
 import { claudeCli } from './settings'
 import { claudeAllowed, skillAccess, trusted } from './trust'
@@ -37,19 +39,19 @@ export async function askAbout(file: string, start: number, end: number, questio
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folder.uri, file))
   const n = await createNote(doc, { start: start - 1, end: end - 1 }, question, undefined, extra)
   if (!n) return
-  await reveal(n, walk.codeColumn())
+  await reveal(n, codeColumn())
   await askClaude(n)
 }
 
-const saveAskErrors = () => stored.set(STATE.askErrors, Object.fromEntries(askErrors))
+const saveAskErrors = () => stored().set(STATE.askErrors, Object.fromEntries(askErrors))
 /** The failures stored before the reload. */
 export function loadAskErrors(): void {
-  for (const [k, v] of Object.entries(stored.get(STATE.askErrors))) askErrors.set(k, v)
+  for (const [k, v] of Object.entries(stored().get(STATE.askErrors))) askErrors.set(k, v)
 }
 
 /** Claude asked to answer the note: now, or queued behind MAX_ASKS runs. A check question asks what to explain. */
 export async function askClaude(n: Note, text?: string): Promise<void> {
-  if (understanding?.isCheck(n)) return askAboutCheckQuestion(n, text)
+  if (check()?.isCheck(n)) return askAboutCheckQuestion(n, text)
   if (asking.has(n.data.id) || askQueue.includes(n.data.id)) return
   if (!claudeAllowed('answer notes')) return
   if (askErrors.delete(n.data.id)) fireAndForget(saveAskErrors(), 'run: saveAskErrors')
@@ -64,11 +66,11 @@ export async function askClaude(n: Note, text?: string): Promise<void> {
 
 /** A check question: what do you want to know? The answer goes in a note of its own, never in the check's thread. */
 async function askAboutCheckQuestion(n: Note, text?: string): Promise<void> {
-  const q = understanding!.questionOf(n)
+  const q = check()!.questionOf(n)
   const box = { title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' }
   const ask = text?.trim() || await vscode.window.showInputBox(box)
   if (!ask?.trim()) return
-  const extra = { ...(q ? { checkAsk: q.text } : {}), ...understanding!.branchOf(n) }
+  const extra = { ...(q ? { checkAsk: q.text } : {}), ...check()!.branchOf(n) }
   await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), extra)
 }
 
@@ -82,7 +84,7 @@ async function runNext(): Promise<void> {
 function cantRun(id: string, error: string, logLine: string): void {
   asking.delete(id)
   askErrors.set(id, error)
-  log.error(`note ${id}: ${logLine}`)
+  log().error(`note ${id}: ${logLine}`)
   fireAndForget(saveAskErrors(), 'run: saveAskErrors')
   notesChanged({ kind: 'activity', ids: [id] })
 }
@@ -116,7 +118,7 @@ async function runAsk(id: string): Promise<void> {
   asking.set(id, entry)
   notesChanged({ kind: 'activity', ids: [id] })
   const ask = await startAsk(n, cli, entry)
-  log.info(`note ${id}: asking Claude${n.data.claudeSession ? ' (follow-up)' : ''}`)
+  log().info(`note ${id}: asking Claude${n.data.claudeSession ? ' (follow-up)' : ''}`)
   const res = await ask.done
   asking.delete(id)
   await recordAnswer(id, entry, res)
@@ -150,17 +152,17 @@ async function startAsk(n: Note, cli: string, entry: Asking): Promise<Ask> {
 /** What the run ended with: cancelled (logged), a failure (kept for the thread), or the answer (saved to the note). */
 async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<void> {
   const answered = byId(id)
-  if (res.cancelled) log.info(`note ${id}: Claude cancelled`)
+  if (res.cancelled) log().info(`note ${id}: Claude cancelled`)
   else if (res.error || !res.text.trim()) {
     askErrors.set(id, res.error ?? 'Claude returned no answer.')
-    log.error(`note ${id}: Ask Claude failed: ${res.error ?? 'no answer'}`)
+    log().error(`note ${id}: Ask Claude failed: ${res.error ?? 'no answer'}`)
     fireAndForget(saveAskErrors(), 'run: saveAskErrors')
   } else if (answered) {
     answered.data.messages.push({ author: 'Claude', role: 'agent', body: res.text.trim(), at: now() })
     if (res.sessionId) answered.data.claudeSession = res.sessionId
-    await store.save(answered)
+    await notesStore().save(answered)
     const secs = Math.round((Date.now() - entry.started) / 1000)
-    log.info(`note ${id}: Claude answered in ${secs}s${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+    log().info(`note ${id}: Claude answered in ${secs}s${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
     // The person is looking at this note: the answer counts as read, with its "new" label for the visit.
     if (selection().revealed === id) await markRead([answered], answered)
   }

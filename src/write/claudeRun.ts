@@ -6,7 +6,9 @@ import { execFile } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cfg, extUri, showError } from '../app'
+import { cfg } from '../platform/settings'
+import { extUri } from '../platform/host'
+import { showError } from '../platform/run'
 import { claudeCli } from '../ask/settings'
 import { Ask, AskOptions, AskResult, modelProblem } from '../platform/agent/claude'
 import { folderName } from '../notes/notesFolder'
@@ -27,7 +29,7 @@ export function journeySkill(folder: vscode.WorkspaceFolder): string | undefined
   return [`${folder.uri.fsPath}/.claude/skills/code-journey`, `${home}/.claude/skills/code-journey`, bundledSkill()].find((d) => fs.existsSync(`${d}/scripts`))
 }
 /** The copy inside the extension: Claude Code does not know it as a skill, so the prompt names its SKILL.md instead. */
-export const bundledSkill = () => `${extUri.fsPath}/skills/code-journey`
+export const bundledSkill = () => `${extUri().fsPath}/skills/code-journey`
 
 /** How long journey.py may take (ms), and how much it may print. */
 const JOURNEY_PY_TIMEOUT = 120_000

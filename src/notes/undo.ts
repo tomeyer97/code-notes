@@ -2,7 +2,7 @@
 // "Code Notes: Undo".
 
 import * as vscode from 'vscode'
-import { setCtx } from '../app'
+import { setCtx } from '../platform/context'
 import { NoteData } from '../core/format/noteModel'
 import { Note } from './store'
 import { fireAndForget } from '../platform/run'

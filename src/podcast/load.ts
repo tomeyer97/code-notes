@@ -5,7 +5,8 @@
 // plays from the result.
 
 import * as vscode from 'vscode'
-import { journeys, log } from '../app'
+import { journeys } from './ports'
+import { log } from '../platform/host'
 import { stepFileUri } from '../journeys/codeGroup'
 import { gitIn } from '../platform/checkout'
 import { fileOf, LoadedJourney } from '../journeys/steps'
@@ -41,7 +42,7 @@ export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode
   // The files the marks are in, read for their check (the lines there, the match in them).
   const texts = new Map<string, string | null>()
   for (const f of first0.podcast ? markFileNames(first0.podcast, journey) : []) {
-    texts.set(f, (await readText(stepFileUri(lj.folder.uri, journeys.renames(lj), f))) ?? null)
+    texts.set(f, (await readText(stepFileUri(lj.folder.uri, journeys().renames(lj), f))) ?? null)
   }
   const files = (f: string) => (texts.has(f) ? texts.get(f) : undefined)
   const first = texts.size ? validatePodcast(raw, { journey, files }) : first0
@@ -102,7 +103,7 @@ export async function strayPodcasts(folders: vscode.Uri[], known: Set<string>, j
       const named = typeof id === 'string'
         ? `; its journey.id is "${id}"${owner ? ` (whose podcast is ${owner})` : ', and no journey here has that id'}`
         : ''
-      log.info(`podcast ${file.fsPath}: ignored: a podcast plays next to its journey, named <journey>.podcast.json, and there is no ${journeyFile}${named}`)
+      log().info(`podcast ${file.fsPath}: ignored: a podcast plays next to its journey, named <journey>.podcast.json, and there is no ${journeyFile}${named}`)
     }
   }
   for (const f of [...strays]) if (!seen.has(f)) strays.delete(f)
@@ -149,8 +150,8 @@ class PodcastReports {
       this.said.set(key, sig)
       for (const p of r.v.problems) {
         const line = `podcast ${r.file.fsPath}: ${p.level === 'error' ? 'not played: ' : ''}${p.message}`
-        if (p.level === 'info') log.info(line)
-        else log.warn(line)
+        if (p.level === 'info') log().info(line)
+        else log().warn(line)
       }
     }
     for (const key of [...this.said.keys()]) {

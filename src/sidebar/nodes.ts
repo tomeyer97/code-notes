@@ -2,7 +2,8 @@
 // constructors of each kind, and the order of rows in a group (the notes' own order: notes/model/query.ts).
 
 import * as vscode from 'vscode'
-import { journeys, notes } from '../app'
+import { journeys } from './ports'
+import { visibleNotes } from '../notes/visible'
 import { Group } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { Severity } from '../core/format/noteModel'
@@ -37,7 +38,7 @@ export const noteNode = (note: Note) => cached(`note:${note.data.id}`, { kind: '
 
 /** A session's group; its notes: those listed (`list`), else every note of the session the filter shows. */
 export const sessionNode = (name: string, list?: Note[]) =>
-  cached(`session:${name}`, { kind: 'session' as const, name, notes: list ?? notes().filter((x) => sessionOf(x) === name && matchesFilter(x)) })
+  cached(`session:${name}`, { kind: 'session' as const, name, notes: list ?? visibleNotes().filter((x) => sessionOf(x) === name && matchesFilter(x)) })
 
 /** The notes of one file (or folder) under a session (`session`) or at the top. */
 export function fileNode(n: Note, session: string | undefined, list: Note[]): Node & { kind: 'file' } {
@@ -60,7 +61,7 @@ export const jgroupNode = (g: Group) => cached(`jgroup:${g.id}`, { kind: 'jgroup
 export const jmoreNode = (g: Group) => cached(`jmore:${g.id}`, { kind: 'jmore' as const, g: g.id, n: g.more! })
 
 /** The journey files that can't be read, by path. */
-export const badJourneyNodes = () => [...journeys.invalid.values()]
+export const badJourneyNodes = () => [...journeys().invalid.values()]
   .sort((a, b) => a.uri.path.localeCompare(b.uri.path))
   .map((x) => cached(`badJourney:${x.uri}`, { kind: 'badJourney' as const, uri: x.uri, why: x.why }))
 

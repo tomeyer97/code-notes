@@ -1,7 +1,7 @@
 // Which notes a command is about: the selected rows, a tree node, a thread or reply, a link's id, or the cursor.
 
 import * as vscode from 'vscode'
-import { byId } from '../app'
+import { byId } from './visible'
 import { order, selection } from './model'
 import { noteOfRow } from './model/rows'
 import { Note } from './store'

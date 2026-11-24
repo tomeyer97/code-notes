@@ -2,10 +2,13 @@
 // rows the extension adds (the code changed, Claude answering or failed, the check's grading and concerns).
 
 import * as vscode from 'vscode'
+import { check, journeys, tour } from './ports'
 import * as os from 'os'
 import { lineDiff } from '../core/anchors/staleDiff'
 import { linkify } from '../core/linkifyAnswer'
-import { alsoAllow, BANNER_COMMANDS, byId, cmdLink, journeys, MESSAGE_COMMANDS, systemMarkdown, titledCmdLink, trustedMarkdown, understanding } from '../app'
+import { alsoAllow, systemMarkdown, trustedMarkdown } from '../platform/commandLinks'
+import { BANNER_COMMANDS, MESSAGE_COMMANDS, cmdLink, titledCmdLink } from '../platform/commands'
+import { byId } from '../notes/visible'
 import { askErrors, asking } from '../ask/run'
 import type { ThreadStatus } from '../check/controller'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../core/codeLinkText'
@@ -18,8 +21,6 @@ import { NoteEvent } from '../core/format/noteModel'
 import { Note } from '../notes/store'
 import { plural, rangeLabel } from '../core/text'
 import { isDone } from '../check/types'
-import { seeAlsoLink } from '../tour/checkTour'
-import { tourState, walk } from '../tour/instances'
 import { docUri, placement } from '../notes/location'
 import { syncThread } from './sync'
 import { docLines, openDoc } from '../platform/documents'
@@ -55,9 +56,9 @@ const ABOUT_STEP_LINE = new RegExp(`\\n*(?:${ABOUT_STEP_BY_NUMBER.source}|${ABOU
 function withStepLink(n: Note, md: string): string {
   const sl = stepLinkOf(n)
   if (!sl) return md
-  const lj = journeyOfNote(n, journeys.list.values())
-  const walking = !!lj && walk.touring() && tourState.key === lj.key
-  if (walking && (sl.step ? tourState.stepId === sl.step : tourState.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
+  const lj = journeyOfNote(n, journeys().list.values())
+  const walking = !!lj && tour().touring() && tour().state.key === lj.key
+  if (walking && (sl.step ? tour().state.stepId === sl.step : tour().state.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
   // The step's number now (found by id), else the one it had.
   const i = lj && sl.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1
   const back = (title: string) => titledCmdLink(
@@ -69,7 +70,7 @@ function withStepLink(n: Note, md: string): string {
 
 /** An answer typed in a check thread, shown as typed: its markdown and HTML never render (a "---" or "# …" in it). */
 const isCheckAnswer = (n: Note, index: number) =>
-  !!understanding?.isCheck(n) && !!n.data.messages[index] && !isAgent(n.data.messages[index])
+  !!check()?.isCheck(n) && !!n.data.messages[index] && !isAgent(n.data.messages[index])
 
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
 
@@ -112,7 +113,7 @@ function withLinksAndApply(n: Note, body: string, mi: number | undefined): strin
 function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode.MarkdownString {
   if (index !== undefined && isCheckAnswer(n, index)) return verbatim(body)
   // A check thread's code links (the question's, a grade's): phrases marked here, the markup goes in after escapeTags.
-  const clinks = index !== undefined ? understanding?.linksIn(n, index) ?? [] : []
+  const clinks = index !== undefined ? check()?.linksIn(n, index) ?? [] : []
   if (clinks.length) body = linkPhrases(body, clinks, new Set<number>(), PH)
   const out = withLinksAndApply(n, body, mi)
   // Asked from a journey step: the line saying so links back to that step on the map.
@@ -250,7 +251,7 @@ function messageComments(n: Note, thread: vscode.CommentThread): vscode.Comment[
   const { hideFrom, hideTo } = collapsedRange(n)
   const events = [...(n.data.events ?? [])]
   // A check question done while others are open: "Next question ›" under its last grade.
-  const nextAt = understanding?.threadStatus(n)?.next ? n.data.messages.map((m) => isAgent(m)).lastIndexOf(true) : -1
+  const nextAt = check()?.threadStatus(n)?.next ? n.data.messages.map((m) => isAgent(m)).lastIndexOf(true) : -1
   let prevAt = 0
   n.data.messages.forEach((m, i) => {
     const t = m.at ? Date.parse(m.at) : NaN
@@ -286,14 +287,15 @@ function statusRows(n: Note): vscode.Comment[] {
   const out: vscode.Comment[] = []
   const a = asking.get(id)
   if (a) out.push(askingRow(id, a))
-  const chk = understanding?.threadStatus(n)
+  const chk = check()?.threadStatus(n)
   if (chk?.checking) out.push(systemRow(systemMarkdown('_Checking your answer…_'), 'Understanding check', 'checking…'))
   if (chk?.concern) out.push(concernRow(id, chk.concern))
   // An open check question whose code a journey of the repository walks: one link to that step.
-  const cq = understanding?.isCheck(n) ? understanding.questionOf(n) : undefined
-  if (cq && !isDone(understanding!.rowOf(n)?.state ?? '')) {
+  const chkApi = check()
+  const cq = chkApi?.isCheck(n) ? chkApi.questionOf(n) : undefined
+  if (cq && chkApi && !isDone(chkApi.rowOf(n)?.state ?? '')) {
     const files = [cq.file, ...(cq.also ?? []).map((x) => x.file)]
-    const also = seeAlsoLink(files, cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
+    const also = tour().seeAlsoLink(files, cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
     if (also) out.push(systemRow(systemMarkdown(also), 'See also'))
   }
   if (chk?.error) {
