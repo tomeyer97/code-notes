@@ -374,34 +374,34 @@
         {
           "name": "customer",
           "value": "\"Ana\"",
-          "note": "the signed-in shopper",
           "file": "web/src/checkout/placeOrder.ts",
           "line": 13,
-          "text": "const { customer = '', card = '' } = doc.body.dataset"
+          "text": "const { customer = '', card = '' } = doc.body.dataset",
+          "note": "the signed-in shopper"
         },
         {
           "name": "sku",
           "value": "lamp-desk",
-          "note": "the desk lamp's product code",
           "file": "web/src/checkout/placeOrder.ts",
           "line": 20,
-          "text": "await placeOrder({ customer, items: [{ sku: button.dataset.sku!, qty: 1 }], cardToken: card })"
+          "text": "await placeOrder({ customer, items: [{ sku: button.dataset.sku!, qty: 1 }], cardToken: card })",
+          "note": "the desk lamp's product code"
         },
         {
           "name": "request",
           "value": "Ana, 1 × lamp-desk, tok_9f2c…",
-          "note": "the whole order request",
           "file": "web/src/checkout/placeOrder.ts",
           "line": 32,
-          "text": "body: JSON.stringify(request),"
+          "text": "body: JSON.stringify(request),",
+          "note": "the whole order request"
         },
         {
           "name": "body",
           "value": "{order: {id: 1042, status: \"pending\"}}",
-          "note": "the API's answer",
           "file": "web/src/checkout/placeOrder.ts",
           "line": 34,
-          "text": "const body = await res.json()"
+          "text": "const body = await res.json()",
+          "note": "the API's answer"
         }
       ],
       "scene": {
@@ -536,26 +536,26 @@
         {
           "name": "item",
           "value": "{sku: \"lamp-desk\", qty: 1}",
-          "note": "what the browser sent",
           "file": "api/validate.js",
           "line": 21,
-          "text": "for (const item of body.items) {"
+          "text": "for (const item of body.items) {",
+          "note": "what the browser sent"
         },
         {
           "name": "product",
           "value": "{name: \"Desk lamp\", price: 4900}",
-          "note": "the catalog entry, price in cents",
           "file": "api/validate.js",
           "line": 22,
-          "text": "const product = CATALOG[item.sku]"
+          "text": "const product = CATALOG[item.sku]",
+          "note": "the catalog entry, price in cents"
         },
         {
           "name": "total",
           "value": "4900",
-          "note": "49.00 EUR for one desk lamp",
           "file": "api/validate.js",
           "line": 27,
-          "text": "total += product.price * item.qty"
+          "text": "total += product.price * item.qty",
+          "note": "49.00 EUR for one desk lamp"
         }
       ],
       "scene": {
@@ -674,26 +674,26 @@
         {
           "name": "last",
           "value": "1041",
-          "note": "the newest order before Ana's",
           "file": "api/store.js",
           "line": 19,
-          "text": "const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id"
+          "text": "const last = db.prepare('SELECT MAX(id) AS id FROM orders').get().id",
+          "note": "the newest order before Ana's"
         },
         {
           "name": "id",
           "value": "1042",
-          "note": "Ana's order number",
           "file": "api/store.js",
           "line": 20,
-          "text": "const id = last ? last + 1 : config.orders.firstNumber"
+          "text": "const id = last ? last + 1 : config.orders.firstNumber",
+          "note": "Ana's order number"
         },
         {
           "name": "items",
           "value": "[{sku: \"lamp-desk\", qty: 1, …}]",
-          "note": "saved as text",
           "file": "api/store.js",
           "line": 23,
-          "text": ".run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())"
+          "text": ".run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())",
+          "note": "saved as text"
         }
       ],
       "scene": {
@@ -854,34 +854,34 @@
         {
           "name": "cardToken",
           "value": "tok_9f2c…",
-          "note": "stands for Ana's saved card",
           "file": "api/orders.js",
           "line": 14,
-          "text": "const { cardToken, ...details } = checked.order"
+          "text": "const { cardToken, ...details } = checked.order",
+          "note": "stands for Ana's saved card"
         },
         {
           "name": "order",
           "value": "{id: 1042, status: \"pending\", …}",
-          "note": "the stored row",
           "file": "api/orders.js",
           "line": 15,
-          "text": "const order = insertOrder(details)"
+          "text": "const order = insertOrder(details)",
+          "note": "the stored row"
         },
         {
           "name": "jobs",
           "value": "[{orderId: 1042, amount: 4900, …}]",
-          "note": "Ana's job, alone in the queue",
           "file": "api/orders.js",
           "line": 16,
-          "text": "jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })"
+          "text": "jobs.push({ orderId: order.id, amount: order.total, currency: config.shop.currency, cardToken })",
+          "note": "Ana's job, alone in the queue"
         },
         {
           "name": "res",
           "value": "201",
-          "note": "sent before any charge",
           "file": "api/orders.js",
           "line": 17,
-          "text": "send(res, 201, { order })"
+          "text": "send(res, 201, { order })",
+          "note": "sent before any charge"
         }
       ],
       "scene": {
@@ -1061,26 +1061,26 @@
         {
           "name": "pollMs",
           "value": "2000",
-          "note": "2 s, from shop.yaml",
           "file": "worker/worker.js",
           "line": 44,
-          "text": "await sleep(config.worker.pollMs)"
+          "text": "await sleep(config.worker.pollMs)",
+          "note": "2 s, from shop.yaml"
         },
         {
           "name": "job",
           "value": "{orderId: 1042, amount: 4900, …}",
-          "note": "Ana's charge job",
           "file": "worker/worker.js",
           "line": 26,
-          "text": "const job = await takeJob()"
+          "text": "const job = await takeJob()",
+          "note": "Ana's charge job"
         },
         {
           "name": "worked",
           "value": "true",
-          "note": "a job was done, so no pause",
           "file": "worker/worker.js",
           "line": 39,
-          "text": "const worked = await pollOnce()"
+          "text": "const worked = await pollOnce()",
+          "note": "a job was done, so no pause"
         }
       ],
       "scene": {
@@ -1283,34 +1283,34 @@
         {
           "name": "idempotencyKey",
           "value": "order-1042",
-          "note": "the same on every try",
           "file": "worker/charge.js",
           "line": 7,
-          "text": "const idempotencyKey = `order-${job.orderId}`"
+          "text": "const idempotencyKey = `order-${job.orderId}`",
+          "note": "the same on every try"
         },
         {
           "name": "maxAttempts",
           "value": "3",
-          "note": "tries when the provider is unreachable",
           "file": "worker/charge.js",
           "line": 8,
-          "text": "const { maxAttempts, retryMs } = config.worker"
+          "text": "const { maxAttempts, retryMs } = config.worker",
+          "note": "tries when the provider is unreachable"
         },
         {
           "name": "payment",
           "value": "{id: \"pay_8c21f0\", status: \"succeeded\"}",
-          "note": "the provider's answer",
           "file": "worker/charge.js",
           "line": 12,
-          "text": "const payment = await createCharge({"
+          "text": "const payment = await createCharge({",
+          "note": "the provider's answer"
         },
         {
           "name": "amount",
           "value": "4900",
-          "note": "49.00 EUR in cents",
           "file": "worker/charge.js",
           "line": 13,
-          "text": "amount: job.amount,"
+          "text": "amount: job.amount,",
+          "note": "49.00 EUR in cents"
         }
       ],
       "scene": {
@@ -1499,26 +1499,26 @@
         {
           "name": "result",
           "value": "{paid: true, paymentId: \"pay_8c21f0\"}",
-          "note": "what the worker reported",
           "file": "api/orders.js",
           "line": 35,
-          "text": "const result = await readJson(req)"
+          "text": "const result = await readJson(req)",
+          "note": "what the worker reported"
         },
         {
           "name": "changed",
           "value": "true",
-          "note": "order 1042 was still pending",
           "file": "api/orders.js",
           "line": 36,
-          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+          "note": "order 1042 was still pending"
         },
         {
           "name": "status",
           "value": "paid",
-          "note": "the new status of order 1042",
           "file": "api/store.js",
           "line": 44,
-          "text": ".run(status, paymentId, error, id)"
+          "text": ".run(status, paymentId, error, id)",
+          "note": "the new status of order 1042"
         }
       ],
       "scene": {
@@ -1718,34 +1718,34 @@
         {
           "name": "id",
           "value": "1042",
-          "note": "Ana's order",
           "file": "web/src/checkout/OrderStatus.ts",
           "line": 40,
-          "text": "const res = await fetch(`${API}/orders/${id}`)"
+          "text": "const res = await fetch(`${API}/orders/${id}`)",
+          "note": "Ana's order"
         },
         {
           "name": "order",
           "value": "{id: 1042, status: \"paid\", …}",
-          "note": "the answer after the worker reported",
           "file": "web/src/checkout/OrderStatus.ts",
           "line": 41,
-          "text": "const { order } = await res.json()"
+          "text": "const { order } = await res.json()",
+          "note": "the answer after the worker reported"
         },
         {
           "name": "POLL_MS",
           "value": "1000",
-          "note": "one question a second",
           "file": "web/src/checkout/OrderStatus.ts",
           "line": 46,
-          "text": "}, POLL_MS)"
+          "text": "}, POLL_MS)",
+          "note": "one question a second"
         },
         {
           "name": "GIVE_UP_MS",
           "value": "30000",
-          "note": "30 s",
           "file": "web/src/checkout/OrderStatus.ts",
           "line": 35,
-          "text": "if (Date.now() - started > GIVE_UP_MS) {"
+          "text": "if (Date.now() - started > GIVE_UP_MS) {",
+          "note": "30 s"
         }
       ],
       "scene": {
@@ -1927,26 +1927,26 @@
         {
           "name": "result",
           "value": "paid: false, error: insufficient funds",
-          "note": "the worker's report",
           "file": "api/orders.js",
           "line": 36,
-          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)"
+          "text": "const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+          "note": "the worker's report"
         },
         {
           "name": "reason",
           "value": "insufficient funds",
-          "note": "the provider's reason",
           "file": "payments/client.js",
           "line": 26,
-          "text": "const { reason } = await res.json()"
+          "text": "const { reason } = await res.json()",
+          "note": "the provider's reason"
         },
         {
           "name": "err",
           "value": "card declined: insufficient funds",
-          "note": "the payment client's error",
           "file": "worker/charge.js",
           "line": 20,
-          "text": "if (err instanceof PaymentDeclined) return { paid: false, error: err.reason }"
+          "text": "if (err instanceof PaymentDeclined) return { paid: false, error: err.reason }",
+          "note": "the payment client's error"
         }
       ],
       "scene": {
@@ -2183,26 +2183,26 @@
         {
           "name": "jobs",
           "value": "8 waiting",
-          "note": "the queue is full",
           "file": "api/orders.js",
           "line": 11,
-          "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })"
+          "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
+          "note": "the queue is full"
         },
         {
           "name": "maxJobs",
           "value": "8",
-          "note": "the limit from shop.yaml",
           "file": "api/queue.js",
           "line": 16,
-          "text": "return this.waiting.length >= this.maxJobs"
+          "text": "return this.waiting.length >= this.maxJobs",
+          "note": "the limit from shop.yaml"
         },
         {
           "name": "res",
           "value": "503",
-          "note": "the API's refusal",
           "file": "web/src/checkout/placeOrder.ts",
           "line": 36,
-          "text": "if (res.status === 503) return showNotice('The shop is busy. Please try again in a minute.')"
+          "text": "if (res.status === 503) return showNotice('The shop is busy. Please try again in a minute.')",
+          "note": "the API's refusal"
         }
       ],
       "scene": {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePodcast, resolveEpisode } from '../src/podcast/model'
+import { parsePodcast, resolveEpisode } from '../src/core/format/podcast/model'
 import { afterStep, remapTime, resumeTime } from '../src/podcast/resume'
 
 // Where a podcast goes on from (src/podcast/resume.ts): after a step it skips, when played again, after its file was
@@ -10,8 +10,8 @@ const journey = { steps: [{ id: 'a', beats: 3 }, { id: 'b', beats: 0 }, { id: 'c
 const seg = (id: string, at: unknown, start: number, end: number) => ({ id, at, start, end, text: id, speaker: 'host' })
 const episode = (segments: object[]) => {
   const p = parsePodcast(JSON.stringify({ version: 1, title: 'T', journey: { id: 'j' }, audio: 'j.mp3', duration: 100, segments }))
-  assert.ok(typeof p !== 'string', String(p))
-  return resolveEpisode(p, journey)
+  assert.ok(p.ok, p.ok ? '' : p.why)
+  return resolveEpisode(p.value, journey)
 }
 // Steps 1 and 3 are covered; 2 and 4 are not.
 const sample = () => episode([

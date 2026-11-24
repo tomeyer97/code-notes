@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check.schema.json",
+  "title": "Understanding check",
+  "description": "A branch's understanding check (understanding/<branch>.json): questions about the change, the author's answers and their grades, and optionally a guided tour of the change (docs/understanding-check.md).",
+  "$comment": "From cli/understanding/types.ts (Check, Question, Attempt) and cli/understanding/validate.ts (validateCheck, topProblems, questionProblems, attemptProblems, tourProblems); limits from cli/understanding/constants.ts (MAX_QUESTIONS 10, MAX_TOUR_STEPS 20, KINDS, VERDICTS). The tour (journey) is a journey file: journey.schema.json, as tourProblems reads it with the extension's journey reader, plus what a tour needs on top (1-20 steps). Not expressible here: question ids unique; end >= start; step at most the tour's step count and only with a tour; only the last attempt must keep its answer (here answer is optional on every attempt); question files existing in the repository; answers changed after grading (hash). Paths: relative, no .. segment; the pattern refuses a leading / or \\ and a drive letter. Unknown fields are not refused.",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The format version: 1.", "const": 1 },
+    "branch": { "description": "The branch the check is for.", "type": "string", "minLength": 1 },
+    "base": { "$ref": "#/$defs/sha", "description": "The commit the change starts from." },
+    "head": { "$ref": "#/$defs/sha", "description": "The commit the questions were written for." },
+    "answeredBy": { "$ref": "#/$defs/who", "description": "Who answers the questions." },
+    "diffStat": {
+      "description": "The change's size when the questions were written.",
+      "type": "object",
+      "properties": {
+        "files": { "description": "Files changed.", "type": "integer", "minimum": 0 },
+        "added": { "description": "Lines added.", "type": "integer", "minimum": 0 },
+        "removed": { "description": "Lines removed.", "type": "integer", "minimum": 0 }
+      }
+    },
+    "model": { "description": "The model that wrote the questions.", "type": "string" },
+    "createdAt": { "description": "When the check was written (ISO 8601).", "type": "string" },
+    "questions": {
+      "description": "The questions (at most 10: the first set plus top-ups).",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/question" }
+    },
+    "journey": {
+      "description": "The tour of the change: a journey (at most 20 steps).",
+      "$ref": "journey.schema.json",
+      "properties": {
+        "steps": { "description": "The tour's steps (1-20).", "type": "array", "minItems": 1, "maxItems": 20 }
+      }
+    },
+    "noTour": {
+      "description": "The change is documentation that describes no code: no tour, on purpose.",
+      "const": true
+    },
+    "result": {
+      "description": "What CI found when it last looked (informational).",
+      "type": "object",
+      "properties": {
+        "done": { "description": "Questions answered and graded done.", "type": "integer", "minimum": 0 },
+        "passed": { "description": "Questions passed.", "type": "integer", "minimum": 0 },
+        "total": { "description": "Questions in the check.", "type": "integer", "minimum": 0 },
+        "needed": { "description": "Passes needed.", "type": "integer", "minimum": 0 },
+        "verdict": { "description": "The result.", "enum": ["pass", "fail"] },
+        "at": { "description": "When it was found (ISO 8601).", "type": "string" }
+      }
+    }
+  },
+  "required": ["version", "branch", "head", "questions"],
+  "$defs": {
+    "sha": {
+      "description": "A git commit sha (7-64 lowercase hex digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,64}$"
+    },
+    "path": {
+      "description": "A path inside the repository: relative, without a .. segment.",
+      "type": "string",
+      "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?![\\s\\S]*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[\\s\\S]"
+    },
+    "who": {
+      "description": "A person: a name, an email, or both.",
+      "type": "object",
+      "properties": {
+        "name": { "description": "Their name.", "type": "string" },
+        "email": { "description": "Their email.", "type": "string" }
+      },
+      "anyOf": [
+        {
+          "description": "With a name.",
+          "required": ["name"],
+          "properties": { "name": { "description": "Not empty.", "minLength": 1 } }
+        },
+        {
+          "description": "With an email.",
+          "required": ["email"],
+          "properties": { "email": { "description": "Not empty.", "minLength": 1 } }
+        }
+      ]
+    },
+    "kind": { "description": "What the question asks about.", "enum": ["how", "why", "failure", "edge", "change"] },
+    "link": {
+      "description": "A code link: words of a text that open these lines.",
+      "type": "object",
+      "properties": {
+        "phrase": { "description": "The words of the text, as written.", "type": "string" },
+        "file": { "description": "The file, relative to the repository.", "type": "string" },
+        "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+        "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 },
+        "text": { "description": "The first line's text (to find it again).", "type": "string" }
+      },
+      "required": ["phrase", "file", "start", "end"]
+    },
+    "links": { "description": "Code links of a text.", "type": "array", "items": { "$ref": "#/$defs/link" } },
+    "anchor": {
+      "description": "Where the question's lines are, to find them again: a compact anchor (as a journey step's).",
+      "type": "object",
+      "properties": {
+        "v": { "description": "The anchor format: 3.", "const": 3 },
+        "head": { "description": "The first (up to 3) non-blank lines.", "type": "string" },
+        "tail": { "description": "The last (up to 2) non-blank lines.", "type": "string" },
+        "lines": { "description": "How many lines the range has.", "type": "integer", "minimum": 1 },
+        "hash": { "description": "sha1 of the normalized lines, first 12 hex digits.", "type": "string" },
+        "before": { "description": "The nearest non-blank line above.", "type": "string" },
+        "after": { "description": "The nearest non-blank line below.", "type": "string" }
+      },
+      "required": ["v", "head"]
+    },
+    "question": {
+      "description": "One question about the change.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "Its id: q1, q2, ...", "type": "string", "pattern": "^q\\d+$" },
+        "kind": { "$ref": "#/$defs/kind", "description": "What it asks about." },
+        "text": {
+          "description": "The question (10-400 characters).",
+          "type": "string",
+          "maxLength": 400,
+          "pattern": "^\\s*\\S[\\s\\S]{8,}\\S\\s*$"
+        },
+        "file": { "$ref": "#/$defs/path", "description": "The file it is about." },
+        "start": { "description": "The first line it is about (1-based).", "type": "integer", "minimum": 1 },
+        "end": { "description": "The last line it is about (1-based, inclusive).", "type": "integer", "minimum": 1 },
+        "target": { "description": "A design question about the whole file (no lines).", "const": "file" },
+        "anchor": { "$ref": "#/$defs/anchor", "description": "Where its lines are, to find them again." },
+        "attempts": {
+          "description": "The answers and their grades, oldest first.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/attempt" }
+        },
+        "round": { "description": "The round of questions it was written in.", "type": "integer", "minimum": 1 },
+        "also": {
+          "description": "Unchanged code the answer also depends on (at most 3).",
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "description": "Lines of unchanged code.",
+            "type": "object",
+            "properties": {
+              "file": { "$ref": "#/$defs/path", "description": "The file." },
+              "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+              "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 },
+              "anchor": { "$ref": "#/$defs/anchor", "description": "Where the lines are, to find them again." },
+              "target": { "description": "The whole file.", "const": "file" }
+            },
+            "required": ["file", "start", "end"]
+          }
+        },
+        "suspect": {
+          "description": "The question writer thinks the honest answer is \"this is a bug\".",
+          "type": "boolean"
+        },
+        "links": { "$ref": "#/$defs/links", "description": "Code links of the question's text." },
+        "step": {
+          "description": "The tour step after which its answer is visible (1-based).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "concern": { "$ref": "#/$defs/concern", "description": "A concern about the code found while grading." }
+      },
+      "required": ["id", "kind", "text", "file"],
+      "anyOf": [
+        { "description": "A question on lines.", "required": ["start", "end"] },
+        { "description": "A design question on the whole file.", "required": ["target"] }
+      ]
+    },
+    "concern": {
+      "description": "A concern about the code.",
+      "type": "object",
+      "properties": {
+        "text": { "description": "What the concern is.", "type": "string" },
+        "flagged": { "description": "The author put it on the merge request.", "type": "boolean" },
+        "at": { "description": "When it was raised (ISO 8601).", "type": "string" },
+        "by": { "$ref": "#/$defs/who", "description": "Who raised it." },
+        "dismissed": {
+          "description": "It was dismissed, and why.",
+          "type": "object",
+          "properties": {
+            "reason": { "description": "Why it was dismissed.", "type": "string" },
+            "by": { "$ref": "#/$defs/who", "description": "Who dismissed it." },
+            "at": { "description": "When (ISO 8601).", "type": "string" }
+          },
+          "required": ["reason"]
+        },
+        "fixed": {
+          "description": "It was fixed.",
+          "type": "object",
+          "properties": {
+            "by": { "$ref": "#/$defs/who", "description": "Who fixed it." },
+            "at": { "description": "When (ISO 8601).", "type": "string" }
+          }
+        }
+      },
+      "required": ["text"]
+    },
+    "attempt": {
+      "description": "One answer and its grade.",
+      "type": "object",
+      "properties": {
+        "answer": { "description": "The answer (only the last attempt must keep it).", "type": "string" },
+        "at": { "description": "When it was answered (ISO 8601).", "type": "string" },
+        "by": { "$ref": "#/$defs/who", "description": "Who answered." },
+        "verdict": { "description": "The grade.", "enum": ["pass", "retry", "explained", "restated"] },
+        "partial": { "description": "Mostly right: a pass with a gap.", "type": "boolean" },
+        "feedback": { "description": "The grader's feedback.", "type": "string" },
+        "hint": { "description": "A hint for the next try.", "type": "string" },
+        "hash": {
+          "description": "Set when graded: shows an answer or verdict changed after grading.",
+          "type": "string"
+        },
+        "gradedAt": { "description": "When it was graded (ISO 8601).", "type": "string" },
+        "note": { "description": "The grader's note.", "type": "string" },
+        "topic": { "description": "The topic the grader named.", "type": "string" },
+        "concern": { "description": "A concern the grader raised.", "type": "string" },
+        "flagged": { "description": "The concern was put on the merge request.", "type": "boolean" },
+        "links": { "$ref": "#/$defs/links", "description": "Code links of the reply." }
+      }
+    }
+  }
+}

@@ -2845,7 +2845,7 @@ def check_extras(repo, since, j, fix, P, warnings, fixed):
 
 
 # ---------- marks: the part of a line a step or beat is about (docs/journey-format.md "Marks"; a podcast segment's
-# marks have the same shape plus phrase and at). The extension's src/marks/model.ts, rule for rule. ----------
+# marks have the same shape plus phrase and at). The extension's src/core/format/marks.ts, rule for rule. ----------
 
 MAX_MARKS = 3             # per step or beat: more, and nothing stands out
 
@@ -3134,7 +3134,7 @@ def cmd_marks(repo, slug, n=''):
     sys.exit(1 if any(lv == 'P' for lv, _ in issues) else 0)
 
 
-# ---------- podcasts: <slug>.podcast.json (the Code Notes extension's src/podcast/validate.ts, rule for rule; the
+# ---------- podcasts: <slug>.podcast.json (the Code Notes extension's src/core/format/podcast/validate.ts, rule for rule; the
 # cases in its test/fixtures/podcast/cases.json run through both) ----------
 
 POD_CUES = ('map', 'open', 'beat')

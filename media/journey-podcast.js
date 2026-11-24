@@ -432,7 +432,7 @@
       const cs = ep.chapters
       const i = chapterAt(t)
       if (dir > 0) seek(i + 1 < cs.length ? cs[i + 1].start : total())
-      // ⏮ is always the part before, as the step card's ‹ Previous (src/podcast/model.ts chapterJump).
+      // ⏮ is always the part before, as the step card's ‹ Previous (src/core/format/podcast/model.ts chapterJump).
       else seek(i === 0 ? cs[0].start : cs[i - 1].start)
     }
     function play(at, upTo) {

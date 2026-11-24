@@ -1,6 +1,6 @@
 // The listening player in Chromium: the Listen view (media/listen.js, the audio's host) and the journey panel
 // (media/journey-map.js, whose player is a remote of it), with this script playing the extension's part between them
-// (src/podcast/player.ts, simplified: the same model, out/src/podcast/model.js) on the scene sample journey and a
+// (src/podcast/player.ts, simplified: the same model, out/src/core/format/podcast/model.js) on the scene sample journey and a
 // short tone. The audio is served over HTTP by a server that ignores Range (as VS Code for the web serves a webview's
 // files): the host loads it whole (a blob) so seeks get there.
 //
@@ -34,14 +34,14 @@ const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
 const MAP = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
 const LISTEN = pathToFileURL(path.join(ROOT, 'test/journey-podcast/listen.html')).href
-const MODEL = path.join(ROOT, 'out/src/podcast/model.js')
-if (!fs.existsSync(MODEL)) { console.error('out/src/podcast/model.js is missing: run `npm run build` first'); process.exit(2) }
+const MODEL = path.join(ROOT, 'out/src/core/format/podcast/model.js')
+if (!fs.existsSync(MODEL)) { console.error('out/src/core/format/podcast/model.js is missing: run `npm run build` first'); process.exit(2) }
 const { parsePodcast, resolveEpisode, viewAt, timeOf } = createRequire(import.meta.url)(MODEL)
 
 const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/journey-scene/sample.json'), 'utf8'))
 const journey = { ...raw, steps: raw.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] }
 const podcastFile = path.join(ROOT, 'test/fixtures/podcast/sample.podcast.json')
-const p = parsePodcast(fs.readFileSync(podcastFile, 'utf8'))
+const p = parsePodcast(fs.readFileSync(podcastFile, 'utf8')).value
 // The fixture, with: a long segment (the caption in parts of two lines), one with its own sentence times, and the
 // "deploy" step left out (a step the podcast doesn't talk about).
 const LONG = 'The page goes live, and it keeps going while the order is packed. Every box that is filled is shown as it happens, with the name of the person packing it and the time it took, so nobody has to refresh anything at all. When the last box is closed, the page says the order is on its way.'

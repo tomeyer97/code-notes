@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "id": "20261111-160135-g6no",
   "file": "worker/worker.go",
   "range": {

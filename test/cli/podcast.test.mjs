@@ -1,5 +1,5 @@
 // The code-journey skill's `journey.py podcast` (and `check`, which runs it): the same rules as the extension's
-// validator (src/podcast/validate.ts). Every case of test/fixtures/podcast/cases.json, which test/podcastValidate.test.ts
+// validator (src/core/format/podcast/validate.ts). Every case of test/fixtures/podcast/cases.json, which test/podcastValidate.test.ts
 // runs through the extension's, gives the same problems here.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -52,7 +52,7 @@ print(json.dumps(out))
 })
 
 test('journey.py podcast: marks are said in the same words as the extension', async () => {
-  const { validatePodcast } = await import(path.join(root, 'out/src/podcast/validate.js'))
+  const { validatePodcast } = await import(path.join(root, 'out/src/core/format/podcast/validate.js'))
   const py = `
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location('journey', sys.argv[1])

@@ -5,6 +5,8 @@ import { KINDS, MAX_QUESTIONS, MAX_TOUR_STEPS, VERDICTS } from './constants'
 import { attemptHash } from './checkFile'
 import { isHex } from './git'
 import type { Check } from './types'
+import { readJourney } from '../../src/core/format/journeyModel'
+import { VERSIONS } from '../../src/core/format/versions'
 
 /** Optional code links in a question's or a reply's text: `[{ phrase, file, start, end }]`, checked lightly. */
 function linksBad(links: any, at: string, errs: string[]): void {
@@ -42,7 +44,7 @@ export function validateCheck(c: unknown, { repo }: { repo?: string } = {}): str
 /** The file's own fields: version, branch, commits, who answers. */
 function topProblems(c: Record<string, any>): string[] {
   const errs: string[] = []
-  if (c.version !== 1) errs.push(`"version" is ${JSON.stringify(c.version)}: expected 1`)
+  if (c.version !== VERSIONS.check) errs.push(`"version" is ${JSON.stringify(c.version)}: expected ${VERSIONS.check}`)
   if (typeof c.branch !== 'string' || !c.branch) errs.push('"branch" is missing')
   if (!isHex(c.head)) errs.push('"head" must be a commit sha')
   if (c.base !== undefined && !isHex(c.base)) errs.push('"base" must be a commit sha')
@@ -109,30 +111,28 @@ function attemptProblems(a: any, at: string, last: boolean): string[] {
 }
 
 /**
- * What is wrong with a check's journey (the tour of the change, in the journey file format v2; docs/journey-format.md),
- * checked lightly: the shape the extension needs to walk it. `journey.py check` holds the writing rules. A step whose
- * file is gone later is not a problem here (the extension shows it as stale): CI never fails over the tour's code.
+ * What is wrong with a check's journey (the tour of the change, a journey file; docs/journey-format.md). The
+ * extension's reader decides what it can read (src/core/format/journeyModel.ts readJourney): a tour it refuses, or a
+ * step it would leave out, is an error here. On top, what a tour needs that a journey doesn't: a title, at most
+ * MAX_TOUR_STEPS titled steps, files inside the repository, whole ranges. A step whose file is gone later is not a
+ * problem here (the extension shows it as stale): CI never fails over the tour's code.
  */
 export function tourProblems(j: any): string[] {
-  if (!j || typeof j !== 'object' || Array.isArray(j)) return ['not an object']
-  const errs: string[] = []
-  if (j.version !== 2 && j.version !== 3) errs.push(`"version" is ${JSON.stringify(j.version)}: expected 2`)
+  const read = readJourney(j, 'tour')
+  if (!read.ok) return [read.why]
+  const errs = [...read.value.stepsLeftOut]
   if (typeof j.title !== 'string' || !j.title.trim()) errs.push('"title" is missing')
-  const ids = new Set(Array.isArray(j.nodes) ? j.nodes.filter((n: any) => n && typeof n.id === 'string').map((n: any) => n.id) : [])
-  if (!ids.size) errs.push('"nodes" must be a non-empty array of boxes with ids')
-  if (!Array.isArray(j.steps) || !j.steps.length) return [...errs, '"steps" must be a non-empty array']
+  if (!j.steps.length) return [...errs, '"steps" must be a non-empty array']
   if (j.steps.length > MAX_TOUR_STEPS) errs.push(`${j.steps.length} steps: at most ${MAX_TOUR_STEPS}`)
   j.steps.forEach((s: any, i: number) => {
+    if (!s || typeof s !== 'object') return // left out above
     const at = `step ${i + 1}`
-    if (!s || typeof s !== 'object') { errs.push(`${at}: not an object`); return }
     if (typeof s.title !== 'string' || !s.title.trim()) errs.push(`${at}: "title" is missing`)
-    if (!ids.has(s.node)) errs.push(`${at}: "node" ${JSON.stringify(s.node)} is not a box of the map`)
-    if (!isRelPath(s.file)) errs.push(`${at}: "file" must be a path inside the repository`)
-    if (!s.range || !isLines(s.range.start, s.range.end)) errs.push(`${at}: "range" must be { "start", "end" } (1-based lines)`)
+    if (typeof s.file === 'string' && s.file.trim() && !isRelPath(s.file)) errs.push(`${at}: "file" must be a path inside the repository`)
+    if (s.range && !isLines(s.range.start, s.range.end)) errs.push(`${at}: "range" must be { "start", "end" } (1-based lines)`)
   })
   return errs
 }
-
 
 /** Graded attempts whose hash doesn't match (or is missing): "q2 attempt 1". */
 export function hashProblems(check: Check): string[] {

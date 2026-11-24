@@ -5,7 +5,7 @@ import { findLine } from '../core/anchors/lineFollow'
 import { TrackedLine, TrackedLines } from '../platform/followEdits'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
 import { docLines } from '../platform/documents'
-import { marksIn } from '../marks/model'
+import { marksIn } from '../core/format/marks'
 
 // A step's animation: the beat on screen lights the one line that does what it shows, nothing else
 // (values are the step's value hints: valueHints.ts). A beat with marks (tour/stepMarks.ts) leaves its line unboxed:
@@ -98,7 +98,7 @@ export class Beats implements vscode.Disposable {
     if (mine !== this.seq) return 'superseded'
     const lines = docLines(doc)
     const text = String(c.text ?? '')
-    const at = findLine(lines, c.line, text)
+    const at = findLine(lines, c.line - 1, text)
     if (at < 0) {
       this.log.info(`animation: the line at ${c.file}:${c.line} changed; nothing lit`)
       return none()

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "marks.schema.json",
+  "title": "Code marks",
+  "description": "A highlight of part of the code: whole lines, or only some characters within them. Used by journey steps and beats (docs/journey-format.md, \"Marks\") and podcast segments (docs/podcast-format.md, \"Marks\").",
+  "$comment": "Rules from src/core/format/marks.ts markShapeProblem and journey.py mark_shape_problem (the two agree). Not expressible here: lines[0] <= lines[1]. Left out on purpose (warnings only): more than 3 marks per step or beat, a match nobody's text names, a match equal to the whole line, a mark outside the step's lines. Checks against the code (the file exists, the lines exist, match is found) need the repository and are not part of the file's shape.",
+  "$defs": {
+    "file": { "description": "A file path relative to the repository.", "type": "string", "pattern": "\\S" },
+    "lines": {
+      "description": "[first, last]: 1-based line numbers, inclusive, first <= last.",
+      "type": "array",
+      "prefixItems": [
+        { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+        { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "match": {
+      "description": "Only this text within the lines lights, written exactly as in the code; it may span lines.",
+      "type": "string",
+      "minLength": 1
+    },
+    "nth": {
+      "description": "Which occurrence of match within the lines lights (1-based; default 1).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "mark": {
+      "description": "One mark: lines of a file, or only the text `match` within them.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/file",
+          "description": "The file, relative to the repository. Default: the owner's file (the step's, the beat's code file, or the podcast segment's)."
+        },
+        "lines": { "$ref": "#/$defs/lines", "description": "The lines it covers: [first, last], 1-based, inclusive." },
+        "match": {
+          "$ref": "#/$defs/match",
+          "description": "Only this text within the lines lights; without it, the whole lines do."
+        },
+        "nth": {
+          "$ref": "#/$defs/nth",
+          "description": "Which occurrence of match within the lines (1-based; default 1)."
+        }
+      },
+      "required": ["lines"]
+    },
+    "marks": { "description": "A list of marks, lit in order.", "type": "array", "items": { "$ref": "#/$defs/mark" } }
+  }
+}

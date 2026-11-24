@@ -5,6 +5,10 @@ steps and animation beats. Code Notes plays it in the journey panel and moves th
 opens as the voice reaches it, and its animation goes to the beat being talked about. The extension only plays
 podcasts; how you make one (a text-to-speech service, a recording) is up to you.
 
+The file's shape is a JSON Schema: [podcast.schema.json](https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/podcast.schema.json) (a segment's marks:
+[marks.schema.json](https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/marks.schema.json)). The checks that need the journey, the audio or the code are
+described under "Validation" below.
+
 ## Where it goes
 
 Next to its journey, with the same name (a podcast file named otherwise is not played; the "Code Notes" output says

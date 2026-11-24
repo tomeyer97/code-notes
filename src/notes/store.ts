@@ -4,14 +4,24 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { placeFile, settingFolder } from '../core/paths'
 import { fileName, jsonFilesIn, jsonName, readText, watchJsonFiles } from '../platform/jsonFolder'
-import { NoteData, agentReadme, folderProblem, merge, parseNote, serialize, titleOf } from '../core/format/noteModel'
+import { NoteData, fillReadme, folderProblem, merge, parseNote, serialize, titleOf } from '../core/format/noteModel'
 import { SaveFailures } from '../platform/saveFailures'
 
 // One JSON file per note in <workspace folder>/<codeNotes.folder>/<name>.json. One file per note so an agent and
 // the extension never overwrite each other's notes. A note IS its file: the file name is its identity (an "id"
 // field that disagrees is ignored). Deleted notes move to <folder>/.trash/. The format is documented in the README
-// the extension writes into the folder (noteModel.ts agentReadme), which also names the person. What is in a note file
+// the extension writes into the folder (agentReadme, from media/notes-README.template.md), which also names the person. What is in a note file
 // (fields, parsing, merging) is noteModel.ts; this reads, watches and writes the files.
+
+/** The README template (media/notes-README.template.md), read once: from out/src/notes/ to the extension's root. */
+const README_TEMPLATE = path.join(__dirname, '..', '..', '..', 'media', 'notes-README.template.md')
+let readmeTemplate: string | undefined
+
+/** The README the extension writes into the notes folder (named `folder`): the note format, for agents, naming `person`. */
+export function agentReadme(person: string, folder: string): string {
+  readmeTemplate ??= fs.readFileSync(README_TEMPLATE, 'utf8')
+  return fillReadme(readmeTemplate, person, folder)
+}
 
 export interface Note {
   data: NoteData
@@ -142,8 +152,9 @@ export class Store implements vscode.Disposable {
     const wasBroken = this.broken.delete(key)
     if (wasBroken) this.log.appendLine(`${uri.fsPath}: readable again`)
     if (existing && existing.raw === raw) return wasBroken
-    const parsed = parseNote(await this.folderNoteShorthand(folder, raw), jsonName(uri))
-    if (typeof parsed === 'string') return this.markBroken(uri, raw, parsed)
+    const read = parseNote(await this.folderNoteShorthand(folder, raw), jsonName(uri))
+    if (!read.ok) return this.markBroken(uri, raw, read.why)
+    const parsed = read.value
     const placed = placeFile(folder.uri.fsPath, parsed.file)
     if (typeof placed !== 'string') return this.markBroken(uri, raw, placed.error)
     if (placed !== parsed.file) this.log.appendLine(`note ${parsed.id}: path "${parsed.file}" read as "${placed}"`)
@@ -216,8 +227,9 @@ export class Store implements vscode.Disposable {
       // Undefined: deleted, write ours.
       const disk = await readText(n.uri)
       if (disk !== undefined && disk !== n.raw) {
-        const theirs = parseNote(disk, n.data.id)
-        if (typeof theirs === 'string') { this.log.appendLine(`${n.uri.fsPath}: not saved, the file is being written (${theirs})`); return false }
+        const read = parseNote(disk, n.data.id)
+        if (!read.ok) { this.log.appendLine(`${n.uri.fsPath}: not saved, the file is being written (${read.why})`); return false }
+        const theirs = read.value
         n.data = merge(n.base ?? theirs, n.data, theirs)
         this.log.appendLine(`${n.uri.fsPath}: merged a change made on disk`)
         merged = true

@@ -1,7 +1,7 @@
 // Where a podcast goes on from: after the walk moved to a step it skips, when it is played again, when its file was
 // rewritten. Pure (no vscode): unit tests use it as is (test/podcastResume.test.ts); player.ts applies it.
 
-import { Episode, segmentAt, timeOf, viewAt } from './model'
+import { Episode, segmentAt, timeOf, viewAt } from '../core/format/podcast/model'
 
 /**
  * The walk is on step `step`, which the podcast never talks about: where ▶ goes on. The first part about a later

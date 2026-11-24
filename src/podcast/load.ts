@@ -11,8 +11,8 @@ import { gitIn } from '../platform/checkout'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { readText } from '../platform/jsonFolder'
 import { wfs } from '../platform/workspaceFs'
-import { isPodcastFile, podcastFileOf, PodcastProblem } from './model'
-import { audioPathProblem, lineCol, locate, markFileNames, validatePodcast, Validation } from './validate'
+import { isPodcastFile, podcastFileOf, PodcastProblem } from '../core/format/podcast/model'
+import { audioPathProblem, lineCol, locate, markFileNames, validatePodcast, Validation } from '../core/format/podcast/validate'
 
 /** A podcast file next to a journey, read and checked. */
 export interface PodcastRead {

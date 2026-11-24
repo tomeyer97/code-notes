@@ -3,14 +3,12 @@
 // out/vendor/elk.bundled.js, as window.ELK) places the boxes; an arrow between modules gets one curve of its own; each
 // label goes where it covers least. The boxes are measured with the real styles first: so the boxes' markup is here
 // too (titleEl, leafEl), and journey-graph.js draws the same elements.
-// Needs common.js, journeyModel.js and ELK, loaded before it.
+// Needs common.js and ELK, loaded before it.
 // API: window.JourneyLayout = { layout(j) → Promise<{ w, h, abs, titleH, kids, edges }>, signature(j), stepsOf(j),
-//      ancestors(byId, id), titleEl(n), leafEl(n, nums), samples(edge), pathD(points), curveD(bez), verb(label) }
+//      ancestors(byId, id), titleEl(n), leafEl(n, nums), samples(edge), pathD(points), curveD(bez), verb(label),
+//      isGeneric(label) }
 ;(function () {
   const { el, overlapArea, edgesOf } = window.common
-  // out/src/core/format/journeyModel.js is a CommonJS module the page loads as a plain script: it fills the `exports`
-  // object the page declares, also named JourneyModel (src/journeys/mapPanel.ts, test/journey-map/harness.html).
-  const JourneyModel = window.JourneyModel
 
   // ---------- an arrow's label: a plain verb phrase ----------
 
@@ -26,6 +24,8 @@
   const DURATION = new RegExp(String.raw`\s+[\d.]+\s*${UNIT}\b`, 'gi')
   /** An arrow label as a plain verb phrase: the first clause, without timings ("polls every 3 s, max 10 min" → "polls"). */
   const verb = (l) => l.split(/[;,(]/)[0].replace(TIMING, '').replace(DURATION, '').trim()
+  /** "calls", "calls per environment": say nothing a solid arrow doesn't; not drawn on the map. */
+  const isGeneric = (label) => !label.trim() || /^calls?(\s|$)/i.test(label.trim())
 
   // ---------- the layout (ELK) ----------
 
@@ -194,7 +194,7 @@
     // Each edge in the innermost box holding both ends, its label measured.
     const edgesIn = j.edges.map((e, i) => {
       const container = edgeContainer(pathOf(e.from), pathOf(e.to), e)
-      const text = JourneyModel.isGeneric(e.label) ? '' : verb(e.label)
+      const text = isGeneric(e.label) ? '' : verb(e.label)
       const lab = text ? ms.size(el('div', 'glabel', text)) : undefined
       const labels = lab ? { labels: [{ id: `e${i}l`, text, width: lab.w, height: lab.h }] } : {}
       const ee = { id: `e${i}`, sources: [e.from], targets: [e.to], ...labels }
@@ -394,5 +394,5 @@
     return `M${p0.x},${p0.y} C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`
   }
 
-  window.JourneyLayout = { layout, signature, stepsOf, ancestors, titleEl, leafEl, samples, pathD, curveD, verb }
+  window.JourneyLayout = { layout, signature, stepsOf, ancestors, titleEl, leafEl, samples, pathD, curveD, verb, isGeneric }
 })()

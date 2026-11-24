@@ -2,6 +2,7 @@
 // (BranchStatus, CheckPosition, Words). The extension imports them from here (src/check/types.ts), so both sides
 // read one definition. Types only: nothing here is in the built file.
 import type { JStep, Journey } from '../../src/core/format/journeyModel'
+import type { CompactAnchor } from '../../src/core/anchors/kinds'
 
 export type Kind = 'how' | 'why' | 'failure' | 'edge' | 'change'
 export type Verdict = 'pass' | 'retry' | 'explained' | 'restated'
@@ -37,13 +38,9 @@ export interface Range { file: string; start: number; end: number }
 /** A code link: words of a text that light these lines when clicked (the same as a journey step's links). */
 export interface Link extends Range { phrase: string; text?: string }
 
-/**
- * Where a question's lines are, to find them again after the code moved (anchors.ts compactOf/findAnchor). The same
- * format and rules as a journey step's compact anchor (src/core/anchors/compact.ts, JAnchor v3): `head` the first
- * (up to 3) and `tail` the last (up to 2) non-blank lines, `lines` the range's length, `hash` of its normalized text,
- * `before`/`after` the nearest non-blank line around it ('' at the file's edge).
- */
-export interface QuestionAnchor { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
+/** Where a question's lines are, to find them again after the code moved: a compact anchor, the same as a journey
+ *  step's (src/core/anchors/compact.ts; anchors.ts compactOf/findAnchor). */
+export type QuestionAnchor = CompactAnchor
 
 /** A concern about the code found while grading; `flagged`: the author put it on the merge request. */
 export interface Concern {

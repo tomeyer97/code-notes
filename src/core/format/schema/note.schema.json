@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "note.schema.json",
+  "title": "Code note",
+  "description": "A note on the code: one file .code-notes/<id>.json, a comment thread on some lines, a whole file or a folder (media/notes-README.template.md).",
+  "$comment": "From src/core/format/noteModel.ts noteProblem and parseNote. Required: file, messages (at least one, each with a body), and range unless target is set. Unknown fields are allowed: the extension keeps them and writes them back. Lenient fallbacks of the reader not described here: a selection with non-number columns, an unknown role, a malformed event (each dropped when read). severity is any string: the extension knows high, medium, low and nit, and keeps any other value (\"critical\") in the file without an error, showing it as none. Not expressible here: range.end >= range.start; range and anchor are ignored when target is set.",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The note format version: 1 (a file without it is version 1).", "const": 1 },
+    "id": { "description": "The note's id; the file name (<id>.json) is what counts.", "type": "string" },
+    "file": {
+      "description": "The code file (or folder, with target), relative to the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "range": {
+      "description": "The lines in file, 1-based, inclusive.",
+      "type": "object",
+      "properties": {
+        "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+        "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 }
+      },
+      "required": ["start", "end"]
+    },
+    "anchor": {
+      "description": "The lines the note is about and the lines around them, to follow the code (leave out or {} to let the extension fill it).",
+      "type": "object",
+      "properties": {
+        "text": { "description": "The text of the lines.", "type": "string" },
+        "before": { "description": "The lines just above.", "type": "string" },
+        "after": { "description": "The lines just below.", "type": "string" },
+        "commit": { "description": "The git commit it was written on.", "type": "string" },
+        "branch": { "description": "The git branch it was written on.", "type": "string" }
+      }
+    },
+    "selection": {
+      "description": "The exact text selected, when the note is about part of a line.",
+      "anyOf": [
+        { "description": "The selected text alone.", "type": "string", "pattern": "\\S" },
+        {
+          "description": "The selected text and its columns.",
+          "type": "object",
+          "properties": {
+            "text": { "description": "The selected text.", "type": "string" },
+            "startCol": {
+              "description": "Its first column on the range's first line (0-based).",
+              "type": "integer",
+              "minimum": 0
+            },
+            "endCol": { "description": "The column after its end (0-based).", "type": "integer", "minimum": 0 }
+          },
+          "required": ["text"]
+        }
+      ]
+    },
+    "session": { "description": "A name that groups notes (one review, one topic).", "type": "string" },
+    "status": { "description": "Whether the note is open or resolved (default open).", "enum": ["open", "resolved"] },
+    "stale": { "description": "The code at range changed since the note was written.", "type": "boolean" },
+    "claudeSession": {
+      "description": "The Claude Code session that answered this note (follow-ups resume it).",
+      "type": "string"
+    },
+    "createdAt": { "description": "When the note was made (ISO 8601).", "type": "string" },
+    "messages": {
+      "description": "The conversation, oldest first.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "severity": {
+      "description": "For review findings: how much it matters: high, medium, low or nit.",
+      "type": "string"
+    },
+    "events": {
+      "description": "Status changes, oldest first.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "target": {
+      "description": "A note on a whole file or folder (no range or anchor then).",
+      "enum": ["file", "folder"]
+    },
+    "journey": {
+      "description": "Set on a question asked from a journey step.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "The journey's id.", "type": "string" },
+        "step": { "description": "The step's id.", "type": "string" },
+        "n": { "description": "The step's number when the question was asked.", "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "required": ["file", "messages"],
+  "anyOf": [
+    { "description": "A note on lines: it has a range.", "required": ["range"] },
+    { "description": "A note on a whole file or folder.", "required": ["target"] }
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "role": { "description": "human (the person) or agent.", "enum": ["human", "agent"] },
+    "message": {
+      "description": "One message of the thread.",
+      "type": "object",
+      "properties": {
+        "author": { "description": "Who wrote it.", "type": "string" },
+        "role": { "$ref": "#/$defs/role", "description": "Whether a person or an agent wrote it." },
+        "body": { "description": "The message, in markdown.", "type": "string" },
+        "at": { "description": "When it was written (ISO 8601).", "type": "string" }
+      },
+      "required": ["body"]
+    },
+    "event": {
+      "description": "A status change: who resolved or reopened the note, and when.",
+      "type": "object",
+      "properties": {
+        "type": { "description": "What happened.", "enum": ["resolved", "reopened"] },
+        "by": { "description": "Who did it.", "type": "string" },
+        "role": { "$ref": "#/$defs/role", "description": "Whether a person or an agent did it." },
+        "at": { "description": "When (ISO 8601).", "type": "string" }
+      },
+      "required": ["type", "at"]
+    }
+  }
+}

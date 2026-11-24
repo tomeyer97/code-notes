@@ -1,4 +1,4 @@
-// How marks (marks/model.ts) look on the code, for every owner: a podcast's segment (podcast/marks.ts) and a walked
+// How marks (core/format/marks.ts) look on the code, for every owner: a podcast's segment (podcast/marks.ts) and a walked
 // journey step (tour/stepMarks.ts). One family, fills only (no borders, no bars, nothing in the scrollbar): a mark
 // within a line tints its characters; a mark of whole lines tints the full lines as one block. The focus (the newest)
 // is the one coloured thing on the code (codeNotes.markBackground); the marks before it a lighter, grey tint.
@@ -6,7 +6,7 @@
 import * as vscode from 'vscode'
 import { setDecorations } from '../platform/editorDecorations'
 import { docLines } from '../platform/documents'
-import { CodeMark, findMark, MarkSpot } from './model'
+import { CodeMark, findMark, MARK_REFIND_LINES, MarkSpot } from '../core/format/marks'
 
 /** What is lit in one document: ranges within lines, and whole lines, in each style. */
 export interface Shown { focus: vscode.Range[]; dim: vscode.Range[]; focusLines: vscode.Range[]; dimLines: vscode.Range[] }
@@ -87,7 +87,7 @@ export class MarkPainter implements vscode.Disposable {
       spot = f && !(lost && this.missing === 'drop') ? { ...f.spot, whole: !m.match || !f.found } : null
       const where = `${vscode.workspace.asRelativePath(doc.uri, false)}:${m.lines[0]}${m.lines[1] !== m.lines[0] ? `-${m.lines[1]}` : ''}`
       if (!f) this.once(key, `${who}: ${where} is past the end of the file; nothing lit`)
-      else if (lost) this.once(key, `${who}: ${JSON.stringify(m.match)} isn't at ${where} nor within 20 lines; ${this.missing === 'lines' ? 'its lines are lit' : 'nothing lit'}`)
+      else if (lost) this.once(key, `${who}: ${JSON.stringify(m.match)} isn't at ${where} nor within ${MARK_REFIND_LINES} lines; ${this.missing === 'lines' ? 'its lines are lit' : 'nothing lit'}`)
       else if (f.moved) this.once(key, `${who}: ${JSON.stringify(m.match)} moved ${Math.abs(f.moved)} lines ${f.moved < 0 ? 'up' : 'down'} from ${where}; lit there`)
       if (this.spots.size > 500) this.spots.clear()
       this.spots.set(id, spot)

@@ -3,20 +3,35 @@
 import { test } from 'node:test'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as vm from 'vm'
 import { expectGolden } from './golden'
 import { FIXTURES, read, root } from './goldenJourneys'
-import { parseJourney, readAnchor, readLinks, readValues, isGeneric, isOldFormat } from '../src/core/format/journeyModel'
-import { codeMarkOf, findMark, markCodeProblem, markShapeProblem, readMarks, walkMarks } from '../src/marks/model'
+import { parseJourney, readAnchor, readLinks, readValues, isOldFormat } from '../src/core/format/journeyModel'
+import { codeMarkOf, findMark, markCodeProblem, markShapeProblem, readMarks, walkMarks } from '../src/core/format/marks'
 
 const AREA = 'journey'
+
+/** parseJourney's result as the goldens hold it: the journey, or the reason it was refused. */
+const parsedOrWhy = (raw: string, name: string) => {
+  const r = parseJourney(raw, name)
+  return r.ok ? r.value : r.why
+}
+
+/** The map's own label rule (media/journey-layout.js), loaded as the page loads it. */
+function mapLabels(): { isGeneric: (label: string) => boolean } {
+  const window: Record<string, any> = {}
+  const context = vm.createContext({ window })
+  for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(read(`media/${f}`), context)
+  return window.JourneyLayout
+}
 
 // ---------- parsing ----------
 
 test('golden: every fixture journey as parseJourney reads it', () => {
-  for (const [name, file] of Object.entries(FIXTURES)) expectGolden(AREA, `parse.${name}`, parseJourney(read(file), name))
+  for (const [name, file] of Object.entries(FIXTURES)) expectGolden(AREA, `parse.${name}`, parsedOrWhy(read(file), name))
   const legacy = 'test/fixtures/journey/legacy'
   for (const f of fs.readdirSync(path.join(root, legacy)).filter((x) => x.endsWith('.json')).sort()) {
-    const why = parseJourney(read(`${legacy}/${f}`), f)
+    const why = parsedOrWhy(read(`${legacy}/${f}`), f)
     expectGolden(AREA, `parse.legacy.${f.replace(/\.json$/, '')}`, { result: why, oldFormat: typeof why === 'string' && isOldFormat(why) })
   }
 })
@@ -36,7 +51,8 @@ const INVALID: [string, string][] = [
   ['nodes empty', doc({ nodes: [] })],
   ['steps not an array', doc({ steps: {} })],
   ['minimal, no title/question/id', JSON.stringify({ version: 2, nodes: [{ id: 'x' }], steps: [] })],
-  ['question only', JSON.stringify({ version: 3, question: 'Why?', nodes: [{ id: 'x' }], steps: [] })],
+  ['version 3: newer, refused', JSON.stringify({ version: 3, question: 'Why?', nodes: [{ id: 'x' }], steps: [] })],
+  ['question only', JSON.stringify({ version: 2, question: 'Why?', nodes: [{ id: 'x' }], steps: [] })],
   ['node without id, twice-defined node, unknown kind', doc({ nodes: [node('a'), {}, node('a', { label: 'again' }), node('b', { kind: 'planet' })] })],
   ['parent missing, parent loop', doc({ nodes: [node('a', { parent: 'zz' }), node('b', { parent: 'c' }), node('c', { parent: 'b' })] })],
   ['edges: self, unknown ends, missing, generic, async', doc({ edges: [{ from: 'a', to: 'a', label: 'x' }, { from: 'a', to: 'nope', label: 'y' }, { to: 'b' }, null, { from: 'a', to: 'b', label: 'calls', detail: '  why  ', async: 1 }] })],
@@ -51,7 +67,7 @@ const INVALID: [string, string][] = [
 ]
 
 test('golden: journeys that break the rules: refused, or read with problems', () => {
-  expectGolden(AREA, 'parse.invalid', INVALID.map(([name, raw]) => ({ name, result: parseJourney(raw, 'named-by-file') })))
+  expectGolden(AREA, 'parse.invalid', INVALID.map(([name, raw]) => ({ name, result: parsedOrWhy(raw, 'named-by-file') })))
 })
 
 test('golden: anchors, code links, value hints and generic labels as read', () => {
@@ -59,6 +75,7 @@ test('golden: anchors, code links, value hints and generic labels as read', () =
   const links = [undefined, 'x', [null, {}, { phrase: ' the queue ', file: ' api/q.js ', start: 4 }, { phrase: 'p', file: 'f', start: 0 }, { phrase: 'p', file: 'f', start: 5, end: 2, text: 'line' }, { phrase: '  ', file: 'f', start: 1 }, { phrase: 'p', file: 3, start: 1 }, { phrase: 'q', file: 'f', start: 2, end: 9, text: 7 }]]
   const values = [undefined, {}, [null, { name: 'x', value: 'a\n  b', file: 'f', line: 1 }, { name: ' y ', value: '1', file: ' f ', line: 2, text: 'let y', note: '  in\tcents ' }, { name: 'z', value: 1, file: 'f', line: 1 }, { name: 'z', value: '', file: 'f', line: 0 }, { name: 'w', value: '', file: 'f', line: 3, note: ' ' }]]
   const labels = ['', '  ', 'calls', 'Calls per env', 'call', 'caller', 'recalls', 'enqueues']
+  const { isGeneric } = mapLabels()
   expectGolden(AREA, 'parts', {
     anchors: anchors.map((a) => ({ in: a, out: readAnchor(a) })),
     links: links.map((l) => ({ in: l, out: readLinks(l) })),
@@ -87,8 +104,9 @@ test('golden: marks as read, found in the code and checked', () => {
     { lines: [6, 6], match: 'total' }, { lines: [1, 1], match: 'nowhere' }, { lines: [4, 4] }, { lines: [5, 99] },
     { lines: [8, 9] }, { lines: [2, 3], match: 'cart")\n' }, { lines: [3, 5], match: '\n\n' }, { lines: [1, 7], match: 'order', nth: 5 },
   ]
-  const problems = finds.map((m) => ({ mark: m, journey: markCodeProblem(CODE, 'api/orders.js', m as never, 'drop'), podcast: markCodeProblem(CODE, 'api/orders.js', m as never, 'lines') }))
-  problems.push({ mark: { lines: [1, 1], file: 'x.js' }, journey: markCodeProblem(null, 'x.js', { lines: [1, 1], file: 'x.js' }, 'drop'), podcast: markCodeProblem(null, 'x.js', { lines: [1, 1] }, 'lines') })
+  const said = (doc: string[] | null, file: string, mark: object, onMissing: 'drop' | 'lines') => markCodeProblem({ doc, file, mark: mark as never, onMissing })
+  const problems = finds.map((m) => ({ mark: m, journey: said(CODE, 'api/orders.js', m, 'drop'), podcast: said(CODE, 'api/orders.js', m, 'lines') }))
+  problems.push({ mark: { lines: [1, 1], file: 'x.js' }, journey: said(null, 'x.js', { lines: [1, 1], file: 'x.js' }, 'drop'), podcast: said(null, 'x.js', { lines: [1, 1] }, 'lines') })
   expectGolden(AREA, 'marks', {
     read: lists.map((v) => ({ in: v, out: readMarks(v) })),
     shape: shapes.map((m) => ({ in: m, problem: markShapeProblem(m), mark: markShapeProblem(m) ? undefined : codeMarkOf(m) })),

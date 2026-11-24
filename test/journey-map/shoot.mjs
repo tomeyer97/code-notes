@@ -14,6 +14,7 @@
 // use instead of Playwright's own.
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { launchChromium, openHarness } from '../harness/page.mjs'
 
@@ -29,12 +30,14 @@ const PAGE_HELPERS = [path.join(ROOT, 'test/harness/contrast.js'), path.join(ROO
 for (const f of [path.join(ROOT, 'out/src/core/format/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js')]) {
   if (!fs.existsSync(f)) { console.error(`${path.relative(ROOT, f)} is missing: run \`npm run build\` first`); process.exit(2) }
 }
+/** The extension's journey reader (src/core/format/journeyModel.ts): the page gets journeys parsed, as from the extension. */
+const { parseJourney } = createRequire(import.meta.url)(path.join(ROOT, 'out/src/core/format/journeyModel.js'))
 
 // ---------- fixtures: journeys as the extension sends them (parsed, steps numbered) ----------
 
 // As the extension sends it: parsed (journeyModel.parseJourney), so steps carry their number.
 const parse = (f) => { const r = JSON.parse(fs.readFileSync(f, 'utf8')); return { ...r, steps: r.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] } }
-const journey = parse(path.join(SAMPLES, 'place-order.json'))
+const journey = parse(path.join(SAMPLES, 'v2-full.json'))
 /** Step `n` of a made-up journey, in box `node` (file a.go, line n). */
 const stepIn = (n, node) => ({ id: `s${n}`, n, title: `Step ${n} in ${node}`, node, file: 'a.go', range: { start: n, end: n }, lead: '', refs: [] })
 /** A record two parts hand over through (a dashed store box). */
@@ -691,8 +694,9 @@ async function anotherOpensAtTop() {
 async function samples() {
   for (const f of ['stripe-plan-change', ...real]) {
     const name = path.basename(f).replace(/\.json$/, '')
-    const j = f === 'stripe-plan-change' ? stripe : await page.evaluate(([raw, n]) => window.JourneyModel.parseJourney(raw, n), [fs.readFileSync(f, 'utf8'), name])
-    if (typeof j === 'string') { fail(`${tag}: ${f}: ${j}`); continue }
+    const r = f === 'stripe-plan-change' ? { ok: true, value: stripe } : parseJourney(fs.readFileSync(f, 'utf8'), name)
+    if (!r.ok) { fail(`${tag}: ${f}: ${r.why}`); continue }
+    const j = r.value
     await setJ(j)
     await open(j, { current: 1 })
     const pics = f === 'stripe-plan-change' || path.dirname(f) === SAMPLES

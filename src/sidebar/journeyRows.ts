@@ -19,7 +19,7 @@ import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node,
 import { matchesFilter } from './notesFilter'
 import { fileName } from '../platform/jsonFolder'
 import { podcasts } from '../podcast/player'
-import { clock } from '../podcast/model'
+import { clock } from '../core/format/podcast/model'
 import { STATE } from '../platform/state'
 import { Cmd } from '../platform/commands'
 

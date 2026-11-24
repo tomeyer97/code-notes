@@ -9,7 +9,7 @@ import { journeys } from '../app'
 import { stepFileUri } from '../journeys/codeGroup'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { MarkPainter, noneShown, Shown } from '../marks/lights'
-import { CodeMark, readMarks, walkMarks } from '../marks/model'
+import { CodeMark, readMarks, walkMarks } from '../core/format/marks'
 
 /** A mark to light: in which document, in which style; `who`/`key` name it in the output. */
 export interface StepMark { mark: CodeMark; uri: string; style: 'focus' | 'dim'; who: string; key: string }

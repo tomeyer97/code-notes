@@ -1,16 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calmViews, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
+import { calmViews, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/core/format/podcast/model'
 
-// The podcast's pure parts (src/podcast/model.ts): reading the file, where the journey is at a time, seeking.
+// The podcast's pure parts (src/core/format/podcast/model.ts): reading the file, where the journey is at a time, seeking.
 
 const journey = { steps: [{ id: 'a', beats: 3 }, { id: 'b', beats: 0 }, { id: 'c', beats: 2 }] }
 const seg = (id: string, at: unknown, start: number, end: number, extra: object = {}) => ({ id, at, start, end, text: id, speaker: 'host', ...extra })
 const file = (segments: object[], more: object = {}) => JSON.stringify({ version: 1, title: 'T', journey: { id: 'j' }, audio: 'j.mp3', duration: 100, segments, ...more })
 const episode = (segments: object[]) => {
   const p = parsePodcast(file(segments))
-  assert.ok(typeof p !== 'string', String(p))
-  return resolveEpisode(p, journey)
+  assert.ok(p.ok, p.ok ? '' : p.why)
+  return resolveEpisode(p.value, journey)
 }
 const sample = () => episode([
   seg('intro', null, 0, 9),
@@ -23,14 +23,16 @@ const sample = () => episode([
 ])
 
 test('podcast file: shape checked, the reason said', () => {
-  assert.match(String(parsePodcast('{')), /not JSON/)
-  assert.match(String(parsePodcast(JSON.stringify({ version: 2, audio: 'a', segments: [{}] }))), /version 2/)
-  assert.match(String(parsePodcast(JSON.stringify({ version: 1, segments: [{}] }))), /audio/)
-  assert.match(String(parsePodcast(JSON.stringify({ version: 1, audio: 'a.mp3', segments: [] }))), /segments/)
+  /** Why parsePodcast refuses `raw` ('' when it reads it). */
+  const why = (raw: string) => { const r = parsePodcast(raw); return r.ok ? '' : r.why }
+  assert.match(why('{'), /not JSON/)
+  assert.match(why(JSON.stringify({ version: 2, audio: 'a', segments: [{}] })), /version 2/)
+  assert.match(why(JSON.stringify({ version: 1, segments: [{}] })), /audio/)
+  assert.match(why(JSON.stringify({ version: 1, audio: 'a.mp3', segments: [] })), /segments/)
   const p = parsePodcast(file([seg('s', null, 0, 1)]))
-  assert.ok(typeof p !== 'string')
-  assert.equal(p.audio, 'j.mp3')
-  assert.equal(p.journey.id, 'j')
+  assert.ok(p.ok)
+  assert.equal(p.value.audio, 'j.mp3')
+  assert.equal(p.value.journey.id, 'j')
 })
 
 test('podcast file: found next to its journey, never read as a journey', () => {
@@ -55,8 +57,8 @@ test('sentences: kept when usable, else left out (the player estimates them from
   assert.deepEqual(ep.warnings, [])
   // No end, no next segment, no duration: no limit after its start.
   const p = parsePodcast(file([{ id: 'only', at: null, start: 0, text: 'x', sentences: [{ start: 0, text: 'One.' }, { start: 200, text: 'Two.' }] }], { duration: undefined }))
-  assert.ok(typeof p !== 'string')
-  assert.equal(resolveEpisode(p, journey).segments[0].sentences?.length, 2)
+  assert.ok(p.ok)
+  assert.equal(resolveEpisode(p.value, journey).segments[0].sentences?.length, 2)
 })
 
 test('segments: each one\'s view; chapters are runs on one step, the first from 0', () => {

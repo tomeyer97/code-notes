@@ -1,7 +1,7 @@
 // What a stale step's or note's code became: edited in place (a diff of what was there and what is there now) or
 // removed. No vscode API (unit-tested in test/anchor.test.ts and test/journeyModel.test.ts). Finding the code is
-// anchor.ts.
-import { norm } from './anchor'
+// anchor.ts. Its tunables are with the others in README.md.
+import { norm } from './lines'
 
 /** Blocks longer than this (lines before × lines after) are not diffed: all of one is removed, all of the other added. */
 const MAX_DIFF_CELLS = 250_000

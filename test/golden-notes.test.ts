@@ -5,14 +5,20 @@ import { test } from 'node:test'
 import * as fs from 'fs'
 import * as path from 'path'
 import { expectGolden } from './golden'
-import { agentReadme, captureAnchor, folderProblem, merge, NoteData, parseNote, serialize, titleOf } from '../src/core/format/noteModel'
-import { blockHash, compactOf, CompactAnchor, findCompact, toCompact } from '../src/core/anchors/compact'
+import { captureAnchor, fillReadme, folderProblem, merge, NoteData, parseNote, serialize, titleOf } from '../src/core/format/noteModel'
+import { blockHash, compactOf, findCompact, toCompact } from '../src/core/anchors/compact'
+import { compactCases } from './compactCases'
 import { anchor, closest, relocate } from '../src/core/anchors/anchor'
 import { lineDiff, staleKind } from '../src/core/anchors/staleDiff'
 
 const AREA = 'notes'
 const root = path.join(__dirname, '../..')
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
+/** parseNote's result as the goldens hold it: the note, or the reason it was refused. */
+const parsedOrWhy = (raw: string, id: string): NoteData | string => {
+  const r = parseNote(raw, id)
+  return r.ok ? r.value : r.why
+}
 
 // ---------- note files ----------
 
@@ -22,7 +28,7 @@ const legacyNotes = fs.readdirSync(path.join(root, LEGACY)).filter((f) => f.ends
 test('golden: real note files: read, and written back (the bytes the extension writes)', () => {
   for (const f of legacyNotes) {
     const id = f.replace(/\.json$/, '')
-    const d = parseNote(read(`${LEGACY}/${f}`), id)
+    const d = parsedOrWhy(read(`${LEGACY}/${f}`), id)
     expectGolden(AREA, `note.${id}`, { parsed: d, title: titleOf(read(`${LEGACY}/${f}`)) ?? null })
     if (typeof d !== 'string') expectGolden(AREA, `note.${id}.written`, serialize(d))
   }
@@ -58,15 +64,15 @@ const BAD_NOTES: [string, string][] = [
 
 test('golden: crafted notes read and written back; files that are not notes, and why', () => {
   const out = NOTES.map(([name, v]) => {
-    const d = parseNote(JSON.stringify(v), 'n1')
+    const d = parsedOrWhy(JSON.stringify(v), 'n1')
     return { name, parsed: d, written: typeof d === 'string' ? null : serialize(d) }
   })
   expectGolden(AREA, 'notes.crafted', out)
-  expectGolden(AREA, 'notes.invalid', BAD_NOTES.map(([name, raw]) => ({ name, why: parseNote(raw, 'x'), title: titleOf(raw) ?? null })))
+  expectGolden(AREA, 'notes.invalid', BAD_NOTES.map(([name, raw]) => ({ name, why: parsedOrWhy(raw, 'x'), title: titleOf(raw) ?? null })))
 })
 
 test('golden: the three-way merge of a note changed on disk and in memory', () => {
-  const base = parseNote(JSON.stringify(note({ events: [{ type: 'resolved', by: 'ann', at: 't1' }] })), 'n') as NoteData
+  const base = parsedOrWhy(JSON.stringify(note({ events: [{ type: 'resolved', by: 'ann', at: 't1' }] })), 'n') as NoteData
   const with_ = (o: Partial<NoteData>): NoteData => ({ ...base, ...o })
   const m2 = { author: 'Claude', role: 'agent' as const, body: 'An answer.', at: 't2' }
   const m3 = { author: 'ann', role: 'human' as const, body: 'Thanks.', at: 't3' }
@@ -89,7 +95,7 @@ test('golden: anchors captured, folder settings, the agents\' README', () => {
     anchors: [[0, 0], [0, 2], [5, 9], [code.length - 2, code.length - 1], [code.length + 3, code.length + 5]].map(([s, e]) => ({ s, e, anchor: captureAnchor(code, s, e) })),
     folders: ['.code-notes', '', '.', './', ' ./notes/ ', '/abs', 'C:\\x', '..', 'a/../b', 'a\\..\\b', 'notes/sub'].map((f) => [f, folderProblem(f) ?? null]),
   })
-  expectGolden(AREA, 'agent-readme', agentReadme('Ann Example', '.code-notes'))
+  expectGolden(AREA, 'agent-readme', fillReadme(read('media/notes-README.template.md'), 'Ann Example', '.code-notes'))
 })
 
 // ---------- finding code again: v2 anchors, v3 compact anchors, the stale diff ----------
@@ -139,8 +145,7 @@ test('golden: note anchors (v2) found again after edits, and what a stale one sa
 })
 
 test('golden: compact anchors (v3): made, converted, found again after edits', () => {
-  const cases: { name: string; lines: string[]; anchor: CompactAnchor; hint: number }[] = JSON.parse(read('test/fixtures/compact-cases.json'))
-  expectGolden(AREA, 'compact.cases', cases.map((c) => ({ name: c.name, found: findCompact(c.lines, c.anchor, c.hint) })))
+  expectGolden(AREA, 'compact.cases', compactCases().map((c) => ({ name: c.name, found: findCompact(c.now, c.anchor, c.hint) })))
   const out = shopFiles.map((f) => {
     const lines = read(`examples/shop/${f}`).split('\n')
     const spans = [[0, 0], [2, 6], [Math.floor(lines.length / 2), Math.floor(lines.length / 2) + 1], [lines.length - 3, lines.length - 1]]

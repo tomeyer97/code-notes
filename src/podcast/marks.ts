@@ -1,6 +1,6 @@
 // Marks (docs/podcast-format.md, "Marks"): word-timed highlights within a segment. While the voice says a phrase, the
 // code it names lights: whole lines, or only a `match` within them (the shape, and how marks look, are shared with a
-// journey's own marks: marks/model.ts, marks/lights.ts). The newest mark (with any said with the same phrase) is the
+// journey's own marks: core/format/marks.ts, marks/lights.ts). The newest mark (with any said with the same phrase) is the
 // focus, the one coloured tint on the code; the segment's earlier marks stay, lighter (while it plays the beat's own
 // line box is not drawn: beats.ts `quiet`). The next segment clears them. At any time T exactly the marks lit by T in
 // the segment playing at T show (also paused, after a seek); the timing is precomputed per segment (model.ts
@@ -10,7 +10,7 @@
 
 import * as vscode from 'vscode'
 import { LitMark, MarkPainter, noneShown, Shown } from '../marks/lights'
-import { Mark, marksAt } from './model'
+import { Mark, marksAt } from '../core/format/podcast/model'
 
 /** A segment's marks as the player plays them: each one's file, when it lights, and whether it is skipped (it would
  *  switch files within the view hold) or opens its file. */

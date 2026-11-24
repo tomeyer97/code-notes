@@ -1,52 +1,68 @@
-// Compact anchors (v3, docs/journey-format.md "In the repo"): a journey committed to the repo stores the first and
-// last lines of a step's code, its length and a hash, not the whole block, so it stays reviewable in a PR.
+// Compact anchors (`v: 3`, docs/journey-format.md "In the repo"): a journey committed to the repo, and a check's
+// questions, store the first and last lines of their code, its length and a hash, not the whole block, so they stay
+// reviewable in a PR. The one implementation: the extension imports it and the understanding CLI bundles it.
 //
 //   { v: 3, head: "first ≤ 3 non-blank lines", tail: "last ≤ 2 non-blank lines", lines: 14,
 //     hash: "first 12 hex of sha1(normalized text)", before: "1 line", after: "1 line" }
 //
-// Normalized text: each non-blank line through anchor.ts `norm`, joined by "\n" (blank lines don't count, so
+// Normalized text: each non-blank line through lines.ts `norm`, joined by "\n" (blank lines don't count, so
 // reformatting and blank-line edits are not changes). A hash over every line's `norm` (blanks as "") is accepted too;
 // an anchor without a hash is fresh wherever head and tail are found.
 //
-// Relocation: candidate starts where the head lines match (non-blank lines, in order); for each, the end where the
-// tail matches with a length within [lines·0.5, lines·1.5 + 5]; prefer an exact hash, then the closest line count,
-// then the before/after context, then nearness to the stored place. Found, same hash: fresh; found, other hash:
-// changed (shown at the new place); not found: gone. v2 full-text anchors are converted in memory (toCompact).
+// Relocation (findCompact): candidate starts where the head lines match (non-blank lines, in order); for each, the
+// ends where the tail matches with a length in the window `lengthWindow` gives; the best candidate by `rankCandidates`.
+// Found, same hash: fresh; found, other hash: changed (shown at the new place); not found: gone. Full-text anchors
+// are converted in memory (toCompact).
 import { createHash } from 'crypto'
-import { blank, norm, weak, Loc } from './anchor'
+import { blank, lineIs, norm, weak } from './lines'
+import type { Anchor, CompactAnchor, Loc } from './kinds'
+import { isCompact } from './kinds'
 
-export interface CompactAnchor { v: 3; head: string; tail: string; lines: number; hash: string; before: string; after: string }
-export type FullAnchor = { text: string; before: string; after: string }
-export type AnyAnchor = CompactAnchor | FullAnchor
+export type { CompactAnchor, FullAnchor } from './kinds'
+export { isCompact } from './kinds'
+/** Either kind of anchor (kinds.ts `Anchor`). */
+export type AnyAnchor = Anchor
 export type Found = { state: 'fresh' | 'changed'; loc: Loc } | { state: 'gone' }
 
+// ---------- tunables ----------
+
+/** Non-blank lines kept at the start (`head`) and the end (`tail`) of the block. */
 export const HEAD_LINES = 3
 export const TAIL_LINES = 2
+/** A candidate's length must be at least MIN_LEN_RATIO × the stored length… */
+const MIN_LEN_RATIO = 0.5
+/** …and at most MAX_LEN_RATIO × the stored length + MAX_LEN_SLACK lines (a short block may grow by a few lines). */
+const MAX_LEN_RATIO = 1.5
+const MAX_LEN_SLACK = 5
+/** Hex digits of the sha1 kept as the hash. */
+const HASH_HEX = 12
 
-export const isCompact = (a: AnyAnchor | undefined): a is CompactAnchor => !!a && (a as CompactAnchor).v === 3
-const sha12 = (s: string) => createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 12)
+const sha = (s: string) => createHash('sha1').update(s, 'utf8').digest('hex').slice(0, HASH_HEX)
 
 /** The hash of a block (spec: non-blank lines normalized, joined by "\n"). */
-export function blockHash(block: string[]): string { return sha12(block.map(norm).filter(Boolean).join('\n')) }
+export function blockHash(block: string[]): string { return sha(block.map(norm).filter(Boolean).join('\n')) }
 /** The other reading of "normalized full text" (every line, blanks as ""): accepted as the same code. */
-function blockHashAll(block: string[]): string { return sha12(block.map(norm).join('\n')) }
+export function blockHashAll(block: string[]): string { return sha(block.map(norm).join('\n')) }
 
 /** The compact anchor of lines [start, end] (0-based, inclusive) of a file. */
 export function compactOf(lines: string[], start: number, end: number): CompactAnchor | undefined {
   const block = lines.slice(start, end + 1)
   const solid = block.filter((l) => !blank(l))
   if (!solid.length) return undefined
-  let b = start - 1
-  while (b >= 0 && blank(lines[b])) b--
-  let a = end + 1
-  while (a < lines.length && blank(lines[a])) a++
+  const b = nonBlank(lines, start - 1, -1)
+  const a = nonBlank(lines, end + 1, 1)
   return {
-    v: 3, head: solid.slice(0, HEAD_LINES).join('\n'), tail: solid.slice(-TAIL_LINES).join('\n'), lines: block.length, hash: blockHash(block),
-    before: b >= 0 ? lines[b] : '', after: a < lines.length ? lines[a] : '',
+    v: 3,
+    head: solid.slice(0, HEAD_LINES).join('\n'),
+    tail: solid.slice(-TAIL_LINES).join('\n'),
+    lines: block.length,
+    hash: blockHash(block),
+    before: b >= 0 ? lines[b] : '',
+    after: a < lines.length ? lines[a] : '',
   }
 }
 
-/** A v2 anchor (the whole text) as v3, in memory. Undefined for a step on blank lines (it has only its context). */
+/** A full-text anchor as compact, in memory. Undefined for a step on blank lines (it has only its context). */
 export function toCompact(a: AnyAnchor): CompactAnchor | undefined {
   if (isCompact(a)) return a
   const text = a.text.split('\n')
@@ -77,9 +93,6 @@ function backward(lines: string[], e: number, want: string[], floor: number): bo
   return true
 }
 
-/** A place the anchor's code may be: its lines (0-based), whether the hash matches, and how it ranks (see findCompact). */
-type Candidate = { start: number; end: number; hash: boolean; dLen: number; ctx: number; dist: number }
-
 /** The nearest non-blank line from `i` on in direction `step` (-1 or 1); -1 or `lines.length` when there is none. */
 function nonBlank(lines: string[], i: number, step: -1 | 1): number {
   let k = i
@@ -87,11 +100,13 @@ function nonBlank(lines: string[], i: number, step: -1 | 1): number {
   return k
 }
 
+/** The lengths a block stored as `storedLen` lines may have now and still be the same block. */
+export function lengthWindow(storedLen: number): { minLen: number; maxLen: number } {
+  return { minLen: Math.max(1, Math.ceil(storedLen * MIN_LEN_RATIO)), maxLen: Math.floor(storedLen * MAX_LEN_RATIO + MAX_LEN_SLACK) }
+}
+
 /** Where a candidate may end, and the first non-blank line after it (for the context after). */
 type CandidateEnd = { end: number; afterLine: number }
-
-/** Line `k` (if it exists) is `want` (normalized; '' never matches). */
-const lineIs = (lines: string[], k: number, want: string) => !!want && k >= 0 && k < lines.length && norm(lines[k]) === want
 
 /**
  * Where the code starting at `start` (its head matched up to `headEnd`) may end: the lines where the tail matches,
@@ -115,6 +130,28 @@ function candidateEnds(
   return out
 }
 
+/** A place the anchor's code may be: its lines (0-based) and what ranks it (rankCandidates). */
+type Candidate = {
+  start: number
+  end: number
+  /** The block's hash is the stored one. */
+  hash: boolean
+  /** How far its length is from the stored length. */
+  dLen: number
+  /** How many of the context lines (before, after) match: 0-2. */
+  ctx: number
+  /** How far it starts from where the anchor was. */
+  dist: number
+}
+
+/** The order of candidates, best first: one criterion per line, each deciding only when the ones above tie. */
+export function rankCandidates(x: Candidate, y: Candidate): number {
+  return Number(y.hash) - Number(x.hash) // the stored hash first
+    || x.dLen - y.dLen // then the closest length
+    || y.ctx - x.ctx // then more matching context
+    || x.dist - y.dist // then nearer to where it was
+}
+
 /** Where a compact anchor's code is in `lines` now (0-based). `hint`: where it was (the stored or tracked place). */
 export function findCompact(lines: string[], a: CompactAnchor, hint: number): Found {
   const head = a.head.split('\n').map(norm).filter(Boolean)
@@ -122,8 +159,7 @@ export function findCompact(lines: string[], a: CompactAnchor, hint: number): Fo
   if (!head.length) return { state: 'gone' }
   if (!tail.length) tail.push(...head.slice(-TAIL_LINES))
   const storedLen = Math.max(1, a.lines)
-  const minLen = Math.max(1, Math.ceil(storedLen * 0.5))
-  const maxLen = Math.floor(storedLen * 1.5 + 5)
+  const { minLen, maxLen } = lengthWindow(storedLen)
   // Context that says something: '' for a weak line (it never matches).
   const before = weak(a.before) ? '' : norm(a.before)
   const after = weak(a.after) ? '' : norm(a.after)
@@ -141,7 +177,7 @@ export function findCompact(lines: string[], a: CompactAnchor, hint: number): Fo
     }
   }
   if (!cands.length) return { state: 'gone' }
-  cands.sort((x, y) => Number(y.hash) - Number(x.hash) || x.dLen - y.dLen || y.ctx - x.ctx || x.dist - y.dist)
+  cands.sort(rankCandidates)
   const c = cands[0]
   return { state: c.hash ? 'fresh' : 'changed', loc: { start: c.start, end: c.end } }
 }

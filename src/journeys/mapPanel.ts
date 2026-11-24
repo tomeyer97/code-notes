@@ -41,7 +41,7 @@ export type MapMessage =
   | { type: 'beat'; n: number; i: number; user?: boolean }
   // The panel's listening player (media/journey-podcast.js; a remote of the Listen view's audio, or the host itself
   // after a ▶ here: src/podcast/player.ts): what it asks of the audio; "Show why" on a podcast with problems
-  // (src/podcast/validate.ts); the end's Walk it yourself / Next journey; a click or key here (its audio may play);
+  // (src/core/format/podcast/validate.ts); the end's Walk it yourself / Next journey; a click or key here (its audio may play);
   // as the host, where the audio is.
   | { type: 'podcastAsk'; of?: string; action: string; at?: number; until?: number; to?: number; by?: number; dir?: number; rate?: number; muted?: boolean }
   | { type: 'podcastWhy' }
@@ -361,12 +361,9 @@ export class MapPanel implements vscode.Disposable {
     return webviewPage(w, {
       css: [file('media', 'common.css'), file('media', 'journey-map.css'), file('media', 'journey-home.css'), file('media', 'journey-scene.css'), file('media', 'journey-podcast.css')],
       body: `<div id="app"><p class="loading">${loading ? escapeHtml(loading) : 'Loading the map…'}</p></div>`,
-      // journeyModel.js is a CommonJS module loaded as a plain script: it fills `exports`, which the page reads as
-      // JourneyModel.
-      inline: 'var exports = {}; var JourneyModel = exports',
       // In this order: each of media/ needs the ones before it (its header says which).
       scripts: [
-        file('out', 'src', 'core', 'format', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
+        file('out', 'vendor', 'elk.bundled.js'),
         ...[
           'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'code-paint', 'journey-scene', 'journey-scene-app',
           'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-podcast', 'journey-map',

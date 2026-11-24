@@ -1,3 +1,6 @@
+<!-- The README the extension writes into each notes folder (.code-notes/README.md), for agents. A template: the
+extension fills ${person} (who wrote the notes) and ${folder} (the notes folder's name) and leaves out this comment
+(src/core/format/noteModel.ts fillReadme). -->
 # Code notes
 
 Notes **${person}** left on the code in this folder, one JSON file per note. The VS Code extension "Code Notes" shows
@@ -6,8 +9,11 @@ extension picks changes up live and shows new messages to ${person} as unread.
 
 ## Format
 
+The JSON Schema of a note file: https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/note.schema.json
+
 ```json
 {
+  "version": 1,
   "id": "20261111-153012-ab12",
   "file": "src/main.ts",
   "range": { "start": 33, "end": 40 },
@@ -24,6 +30,7 @@ extension picks changes up live and shows new messages to ${person} as unread.
 | Field | Meaning |
 |---|---|
 | file name | The note's identity: `<id>.json`. Keep it when you edit a note. |
+| `version` | The note format's version: `1`. A file without it is read as version 1. |
 | `file` | The code file, relative to the folder that contains `${folder}/` (e.g. `src/main.ts`). Files outside that folder are refused. |
 | `range` | Lines in `file`, 1-based, inclusive. |
 | `anchor` | The lines the note is about (`text`), the lines around them, and the git `branch`/`commit` it was written on. The extension uses them to follow the code. |

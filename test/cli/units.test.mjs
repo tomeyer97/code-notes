@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import * as U from '../../cli/understanding.mjs'
 import { FAKE, repo, root, smallRepo, gitIn, commitAll } from './helpers.mjs'
 
@@ -210,10 +211,11 @@ test('codeLines: a removed SQL comment line does not move the lines after it to 
   assert.deepEqual(U.codeLines(d, 'HEAD~1', 'HEAD').map((x) => `${x.file} ${x.sign}${x.text}`), ['q.sql -select 1;', 'q.sql +select 2;'])
 })
 
-// The extension's findCompact runs the same cases (test/compact.test.ts): both sides relocate alike.
-for (const c of JSON.parse(fs.readFileSync(path.join(root, 'test/fixtures/compact-cases.json'), 'utf8'))) {
+// The extension's findCompact runs the same cases (test/compact.test.ts); the CLI bundles it.
+const { compactCases } = createRequire(import.meta.url)(path.join(root, 'out/test/compactCases.js'))
+for (const c of compactCases()) {
   test(`shared relocation case: ${c.name}`, () => {
-    const f = U.findAnchor(c.lines, c.anchor, c.hint)
+    const f = U.findAnchor(c.now, c.anchor, c.hint)
     assert.deepEqual(f ? { state: f.fresh ? 'fresh' : 'changed', start: f.start, end: f.end } : { state: 'gone' }, c.expected)
   })
 }

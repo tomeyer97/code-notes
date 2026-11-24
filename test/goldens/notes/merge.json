@@ -33,7 +33,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
   },
   {
     "name": "they answered, we resolved",
@@ -80,7 +80,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"resolved\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    },\n    {\n      \"type\": \"reopened\",\n      \"by\": \"ann\",\n      \"at\": \"t4\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"resolved\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    },\n    {\n      \"type\": \"reopened\",\n      \"by\": \"ann\",\n      \"at\": \"t4\"\n    }\n  ]\n}\n"
   },
   {
     "name": "both added messages",
@@ -128,7 +128,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\"\n    },\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Thanks.\",\n      \"at\": \"t3\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\"\n    },\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Thanks.\",\n      \"at\": \"t3\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
   },
   {
     "name": "both changed the range: ours wins",
@@ -164,7 +164,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 9,\n    \"end\": 9\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 9,\n    \"end\": 9\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
   },
   {
     "name": "they set severity and a new field",
@@ -204,7 +204,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"severity\": \"low\",\n  \"x\": 1\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"severity\": \"low\",\n  \"x\": 1\n}\n"
   },
   {
     "name": "we cleared the severity they set",
@@ -241,7 +241,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"severity\": \"high\"\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"severity\": \"high\"\n}\n"
   },
   {
     "name": "they removed the events",
@@ -270,7 +270,7 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
   },
   {
     "name": "they changed the id and createdAt (theirs kept)",
@@ -307,6 +307,6 @@
       "session": "[undefined]",
       "claudeSession": "[undefined]"
     },
-    "written": "{\n  \"id\": \"theirs\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"createdAt\": \"b\"\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"theirs\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"createdAt\": \"b\"\n}\n"
   }
 ]

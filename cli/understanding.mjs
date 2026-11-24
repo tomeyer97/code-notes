@@ -66,7 +66,7 @@ var gitOk = (repo, args) => {
     return void 0;
   }
 };
-var hasCommit = (repo, sha) => !!sha && gitOk(repo, ["cat-file", "-e", `${sha}^{commit}`]) !== void 0;
+var hasCommit = (repo, sha2) => !!sha2 && gitOk(repo, ["cat-file", "-e", `${sha2}^{commit}`]) !== void 0;
 var repoRoot = (dir) => gitOk(dir, ["rev-parse", "--show-toplevel"]);
 var ciBranch = (env = process.env) => env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || env.GITHUB_HEAD_REF || void 0;
 function currentBranch(repo, env = process.env) {
@@ -284,8 +284,8 @@ function commentStyle(file) {
   const ext = /\.([a-z0-9]+)$/.exec(name)?.[1];
   return ext ? STYLES[ext] : void 0;
 }
-function isCode(line2, file, state = {}) {
-  const t = String(line2).trim();
+function isCode(line3, file, state = {}) {
+  const t = String(line3).trim();
   if (!t) return false;
   const st = commentStyle(file);
   if (!st) return true;
@@ -316,32 +316,32 @@ var pathsOf = (files) => files.flatMap((f) => f.from ? [f.from, f.file] : [f.fil
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 function* walkDiff(diff) {
   let n = 0, o = 0, nLeft = 0, oLeft = 0;
-  for (const line2 of diff.split("\n")) {
+  for (const line3 of diff.split("\n")) {
     const inHunk = nLeft > 0 || oLeft > 0;
-    if (line2.startsWith("diff --git")) {
+    if (line3.startsWith("diff --git")) {
       nLeft = oLeft = 0;
-      yield { kind: "section", line: line2 };
+      yield { kind: "section", line: line3 };
       continue;
     }
-    if (!inHunk && line2.startsWith("--- ")) {
-      yield { kind: "old", line: line2, path: line2.slice(4).replace(/^a\//, "") };
+    if (!inHunk && line3.startsWith("--- ")) {
+      yield { kind: "old", line: line3, path: line3.slice(4).replace(/^a\//, "") };
       continue;
     }
-    if (!inHunk && line2.startsWith("+++ ")) {
-      yield { kind: "new", line: line2, path: line2.slice(4).replace(/^b\//, "") };
+    if (!inHunk && line3.startsWith("+++ ")) {
+      yield { kind: "new", line: line3, path: line3.slice(4).replace(/^b\//, "") };
       continue;
     }
-    const h = HUNK_HEADER.exec(line2);
+    const h = HUNK_HEADER.exec(line3);
     if (h) {
       o = Number(h[1]);
       n = Number(h[3]);
       oLeft = Number(h[2] ?? 1);
       nLeft = Number(h[4] ?? 1);
-      yield { kind: "hunk", line: line2, start: n, count: nLeft };
+      yield { kind: "hunk", line: line3, start: n, count: nLeft };
       continue;
     }
-    const kind = "+- ".includes(line2[0] ?? "x") ? line2[0] : "other";
-    const at = { kind, line: line2, text: line2.slice(1), n, o };
+    const kind = "+- ".includes(line3[0] ?? "x") ? line3[0] : "other";
+    const at = { kind, line: line3, text: line3.slice(1), n, o };
     if (kind === "+" || kind === " ") {
       n++;
       nLeft--;
@@ -520,7 +520,7 @@ function oldLineOf(diff, file, n) {
   }
   return seen ? n + shift : void 0;
 }
-function nearestChanged(diff, file, line2) {
+function nearestChanged(diff, file, line3) {
   const added = [], hunks = [];
   let inFile = false;
   for (const d of walkDiff(String(diff ?? ""))) {
@@ -529,11 +529,11 @@ function nearestChanged(diff, file, line2) {
     else if (inFile && d.kind === "hunk") hunks.push([d.start, d.start + d.count - 1]);
     else if (inFile && d.kind === "+") added.push(d.n);
   }
-  if (added.includes(line2)) return line2;
-  const near = (xs) => xs.reduce((a, b) => a === void 0 || Math.abs(b - line2) < Math.abs(a - line2) ? b : a, void 0);
-  const hunk = hunks.find(([x, y]) => line2 >= x && line2 <= y);
+  if (added.includes(line3)) return line3;
+  const near = (xs) => xs.reduce((a, b) => a === void 0 || Math.abs(b - line3) < Math.abs(a - line3) ? b : a, void 0);
+  const hunk = hunks.find(([x, y]) => line3 >= x && line3 <= y);
   const inHunk = hunk ? added.filter((x) => x >= hunk[0] && x <= hunk[1]) : [];
-  return near(inHunk) ?? near(added.filter((x) => Math.abs(x - line2) <= 20));
+  return near(inHunk) ?? near(added.filter((x) => Math.abs(x - line3) <= 20));
 }
 
 // cli/understanding/checkFile.ts
@@ -653,6 +653,257 @@ function flagConcern(check, q, who) {
 // cli/understanding/validate.ts
 import fs3 from "node:fs";
 import path4 from "node:path";
+
+// src/core/anchors/kinds.ts
+var str = (v) => typeof v === "string" ? v : "";
+function readAnchor(v) {
+  if (!v || typeof v !== "object") return void 0;
+  if (v.v === 3) return readCompact(v);
+  return typeof v.text === "string" ? { text: v.text, before: str(v.before), after: str(v.after) } : void 0;
+}
+function readCompact(v) {
+  if (typeof v.head !== "string" || !v.head.trim()) return void 0;
+  const lines = Number.isInteger(v.lines) && v.lines > 0 ? v.lines : v.head.split("\n").length;
+  return {
+    v: 3,
+    head: v.head,
+    tail: str(v.tail) || v.head.split("\n").pop(),
+    lines,
+    hash: str(v.hash),
+    before: str(v.before),
+    after: str(v.after)
+  };
+}
+
+// src/core/format/result.ts
+var accepted = (value) => ({ ok: true, value });
+var refused = (why) => ({ ok: false, why });
+
+// src/core/format/read.ts
+var str2 = (v) => typeof v === "string" ? v : "";
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var line = (x) => Number.isInteger(x) && x >= 1 ? x : void 0;
+var opt = (keep, k, v) => keep ? { [k]: v } : {};
+var optTrimmed = (k, v) => opt(str2(v).trim(), k, str2(v).trim());
+
+// src/core/format/versions.ts
+var VERSIONS = {
+  /** A journey (`<slug>.json`): v1 (steps as notes) is refused with a reason; it needs migrating. */
+  journey: 2,
+  /** A podcast (`<slug>.podcast.json`). */
+  podcast: 1,
+  /** A note (`.code-notes/*.json`): a file without `version` is version 1; the extension writes it. */
+  note: 1,
+  /** An understanding check (`understanding/<branch>.json`). */
+  check: 1
+};
+
+// src/core/format/journeyModel.ts
+var KINDS2 = ["system", "module", "external", "store", "function"];
+var FORMAT_VERSION = VERSIONS.journey;
+var MAX_REFS = 3;
+var MAX_BOXES = 7;
+var MAX_NODE_LABEL = 30;
+var LABEL_PREVIEW = 24;
+var Problems = class {
+  all = [];
+  /** Steps left out: the walk would miss them (a check's tour refuses them). */
+  stepsLeftOut = [];
+  note(text) {
+    this.all.push(text);
+  }
+  leftOut(text) {
+    this.all.push(text);
+    this.stepsLeftOut.push(text);
+  }
+};
+function readNode(n, ids) {
+  if (!n || typeof n.id !== "string" || !n.id) return "a node without an id was left out";
+  if (ids.has(n.id)) return `node "${n.id}" is defined twice (the second one was left out)`;
+  const at = readAt(n.at);
+  return {
+    id: n.id,
+    kind: KINDS2.includes(n.kind) ? n.kind : "module",
+    label: str2(n.label) || n.id,
+    summary: str2(n.summary),
+    ...optTrimmed("blurb", n.blurb),
+    ...optTrimmed("path", n.path),
+    ...opt(typeof n.parent === "string" && n.parent, "parent", n.parent),
+    ...opt(n.lane === "main" || n.lane === "side", "lane", n.lane),
+    ...opt(at, "at", at)
+  };
+}
+function readAt(at) {
+  if (!at || typeof at.file !== "string" || !Number.isInteger(at.start)) return void 0;
+  const anchor = readAnchor(at.anchor);
+  return { file: at.file, start: at.start, end: Number.isInteger(at.end) ? at.end : at.start, ...opt(anchor, "anchor", anchor) };
+}
+function dropBadParents(nodes, problems) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const n of nodes) {
+    const seen = /* @__PURE__ */ new Set([n.id]);
+    for (let p = n.parent; p; p = byId.get(p)?.parent) {
+      if (!byId.has(p) || seen.has(p)) {
+        problems.note(`node "${n.id}": parent "${p}" ${byId.has(p) ? "makes a loop" : "doesn't exist"}`);
+        delete n.parent;
+        break;
+      }
+      seen.add(p);
+    }
+  }
+}
+function readEdge(e, nodes) {
+  const label = (id) => {
+    const n = nodes.find((x) => x.id === id);
+    return n ? `"${n.label}"` : `a box that doesn't exist ("${id ?? "?"}")`;
+  };
+  const exists = (id) => nodes.some((n) => n.id === id);
+  if (e && e.from === e.to) return `an arrow from ${label(e.from)} to itself is hidden`;
+  if (!e || !exists(e.from) || !exists(e.to)) return `an arrow from ${label(e?.from)} to ${label(e?.to)} is hidden`;
+  return { from: e.from, to: e.to, label: str2(e.label), ...optTrimmed("detail", e.detail), ...opt(e.async, "async", true) };
+}
+function stepProblem(s, ids) {
+  if (!s) return "is empty";
+  if (!ids.has(s.node)) return `is in an unknown box "${s.node}"`;
+  if (!str2(s.file).trim()) return "has no file";
+  if (!(s.range && line(s.range.start))) return "has no line range";
+  return "";
+}
+function readLinks(v) {
+  if (!Array.isArray(v)) return [];
+  const usable = (l) => l && typeof l.phrase === "string" && l.phrase.trim() && typeof l.file === "string" && Number.isInteger(l.start) && l.start >= 1;
+  return v.filter(usable).map((l) => ({
+    phrase: l.phrase.trim(),
+    file: l.file.trim(),
+    start: l.start,
+    end: Math.max(l.start, Number.isInteger(l.end) ? l.end : l.start),
+    text: typeof l.text === "string" ? l.text : ""
+  }));
+}
+function readValues(v) {
+  if (!Array.isArray(v)) return [];
+  const usable = (x) => x && typeof x.name === "string" && x.name.trim() && typeof x.value === "string" && typeof x.file === "string" && Number.isInteger(x.line) && x.line >= 1;
+  const oneLine = (s) => s.replace(/\s+/g, " ").trim();
+  return v.filter(usable).map((x) => ({
+    name: x.name.trim(),
+    value: oneLine(x.value),
+    file: x.file.trim(),
+    line: x.line,
+    text: typeof x.text === "string" ? x.text : "",
+    ...typeof x.note === "string" && x.note.trim() ? { note: oneLine(x.note) } : {}
+  }));
+}
+var readScene = (v) => isObj(v) && Array.isArray(v.beats) && Array.isArray(v.actors) && v.beats.length ? v : void 0;
+function readStep(s, n, stepIds, problems) {
+  const start = line(s.range.start);
+  const end = Math.max(start, line(s.range.end) ?? start);
+  const refs = (Array.isArray(s.refs) ? s.refs : []).filter((r) => typeof r === "string" && r.trim()).map((r) => r.trim());
+  if (refs.length > MAX_REFS) problems.note(`step ${n}: ${refs.length} references (at most ${MAX_REFS} are shown)`);
+  let id = str2(s.id).trim() || `#${n}`;
+  if (stepIds.has(id)) {
+    problems.note(`step ${n}: id "${id}" is used twice`);
+    id = `#${n}`;
+  }
+  stepIds.add(id);
+  const anchor = readAnchor(s.anchor);
+  const links = readLinks(s.links);
+  const values = readValues(s.values);
+  const scene = readScene(s.scene);
+  return {
+    id,
+    n,
+    title: str2(s.title).trim() || `Step ${n}`,
+    node: s.node,
+    file: str2(s.file).trim(),
+    range: { start, end },
+    ...opt(anchor, "anchor", anchor),
+    lead: str2(s.lead).trim(),
+    ...optTrimmed("details", s.details),
+    refs: refs.slice(0, MAX_REFS),
+    ...opt(links.length, "links", links),
+    ...opt(values.length, "values", values),
+    ...opt(s.marks !== void 0, "marks", s.marks),
+    ...opt(scene, "scene", scene)
+  };
+}
+function readSteps(written, ids, problems) {
+  const usable = written.filter((s, i) => {
+    const why = stepProblem(s, ids);
+    if (why) problems.leftOut(`step ${i + 1}${s?.title ? ` ("${str2(s.title)}")` : ""} ${why}: left out`);
+    return !why;
+  });
+  const stepIds = /* @__PURE__ */ new Set();
+  return usable.map((s, i) => readStep(s, i + 1, stepIds, problems));
+}
+var OLD_FORMAT = "format v";
+function versionProblem(version) {
+  if (version === FORMAT_VERSION) return void 0;
+  if (typeof version === "number" && version > FORMAT_VERSION) {
+    return `format v${version} is newer than this extension reads (v${FORMAT_VERSION})`;
+  }
+  return `${OLD_FORMAT}${version ?? 1} (steps as notes): not read; migrate it to v${FORMAT_VERSION}`;
+}
+function readJourney(v, name) {
+  if (!isObj(v)) return refused("not a JSON object");
+  const why = versionProblem(v.version);
+  if (why) return refused(why);
+  if (!Array.isArray(v.nodes) || !v.nodes.length) return refused('"nodes" must be a non-empty array');
+  if (!Array.isArray(v.steps)) return refused('"steps" must be an array');
+  const problems = new Problems();
+  const nodes = readNodes(v.nodes, problems);
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = (Array.isArray(v.edges) ? v.edges : []).map((e) => readEdge(e, nodes)).filter(collectProblem(problems));
+  const steps = readSteps(v.steps, ids, problems);
+  const title = str2(v.title) || str2(v.question) || name;
+  const journey = {
+    id: str2(v.id) || name,
+    question: str2(v.question) || title,
+    title,
+    summary: str2(v.summary),
+    ...optTrimmed("model", v.model),
+    ...opt(typeof v.commit === "string" && v.commit, "commit", v.commit),
+    ...opt(typeof v.createdAt === "string", "createdAt", v.createdAt),
+    ...opt(v.start === true, "start", true),
+    nodes,
+    edges,
+    steps,
+    problems: [...problems.all, ...rules(nodes)]
+  };
+  return accepted({ journey, stepsLeftOut: problems.stepsLeftOut });
+}
+var collectProblem = (problems) => (x) => {
+  if (typeof x !== "string") return true;
+  problems.note(x);
+  return false;
+};
+function readNodes(written, problems) {
+  const nodes = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const x of written) {
+    const n = readNode(x, ids);
+    if (!collectProblem(problems)(n)) continue;
+    ids.add(n.id);
+    nodes.push(n);
+  }
+  dropBadParents(nodes, problems);
+  return nodes;
+}
+function rules(nodes) {
+  const out = [];
+  for (const n of nodes) {
+    if (n.label.length > MAX_NODE_LABEL) out.push(`box "${n.label.slice(0, LABEL_PREVIEW)}…": label longer than ${MAX_NODE_LABEL} characters`);
+  }
+  const count = /* @__PURE__ */ new Map();
+  for (const n of nodes) count.set(n.parent ?? "", (count.get(n.parent ?? "") ?? 0) + 1);
+  for (const [p, c] of count) {
+    if (c <= MAX_BOXES) continue;
+    const level = p ? `inside "${nodes.find((n) => n.id === p)?.label ?? p}"` : "the top level";
+    out.push(`${level}: ${c} boxes (at most ${MAX_BOXES} keep the map readable)`);
+  }
+  return out;
+}
+
+// cli/understanding/validate.ts
 function linksBad(links, at, errs) {
   if (links === void 0) return;
   const ok = Array.isArray(links) && links.every((l) => l && typeof l === "object" && typeof l.phrase === "string" && typeof l.file === "string" && Number.isInteger(l.start) && Number.isInteger(l.end) && l.start > 0 && l.end > 0);
@@ -676,7 +927,7 @@ function validateCheck(c, { repo } = {}) {
 }
 function topProblems(c) {
   const errs = [];
-  if (c.version !== 1) errs.push(`"version" is ${JSON.stringify(c.version)}: expected 1`);
+  if (c.version !== VERSIONS.check) errs.push(`"version" is ${JSON.stringify(c.version)}: expected ${VERSIONS.check}`);
   if (typeof c.branch !== "string" || !c.branch) errs.push('"branch" is missing');
   if (!isHex(c.head)) errs.push('"head" must be a commit sha');
   if (c.base !== void 0 && !isHex(c.base)) errs.push('"base" must be a commit sha');
@@ -734,24 +985,18 @@ function attemptProblems(a, at, last) {
   return errs;
 }
 function tourProblems(j) {
-  if (!j || typeof j !== "object" || Array.isArray(j)) return ["not an object"];
-  const errs = [];
-  if (j.version !== 2 && j.version !== 3) errs.push(`"version" is ${JSON.stringify(j.version)}: expected 2`);
+  const read = readJourney(j, "tour");
+  if (!read.ok) return [read.why];
+  const errs = [...read.value.stepsLeftOut];
   if (typeof j.title !== "string" || !j.title.trim()) errs.push('"title" is missing');
-  const ids = new Set(Array.isArray(j.nodes) ? j.nodes.filter((n) => n && typeof n.id === "string").map((n) => n.id) : []);
-  if (!ids.size) errs.push('"nodes" must be a non-empty array of boxes with ids');
-  if (!Array.isArray(j.steps) || !j.steps.length) return [...errs, '"steps" must be a non-empty array'];
+  if (!j.steps.length) return [...errs, '"steps" must be a non-empty array'];
   if (j.steps.length > MAX_TOUR_STEPS) errs.push(`${j.steps.length} steps: at most ${MAX_TOUR_STEPS}`);
   j.steps.forEach((s, i) => {
+    if (!s || typeof s !== "object") return;
     const at = `step ${i + 1}`;
-    if (!s || typeof s !== "object") {
-      errs.push(`${at}: not an object`);
-      return;
-    }
     if (typeof s.title !== "string" || !s.title.trim()) errs.push(`${at}: "title" is missing`);
-    if (!ids.has(s.node)) errs.push(`${at}: "node" ${JSON.stringify(s.node)} is not a box of the map`);
-    if (!isRelPath(s.file)) errs.push(`${at}: "file" must be a path inside the repository`);
-    if (!s.range || !isLines(s.range.start, s.range.end)) errs.push(`${at}: "range" must be { "start", "end" } (1-based lines)`);
+    if (typeof s.file === "string" && s.file.trim() && !isRelPath(s.file)) errs.push(`${at}: "file" must be a path inside the repository`);
+    if (s.range && !isLines(s.range.start, s.range.end)) errs.push(`${at}: "range" must be { "start", "end" } (1-based lines)`);
   });
   return errs;
 }
@@ -825,32 +1070,49 @@ var sizeText = (n) => `${n} question${n === 1 ? "" : "s"}, ~${minutesFor(n)} min
 var sizeWords = (n) => sizeText(n).replace("~", "about ");
 
 // cli/understanding/anchors.ts
-import { createHash as createHash2 } from "node:crypto";
 import fs4 from "node:fs";
 import path5 from "node:path";
+
+// src/core/anchors/compact.ts
+import { createHash as createHash2 } from "crypto";
+
+// src/core/anchors/lines.ts
 var norm = (s) => s.replace(/\s+/g, "").replace(/['`]/g, '"').replace(/[;,]+$/, "");
 var blank = (s) => norm(s) === "";
-var sha12 = (s) => createHash2("sha1").update(s, "utf8").digest("hex").slice(0, 12);
+var WEAK_LENGTH = 3;
+var weak = (s) => norm(s).length < WEAK_LENGTH;
+var lineIs = (lines, k, want) => !!want && k >= 0 && k < lines.length && norm(lines[k]) === want;
+
+// src/core/anchors/compact.ts
+var HEAD_LINES = 3;
+var TAIL_LINES = 2;
+var MIN_LEN_RATIO = 0.5;
+var MAX_LEN_RATIO = 1.5;
+var MAX_LEN_SLACK = 5;
+var HASH_HEX = 12;
+var sha = (s) => createHash2("sha1").update(s, "utf8").digest("hex").slice(0, HASH_HEX);
+function blockHash(block) {
+  return sha(block.map(norm).filter(Boolean).join("\n"));
+}
+function blockHashAll(block) {
+  return sha(block.map(norm).join("\n"));
+}
 function compactOf(lines, start, end) {
-  const s = start - 1, e = end - 1;
-  const block = lines.slice(s, e + 1);
+  const block = lines.slice(start, end + 1);
   const solid = block.filter((l) => !blank(l));
   if (!solid.length) return void 0;
-  let b = s - 1;
-  while (b >= 0 && blank(lines[b])) b--;
-  let a = e + 1;
-  while (a < lines.length && blank(lines[a])) a++;
+  const b = nonBlank(lines, start - 1, -1);
+  const a = nonBlank(lines, end + 1, 1);
   return {
     v: 3,
-    head: solid.slice(0, 3).join("\n"),
-    tail: solid.slice(-2).join("\n"),
+    head: solid.slice(0, HEAD_LINES).join("\n"),
+    tail: solid.slice(-TAIL_LINES).join("\n"),
     lines: block.length,
-    hash: sha12(block.map(norm).filter(Boolean).join("\n")),
+    hash: blockHash(block),
     before: b >= 0 ? lines[b] : "",
     after: a < lines.length ? lines[a] : ""
   };
 }
-var weak = (s) => norm(s).length < 3;
 function forward(lines, i, want) {
   let k = i;
   for (let w = 0; w < want.length; w++) {
@@ -869,57 +1131,77 @@ function backward(lines, e, want, floor) {
   }
   return true;
 }
-function findAnchor(lines, a, hint = 0) {
-  const head = String(a?.head ?? "").split("\n").map(norm).filter(Boolean);
-  const tail = String(a?.tail ?? "").split("\n").map(norm).filter(Boolean);
-  if (!head.length) return void 0;
-  if (!tail.length) tail.push(...head.slice(-2));
-  const L = Math.max(1, a.lines || 1);
-  const minLen = Math.max(1, Math.ceil(L * 0.5)), maxLen = Math.floor(L * 1.5 + 5);
-  const before = weak(a.before ?? "") ? "" : norm(a.before), after = weak(a.after ?? "") ? "" : norm(a.after);
-  const hashOf = (block) => sha12(block.map(norm).filter(Boolean).join("\n"));
-  const hashAllOf = (block) => sha12(block.map(norm).join("\n"));
-  const rank = (c) => [c.fresh ? 0 : 1, c.dLen, -c.ctx, c.dist];
-  let best;
-  for (let i = 0; i < lines.length; i++) {
-    if (norm(lines[i]) !== head[0]) continue;
-    const headEnd = forward(lines, i, head);
-    if (headEnd === void 0) continue;
-    let b = i - 1;
-    while (b >= 0 && blank(lines[b])) b--;
-    const ctxBefore = before && b >= 0 && norm(lines[b]) === before ? 1 : 0;
-    for (const { end, afterLine: f } of candidateEnds(lines, i, headEnd, tail, L, minLen, maxLen)) {
-      const ctxAfter = after && f < lines.length && norm(lines[f]) === after ? 1 : 0;
-      const block = lines.slice(i, end + 1);
-      const c = {
-        start: i,
-        end,
-        fresh: !a.hash || hashOf(block) === a.hash || hashAllOf(block) === a.hash,
-        dLen: Math.abs(end - i + 1 - L),
-        ctx: ctxBefore + ctxAfter,
-        dist: Math.abs(i - hint)
-      };
-      if (!best || lessThan(rank(c), rank(best))) best = c;
-    }
-  }
-  return best && { start: best.start, end: best.end, fresh: best.fresh };
+function nonBlank(lines, i, step) {
+  let k = i;
+  while (k >= 0 && k < lines.length && blank(lines[k])) k += step;
+  return k;
+}
+function lengthWindow(storedLen) {
+  return { minLen: Math.max(1, Math.ceil(storedLen * MIN_LEN_RATIO)), maxLen: Math.floor(storedLen * MAX_LEN_RATIO + MAX_LEN_SLACK) };
 }
 function candidateEnds(lines, start, headEnd, tail, storedLen, minLen, maxLen) {
   const out = [];
+  const first = Math.max(headEnd, start + minLen - 1);
   const last = Math.min(lines.length - 1, start + maxLen - 1);
-  for (let e = Math.max(headEnd, start + minLen - 1); e <= last; e++) {
+  for (let e = first; e <= last; e++) {
     if (norm(lines[e]) !== tail[tail.length - 1] || !backward(lines, e, tail, start)) continue;
-    let afterLine = e + 1;
-    while (afterLine < lines.length && blank(lines[afterLine])) afterLine++;
-    out.push({ end: e, afterLine });
+    const afterLine = nonBlank(lines, e + 1, 1);
     const stored = start + storedLen - 1;
-    if (stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank)) out.push({ end: stored, afterLine });
+    const storedFits = stored > e && stored < lines.length && lines.slice(e + 1, stored + 1).every(blank);
+    out.push({ end: e, afterLine });
+    if (storedFits) out.push({ end: stored, afterLine });
   }
   return out;
 }
-function lessThan(a, b) {
-  const k = a.findIndex((x, i) => x !== b[i]);
-  return k >= 0 && a[k] < b[k];
+function rankCandidates(x, y) {
+  return Number(y.hash) - Number(x.hash) || x.dLen - y.dLen || y.ctx - x.ctx || x.dist - y.dist;
+}
+function findCompact(lines, a, hint) {
+  const head = a.head.split("\n").map(norm).filter(Boolean);
+  const tail = a.tail.split("\n").map(norm).filter(Boolean);
+  if (!head.length) return { state: "gone" };
+  if (!tail.length) tail.push(...head.slice(-TAIL_LINES));
+  const storedLen = Math.max(1, a.lines);
+  const { minLen, maxLen } = lengthWindow(storedLen);
+  const before = weak(a.before) ? "" : norm(a.before);
+  const after = weak(a.after) ? "" : norm(a.after);
+  const cands = [];
+  for (let start = 0; start < lines.length; start++) {
+    if (norm(lines[start]) !== head[0]) continue;
+    const headEnd = forward(lines, start, head);
+    if (headEnd === void 0) continue;
+    const ctxBefore = lineIs(lines, nonBlank(lines, start - 1, -1), before) ? 1 : 0;
+    for (const { end, afterLine } of candidateEnds(lines, start, headEnd, tail, storedLen, minLen, maxLen)) {
+      const block = lines.slice(start, end + 1);
+      const hash = !a.hash || blockHash(block) === a.hash || blockHashAll(block) === a.hash;
+      const ctx = ctxBefore + (lineIs(lines, afterLine, after) ? 1 : 0);
+      cands.push({ start, end, hash, dLen: Math.abs(end - start + 1 - storedLen), ctx, dist: Math.abs(start - hint) });
+    }
+  }
+  if (!cands.length) return { state: "gone" };
+  cands.sort(rankCandidates);
+  const c = cands[0];
+  return { state: c.hash ? "fresh" : "changed", loc: { start: c.start, end: c.end } };
+}
+
+// cli/understanding/anchors.ts
+function compactOf2(lines, start, end) {
+  return compactOf(lines, start - 1, end - 1);
+}
+function complete(a) {
+  return {
+    v: 3,
+    head: String(a?.head ?? ""),
+    tail: String(a?.tail ?? ""),
+    lines: a?.lines || 1,
+    hash: a?.hash ?? "",
+    before: a?.before ?? "",
+    after: a?.after ?? ""
+  };
+}
+function findAnchor(lines, a, hint = 0) {
+  const f = findCompact(lines, complete(a), hint);
+  return f.state === "gone" ? void 0 : { start: f.loc.start, end: f.loc.end, fresh: f.state === "fresh" };
 }
 function relocate(repo, check) {
   const cache = /* @__PURE__ */ new Map();
@@ -1143,7 +1425,7 @@ import path8 from "node:path";
 
 // cli/understanding/graderPrompt.ts
 var REPLY_WORDS = { pass: 25, partial: 30, retry: 40, explained: 60, restated: 20 };
-var line = (...sentences) => sentences.join(" ");
+var line2 = (...sentences) => sentences.join(" ");
 function graderPrompt({ q, answer, attempt, diff, code, canRead, explanation, tour, others = [] }) {
   const restate = explanation !== void 0;
   const second = !restate && attempt >= 2;
@@ -1173,7 +1455,7 @@ Now they say the point back in their own words.` : "",
     replyFormat({ restate, second })
   ].filter(Boolean).join("\n\n");
 }
-var INTRO = line(
+var INTRO = line2(
   'You grade one answer in an "understanding check": the author of a code change answers a question about their own change, to show they understand the code they are about to merge.',
   "Be the friendly senior colleague who asked the question, not an examiner.",
   "Your reply is read in a small thread next to the code: short and plain."
@@ -1207,13 +1489,13 @@ function howToJudge(q, { restate, canRead }) {
   return [
     "How to judge:",
     `- Judge against the actual code${canRead ? " (read the repository as needed; read-only)" : " and diff above"}. The answer must be right about THIS code.`,
-    line(
+    line2(
       "- Be lenient. One to three sentences is a complete answer.",
       "Accept informal wording, approximate names, and answers that get the main point while missing details.",
       "Never ask for more than the question needs."
     ),
     q.docs ? "- This question is about a documentation change: an honest answer that it is just wording, or what a reader now sees or understands differently, is a full pass." : "",
-    q.evidence ? line(
+    q.evidence ? line2(
       "- This question asks the author to confirm or correct what a search of the repository found about code the change removes.",
       "One sentence that confirms it (when the code agrees) or corrects it (a use the search missed: a dynamic call, a name in a string or a config file) is a full pass."
     ) : "",
@@ -1221,13 +1503,13 @@ function howToJudge(q, { restate, canRead }) {
     canRead ? VERIFY_READING : VERIFY_SHOWN
   ].join("\n");
 }
-var VERIFY_READING = line(
+var VERIFY_READING = line2(
   "- Every claim you make about the code must be one you checked by reading those exact lines (use Read; Grep to find a name).",
   "Before you say a value is checked, guarded, unique, retried, locked or never read, read the code that would do it and every place that uses it.",
   "A value that is written but never read guards nothing: never hold it up as a marker or safeguard, and never compare other code with it as if it protected anything.",
   "Do not mention code you did not read."
 );
-var VERIFY_SHOWN = line(
+var VERIFY_SHOWN = line2(
   "- Make claims only about lines shown above.",
   "Before you say a value is checked, guarded, unique, retried, locked or never read, find the lines that show it.",
   "A value that is written but never read guards nothing: never hold it up as a marker or safeguard.",
@@ -1235,7 +1517,7 @@ var VERIFY_SHOWN = line(
 );
 function whatToWrite({ restate, second }) {
   return [
-    line(
+    line2(
       "What to write (count the words).",
       'Name code by what it is ("the catch block in tick()", "the INSERT"), never by line numbers or path:line: each name you use gets a link (below), shown as a clickable phrase.'
     ),
@@ -1247,42 +1529,42 @@ function whatToWrite({ restate, second }) {
     LINKS
   ].join("\n");
 }
-var PASS = line(
+var PASS = line2(
   '- pass: "feedback" answers what THEY said: "Right" and their main point confirmed in a few words of your own (if they say it is a bug and it is one, confirm that bug, e.g. "Right: nothing tells returned from damaged units, so stock goes up either way.").',
   "At most one more fact, only about that same point; never an unrelated fact.",
   `${REPLY_WORDS.pass} words in all (count them: one sentence is best, two at most). "hint" is "". "partial": false.`
 );
-var PARTIAL = line(
+var PARTIAL = line2(
   '- a partial pass: the main point is right, but the answer says or implies something wrong that matters (e.g. "it is retried later" when the retries stop after a limit, so it may never happen), or it leaves out a part the question asks for (the reason, the case, the outcome) so your feedback would have to supply it.',
   `Verdict "pass", "partial": true, "feedback" is "Mostly right." and the correction in one sentence, at most ${REPLY_WORDS.partial} words in all.`,
   '"topic": what the correction is about, at most 6 words.',
   'If the one fact you would add on a pass corrects or completes what they said, it is a partial pass, not a plain one: never complete their answer and call it "Right".'
 );
-var EXPLAIN = line(
+var EXPLAIN = line2(
   `- not a pass (their second try): verdict "explained"; "feedback" explains the answer plainly, naming the code it is about, at most ${REPLY_WORDS.explained} words; "hint" is "".`,
   '"topic": what the question is about, at most 6 words (e.g. "same-key refunds at once").'
 );
-var RETRY = line(
+var RETRY = line2(
   `- not a pass: verdict "retry". "feedback" (at most 20 words) says which part of their answer is right and which part to re-check, with one opener at most (no "No worries", no "Nothing to check yet"); for "I don't know" just the hint.`,
   'Never state or imply the correct outcome, and never say what their wrong conclusion should be instead (not even "so it is not X").',
   '"hint" (at most 20 words) names the code to read, ideally as a question.'
 );
-var NOTE = line(
+var NOTE = line2(
   '- "note": for the reviewer of the merge request, at most 15 words, always correct about the code:',
   'on a pass or a restatement, the point the author got right; on a partial pass, the correct point including the correction; when explained, the correct answer in one line; on a retry, "".'
 );
-var CONCERN = line(
+var CONCERN = line2(
   '- "concern": only when the CODE of this change has a defect you checked, whatever the verdict: a bug, a race, lost data, a step it forgot (a setting never passed on, a file not updated).',
   'That includes a slip the author admits ("forgot to bump the lock file") and a trap their answer points at that you confirm (importing the module starts a loop that never ends): when their answer names a defect you confirm, the concern is that one.',
   'One sentence, at most 25 words: what breaks and why it matters, naming the code (e.g. "After MAX_ATTEMPTS the refund email is dropped with only a log line: the customer is never told and nobody is alerted.").',
   `Never a concern: code that works as intended, described; a reassurance ("nothing calls it, so removing it breaks nothing"); what would happen in a "what if" about code the change does not have; a correction of the author's answer (that goes in "feedback"); your feedback repeated.`,
   'Otherwise "". Never invent one.'
 );
-var LINKS = line(
+var LINKS = line2(
   '- "links": 1-3 links for the code you named: {"phrase": the exact words as they appear in your feedback, hint or concern, "file": a path in the repository, "start": first line, "end": last line} (lines you read).',
   "[] when you named no code."
 );
-var SELF_CHECK = line(
+var SELF_CHECK = line2(
   "Before you reply, check your draft: each claim matches lines you read; no sentence contradicts another; it is within the word limit; on a miss, nothing in it gives the answer away.",
   "Fix or cut what fails."
 );
@@ -1433,12 +1715,12 @@ function parseVerdict(text, attempt = 1, { restate = false } = {}) {
       if (attempt >= 2 && verdict === "retry") verdict = "explained";
       if (attempt < 2 && verdict === "explained") verdict = "retry";
     }
-    const str = (x) => String(x ?? "").trim();
-    const out = { verdict, feedback: str(v.feedback), hint: verdict === "retry" ? str(v.hint) : "" };
-    if (str(v.note) && verdict !== "retry") out.note = str(v.note);
+    const str3 = (x) => String(x ?? "").trim();
+    const out = { verdict, feedback: str3(v.feedback), hint: verdict === "retry" ? str3(v.hint) : "" };
+    if (str3(v.note) && verdict !== "retry") out.note = str3(v.note);
     if (verdict === "pass" && v.partial === true) out.partial = true;
-    if (str(v.topic) && (verdict === "explained" || out.partial)) out.topic = str(v.topic);
-    if (str(v.concern) && !repeats(str(v.concern), out.feedback)) out.concern = str(v.concern);
+    if (str3(v.topic) && (verdict === "explained" || out.partial)) out.topic = str3(v.topic);
+    if (str3(v.concern) && !repeats(str3(v.concern), out.feedback)) out.concern = str3(v.concern);
     const said = [out.feedback, out.hint, out.concern ?? ""].join("\n");
     const links = (Array.isArray(v.links) ? v.links : []).filter((l) => l && typeof l.phrase === "string" && l.phrase.trim() && said.includes(l.phrase.trim()) && typeof l.file === "string" && Number.isInteger(l.start) && l.start >= 1).slice(0, 3).map((l) => ({ phrase: l.phrase.trim(), file: l.file.replace(/^\.\//, ""), start: l.start, end: Number.isInteger(l.end) && l.end >= l.start ? l.end : l.start }));
     if (links.length) out.links = links;
@@ -1605,7 +1887,7 @@ ${p.out}`)?.[1];
   if (!p.code) return { ok: true, committed, pushed: true, line: "Pushed.", ...mr ? { mr } : {} };
   return notPushed(committed, pushFailure(p, { committed, remote: target.remote, timeoutMs }));
 }
-var notPushed = (committed, line2) => ({ ok: false, committed, pushed: false, line: line2 });
+var notPushed = (committed, line3) => ({ ok: false, committed, pushed: false, line: line3 });
 var COMMIT_MS = 6e4;
 async function commitFiles(g, files, message) {
   const add = await g(["add", "--", ...files]);
@@ -1754,7 +2036,7 @@ function concernChangedIn(repo, q, from, head) {
   const range = from && hasCommit(repo, from) ? `${from}..${head}` : head;
   return gitOk(repo, ["log", "-1", "--format=%h", `-S${own2.text}`, range, "--", own2.file]) || gitOk(repo, ["log", "-1", "--format=%h", range, "--", own2.file]) || "";
 }
-var changedText = (sha) => `lines changed in ${sha || "a later commit"} · fixed?`;
+var changedText = (sha2) => `lines changed in ${sha2 || "a later commit"} · fixed?`;
 function clipAnswer(s, n = 300) {
   const t = String(s ?? "").trim();
   if (t.length <= n + 40) return t;
@@ -1823,7 +2105,7 @@ function settingsChange(repo, base, head, { plain = false } = {}) {
   const keys = [.../* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => v(a[k]) !== v(b[k]));
   return keys.length ? `This merge request changes the understanding check's settings: ${keys.map((k) => (plain ? (x) => x : inline)(`${k} ${v(a[k])} → ${v(b[k])}`)).join(", ")}.` : void 0;
 }
-var settingsHeadline = (line2) => `**⚠ ${line2.replace(/\.$/, "")}** (from the merge on; this merge request follows the current settings)`;
+var settingsHeadline = (line3) => `**⚠ ${line3.replace(/\.$/, "")}** (from the merge on; this merge request follows the current settings)`;
 function noCheckLine(change) {
   if (change.exemptOnly) {
     const f = change.exempt;
@@ -1935,12 +2217,12 @@ function concernPlace(q, lines) {
   const own2 = concernLink(q);
   if (own2) {
     const ls = lines?.(own2.file);
-    let line2 = own2.start;
-    if (ls && typeof own2.text === "string" && ls[line2 - 1] !== own2.text) {
+    let line3 = own2.start;
+    if (ls && typeof own2.text === "string" && ls[line3 - 1] !== own2.text) {
       const hits = ls.map((t, i) => t === own2.text ? i + 1 : 0).filter(Boolean);
-      if (hits.length) line2 = hits.reduce((a, b) => Math.abs(b - own2.start) < Math.abs(a - own2.start) ? b : a);
+      if (hits.length) line3 = hits.reduce((a, b) => Math.abs(b - own2.start) < Math.abs(a - own2.start) ? b : a);
     }
-    return { file: own2.file, line: line2 };
+    return { file: own2.file, line: line3 };
   }
   if (q.target !== "file" && Number.isInteger(q.end)) return { file: q.file, line: q.end };
   const as = [...q.attempts ?? []].reverse();
@@ -2004,8 +2286,8 @@ function threadTexts(check, { head, link, repo, diff, changed }) {
   const placeOf = (it) => {
     const p = aboutOf(it);
     if (!p || diff === void 0) return p;
-    const line2 = nearestChanged(diff, p.file, p.line);
-    return line2 === void 0 ? p : { ...p, line: line2, ...line2 !== p.line ? { moved: true } : {} };
+    const line3 = nearestChanged(diff, p.file, p.line);
+    return line3 === void 0 ? p : { ...p, line: line3, ...line3 !== p.line ? { moved: true } : {} };
   };
   const whereAt = (p) => {
     if (!p) return void 0;
@@ -2210,8 +2492,8 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag }
     return res2;
   };
   if (!linesOf(change) && !change.renamed?.length) {
-    const line2 = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : settings && !numstat(repo, base, head).some((f) => counted(f.file, cfg.exempt)) ? "✓ No check needed: only the check's settings changed." : noCheckLine(change);
-    return finish(settings ? await post({ code: 0, lines: [line2, `  ${settingsChange(repo, base, head, { plain: true })}`] }, MARKER) : { code: 0, lines: [line2] });
+    const line3 = stacked ? `✓ No check needed: covered by ${stacked.branch}'s check (no code changed since).` : settings && !numstat(repo, base, head).some((f) => counted(f.file, cfg.exempt)) ? "✓ No check needed: only the check's settings changed." : noCheckLine(change);
+    return finish(settings ? await post({ code: 0, lines: [line3, `  ${settingsChange(repo, base, head, { plain: true })}`] }, MARKER) : { code: 0, lines: [line3] });
   }
   let info = { labels: ctx.labels ?? [], author: ctx.author };
   if (canApi) {
@@ -2233,9 +2515,9 @@ async function ciJob(repo, { env = process.env, comment = true, base: baseFlag }
       }
       const others = all.filter((u) => u !== info.author);
       if (others.length) {
-        const line2 = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(", ")})`;
-        return finish(await post({ code: 0, lines: [line2] }, `${MARKER}
-${line2}`));
+        const line3 = `✓ Understanding check waived (approved by ${others.map((u) => `@${u}`).join(", ")})`;
+        return finish(await post({ code: 0, lines: [line3] }, `${MARKER}
+${line3}`));
       }
       const asked = `Skip requested: an approval from a reviewer waives the understanding check${rerun}.`;
       const own2 = `Your own approval doesn't count: ask a reviewer to approve${rerun}.`;
@@ -2269,7 +2551,7 @@ async function checkResult(repo, { cfg, ctx, head, base, rel, change, rerun, qui
       ...quiet ? [] : [`  Or add the label "${cfg.skipLabel}" and get a reviewer's approval${rerun}.`]
     ], body: missingBody(rel, cfg, rerun.replace("this job", "the job"), { quiet, size }) };
   }
-  const short = (line2, head2) => ({ code: 1, lines: [line2], body: `${MARKER}
+  const short = (line3, head2) => ({ code: 1, lines: [line3], body: `${MARKER}
 ${head2}` });
   let check;
   try {
@@ -2292,12 +2574,12 @@ ${head2}` });
   const changed = /* @__PURE__ */ new Map();
   for (const q of check.questions) {
     if (!liveConcern(q)) continue;
-    const sha = concernChangedIn(repo, q, check.head, head);
-    if (sha !== void 0) changed.set(q.id, sha);
+    const sha2 = concernChangedIn(repo, q, check.head, head);
+    if (sha2 !== void 0) changed.set(q.id, sha2);
   }
-  const made = (line2, o = {}) => {
+  const made = (line3, o = {}) => {
     const items = reviewItems(check, sum, { qa: !!o.qa });
-    return { items, body: commentBody(check, sum, line2, link, { ...o, changed, items }), remake: (threads) => commentBody(check, sum, line2, link, { ...o, changed, items, threads }) };
+    return { items, body: commentBody(check, sum, line3, link, { ...o, changed, items }), remake: (threads) => commentBody(check, sum, line3, link, { ...o, changed, items, threads }) };
   };
   const out = (r2) => Object.assign(r2, { check, link, diff, changed });
   const room = drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? "" : "s"} since the check (top-up at ${cfg.maxDrift}).` : "";
@@ -2681,7 +2963,7 @@ export {
   commentStyle,
   commitAndPush,
   commitCheck,
-  compactOf,
+  compactOf2 as compactOf,
   concernBody,
   concernChanged,
   concernChangedIn,

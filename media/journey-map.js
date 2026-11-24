@@ -1,4 +1,4 @@
-// The journey panel (a webview). Plain DOM + SVG. Needs common.js, journeyModel.js (as `JourneyModel`), ELK,
+// The journey panel (a webview). Plain DOM + SVG. Needs common.js, ELK,
 // journey-layout.js, journey-graph.js, journey-scene.js, journey-home.js, journey-splitter.js and journey-tutorial.js,
 // loaded before it.
 // Layout: "‹ Journeys" (home: every journey, one click walks it), the question, one provenance line, then the

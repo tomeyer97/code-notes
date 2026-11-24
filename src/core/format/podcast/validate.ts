@@ -4,7 +4,7 @@
 // for rule, by the code-journey skill's `journey.py podcast` (the cases in test/fixtures/podcast/cases.json run
 // through both). No vscode here.
 
-import { codeMarkOf, markCodeProblem } from '../marks/model'
+import { codeMarkOf, markCodeProblem } from '../marks'
 import { clock, clockMs, Episode, JourneyShape, LINK_CODES, marksProblems, Podcast, PodcastProblem, resolveEpisode, segmentName, segProblem, sentenceBound, sentencesProblem, WrittenSegment } from './model'
 
 /** What is known around the file: the journey next to it, its audio file (looked at or not), the audio's real length
@@ -85,7 +85,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
     else if (ctx.audio && !ctx.audio.exists) errors.push(error('audio-missing', `the audio file ${audio} isn't there`, ['audio']))
     else if (ctx.audio && ctx.audio.size === 0) errors.push(error('audio-empty', `the audio file ${audio} is empty`, ['audio']))
   }
-  // The segments: missing, not a list, empty (F42).
+  // The segments: missing, not a list, empty.
   if (d.segments === undefined) errors.push(error('segments', 'no "segments": the parts of the episode'))
   else if (!Array.isArray(d.segments)) errors.push(error('segments', `"segments" is not a list (it is ${typeof d.segments === 'object' ? 'an object' : `a ${typeof d.segments}`})`, ['segments']))
   else if (!d.segments.length) errors.push(error('segments', '"segments" is empty: the episode has no parts', ['segments']))
@@ -106,7 +106,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
     // Each segment at its index in the file, so that problems point at it (the ones not objects are left out below).
     segments: written.map((x) => x.s),
   }
-  // The journey it was written for (F40).
+  // The journey it was written for.
   if (podcast.journey.id && ctx.journey && podcast.journey.id !== ctx.journey.id) {
     problems.push(warning('journey', `written for journey "${podcast.journey.id}", but it is next to "${ctx.journey.id}": it plays with the journey next to it`, ['journey', 'id']))
   }
@@ -115,7 +115,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
   problems.push(...timingProblems(written, podcast.duration))
   if (ctx.journey) problems.push(...narrationOrder(written, ctx.journey))
   if (ctx.journey && ctx.files) problems.push(...markCodeProblems(written, ctx.journey, ctx.files, podcast.duration))
-  // Where each segment is shown (an unknown step, a beat the step doesn't have: F30), when the journey is known.
+  // Where each segment is shown (an unknown step, a beat the step doesn't have), when the journey is known.
   let episode: Episode | undefined
   if (ctx.journey) {
     episode = resolveEpisode(podcast, ctx.journey)
@@ -124,17 +124,17 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
       const k = p.path[1]
       if (typeof k === 'number') p.path = ['segments', written[k]?.i ?? k, ...p.path.slice(2)]
     }
-    // Its start-time warnings are timingProblems' already; a step the journey doesn't have is said once (F45).
+    // Its start-time warnings are timingProblems' already; a step the journey doesn't have is said once.
     episode.problems = missingStepsOnce(episode.problems.filter((p) => p.code !== 'start'), written)
     problems.push(...episode.problems)
     episode.warnings = episode.problems.map((p) => p.message)
   }
-  // Recorded for an older commit, and steps' code changed since (F63): a quiet line, nothing wrong with the file.
+  // Recorded for an older commit, and steps' code changed since: a quiet line, nothing wrong with the file.
   if (podcast.journey.commit && ctx.changed?.length) {
     const n = ctx.changed.length
     problems.push({ level: 'info', code: 'recorded-for', message: `Code changed since recording: ${n === 1 ? 'step' : 'steps'} ${ctx.changed.join(', ')}`, path: ['journey', 'commit'] })
   }
-  // The audio's real length, once known (F43, F37).
+  // The audio's real length, once known.
   if (ctx.audioDuration !== undefined && ctx.audioDuration > 0) problems.push(...audioLengthProblems(written, podcast.duration, ctx.audioDuration))
 
   if (written.length && !written.some((x) => num(x.s.start) !== undefined && num(x.s.start)! >= 0)) {
@@ -149,7 +149,7 @@ export function validatePodcast(raw: string, ctx: PodcastContext = {}): Validati
 /** File order of a problem: the segment's index (file-level ones first). */
 const order = (path: (string | number)[]) => (path[0] === 'segments' && typeof path[1] === 'number' ? path[1] + 1 : 0)
 
-/** Start, end and order of the segments (F35): each problem on its segment. */
+/** Start, end and order of the segments: each problem on its segment. */
 function timingProblems(written: { s: WrittenSegment; i: number }[], duration: number | undefined): PodcastProblem[] {
   const out: PodcastProblem[] = []
   const ids = new Map<string, { i: number; start: unknown }>()
@@ -237,7 +237,7 @@ function markCodeProblems(written: { s: WrittenSegment; i: number }[], journey: 
       if (!file) return
       const lines = doc(file)
       if (lines === undefined) return
-      const p = markCodeProblem(lines, file, codeMarkOf(m), 'lines')
+      const p = markCodeProblem({ doc: lines, file, mark: codeMarkOf(m), onMissing: 'lines' })
       if (p) out.push(segProblem(x.s, x.i, 'mark', `mark ${n + 1}: ${p.what}`, ['marks', n, p.sub]))
     })
   })
@@ -283,7 +283,7 @@ const placeOf = (x: { i: number; start: unknown }) => (num(x.start) !== undefine
 
 /**
  * A step the journey doesn't have (deleted, or its id changed) said once, not once per segment about it: which
- * segments and when (F45). On the first of them; `segments` lists them all.
+ * segments and when. On the first of them; `segments` lists them all.
  */
 function missingStepsOnce(problems: PodcastProblem[], written: { s: WrittenSegment; i: number }[]): PodcastProblem[] {
   const byStep = new Map<string, { s: WrittenSegment; i: number }[]>()
@@ -322,7 +322,7 @@ function missingStep(step: string, segs: { s: WrittenSegment; i: number }[]): Po
 }
 
 /**
- * The narration against the journey's order (F103): the steps in the order the podcast first talks about them should
+ * The narration against the journey's order: the steps in the order the podcast first talks about them should
  * be the journey's. Reordered since (an agent rewrote the journey): one warning, at the first step out of order.
  */
 function narrationOrder(written: { s: WrittenSegment; i: number }[], journey: JourneyShape): PodcastProblem[] {

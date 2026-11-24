@@ -21,7 +21,7 @@
   },
   {
     "name": "version 4",
-    "result": "format v4 (steps as notes): not read; migrate it to v2"
+    "result": "format v4 is newer than this extension reads (v2)"
   },
   {
     "name": "nodes missing",
@@ -54,6 +54,10 @@
       "steps": [],
       "problems": []
     }
+  },
+  {
+    "name": "version 3: newer, refused",
+    "result": "format v3 is newer than this extension reads (v2)"
   },
   {
     "name": "question only",
@@ -697,11 +701,6 @@
           },
           "lead": "It does a thing.",
           "refs": [],
-          "values": [
-            {
-              "name": "x"
-            }
-          ],
           "marks": "not a list"
         },
         {
@@ -716,11 +715,6 @@
           },
           "lead": "It does a thing.",
           "refs": [],
-          "links": [
-            {
-              "phrase": "p"
-            }
-          ],
           "marks": []
         }
       ],

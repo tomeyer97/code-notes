@@ -4,7 +4,9 @@
 // (test/podcastModel.test.ts), and the player (player.ts) applies what it says. The full check of a file, with every
 // problem and where it is, is validate.ts.
 
-import { CodeMark, codeMarkOf, markShapeProblem } from '../marks/model'
+import { CodeMark, codeMarkOf, markShapeProblem } from '../marks'
+import { accepted, Parsed, refused } from '../result'
+import { VERSIONS } from '../versions'
 
 /** Where a segment belongs in the journey, as written: null (the whole journey: the map), or a step by id, with the
  *  1-based position of a beat in that step's `scene.beats`. */
@@ -100,24 +102,31 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 
 /** The file's text as a Podcast, or why it can't be one. Only the shape is checked; each segment is checked later. */
-export function parsePodcast(raw: string): Podcast | string {
+export function parsePodcast(raw: string): Parsed<Podcast> {
   let d: unknown
-  try { d = JSON.parse(raw) } catch (e) { return `not JSON: ${(e as Error).message}` }
+  try { d = JSON.parse(raw) } catch (e) { return refused(`not JSON: ${(e as Error).message}`) }
+  const why = shapeProblem(d)
+  if (why || !isObj(d)) return refused(why ?? 'not an object')
+  const j = isObj(d.journey) ? d.journey : {}
+  return accepted({
+    version: VERSIONS.podcast,
+    title: typeof d.title === 'string' ? d.title : '',
+    journey: { id: typeof j.id === 'string' ? j.id : '', file: typeof j.file === 'string' ? j.file : undefined, commit: typeof j.commit === 'string' ? j.commit : undefined },
+    audio: d.audio as string,
+    duration: num(d.duration),
+    segments: (d.segments as unknown[]).filter(isObj) as WrittenSegment[],
+  })
+}
+
+/** Why a parsed file can't be a podcast at all, or undefined. */
+function shapeProblem(d: unknown): string | undefined {
   if (!isObj(d)) return 'not an object'
-  if (d.version !== 1) return `version ${JSON.stringify(d.version)} (this player reads version 1)`
+  if (d.version !== VERSIONS.podcast) return `version ${JSON.stringify(d.version)} (this player reads version ${VERSIONS.podcast})`
   if (typeof d.audio !== 'string' || !d.audio.trim()) return 'no "audio" file'
   if (d.segments === undefined) return 'no "segments"'
   if (!Array.isArray(d.segments)) return '"segments" is not a list'
   if (!d.segments.length) return '"segments" is empty'
-  const j = isObj(d.journey) ? d.journey : {}
-  return {
-    version: 1,
-    title: typeof d.title === 'string' ? d.title : '',
-    journey: { id: typeof j.id === 'string' ? j.id : '', file: typeof j.file === 'string' ? j.file : undefined, commit: typeof j.commit === 'string' ? j.commit : undefined },
-    audio: d.audio,
-    duration: num(d.duration),
-    segments: d.segments.filter(isObj) as WrittenSegment[],
-  }
+  return undefined
 }
 
 /**
@@ -228,7 +237,7 @@ function viewOf(s: WrittenSegment, i: number, byId: Map<string, { n: number; bea
   }
   if (at.beat === undefined || s.cue === 'map') return { step: st.n }
   const b = at.beat
-  // A beat written as a string ("2") is not beat 2: said as what it is, not as a beat the step lacks (F104).
+  // A beat written as a string ("2") is not beat 2: said as what it is, not as a beat the step lacks.
   if (typeof b === 'string') {
     problems.push(stepProblem(s, i, st.n, 'beat', `beat must be a number, got the string ${JSON.stringify(b)}; showing the whole step`, ['at', 'beat']))
     return { step: st.n }
@@ -287,7 +296,7 @@ export function timeOf(ep: Episode, step: number, beat?: number): number | undef
 
 /**
  * The start of the chapter before (dir -1) or after (dir 1) second `t`. ⏮ always goes to the part before, as the step
- * card's ‹ Previous goes to the step before: one meaning for "previous" (F73); the first part's ⏮ is its start.
+ * card's ‹ Previous goes to the step before: one meaning for "previous"; the first part's ⏮ is its start.
  */
 export function chapterJump(ep: Episode, t: number, dir: 1 | -1): number {
   const cs = ep.chapters
@@ -297,7 +306,7 @@ export function chapterJump(ep: Episode, t: number, dir: 1 | -1): number {
   return i === 0 ? cs[0].start : cs[i - 1].start
 }
 
-/** While playing, a view is held at least this long (s): a shorter part that would open another file doesn't (F79). */
+/** While playing, a view is held at least this long (s): a shorter part that would open another file doesn't. */
 export const VIEW_HOLD_S = 8
 
 /**
@@ -326,7 +335,7 @@ export function calmViews(ep: Episode, fileOf: (v: View) => string, hold = VIEW_
 
 // ---------- marks: word-timed highlights within a segment (docs/podcast-format.md, "Marks") ----------
 
-/** A highlight that lights while the voice says `phrase`: a code mark (marks/model.ts) whose `file` defaults to the
+/** A highlight that lights while the voice says `phrase`: a code mark (core/format/marks.ts) whose `file` defaults to the
  *  segment's beat's file, else its step's. */
 export interface Mark extends CodeMark {
   phrase: string
@@ -415,7 +424,7 @@ export function marksAt(times: number[], t: number): { lit: number; focusFrom: n
 }
 
 /**
- * Which of a segment's marks light (the view hold, F79, for marks): a mark in the file on screen lights; one in
+ * Which of a segment's marks light (the view hold, for marks): a mark in the file on screen lights; one in
  * another file opens it, but only once the file on screen has been there `hold` seconds; sooner it is skipped.
  * `own`: the segment's own file (a mark's default); `shown`: the file on screen as the segment starts, there since
  * `since` (s).

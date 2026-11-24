@@ -24,7 +24,7 @@
         }
       ]
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
   },
   {
     "name": "everything known",
@@ -76,7 +76,7 @@
         }
       ]
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"a\",\n    \"before\": \"b\",\n    \"after\": \"c\",\n    \"commit\": \"abc1234\",\n    \"branch\": \"feat/x\"\n  },\n  \"session\": \"Review · api\",\n  \"claudeSession\": \"sess-1\",\n  \"selection\": {\n    \"text\": \"total\",\n    \"startCol\": 8,\n    \"endCol\": 13\n  },\n  \"status\": \"resolved\",\n  \"stale\": true,\n  \"createdAt\": \"2026-11-17T09:00:00Z\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"Because the queue is at-least-once.\",\n      \"at\": \"2026-11-17T10:05:00Z\"\n    }\n  ],\n  \"severity\": \"medium\",\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"role\": \"human\",\n      \"at\": \"2026-11-17T11:00:00Z\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"a\",\n    \"before\": \"b\",\n    \"after\": \"c\",\n    \"commit\": \"abc1234\",\n    \"branch\": \"feat/x\"\n  },\n  \"session\": \"Review · api\",\n  \"claudeSession\": \"sess-1\",\n  \"selection\": {\n    \"text\": \"total\",\n    \"startCol\": 8,\n    \"endCol\": 13\n  },\n  \"status\": \"resolved\",\n  \"stale\": true,\n  \"createdAt\": \"2026-11-17T09:00:00Z\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"Because the queue is at-least-once.\",\n      \"at\": \"2026-11-17T10:05:00Z\"\n    }\n  ],\n  \"severity\": \"medium\",\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"role\": \"human\",\n      \"at\": \"2026-11-17T11:00:00Z\"\n    }\n  ]\n}\n"
   },
   {
     "name": "unknown fields kept, in place",
@@ -113,7 +113,7 @@
         "severity": "critical"
       }
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"future\": {\n    \"a\": 1\n  },\n  \"zeta\": [\n    1,\n    2\n  ],\n  \"severity\": \"critical\"\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"future\": {\n    \"a\": 1\n  },\n  \"zeta\": [\n    1,\n    2\n  ],\n  \"severity\": \"critical\"\n}\n"
   },
   {
     "name": "a whole file",
@@ -146,7 +146,7 @@
       ],
       "target": "file"
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"status\": \"open\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"target\": \"file\"\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"status\": \"open\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"target\": \"file\"\n}\n"
   },
   {
     "name": "a folder",
@@ -174,7 +174,7 @@
       ],
       "target": "folder"
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/sub\",\n  \"status\": \"open\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"target\": \"folder\"\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/sub\",\n  \"status\": \"open\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"target\": \"folder\"\n}\n"
   },
   {
     "name": "loose values",
@@ -211,7 +211,7 @@
         }
       ]
     },
-    "written": "{\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"selection\": {\n    \"text\": \"retry()\",\n    \"startCol\": 0,\n    \"endCol\": 0\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"selection\": {\n    \"text\": \"retry()\",\n    \"startCol\": 0,\n    \"endCol\": 0\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ]\n}\n"
   },
   {
     "name": "range end before start after the clamp",

@@ -145,7 +145,7 @@ export class CodeLinks implements vscode.Disposable {
     const lines = await fileLines(uri)
     if (!lines) return undefined
     // No text to go by: the lines as written.
-    const start = l.text.trim() ? findLine(lines, l.start, l.text) : Math.min(l.start, lines.length) - 1
+    const start = l.text.trim() ? findLine(lines, l.start - 1, l.text) : Math.min(l.start, lines.length) - 1
     if (start < 0) return undefined
     return { uri, start, end: Math.min(lines.length - 1, start + (l.end - l.start)) }
   }

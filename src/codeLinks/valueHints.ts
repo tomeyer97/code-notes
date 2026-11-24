@@ -65,7 +65,7 @@ export class ValueHints implements vscode.Disposable {
     for (const [k, v] of values.entries()) {
       const lines = files[k]
       if (!lines) continue
-      const line = v.text.trim() ? findLine(lines, v.line, v.text) : Math.min(v.line, lines.length) - 1
+      const line = v.text.trim() ? findLine(lines, v.line - 1, v.text) : Math.min(v.line, lines.length) - 1
       if (line < 0) {
         this.log.info(`value hint ${v.name}: the line at ${v.file}:${v.line} changed; not shown`)
         continue

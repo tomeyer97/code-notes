@@ -20,7 +20,7 @@ const { items, NOW } = require(path.join(ROOT, 'out/test/fixtures/journeyList.js
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
 const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
-const sample = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/journey/journeys/place-order.json'), 'utf8'))
+const sample = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/journey/journeys/v2-full.json'), 'utf8'))
 const journey = { ...sample, steps: sample.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] }
 const ACTIVE = 'api/store.js'
 // The journey shown (the walk) is k30 of the list: "‹ Journeys" selects it.

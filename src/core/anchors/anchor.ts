@@ -1,28 +1,42 @@
-// Keeping a note on the code it was written about, without the vscode API (unit-tested in test/).
+// Full-text anchors: keeping a note on the code it was written about, without the vscode API (unit-tested in test/).
 //
 // A note stores the lines it was written on (anchor text) and a couple of lines around them (context). When the
-// file changes:
-//   - the anchor text is still at the tracked position                        -> fine
-//   - it is elsewhere in the file with matching context (or long and unique)  -> the note moves there
-//   - otherwise (code edited, deleted, or only found in an unrelated place)   -> stale, at its last position
-// Lines are compared without whitespace and with one quote style, so reformatting does not make a note stale.
-// A note on blank lines is anchored on its context alone.
+// file changes, `anchor` tries these in order (one function each, below):
+//   onBlankLines    a note on blank lines follows its context alone
+//   stillHere       the anchor text is still at the tracked position                       -> fine
+//   movedElsewhere  it is elsewhere with matching context (or long and unique)             -> the note moves there
+//   editedNearby    the code was edited: stale, on the lines it is most likely about now
+//   otherwise       deleted, or only found in an unrelated place                           -> stale, where it was
+// Lines are compared through lines.ts `norm`, so reformatting does not make a note stale.
 //
-// Following live edits (shift, swallows) is lineFollow.ts; what a stale step's code became (a diff, or removed) is
-// staleDiff.ts.
+// Three scans look for candidates; each keeps the best by `better` (more context, then nearer):
+//   relocate          the exact text anywhere in the file (movedElsewhere)
+//   relocateByContext blank lines whose context matches (onBlankLines)
+//   closest           offsets near the tracked place, scored line by line (editedNearby)
+//
+// Compact anchors (journeys, the check) are compact.ts; following live edits is lineFollow.ts; what a stale note's
+// code became is staleDiff.ts. README.md lists every engine's tunables.
+import { blank, lineIs, norm, weak } from './lines'
+import type { Loc } from './kinds'
 
-/** 0-based, inclusive line range. */
-export interface Loc { start: number; end: number }
+export type { Loc } from './kinds'
+export { blank, norm, weak } from './lines'
+
+// ---------- tunables ----------
+
+/** relocate: a line this long once normalized is recognisable on its own (an import, a signature), unlike `}`. */
+const DISTINCT = 25
+/** closest: how far (in lines) from where it was edited code is looked for. */
+const SEARCH_WINDOW = 40
+/** closest: a line of the block counts when found this many lines from where it would be (an insertion inside it
+ *  shifts the rest); it scores LINE_SLACK + 1 - distance, so a line in place counts most. */
+const LINE_SLACK = 3
+/** closest: a context line that matches counts as much as this many block lines in place. */
+const CONTEXT_WEIGHT = 2
+/** closest: the block's last recognisable line is looked for this far from where it would be, to find its end. */
+const END_SLACK = 6
 
 export interface AnchorResult { loc: Loc; stale: boolean; moved: boolean }
-
-/** What a line means for comparison: no whitespace, one quote style, no trailing; or,. */
-export const norm = (s: string) => s.replace(/\s+/g, '').replace(/['`]/g, '"').replace(/[;,]+$/, '')
-
-/** A line with nothing in it once normalized. */
-export const blank = (s: string) => norm(s) === ''
-/** Lines like `}` or `);` say nothing about where code is: they don't count as context. */
-export const weak = (s: string) => norm(s).length < 3
 
 export function matchesAt(lines: string[], anchor: string[], start: number): boolean {
   if (start < 0 || start + anchor.length > lines.length) return false
@@ -38,8 +52,7 @@ export function contextScore(lines: string[], start: number, len: number, before
     for (let i = 0; i < ctx.length; i++) {
       if (weak(ctx[i])) continue
       max++
-      const at = lineOf(i)
-      if (at >= 0 && at < lines.length && norm(lines[at]) === norm(ctx[i])) score++
+      if (lineIs(lines, lineOf(i), norm(ctx[i]))) score++
     }
   }
   // Either side can run off either end: `start` may be past the end of a file that shrank.
@@ -48,8 +61,17 @@ export function contextScore(lines: string[], start: number, len: number, before
   return { score, max }
 }
 
-/** A line long enough to be recognisable on its own (an import, a signature), unlike `return null` or `}`. */
-const DISTINCT = 25
+/** A place the code may be now: its first line, and how many context lines match there. */
+interface Candidate { at: number; score: number }
+
+/** A candidate beats the best so far: a higher score, or the same score nearer to where the note was. */
+function better(c: Candidate, best: Candidate | undefined, tracked: number): boolean {
+  if (!best) return true
+  if (c.score !== best.score) return c.score > best.score
+  return Math.abs(c.at - tracked) < Math.abs(best.at - tracked)
+}
+
+// ---------- the three scans ----------
 
 /**
  * Where the anchor text occurs now. A candidate needs matching context, unless the anchor is substantial (2+
@@ -75,17 +97,7 @@ export function relocate(lines: string[], anchor: string[], before: string[], af
   return best?.at
 }
 
-/** A place the code may be now: its first line, and how many context lines match there. */
-interface Candidate { at: number; score: number }
-
-/** A candidate beats the best so far: a higher score, or the same score nearer to where the note was. */
-function better(c: Candidate, best: Candidate | undefined, tracked: number): boolean {
-  if (!best) return true
-  if (c.score !== best.score) return c.score > best.score
-  return Math.abs(c.at - tracked) < Math.abs(best.at - tracked)
-}
-
-/** A note on blank lines: where its context (the code around it) is now. */
+/** A note on blank lines: where its context (the code around it) is now; `exact`: all of it matches there. */
 function relocateByContext(lines: string[], len: number, before: string[], after: string[], tracked: number): { at: number; exact: boolean } | undefined {
   let best: Candidate | undefined
   let max = 0
@@ -102,64 +114,6 @@ function relocateByContext(lines: string[], len: number, before: string[], after
   if (!best) return undefined
   return { at: best.at, exact: best.score === max }
 }
-
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
-
-/**
- * Where the note belongs in `lines` now. `tracked` is its current position (after following edits live, or as
- * stored on disk); `hint` is where to prefer a match when the anchor occurs several times.
- */
-export function anchor(lines: string[], text: string, before: string, after: string, tracked: Loc, hint = tracked.start): AnchorResult {
-  const anchorLines = text.split('\n')
-  const len = anchorLines.length
-  const beforeLines = before ? before.split('\n') : []
-  const afterLines = after ? after.split('\n') : []
-  const last = Math.max(0, lines.length - 1)
-  // A note that can't be placed keeps its own size: live edits may have stretched `tracked` (C101).
-  const stay = (stale: boolean, size = tracked.end - tracked.start + 1): AnchorResult => {
-    const start = clamp(tracked.start, 0, last)
-    return { loc: { start, end: clamp(start + Math.max(1, size) - 1, start, last) }, stale, moved: false }
-  }
-  const at = (start: number): AnchorResult => {
-    const loc = { start, end: start + len - 1 }
-    return { loc, stale: false, moved: loc.start !== tracked.start || loc.end !== tracked.end }
-  }
-
-  if (anchorLines.every(blank)) {
-    const here = contextScore(lines, tracked.start, len, beforeLines, afterLines)
-    if (here.max === 0) return stay(false) // nothing around it to follow (an empty file)
-    if (here.score === here.max && matchesAt(lines, anchorLines, tracked.start)) return at(tracked.start)
-    const found = relocateByContext(lines, len, beforeLines, afterLines, hint)
-    if (found) return found.exact ? at(found.at) : { ...at(found.at), stale: true }
-    return stay(true)
-  }
-  const found = relocate(lines, anchorLines, beforeLines, afterLines, hint)
-  if (matchesAt(lines, anchorLines, tracked.start)) {
-    // An identical copy here, but the note's own context is elsewhere (code deleted, then restored by undo): go back.
-    const here = contextScore(lines, tracked.start, len, beforeLines, afterLines).score
-    if (found !== undefined && found !== tracked.start && contextScore(lines, found, len, beforeLines, afterLines).score > here) return at(found)
-    return at(tracked.start)
-  }
-  if (found !== undefined) return at(found)
-  // Edited: stale, but on the lines it is most likely about now (a line inserted above must not shift it onto
-  // other code), so what changed can be shown as what changed.
-  const near = closest(lines, anchorLines, beforeLines, afterLines, tracked.start)
-  if (near) return { loc: near, stale: true, moved: near.start !== tracked.start || near.end !== tracked.end }
-  return stay(true, len)
-}
-
-/** How far (in lines) from where it was edited code is looked for. */
-const SEARCH_WINDOW = 40
-/** A line of the block counts when found this many lines from where it would be (an insertion inside it shifts the
- *  rest); it scores LINE_SLACK + 1 - distance, so a line in place counts most. */
-const LINE_SLACK = 3
-/** A context line that matches counts as much as this many block lines in place (context says it is the same code). */
-const CONTEXT_WEIGHT = 2
-/** The block's last recognisable line is looked for this far from where it would be, to find the block's end. */
-const END_SLACK = 6
-
-/** Line `k` of `lines` is `want` (normalized). */
-const lineIs = (lines: string[], k: number, want: string) => k >= 0 && k < lines.length && norm(lines[k]) === want
 
 /** How much the block line `want` (normalized; '' says nothing) counts when it belongs at line `at`: more the nearer it is found. */
 function lineScore(lines: string[], at: number, want: string): number {
@@ -182,6 +136,8 @@ function blockEnd(lines: string[], start: number, want: string[]): number {
   return start + len - 1
 }
 
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+
 /** Where edited code most likely is now: the offset near `tracked` that keeps most of its (and its context's) lines. */
 export function closest(lines: string[], anchor: string[], before: string[], after: string[], tracked: number, window = SEARCH_WINDOW): Loc | undefined {
   const len = anchor.length
@@ -197,4 +153,90 @@ export function closest(lines: string[], anchor: string[], before: string[], aft
   if (!best) return undefined
   const end = blockEnd(lines, best.at, want)
   return { start: best.at, end: clamp(end, best.at, Math.max(best.at, lines.length - 1)) }
+}
+
+// ---------- anchor: the strategies, tried in order ----------
+
+/** What every strategy looks at: the file now, the note's anchor split into lines, where it is tracked. */
+interface Search {
+  lines: string[]
+  text: string[]
+  before: string[]
+  after: string[]
+  tracked: Loc
+  /** Where to prefer a match when the anchor occurs several times. */
+  hint: number
+}
+
+/** The note on lines from `start`, as long as its anchor text. */
+function at(s: Search, start: number): AnchorResult {
+  const loc = { start, end: start + s.text.length - 1 }
+  return { loc, stale: false, moved: loc.start !== s.tracked.start || loc.end !== s.tracked.end }
+}
+
+/** The note where it is tracked, clamped to the file. It keeps its own size (`size`): live edits may have stretched
+ *  `tracked` while the code was being rewritten, and a note that can't be placed must not grow with them. */
+function stay(s: Search, stale: boolean, size = s.tracked.end - s.tracked.start + 1): AnchorResult {
+  const last = Math.max(0, s.lines.length - 1)
+  const start = clamp(s.tracked.start, 0, last)
+  return { loc: { start, end: clamp(start + Math.max(1, size) - 1, start, last) }, stale, moved: false }
+}
+
+/** A note on blank lines: anchored on its context alone. Undefined for any other note. */
+function onBlankLines(s: Search): AnchorResult | undefined {
+  if (!s.text.every(blank)) return undefined
+  const len = s.text.length
+  const here = contextScore(s.lines, s.tracked.start, len, s.before, s.after)
+  if (here.max === 0) return stay(s, false) // nothing around it to follow (an empty file)
+  if (here.score === here.max && matchesAt(s.lines, s.text, s.tracked.start)) return at(s, s.tracked.start)
+  const found = relocateByContext(s.lines, len, s.before, s.after, s.hint)
+  if (found) return found.exact ? at(s, found.at) : { ...at(s, found.at), stale: true }
+  return stay(s, true)
+}
+
+/** The text is still where the note is tracked. An identical copy may be here while the note's own context is
+ *  elsewhere (code deleted, then restored by undo): then the note goes back to the original. */
+function stillHere(s: Search): AnchorResult | undefined {
+  if (!matchesAt(s.lines, s.text, s.tracked.start)) return undefined
+  const found = relocate(s.lines, s.text, s.before, s.after, s.hint)
+  if (found === undefined || found === s.tracked.start) return at(s, s.tracked.start)
+  const scoreAt = (start: number) => contextScore(s.lines, start, s.text.length, s.before, s.after).score
+  return scoreAt(found) > scoreAt(s.tracked.start) ? at(s, found) : at(s, s.tracked.start)
+}
+
+/** The text moved: found elsewhere with its context (or long and unique). */
+function movedElsewhere(s: Search): AnchorResult | undefined {
+  const found = relocate(s.lines, s.text, s.before, s.after, s.hint)
+  return found === undefined ? undefined : at(s, found)
+}
+
+/** The code was edited: stale, but on the lines it is most likely about now (a line inserted above must not shift it
+ *  onto other code), so what changed can be shown as what changed. */
+function editedNearby(s: Search): AnchorResult | undefined {
+  const near = closest(s.lines, s.text, s.before, s.after, s.tracked.start)
+  if (!near) return undefined
+  return { loc: near, stale: true, moved: near.start !== s.tracked.start || near.end !== s.tracked.end }
+}
+
+const STRATEGIES = [onBlankLines, stillHere, movedElsewhere, editedNearby]
+
+/**
+ * Where the note belongs in `lines` now. `tracked` is its current position (after following edits live, or as
+ * stored on disk); `hint` is where to prefer a match when the anchor occurs several times.
+ */
+export function anchor(lines: string[], text: string, before: string, after: string, tracked: Loc, hint = tracked.start): AnchorResult {
+  const s: Search = {
+    lines,
+    text: text.split('\n'),
+    before: before ? before.split('\n') : [],
+    after: after ? after.split('\n') : [],
+    tracked,
+    hint,
+  }
+  for (const strategy of STRATEGIES) {
+    const r = strategy(s)
+    if (r) return r
+  }
+  // Deleted, or only found in an unrelated place: stale where it was, as long as its text.
+  return stay(s, true, s.text.length)
 }

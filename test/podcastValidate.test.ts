@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { audioPathProblem, brokenLinks, lineCol, locate, playNotice, validatePodcast } from '../src/podcast/validate'
+import { audioPathProblem, brokenLinks, lineCol, locate, playNotice, validatePodcast } from '../src/core/format/podcast/validate'
 
-// The podcast file's full check (src/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json are run here
+// The podcast file's full check (src/core/format/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json are run here
 // and through the code-journey skill's `journey.py podcast` (test/cli/podcast.test.mjs): the same rules in both.
 
 interface Case { name: string; raw: string; journey: { id: string; steps: { id: string; beats: number }[] }; audio?: { exists: boolean; size?: number }; audioDuration?: number; changed?: number[]; files?: Record<string, string | null>; expect: string[] }

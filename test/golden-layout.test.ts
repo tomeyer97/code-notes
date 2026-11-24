@@ -12,7 +12,7 @@ const AREA = 'journey'
 // ---------- the map's layout (media/journey-layout.js): its pure parts ----------
 
 const media = path.join(root, 'media')
-const window: Record<string, any> = { JourneyModel: {} }
+const window: Record<string, any> = {}
 const context = vm.createContext({ window })
 for (const f of ['common.js', 'journey-layout.js']) vm.runInContext(fs.readFileSync(path.join(media, f), 'utf8'), context)
 const L = window.JourneyLayout

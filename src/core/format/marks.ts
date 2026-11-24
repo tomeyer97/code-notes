@@ -1,7 +1,8 @@
 // Marks: highlights of a part of the code, whole lines or only a few characters within them. One shape, read and
 // checked here for everything that has them: a journey's steps and beats (docs/journey-format.md, "Marks") and a
 // podcast's segments (docs/podcast-format.md, "Marks"; a segment's marks add `phrase` and `at`). How they are drawn
-// is marks/lights.ts. Pure (no imports); skills/code-journey/scripts/journey.py has the same rules.
+// is marks/lights.ts. Pure (no imports); schema/marks.schema.json is the published shape. journey.py has the same
+// rules until it calls this module (test/cli/journeyMarks.test.mjs runs both on the same marks).
 
 /** `lines` of `file` (default: the step's, the beat's or the segment's file), or only `match` within them (its `nth`). */
 export interface CodeMark {
@@ -22,10 +23,19 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** What is wrong with a mark's code fields (lines, file, match, nth), the first thing found; undefined: usable. */
 export function markShapeProblem(m: Record<string, unknown>): { what: string; sub: string[] } | undefined {
   const l = m.lines
-  if (!Array.isArray(l) || l.length !== 2 || !l.every((x) => Number.isInteger(x) && x >= 1) || l[1] < l[0]) return { what: `lines must be [first, last] (1-based, first <= last), got ${JSON.stringify(l)}`, sub: l === undefined ? [] : ['lines'] }
-  if (m.file !== undefined && (typeof m.file !== 'string' || !m.file.trim())) return { what: 'file is not a path', sub: ['file'] }
-  if (m.match !== undefined && (typeof m.match !== 'string' || !m.match)) return { what: 'match is not a text', sub: ['match'] }
-  if (m.nth !== undefined && !(Number.isInteger(m.nth) && (m.nth as number) >= 1)) return { what: `nth must be 1 or more, got ${JSON.stringify(m.nth)}`, sub: ['nth'] }
+  const lines = Array.isArray(l) && l.length === 2 && l.every((x) => Number.isInteger(x) && x >= 1) && l[1] >= l[0]
+  if (!lines) {
+    return { what: `lines must be [first, last] (1-based, first <= last), got ${JSON.stringify(l)}`, sub: l === undefined ? [] : ['lines'] }
+  }
+  if (m.file !== undefined && (typeof m.file !== 'string' || !m.file.trim())) {
+    return { what: 'file is not a path', sub: ['file'] }
+  }
+  if (m.match !== undefined && (typeof m.match !== 'string' || !m.match)) {
+    return { what: 'match is not a text', sub: ['match'] }
+  }
+  if (m.nth !== undefined && !(Number.isInteger(m.nth) && (m.nth as number) >= 1)) {
+    return { what: `nth must be 1 or more, got ${JSON.stringify(m.nth)}`, sub: ['nth'] }
+  }
   return undefined
 }
 
@@ -34,7 +44,9 @@ export function codeMarkOf(m: Record<string, unknown>): CodeMark {
   const l = m.lines as number[]
   return {
     lines: [l[0], l[1]],
-    ...(typeof m.file === 'string' ? { file: m.file } : {}), ...(typeof m.match === 'string' ? { match: m.match } : {}), ...(typeof m.nth === 'number' ? { nth: m.nth } : {}),
+    ...(typeof m.file === 'string' ? { file: m.file } : {}),
+    ...(typeof m.match === 'string' ? { match: m.match } : {}),
+    ...(typeof m.nth === 'number' ? { nth: m.nth } : {}),
   }
 }
 
@@ -104,25 +116,52 @@ export function findMark(doc: string[], m: Pick<CodeMark, 'lines' | 'match' | 'n
   return { spot: { line: a, col: doc[a].trim() ? indent : 0, endLine: b, endCol: doc[b].length }, moved: 0, found: !m.match }
 }
 
-/**
- * What is wrong with mark `m` against its file's text (`doc`: its lines; null: the file isn't there), for a check:
- * lines past the end, or `match` not on its lines (moved: found nearby; else not found). `missing`: what a reader
- * then sees: the whole lines (a podcast) or nothing (a journey). `sub`: the field to point at. Undefined: in place.
- */
-export function markCodeProblem(doc: string[] | null, file: string, m: CodeMark, missing: 'lines' | 'drop'): { what: string; sub: string; moved?: number } | undefined {
-  if (doc === null) return { what: `${file} isn't in the repository; nothing is lit`, sub: m.file !== undefined ? 'file' : 'lines' }
-  const [a, b] = m.lines
-  const where = `${a === b ? `line ${a}` : `lines ${a}–${b}`} of ${file}`
-  if (b > doc.length) {
-    const past = a > doc.length
-    return { what: `${where} ${past ? (a === b ? 'is' : 'are') : 'go'} past its end (${doc.length} lines)${past ? '; nothing is lit' : ''}`, sub: 'lines' }
-  }
+/** What a reader sees of a mark whose `match` is not found: its whole lines (a podcast) or nothing (a journey). */
+export type OnMissing = 'lines' | 'drop'
+
+/** A mark checked against its file's text: `doc` its lines (null: the file isn't there). */
+export interface MarkInCode { doc: string[] | null; file: string; mark: CodeMark; onMissing: OnMissing }
+
+/** What is wrong with a mark against the code; `sub`: the field to point at. */
+export type MarkCodeProblem = { sub: string } & (
+  | { kind: 'no-file' }
+  | { kind: 'past-end'; fileLines: number }
+  | { kind: 'moved'; moved: number }
+  | { kind: 'not-found' }
+)
+
+/** What is wrong with a mark against its file's text, for a check: no file, lines past the end, or `match` not on its
+ *  lines (moved: found nearby; else not found). Undefined: in place. */
+export function findMarkProblem({ doc, mark: m }: MarkInCode): MarkCodeProblem | undefined {
+  if (doc === null) return { kind: 'no-file', sub: m.file !== undefined ? 'file' : 'lines' }
+  if (m.lines[1] > doc.length) return { kind: 'past-end', fileLines: doc.length, sub: 'lines' }
   if (m.match === undefined) return undefined
   const f = findMark(doc, m)
-  if (!f || f.moved === 0 && f.found) return undefined
-  const what = `${JSON.stringify(m.match)}${m.nth !== undefined && m.nth > 1 ? ` (occurrence ${m.nth})` : ''} isn't in ${where}`
-  if (f.found) return { what: `${what}; found ${Math.abs(f.moved)} ${Math.abs(f.moved) === 1 ? 'line' : 'lines'} ${f.moved < 0 ? 'up' : 'down'}, lit there`, sub: 'match', moved: f.moved }
-  return { what: `${what}, nor within ${MARK_REFIND_LINES} lines: ${missing === 'lines' ? 'the whole lines light' : 'nothing is lit'}`, sub: 'match' }
+  if (!f || (f.moved === 0 && f.found)) return undefined
+  return f.found ? { kind: 'moved', moved: f.moved, sub: 'match' } : { kind: 'not-found', sub: 'match' }
+}
+
+/** A problem as the check says it (the Problems view, journey.py check's output). */
+export function markProblemText(p: MarkCodeProblem, { file, mark: m, onMissing }: MarkInCode): string {
+  const [a, b] = m.lines
+  const where = `${a === b ? `line ${a}` : `lines ${a}–${b}`} of ${file}`
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  if (p.kind === 'no-file') return `${file} isn't in the repository; nothing is lit`
+  if (p.kind === 'past-end') {
+    if (a <= p.fileLines) return `${where} go past its end (${p.fileLines} lines)`
+    return `${where} ${a === b ? 'is' : 'are'} past its end (${p.fileLines} lines); nothing is lit`
+  }
+  const occurrence = m.nth !== undefined && m.nth > 1 ? ` (occurrence ${m.nth})` : ''
+  const missing = `${JSON.stringify(m.match)}${occurrence} isn't in ${where}`
+  if (p.kind === 'moved') return `${missing}; found ${plural(Math.abs(p.moved), 'line', 'lines')} ${p.moved < 0 ? 'up' : 'down'}, lit there`
+  return `${missing}, nor within ${MARK_REFIND_LINES} lines: ${onMissing === 'lines' ? 'the whole lines light' : 'nothing is lit'}`
+}
+
+/** What is wrong with a mark against the code, said: `what` the text, `sub` the field, `moved` the shift. */
+export function markCodeProblem(m: MarkInCode): { what: string; sub: string; moved?: number } | undefined {
+  const p = findMarkProblem(m)
+  if (!p) return undefined
+  return { what: markProblemText(p, m), sub: p.sub, ...(p.kind === 'moved' ? { moved: p.moved } : {}) }
 }
 
 // ---------- a journey step's marks while it is walked ----------

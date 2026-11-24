@@ -23,11 +23,8 @@
   stubVsCodeApi({ keepState: true })
   applyTheme({}, { without: ['editor-foreground', 'editorWidget-background', 'testing-iconPassed', 'toolbar-hoverBackground', 'input-background', 'input-foreground', 'input-border', 'input-placeholderForeground'] })
   document.body.className = 'vscode-' + themeName()
-  var exports = {}
-  var JourneyModel = exports
 </script>
 <!-- The scripts after the body, as in the webview (the body exists while ELK loads). -->
-<script src="../../out/src/core/format/journeyModel.js"></script>
 <script src="../../out/vendor/elk.bundled.js"></script>
 <script src="../../media/common.js"></script>
 <script src="../../media/journey-layout.js"></script>

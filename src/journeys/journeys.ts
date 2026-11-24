@@ -6,7 +6,7 @@ import { jsonFilesIn, jsonName, readText, watchJsonFiles } from '../platform/jso
 import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
 import { pathIn, settingFolder } from '../core/paths'
 import { StepTracker } from './tracker'
-import { isPodcastFile } from '../podcast/model'
+import { isPodcastFile } from '../core/format/podcast/model'
 import { fireAndForget } from '../platform/run'
 import { StateStore } from '../platform/state'
 
@@ -55,8 +55,9 @@ export class Journeys extends StepTracker {
     if (!raw) { this.dropTour(key); return undefined }
     const text = JSON.stringify(raw)
     if (prev && this.tourText.get(key) === text && prev.check?.branch === branch) return prev
-    const j = parseJourney(text, 'tour')
-    if (typeof j === 'string') { this.log.warn(`check tour in ${uri.fsPath}: not shown: ${j}`); this.dropTour(key); return undefined }
+    const parsed = parseJourney(text, 'tour')
+    if (!parsed.ok) { this.log.warn(`check tour in ${uri.fsPath}: not shown: ${parsed.why}`); this.dropTour(key); return undefined }
+    const j = parsed.value
     j.id = `check-${branch.replace(/[^\w.-]+/g, '-')}`
     const lj: LoadedJourney = { key, folder, uri, j, at: writtenAt(j), check: { branch } }
     if (prev) carryPositions(prev, lj)
@@ -159,8 +160,9 @@ export class Journeys extends StepTracker {
       return undefined
     }
     const name = jsonName(uri)
-    const j = parseJourney(raw, name)
-    if (typeof j === 'string') return this.unreadable(folder, uri, name, j)
+    const parsed = parseJourney(raw, name)
+    if (!parsed.ok) return this.unreadable(folder, uri, name, parsed.why)
+    const j = parsed.value
     this.lastGood.set(key, raw)
     this.invalid.delete(key)
     if (this.hiddenByTwin(folder, uri, j.id)) return undefined

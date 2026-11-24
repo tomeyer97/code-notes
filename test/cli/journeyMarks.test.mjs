@@ -1,5 +1,5 @@
 // The code-journey skill's marks (`journey.py mark`, `marks`, `check`): the same rules as the extension's
-// src/marks/model.ts (the same messages for the same marks), and the commands on a small repository made here.
+// src/core/format/marks.ts (the same messages for the same marks), and the commands on a small repository made here.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { JPY } from './helpers.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const M = createRequire(import.meta.url)(path.join(root, 'out/src/marks/model.js'))
+const M = createRequire(import.meta.url)(path.join(root, 'out/src/core/format/marks.js'))
 // No __pycache__ beside the skill's script (it ships as is).
 const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
 
@@ -37,7 +37,7 @@ print(json.dumps({'shape': shape, 'code': code}))
 `
   const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify({ shapes, codes, doc: DOC }), encoding: 'utf8', env }))
   assert.deepEqual(got.shape, shapes.map((x) => M.markShapeProblem(x)?.what ?? null))
-  assert.deepEqual(got.code, [...codes.map(([x, how]) => M.markCodeProblem(DOC, 'o.js', x, how)?.what ?? null), M.markCodeProblem(null, 'x.js', { lines: [1, 1] }, 'drop').what])
+  assert.deepEqual(got.code, [...codes.map(([x, how]) => M.markCodeProblem({ doc: DOC, file: 'o.js', mark: x, onMissing: how })?.what ?? null), M.markCodeProblem({ doc: null, file: 'x.js', mark: { lines: [1, 1] }, onMissing: 'drop' }).what])
 })
 
 test('journey.py mark / marks / rmmark: written only where the match is, previewed under the characters, checked and fixed by check', () => {

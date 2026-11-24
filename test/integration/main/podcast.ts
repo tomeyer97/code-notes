@@ -15,7 +15,7 @@ import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { ctx, journeysDir, tour, wsPath } from './context'
 import { waiter } from '../helpers'
 import { ui } from '../devtools'
-import { markTimes, marksAt } from '../../../src/podcast/model'
+import { markTimes, marksAt } from '../../../src/core/format/podcast/model'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const pod = () => ctx.api.podcast() as any
@@ -534,7 +534,7 @@ export const podcastTests = [
     await until('paused', () => !pod().playing, 5000)
   }),
 
-  // ---------- broken podcast files (src/podcast/validate.ts, load.ts) ----------
+  // ---------- broken podcast files (src/core/format/podcast/validate.ts, load.ts) ----------
 
   test('podcast: a half-written podcast file mid-play keeps the last good version playing, and says so', async () => {
     watchConsole()

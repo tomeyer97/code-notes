@@ -38,7 +38,10 @@ test('tour: written after the questions; each question placed after a step; vali
   const empty = structuredClone(c); empty.journey.steps = []; empty.questions.forEach((q) => delete q.step)
   assert.match(U.validateCheck(empty).join('\n'), /journey: "steps" must be a non-empty array/)
   const odd = structuredClone(c); odd.journey.steps[2].node = 'nope'; odd.journey.steps[3].file = '../x.js'
-  assert.match(U.validateCheck(odd).join('\n'), /journey: step 3: "node" "nope" is not a box[\s\S]*journey: step 4: "file" must be a path inside/)
+  assert.match(U.validateCheck(odd).join('\n'), /journey: step 3 .*is in an unknown box "nope": left out[\s\S]*journey: step 4: "file" must be a path inside/)
+  // The extension's reader decides: a tour it refuses is refused here with its reason.
+  const v3 = structuredClone(c); v3.journey.version = 3
+  assert.match(U.validateCheck(v3).join('\n'), /journey: format v3 is newer than this extension reads \(v2\)/)
   // A step's file deleted later never fails the check (the extension shows it as stale).
   const gone = structuredClone(c); gone.journey.steps[0].file = 'src/gone.js'
   assert.deepEqual(U.validateCheck(gone, { repo: d }), [])

@@ -1,13 +1,14 @@
 // Where a journey's steps are (src/journeys/steps.ts): carried over a reload, captured anchors, placed in new lines.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseJourney, Journey } from '../src/core/format/journeyModel'
+import type { Journey } from '../src/core/format/journeyModel'
+import { journeyOf } from './formats'
 import { compactOf } from '../src/core/anchors/compact'
 import { LoadedJourney, StepAt, captureStepAnchor, carryPositions, fileOf, isEmptyAnchor, journeyById, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
 import { dirPath, pathIn } from '../src/core/paths'
 
 const code = ['import x', '', 'function f() {', '  a()', '  x()', '  y()', '  b()', '}', '', 'function g() {}']
-const journey = (steps: object[]) => parseJourney(JSON.stringify({ version: 2, nodes: [{ id: 'n', label: 'N' }], steps }), 'j') as Journey
+const journey = (steps: object[]) => journeyOf(JSON.stringify({ version: 2, nodes: [{ id: 'n', label: 'N' }], steps }), 'j')
 const step = (o: object = {}) => ({ id: 's1', node: 'n', file: 'src/a.ts', range: { start: 3, end: 8 }, title: 'f', ...o })
 const loaded = (j: Journey, at?: StepAt[]): LoadedJourney =>
   ({ key: 'k', folder: { uri: { path: '/w', toString: () => 'file:///w' } }, uri: {}, j, at: at ?? writtenAt(j) }) as unknown as LoadedJourney

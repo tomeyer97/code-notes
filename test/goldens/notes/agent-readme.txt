@@ -6,8 +6,11 @@ extension picks changes up live and shows new messages to Ann Example as unread.
 
 ## Format
 
+The JSON Schema of a note file: https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/note.schema.json
+
 ```json
 {
+  "version": 1,
   "id": "20261111-153012-ab12",
   "file": "src/main.ts",
   "range": { "start": 33, "end": 40 },
@@ -24,6 +27,7 @@ extension picks changes up live and shows new messages to Ann Example as unread.
 | Field | Meaning |
 |---|---|
 | file name | The note's identity: `<id>.json`. Keep it when you edit a note. |
+| `version` | The note format's version: `1`. A file without it is read as version 1. |
 | `file` | The code file, relative to the folder that contains `.code-notes/` (e.g. `src/main.ts`). Files outside that folder are refused. |
 | `range` | Lines in `file`, 1-based, inclusive. |
 | `anchor` | The lines the note is about (`text`), the lines around them, and the git `branch`/`commit` it was written on. The extension uses them to follow the code. |

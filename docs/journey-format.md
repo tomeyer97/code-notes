@@ -3,6 +3,11 @@
 A journey step is not a note. A journey is one self-contained JSON file, committed to the repo and shared; notes stay
 personal.
 
+The file's shape, step animations and marks included, is a JSON Schema: [journey.schema.json](https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/journey.schema.json)
+(marks: [marks.schema.json](https://github.com/tomeyer97/code-notes/blob/main/src/core/format/schema/marks.schema.json)). The writing rules below (wording, lengths, how many steps)
+are `journey.py check`'s. Versions: [VERSIONS.md](https://github.com/tomeyer97/code-notes/blob/main/src/core/format/VERSIONS.md); a file's `version` is 2, and an anchor's own `v`
+says its kind.
+
 ```jsonc
 {
   "version": 2,
@@ -75,7 +80,7 @@ personal.
   moves to its neighbour. A step without an id is tracked by position (and a duplicate id counts as missing).
 - Problems (a dropped node/edge/step, a label over 30 characters, more than 7 boxes on a level, more than 3 refs, an
   unreadable file) are shown as one short line on the map, not only in the Output channel.
-- The extension relocates each step's range in memory with the note anchoring code (anchor.ts) when files change;
+- The extension relocates each step's range in memory with the anchoring code (src/core/anchors/) when files change;
   it never rewrites the journey file. A step whose anchor can't be found is shown as stale (amber).
 - v1 files (steps pointing at note ids) are migrated by `journey.py migrate` (the step notes are folded in and
   deleted). The extension may ignore v1 files with one log line.
@@ -87,7 +92,7 @@ the git-ignored `.code-notes/`. The extension reads `codeNotes.journeys.folder` 
 relative) and, for compatibility, `<notes folder>/journeys/`. `journey.py` defaults to `<repo>/journeys/` (falls back
 to `.code-notes/journeys/` when only that exists; `--dir` overrides).
 
-**Compact anchors (v3)** — journeys must be reviewable in a PR, so anchors do not copy whole functions. Used for
+**Compact anchors (`v: 3`)** — journeys must be reviewable in a PR, so anchors do not copy whole functions. Used for
 steps (`anchor`) and box `at.anchor`:
 ```jsonc
 "anchor": { "v": 3, "head": "first ≤ 3 non-blank lines", "tail": "last ≤ 2 non-blank lines",
@@ -97,12 +102,13 @@ Exact definitions (the extension and `journey.py` agree): `hash` = sha1 over the
 through `norm`, joined by `\n` (readers also accept the every-line variant); `before`/`after` = the nearest
 non-blank line above/below the range. A stored range that ends in blank lines is also tried at its stored length, so
 trailing blank lines don't turn a fresh anchor into "moved".
-Normalization = anchor.ts `norm` (whitespace, quote style, trailing `;`/`,`). Relocation: candidate starts where the
+Normalization = src/core/anchors/lines.ts `norm` (whitespace, quote style, trailing `;`/`,`); the extension and the
+understanding CLI share this implementation (src/core/anchors/compact.ts). Relocation: candidate starts where the
 `head` lines match; for each, the end where `tail` matches within [lines·0.5, lines·1.5 + 5]; prefer an exact `hash`,
 then the closest line count, then `before`/`after` context, then nearness to the stored range. Outcomes: found with
 the same hash → fresh; found with a different hash → **changed** (the step is shown at its new place, with the
 "code changed" marker); not found → **gone**. v2 full-text anchors stay readable (converted in memory);
-`journey.py migrate-anchors` rewrites files to v3.
+`journey.py migrate-anchors` rewrites them as compact anchors (the file stays `version: 2`).
 
 **The explain request.** A script or another tool can ask the editor window that has a repo open to show the
 journeys or answer a question: it writes `.code-notes/.request.json` in the repo and brings that window to the front

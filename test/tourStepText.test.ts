@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Journey, JStep, parseJourney } from '../src/core/format/journeyModel'
+import { Journey, JStep } from '../src/core/format/journeyModel'
+import { journeyOf } from './formats'
 import { parseBare, refFiles, StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
 import type { StepAt } from '../src/journeys/steps'
 
@@ -122,7 +123,7 @@ test('the stale banner: file gone, lines lost, or changed; nothing for a fresh s
 })
 
 test('the example journey: which refs are listed, as today', () => {
-  const j = parseJourney(fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8'), 'place-order') as Journey
+  const j = journeyOf(fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/v2-full.json'), 'utf8'), 'place-order')
   const lj: TextJourney = { folder: { uri: 'file:///w' }, j, at: j.steps.map((s) => ({ ...s.range, stale: false })) }
   const closed = stepText(lj, 1, link, input()), open = stepText(lj, 1, link, input({ detailsOpen: true }))
   assert.equal(closed.lead, 'The Place order button ([Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)) lands here; nothing is charged in the browser.')
