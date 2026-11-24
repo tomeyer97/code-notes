@@ -8,8 +8,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import * as U from '../../cli/understanding.mjs'
-import { root, FAKE, SCRIPT, gitIn, run, script, commitAll, gitlabEnv, ci, repo as smallChange, writeQuestions, answerAll } from './helpers.mjs'
+import { cachedFor, DEFAULTS, fileFor, hashProblems, KINDS, localStatus, minutesFor, parseArgs, parseVerdict, questionsFor, readCheck, sizeText, slugOf, stateOf, stateWords, validateCheck } from '../../cli/understanding.mjs'
+import { commitAll, gitIn, repo as smallChange, root } from './helpers/repos.mjs'
+import { answerAll, ci, FAKE, gitlabEnv, run, script, writeQuestions } from './helpers/cli.mjs'
+import { cliModule } from './helpers/source.mjs'
 
 const require = createRequire(import.meta.url)
 const { expectGolden, normalise } = require('../../out/test/golden.js')
@@ -50,8 +52,8 @@ function refundsRepo() {
 
 /** Where the check stands as the extension reads it, and what it shows: status, words, the view, the status bar. */
 function stage(d, o = {}) {
-  const st = U.localStatus(d)
-  const w = U.stateWords(st.state, st)
+  const st = localStatus(d)
+  const w = stateWords(st.state, st)
   return {
     status: st, words: w, view: VM.checkView(st, w, o), bar: VM.statusText(st, w) ?? null,
     run: VM.runAction(st, { unpushed: o.unpushed, commit: o.commit }),
@@ -68,7 +70,7 @@ test('golden: a check written, answered, graded and passed on the refunds change
   say('help', (await run(d, ['help'])).out.split('\n')[0])
   say('status.none.text', await run(d, ['status']))
   say('status.none.json', JSON.parse((await run(d, ['status', '--json'])).out))
-  golden('refunds.stage.none', { ...stage(d), uncommitted: VM.checkView(U.localStatus(d), U.stateWords(U.localStatus(d).state, U.localStatus(d)), { uncommitted: true }) })
+  golden('refunds.stage.none', { ...stage(d), uncommitted: VM.checkView(localStatus(d), stateWords(localStatus(d).state, localStatus(d)), { uncommitted: true }) })
 
   // The skill's script, as the agent runs it: start, adds (some refused), finish.
   fs.mkdirSync(path.join(d, 'understanding'), { recursive: true })
@@ -130,7 +132,7 @@ test('golden: a check written, answered, graded and passed on the refunds change
   })
 
   // Each question's thread: the question, the grades as the thread shows them, their links, the concern.
-  const c = U.readCheck(file)
+  const c = readCheck(file)
   golden('refunds.threads', c.questions.map((q) => {
     const shown = TT.gradedAttempts(q)
     const roles = ['agent', ...shown.flatMap(() => ['human', 'agent'])]
@@ -139,7 +141,7 @@ test('golden: a check written, answered, graded and passed on the refunds change
       grades: shown.map((a, k) => ({ body: TT.gradeBody(a), restatement: TT.gradeBody(a, { restatement: true }), links: TT.linksAt(q, roles, 2 * k + 2), message: TT.gradeMessageAt(roles, k + 1) })),
       questionLinks: TT.linksAt(q, roles, 0),
       concern: CS.concernOf(q) ?? null,
-      answerBox: VM.answerBox(q, 1, U.stateOf(q), { draft: 'draft', others: true }),
+      answerBox: VM.answerBox(q, 1, stateOf(q), { draft: 'draft', others: true }),
     }
   }))
 
@@ -181,7 +183,7 @@ test('golden: broken check files: what validate says', async () => {
     change(c)
     const p = path.join(d, `understanding/broken.json`)
     fs.writeFileSync(p, `${JSON.stringify(c, null, 2)}\n`)
-    out.push({ name, validate: await run(d, ['validate', 'understanding/broken.json']), errors: U.validateCheck(c, { repo: d }), hashes: U.hashProblems(c) })
+    out.push({ name, validate: await run(d, ['validate', 'understanding/broken.json']), errors: validateCheck(c, { repo: d }), hashes: hashProblems(c) })
   }
   fs.writeFileSync(path.join(d, 'understanding/broken.json'), '{ "version": 1, ')
   out.push({ name: 'not json', validate: await run(d, ['validate', 'understanding/broken.json']) })
@@ -216,19 +218,35 @@ test('golden: where a check stands: drift, conflicts, a stash, the default branc
 })
 
 test('golden: the CLI\'s pure helpers', () => {
-  const words = U.KINDS.map((k) => [k, VM.KIND_LABEL[k]])
+  const words = KINDS.map((k) => [k, VM.KIND_LABEL[k]])
   golden('helpers', {
-    files: ['feat/x', 'Feat/Ünïcode branch', 'a//b', 'release/1.2', 'HEAD'].map((b) => [b, U.fileFor(b), U.cachedFor(b), U.slugOf(b)]),
-    sizes: [0, 1, 20, 40, 79, 80, 150, 400, 2000].map((n) => [n, U.questionsFor(n, U.DEFAULTS), U.minutesFor(n), U.sizeText(n)]),
-    args: [['status', '--json'], ['grade', 'f.json', '--question', 'q2', '--answer', 'x y', '--write'], ['ci', '--base=abc', '--no-comment'], ['add', '--text', '--kind']].map((a) => [a, U.parseArgs(a)]),
+    files: ['feat/x', 'Feat/Ünïcode branch', 'a//b', 'release/1.2', 'HEAD'].map((b) => [b, fileFor(b), cachedFor(b), slugOf(b)]),
+    sizes: [0, 1, 20, 40, 79, 80, 150, 400, 2000].map((n) => [n, questionsFor(n, DEFAULTS), minutesFor(n), sizeText(n)]),
+    args: [['status', '--json'], ['grade', 'f.json', '--question', 'q2', '--answer', 'x y', '--write'], ['ci', '--base=abc', '--no-comment'], ['add', '--text', '--kind']].map((a) => [a, parseArgs(a)]),
     words,
     stateWords: [
       { phase: 'nothing' }, { phase: 'none', changed: 120 }, { phase: 'answering', done: 1, total: 3, passed: 1, needed: 2 },
       { phase: 'short', done: 3, total: 3, passed: 1, needed: 2 }, { phase: 'done', done: 3, total: 3, passed: 3, needed: 2 },
       { phase: 'drift', grew: 60, maxDrift: 40, total: 3, needed: 2, passed: 3, done: 3 }, { phase: 'drift', grew: 60, maxDrift: 40, commitFirst: true },
       { phase: 'invalid', why: 'not JSON' }, { phase: 'invalid', conflict: { line: 3, mergeable: true } }, { phase: 'stashed', stash: 'stash@{0}' }, { phase: 'unknown' },
-    ].map((s) => [s, U.stateWords(s, { branch: 'feat/x', file: 'understanding/feat-x.json' })]),
-    verdicts: ['{"verdict":"pass","feedback":"ok"}', 'not json', '```\n{"verdict":"retry"}\n```', '{"verdict":"explained","feedback":"x","hint":"y","topic":"t","concern":"c"}', 'Sure! {"verdict":"pass"} hope that helps'].map((r) => { try { return [r, U.parseVerdict(r)] } catch (e) { return [r, `throws: ${e.message}`] } }),
+    ].map((s) => [s, stateWords(s, { branch: 'feat/x', file: 'understanding/feat-x.json' })]),
+    verdicts: ['{"verdict":"pass","feedback":"ok"}', 'not json', '```\n{"verdict":"retry"}\n```', '{"verdict":"explained","feedback":"x","hint":"y","topic":"t","concern":"c"}', 'Sure! {"verdict":"pass"} hope that helps'].map((r) => { try { return [r, parseVerdict(r)] } catch (e) { return [r, `throws: ${e.message}`] } }),
     settled: [CS.settledConcern(undefined, 'May be a bug.', { reason: 'by design' }, { name: 'Ada' }, 't1'), CS.settledConcern({ text: 'x', flagged: true }, 'y', { fixed: true }, undefined, 't2')],
   })
+})
+
+// The grader's prompt is its wording: the unit tests (understanding-graderPrompt.test.mjs) check what goes in it, this
+// golden shows each kind of prompt whole, so a change of wording is read as a diff (UPDATE_GOLDENS=1), not a failure.
+test('golden: the grader\'s prompt, one of each kind', async () => {
+  const { graderPrompt } = await cliModule('graderPrompt')
+  const q = { id: 'q1', kind: 'failure', text: 'What happens when load() throws for one of the steps?', file: 'src/app.js', start: 3, end: 6 }
+  const base = { q, answer: 'It stops main.', attempt: 1, diff: '+  const v0 = load(0) // step 0', code: '3   const v0 = load(0) // step 0', canRead: true }
+  const kinds = {
+    'a first try, with "also" code and the other open questions': { ...base, q: { ...q, also: [{ file: 'src/load.js', start: 4, end: 9 }] }, others: ['Why are the steps loaded one by one?'] },
+    'a second try, by a grader that cannot read the repository': { ...base, attempt: 2, code: '', canRead: false },
+    'a restatement after an explanation': { ...base, attempt: 3, explanation: 'load() throws and nothing catches it, so main stops.' },
+    'a docs question': { ...base, q: { ...q, kind: 'change', docs: true } },
+    'an evidence question (a change that only removes code)': { ...base, q: { ...q, kind: 'change', evidence: true } },
+  }
+  golden('grader-prompt.variants', Object.entries(kinds).map(([name, o]) => `===== ${name} =====\n\n${graderPrompt(o)}\n`).join('\n'))
 })
