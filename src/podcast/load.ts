@@ -1,11 +1,10 @@
 // Reading a journey's podcast file and telling the author what is wrong with it (validate.ts says what): Problems-view
 // diagnostics on the `.podcast.json` (on the segment or field at fault), warning lines in the "Code Notes" output
 // (once per change, not per scan), and a watch on the audio files the podcasts name, so a podcast comes back as soon
-// as its audio is there (or goes when it goes) without touching the JSON. The player (player.ts) decides what it
+// as its audio is there (or goes when it goes) without touching the JSON. The player (library.ts) decides what it
 // plays from the result.
 
 import * as vscode from 'vscode'
-import { journeys } from './ports'
 import { log } from '../platform/host'
 import { stepFileUri } from '../journeys/codeGroup'
 import { gitIn } from '../platform/checkout'
@@ -25,8 +24,9 @@ export interface PodcastRead {
   v: Validation
 }
 
-/** The podcast next to `lj` (undefined: there is none), checked against `lj` and, once known, its audio's length. */
-export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode.Uri, size: number) => number | undefined): Promise<PodcastRead | undefined> {
+/** The podcast next to `lj` (undefined: there is none), checked against `lj` and, once known, its audio's length
+ *  (`renames`: the journey's files as they are called now). */
+export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode.Uri, size: number) => number | undefined, renames: Map<string, string>): Promise<PodcastRead | undefined> {
   const file = lj.uri.with({ path: podcastFileOf(lj.uri.path) })
   const raw = await readText(file)
   if (raw === undefined) return undefined
@@ -42,7 +42,7 @@ export async function readPodcast(lj: LoadedJourney, audioLength: (audio: vscode
   // The files the marks are in, read for their check (the lines there, the match in them).
   const texts = new Map<string, string | null>()
   for (const f of first0.podcast ? markFileNames(first0.podcast, journey) : []) {
-    texts.set(f, (await readText(stepFileUri(lj.folder.uri, journeys().renames(lj), f))) ?? null)
+    texts.set(f, (await readText(stepFileUri(lj.folder.uri, renames, f))) ?? null)
   }
   const files = (f: string) => (texts.has(f) ? texts.get(f) : undefined)
   const first = texts.size ? validatePodcast(raw, { journey, files }) : first0

@@ -25,6 +25,7 @@ import { tree, treeView } from './sidebar/notesTree'
 import { placement } from './notes/location'
 import { threads } from './threads/sync'
 import { resetTutorial, restorePanel, tourSnapshot } from './tour/testing'
+import { podcastProbe } from './podcast/testing'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
@@ -88,6 +89,7 @@ export interface TestedFeatures {
 export function testApi(f: TestedFeatures) {
   const { notes, journeys: { journeys, mapPanel }, codeLinks, tour, check } = f
   const { walk, state, asks } = tour.parts
+  const podcast = podcastProbe(f.podcast, { journeys, mapPanel })
   return {
     snapshot: () => ({
       claudeLinks: codeLinks.claudeLinks.state,
@@ -124,15 +126,15 @@ export function testApi(f: TestedFeatures) {
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: ToMap) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
-    listenSend: (m: ToListen) => f.podcast.player().listen.send(m),
+    listenSend: (m: ToListen) => podcast.listenSend(m),
     /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
-    listenIgnorePauses: (on: boolean) => { f.podcast.player().listen.ignorePauses = on },
+    listenIgnorePauses: (on: boolean) => podcast.listenIgnorePauses(on),
     /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */
     mapMessage: (m: MapMessage) => { if (mapPanel.journey) tour.onMapMessage(mapPanel.journey, m) },
     /** A map panel as VS Code hands one over after a reload, drawn once `ready` resolves (tour/commands.ts). */
     restorePanel: (panel: vscode.WebviewPanel, ready: Promise<void>) => restorePanel(panel, undefined, ready),
-    /** The podcast (src/podcast/player.ts): which journeys have one, where the audio is, what it last moved. */
-    podcast: () => f.podcast.player().snapshot(),
+    /** The podcast (src/podcast/testing.ts): which journeys have one, where the audio is, what it last moved. */
+    podcast: () => podcast.snapshot(),
     /** A journey's row in the Journeys view (by journey id): its context value (which inline buttons) and tooltip. */
     journeyRow: (id: string) => {
       const lj = journeys.all().find((x) => x.j.id === id)

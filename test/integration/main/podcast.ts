@@ -873,7 +873,7 @@ export const podcastTests = [
     const errors = consoleErrors()
     assert.deepEqual(errors, [], `console errors from the extension's panel:\n${errors.join('\n')}`)
   }),
-  // ---------- marks: highlights as the words are said (src/podcast/marks.ts) ----------
+  // ---------- marks: highlights as the words are said (src/podcast/markLights.ts) ----------
 
   test('marks: a seek shows exactly the marks said by then, to the character, the newest the focus; back again takes them away', async () => {
     writeMarksJourney()

@@ -1,6 +1,6 @@
 // The listening player in Chromium: the Listen view (media/listen.js, the audio's host) and the journey panel
 // (media/journey-map.js, whose player is a remote of it), with this script playing the extension's part between them
-// (src/podcast/player.ts, simplified: the same model, out/src/core/format/podcast/model.js) on the scene sample journey and a
+// (src/podcast/player.ts and audioHost.ts, simplified: the same model, out/src/core/format/podcast/model.js) on the scene sample journey and a
 // short tone. The audio is served over HTTP by a server that ignores Range (as VS Code for the web serves a webview's
 // files): the host loads it whole (a blob) so seeks get there.
 //
@@ -105,7 +105,7 @@ async function launch() {
 const tour = (current) => ({ current, marks: {}, resume: 0, legendHidden: true, problems: [], key: "Ctrl+'", tutorial: false, list: [] })
 
 /**
- * The two pages and the extension's part between them: what player.ts does with their messages, on the same model.
+ * The two pages and the extension's part between them: what player.ts and audioHost.ts do with their messages, on the same model.
  * `st.applied`: every view it applied (a check can say "moved once", "never showed step 2").
  */
 async function pages(b, w, theme, { listenW = 300, srcUrl = src, more = {} } = {}) {

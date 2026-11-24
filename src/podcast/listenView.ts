@@ -1,8 +1,8 @@
 // The Listen view: a webview view (in the Code Notes side bar, under Journeys) where a journey's audio plays
-// (media/listen.js, with media/journey-podcast.js as the host; the panel's remote while the panel plays it: player.ts
-// hostIn). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
+// (media/listen.js, with media/journey-podcast.js as the host; the panel's remote while the panel plays it:
+// audioHost.ts). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
 // panel closes, is behind another tab, or the side bar is closed; the panel's player is mostly a remote of this one
-// (player.ts relays). The view is there only while a journey is listened to (`codeNotes.listening`, player.ts); it is
+// (audioHost.ts relays). The view is there only while a journey is listened to (`codeNotes.listening`, statusItem.ts); it is
 // made only once it has been shown: `ensure()` brings it in and shows it once, then gives the keyboard back.
 //
 // Why there and not in the bottom panel: the ▶ people press first is on a Journeys row, right above it, so the view is
@@ -27,10 +27,9 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   private channel: WebviewChannel<FromListen, ToListen>
   private waiting: (() => void)[] = []
   private subs: vscode.Disposable[] = []
-  /** The view's page went (the view was closed for good): the audio with it. */
-  onGone: (() => void) | undefined
-
-  constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (m: FromListen) => void) {
+  /** `on.message`: what the page says; `on.gone`: the view's page went (the view was closed for good), the audio with
+   *  it. */
+  constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private readonly on: { message: (m: FromListen) => void; gone: () => void }) {
     this.channel = new WebviewChannel('listen view', log, { onReady: () => { for (const w of this.waiting.splice(0)) w() } })
   }
 
@@ -53,7 +52,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
       allow: { media: true },
     })
     this.subs.push(
-      this.channel.attach(view.webview, (m) => this.onMessage(m)),
+      this.channel.attach(view.webview, (m) => this.on.message(m)),
       view.onDidDispose(() => this.disposed()),
     )
   }
@@ -72,7 +71,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
     this.channel.detach()
     for (const s of this.subs) s.dispose()
     this.subs = []
-    this.onGone?.()
+    this.on.gone()
   }
 
   /** A file as the view loads it (undefined: no view yet). */

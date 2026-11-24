@@ -1,17 +1,19 @@
-// Listening to a journey: the podcast player (player.ts), its Listen view and the panel's player. Started on first
-// use, or once the workspace has journeys (a podcast sits next to its journey): a workspace without journeys never
-// loads it.
+// Listening to a journey: the podcast player (player.ts and its parts), its Listen view and the panel's player.
+// Started on first use, or once the workspace has journeys (a podcast sits next to its journey): a workspace without
+// journeys never loads it.
 import * as vscode from 'vscode'
 import { chord, STEP_PRIORITY, Steppers } from '../platform/chordKey'
 import { Cmd, HiddenCmd } from '../platform/commands'
 import { registerCommands } from '../platform/registerCommands'
 import { fireAndForget } from '../platform/run'
 import { Podcasts } from './player'
-import { PodcastPorts, usePodcastPorts } from './ports'
+import type { PodcastPorts } from './ports'
 
 export interface PodcastFeature {
   /** The player, started if it was not. */
   player(): Podcasts
+  /** `f` gets the player once it starts (at once if it has). */
+  whenStarted(f: (p: Podcasts) => void): void
 }
 
 export function activatePodcast(context: vscode.ExtensionContext, ports: PodcastPorts, more: {
@@ -19,15 +21,16 @@ export function activatePodcast(context: vscode.ExtensionContext, ports: Podcast
   /** A note box opened (true) or closed: the podcast pauses meanwhile. */
   drafting: vscode.Event<boolean>
 }): PodcastFeature {
-  usePodcastPorts(ports)
   let started: Podcasts | undefined
+  const waiting: ((p: Podcasts) => void)[] = []
   const player = (): Podcasts => {
     if (started) return started
-    started = new Podcasts()
-    started.init(context)
+    started = new Podcasts(context, ports)
+    for (const f of waiting.splice(0)) f(started)
     fireAndForget(started.scan(), 'podcast: scan')
     return started
   }
+  const whenStarted = (f: (p: Podcasts) => void) => { if (started) f(started); else waiting.push(f) }
   const startWithJourneys = () => { if (!started && ports.journeys.all().length) player() }
   context.subscriptions.push(
     ports.journeys.onDidChange(startWithJourneys),
@@ -47,5 +50,5 @@ export function activatePodcast(context: vscode.ExtensionContext, ports: Podcast
     // "Follow along" on the step card: the editor follows the voice again (podcast/follow.ts).
     [HiddenCmd.podcastFollow]: () => player().followAlong(),
   })
-  return { player }
+  return { player, whenStarted }
 }
