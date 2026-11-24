@@ -1,40 +1,41 @@
-/* The Check view: VS Code's theme colours (the tokens in common.css, linked first), nothing loud. */
+/* The Check view: VS Code's theme colours (the tokens in common.css, linked first), nothing loud. Every rule is
+   scoped under the page's root (#app.check): its class names are short and other pages use the same ones. */
 body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--fg); background: transparent; margin: 0; padding: 2px 12px 6px 20px; }
-header { margin: 0 0 6px; }
-header p { margin: 0; overflow-wrap: anywhere; }
-.title { font-weight: 600; }
-.tone-ok .title { color: var(--ok); }
-.tone-warn .title { color: var(--warn); }
-.line, .who, .notice, .muted, .busy { color: var(--muted); }
-.who { font-style: italic; }
-.busy { margin: 0 0 6px; font-style: italic; }
-.rows { list-style: none; margin: 0 -6px; padding: 0; }
-.row { margin: 0; }
-.open { display: flex; gap: 6px; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 4px 6px; border-radius: 3px; cursor: pointer; }
-.open:hover { background: var(--hover); }
-.open:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.icon { flex: 0 0 1em; text-align: center; color: var(--muted); }
-.row.pass .icon, .row.restated .icon { color: var(--ok); }
-.row.retry .icon { color: var(--warn); }
-.body { display: flex; flex-direction: column; min-width: 0; }
-.text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.row.pass .text, .row.explained .text, .row.restated .text { color: var(--muted); }
-.meta { font-size: 0.9em; color: var(--muted); overflow-wrap: anywhere; }
-.flag { font-size: 0.9em; color: var(--warn); }
-footer { margin: 0 0 8px; }
-.commits { margin: 0 0 4px; color: var(--muted); overflow-wrap: anywhere; }
-.also { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; overflow-wrap: anywhere; }
-.also input { margin: 0; accent-color: var(--vscode-checkbox-background); }
-.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 12px; border-radius: 2px; font: inherit; cursor: pointer; max-width: 100%; }
-.primary:hover { background: var(--vscode-button-hoverBackground); }
-.primary:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
-.link { text-align: left; }
-.link:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
-.tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
-.setup { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-.mr { margin: 2px 0 0; overflow-wrap: anywhere; }
-.failed { margin: 2px 0 0; color: var(--warn); overflow-wrap: anywhere; }
-.failed .link { display: inline; }
-.failed .waive { color: var(--muted); }
-.text code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
-.open-file { margin-left: 8px; }
+.check header { margin: 0 0 6px; }
+.check header p { margin: 0; overflow-wrap: anywhere; }
+.check .title { font-weight: 600; }
+.check .tone-ok .title { color: var(--ok); }
+.check .tone-warn .title { color: var(--warn); }
+.check .line, .check .who, .check .notice, .check .muted, .check .busy { color: var(--muted); }
+.check .who { font-style: italic; }
+.check .busy { margin: 0 0 6px; font-style: italic; }
+.check .rows { list-style: none; margin: 0 -6px; padding: 0; }
+.check .row { margin: 0; }
+.check .open { display: flex; gap: 6px; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 4px 6px; border-radius: 3px; cursor: pointer; }
+.check .open:hover { background: var(--hover); }
+.check .open:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.check .icon { flex: 0 0 1em; text-align: center; color: var(--muted); }
+.check .row.pass .icon, .check .row.restated .icon { color: var(--ok); }
+.check .row.retry .icon { color: var(--warn); }
+.check .body { display: flex; flex-direction: column; min-width: 0; }
+.check .text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.check .row.pass .text, .check .row.explained .text, .check .row.restated .text { color: var(--muted); }
+.check .meta { font-size: 0.9em; color: var(--muted); overflow-wrap: anywhere; }
+.check .flag { font-size: 0.9em; color: var(--warn); }
+.check footer { margin: 0 0 8px; }
+.check .commits { margin: 0 0 4px; color: var(--muted); overflow-wrap: anywhere; }
+.check .also { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; overflow-wrap: anywhere; }
+.check .also input { margin: 0; accent-color: var(--vscode-checkbox-background); }
+.check .primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 12px; border-radius: 2px; font: inherit; cursor: pointer; max-width: 100%; }
+.check .primary:hover { background: var(--vscode-button-hoverBackground); }
+.check .primary:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+.check .link { text-align: left; }
+.check .link:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+.check .tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
+.check .setup { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.check .mr { margin: 2px 0 0; overflow-wrap: anywhere; }
+.check .failed { margin: 2px 0 0; color: var(--warn); overflow-wrap: anywhere; }
+.check .failed .link { display: inline; }
+.check .failed .waive { color: var(--muted); }
+.check .text code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+.check .open-file { margin-left: 8px; }

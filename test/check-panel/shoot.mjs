@@ -1,6 +1,7 @@
 // The Check view (the understanding check's list in the sidebar) in Chromium (Playwright) at three widths, dark and
-// light, for every state in views.mjs: nothing wider than the panel, no console errors, rows, ↓, the answer box, the
-// links and the button work. Screenshots go to the folder given (optional).
+// light, for every state in views.mjs (made by the extension's view model: `npm run build` first): nothing wider than
+// the panel, no console errors, rows, ↓, the answer box, the links and the button work. Screenshots go to the folder
+// given (optional).
 // Usage: node test/check-panel/shoot.mjs [screenshot-dir]   (PLAYWRIGHT=<path to playwright's index.mjs> if needed)
 import fs from 'node:fs'
 import path from 'node:path'
@@ -14,7 +15,14 @@ const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
 
 /** Has the page posted a message of `type` whose fields include `fields`? */
-const postedType = (page, type, fields = {}) => page.evaluate(([t, f]) => window.__harness.posted.some((m) => m.type === t && Object.entries(f).every(([k, v]) => m[k] === v)), [type, fields])
+function postedType(page, type, fields = {}) {
+  return page.evaluate(([t, f]) => {
+    const has = (m) => Object.entries(f).every(([k, v]) => m[k] === v)
+    return window.__harness.posted.some((m) => m.type === t && has(m))
+  }, [type, fields])
+}
+/** Forgets what the page posted so far: each check sees only what its own actions posted. */
+const forgetPosted = (page) => page.evaluate(() => { window.__harness.posted.length = 0 })
 /** Draws `view` (as the extension posts it). */
 const draw = (page, view) => page.evaluate((v) => window.postMessage({ type: 'check', view: v }, '*'), view)
 
@@ -78,8 +86,9 @@ async function nextQuestion(page, view, fail) {
 /** A file offered with Commit & push: ticking it posts. */
 async function alsoTick(page, view, fail) {
   if (!view.also) return
+  const { file, on } = view.also[0]
   await page.click('footer .also input')
-  if (!(await postedType(page, 'include', { file: 'services/api/src/refunds.js', on: true }))) fail('ticking the TODO file didn\'t post')
+  if (!(await postedType(page, 'include', { file, on: !on }))) fail(`ticking ${file} didn't post`)
 }
 
 /** The tour: its link posts and the rows say their step; while it is written, one muted line. */
@@ -155,7 +164,8 @@ async function oddIdRedraw(page, view, fail) {
   await page.waitForTimeout(50)
 }
 
-/** In the order they run on each drawn view (each may click, so later ones see what earlier ones posted). */
+/** In the order they run on each drawn view; what the page posted is forgotten before each, so a check passes only on
+ *  what its own actions posted. */
 const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions, oddIdRedraw]
 
 // ---------- main ----------
@@ -171,7 +181,10 @@ for (const theme of ['dark', 'light']) for (const w of [280, 480, 900]) for (con
   const r = await page.evaluate(() => window.__harness.posted.filter((m) => m.type === 'rendered').pop())
   if (r.overflow.length) fail(r.overflow.join('; '))
   if (errors.length) fail(`console: ${errors.join('; ')}`)
-  for (const check of CHECKS) await check(page, view, fail)
+  for (const check of CHECKS) {
+    await forgetPosted(page)
+    await check(page, view, fail)
+  }
   if (OUT) await page.screenshot({ path: path.join(OUT, `check-${name}-${w}-${theme}.png`), fullPage: true })
   await page.close()
 }

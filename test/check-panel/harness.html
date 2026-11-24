@@ -11,12 +11,13 @@
 <script src="../harness/themes.js"></script>
 <script>
   __harness.stubVsCodeApi()
-  // VS Code's Modern themes' link colour (the map harness keeps the older one).
-  __harness.applyTheme(
-    { dark: { 'textLink-foreground': '#4daafc' }, light: { 'textLink-foreground': '#005fb8' } },
-    { without: ['editor-foreground', 'editorWidget-background', 'badge-background', 'badge-foreground', 'codeNotes-noteBorder', 'editor-font-family'] },
-  )
+  // The theme variant this panel is checked against: the "Modern" themes (Dark Modern, Light Modern), whose link
+  // colour differs from the table's (the journey panel's harness checks the older one).
+  const MODERN = { dark: { 'textLink-foreground': '#4daafc' }, light: { 'textLink-foreground': '#005fb8' } }
+  // Variables this page never used: left unset, so the pictures stay as they were.
+  const UNUSED = ['editor-foreground', 'editorWidget-background', 'badge-background', 'badge-foreground', 'codeNotes-noteBorder', 'editor-font-family']
+  __harness.applyTheme(MODERN, { without: UNUSED })
 </script></head>
-<body><div id="app"></div>
+<body><div id="app" class="check"></div>
 <script src="../../out/pages/check.js"></script>
 </body></html>

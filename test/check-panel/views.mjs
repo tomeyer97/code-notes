@@ -1,119 +1,162 @@
-// The Check view's states shoot.mjs draws, as the extension sends them (src/check/viewModel.ts checkView): one per thing
-// the view can show. Most are on feat/x (`onFeatX`) and differ in a few fields.
+// The Check view's states shoot.mjs draws, each made by the extension's own view model (out/src/check/viewModel.js
+// checkView, after `npm run build`) from a status, the CLI's words and what the extension knows besides: so the panel
+// is checked on what the extension sends, and a renamed field or changed wording shows up here. One per thing the
+// view can show. The files are the example shop's (examples/shop; its refunds are test/fixtures/grader-cases').
+import { createRequire } from 'node:module'
+
+const VM = createRequire(import.meta.url)('../../out/src/check/viewModel.js')
 
 /** A question this long wraps over three lines at the narrowest width. */
-export const LONG_QUESTION = 'What happens to an already-charged order\'s result when the API answers the report with a 4xx other than 409, such as 401 for a wrong WORKER_KEY, while replayUnreportedResultsFromTheLocalFile is still running?'
+const LONG_QUESTION = 'What happens to an already-charged order\'s result when the API answers the report with a 4xx other than 409, such as 401 for a wrong WORKER_KEY, while replayUnreportedResultsFromTheLocalFile is still running?'
+/** A path longer than any of the shop's: the row must wrap it, not stick out. */
+const LONG_PATH = 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js'
 const SAVED_RESULTS = 'What happens to the saved results if replayUnreported throws?'
 const SAFE_RETRY = 'Why is it safe for chargeOrder to retry after a timeout when the first attempt may already have charged the card?'
 const SECOND_CHARGE = (i) => `Question ${i}: how does the worker stop a second charge for the same job?`
 const LONG_BRANCH = 'feat/a-branch-with-a-rather-long-name-for-testing'
 /** Its check file's name. */
 const LONG_SLUG = 'feat-a-branch-with-a-rather-long-name-for-testing'
+/** The file a TODO or a fix went to. */
+const REFUNDS = 'api/refunds.js'
 
-/** A row of the view: question `id`, number `n`, its kind, text and place, its state and the word for it. */
-const row = (id, n, kind, text, where, state, word, extra = {}) => ({ id, n, kind, text, where, also: [], state, word, ...extra })
+const ADA = { name: 'Ada', email: 'ada@example.com' }
+const BOB = { name: 'Bob', email: 'bob@example.com' }
 
-/** The check of feat/x, being answered. */
-const onFeatX = { branch: 'feat/x', file: 'understanding/feat-x.json', tone: 'todo' }
-/** "Answer all 3 · 2 must pass." with its title. */
-const answering = (title) => ({ title, line: 'Answer all 3 · 2 must pass.' })
+/** Question `id` of kind `kind` at `file`:`start`. */
+const q = (id, kind, text, file, start, extra = {}) => ({ id, kind, text, file, start, end: start, ...extra })
+/** Its concern: the question's own "may be a bug", one flagged for review, or one found while grading. */
+const suspect = { suspect: true, concern: { text: 'May be a bug.' } }
+const flagged = { concern: { text: 'The retry charges again.', flagged: true } }
+const concern = (text) => ({ concern: { text } })
 
-export const views = {
-  answering: {
-    branch: 'feat/retry-charges', file: 'understanding/feat-retry-charges.json', tone: 'todo', ...answering('1 of 3 done'),
-    notice: 'Not asked about (uncommitted): README.md, allowlist.js',
-    rows: [
-      row('q1', 1, 'Failure', 'What happens to the saved results if replayUnreported throws or the worker dies halfway through the loop?', 'worker/worker.js:42', 'pass', ''),
-      row('q2', 2, 'Why', SAFE_RETRY, 'worker/charge.js:19', 'retry', 'try again', { also: ['worker/queue.js:84-96'] }),
-      row('q3', 3, 'Edge case', LONG_QUESTION, 'payments/a-very-long-folder-name/with-more-levels/client-with-a-long-name.js:32', 'todo', '', { flag: 'may be a bug' }),
-    ],
-  },
-  done: {
-    branch: LONG_BRANCH, file: `understanding/${LONG_SLUG}.json`, tone: 'ok', title: '✓ Done', line: 'Commit and push.',
-    rows: ['pass', 'restated', 'explained', 'pass'].map((s, i) => {
-      const word = s === 'explained' ? 'explained · say it back' : s === 'restated' ? 'in your words' : ''
-      return row(`q${i + 1}`, i + 1, 'How', SECOND_CHARGE(i + 1), 'api/orders.js:12', s, word, i === 2 ? { flag: 'flagged for review' } : {})
-    }),
-    action: { id: 'commitPush', label: 'Commit & push' },
-    who: "Ada's check: your answers are recorded as yours.",
-    commits: `Commits ${LONG_SLUG}.json, also folds check files in diffs (.gitattributes)`,
-    also: [{ file: 'services/api/src/refunds.js', label: 'also refunds.js (TODO added)', on: false }],
-  },
-  // The answer box under the selected question: a miss with a hint and a code link, a draft in the box.
-  answer: {
-    ...onFeatX, ...answering('1 of 3 done'),
-    rows: [
-      row('q1', 1, 'Failure', SAVED_RESULTS, 'worker/worker.js:42', 'pass', ''),
-      row('q2', 2, 'Why', SAFE_RETRY, 'worker/charge.js:19', 'retry', 'try again'),
-      row('q3', 3, 'Edge case', 'What does `takeJob` return when two workers take the same job?', 'worker/queue.js:7', 'todo', ''),
-    ],
-    answer: {
-      id: 'q2', n: 2, open: true, draft: 'It checks the idempotency key first, so',
-      grade: {
-        pass: false,
-        feedback: [{ text: 'Not quite: right about the key; re-check when it is written.' }],
-        hint: [{ text: 'What does ' }, { text: 'the INSERT after the charge', link: 0 }, { text: ' do on a retry?' }],
-      },
-    },
-  },
-  // A pass: the box is gone, the grade and "Next question ›".
-  passed: {
-    ...onFeatX, ...answering('2 of 3 done'),
-    rows: [
-      row('q1', 1, 'Failure', SAVED_RESULTS, 'worker/worker.js:42', 'pass', ''),
-      row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'pass', ''),
-      row('q3', 3, 'Edge case', 'What happens when two workers take the same job?', 'worker/queue.js:7', 'todo', ''),
-    ],
-    answer: {
-      id: 'q2', n: 2, open: false, draft: '',
-      grade: { pass: true, feedback: [{ text: 'Right: ' }, { text: 'the unique key', link: 0 }, { text: ' turns the second charge into an error, not a double charge.' }] },
-      next: true,
-      concern: { text: 'The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.', flagged: false },
-    },
-  },
-  drift: {
-    ...onFeatX, tone: 'warn', title: 'Needs top-up: +46 lines', line: 'Add 1–2 questions about the new lines.',
-    rows: [row('q1', 1, 'How', 'How does it work?', 'a.js:1', 'pass', ''), row('q2', 2, 'Why', 'Why so?', 'a.js:9', 'pass', '')],
-    action: { id: 'topUp', label: 'Add questions' },
-  },
-  // Done after an applied fix and a push of a branch without a merge request: said, the fix offered, the link.
-  doneFix: {
-    ...onFeatX, tone: 'ok', title: '✓ Done', line: 'Your fix is not committed yet.', said: 'Both answers kept.',
-    mr: 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fa-branch-with-a-rather-long-name',
-    rows: ['pass', 'pass', 'pass'].map((s, i) => row(`q${i + 1}`, i + 1, 'How', SECOND_CHARGE(i + 1), 'api/orders.js:12', s, '', i === 2 ? { flag: 'fix applied · not committed' } : {})),
-    action: { id: 'commitPush', label: 'Commit & push' },
-    also: [{ file: 'services/api/src/refunds.js', label: 'refunds.js (your fix)', on: false }],
-  },
-  // Claude Code not found: the ways on, in one line.
-  notFound: { ...onFeatX, title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], failed: { text: "Claude Code wasn't found.", path: true } },
-  // Grading failed: said under the box with Try again.
-  gradeError: {
-    ...onFeatX, title: '0 of 2 done', line: 'Answer all 2 · 2 must pass.',
-    rows: [
-      row('q1', 1, 'Failure', SAVED_RESULTS, 'worker/worker.js:42', 'ungraded', 'not graded'),
-      row('q2', 2, 'Why', 'Why is the charge retried?', 'worker/charge.js:19', 'todo', ''),
-    ],
-    answer: { id: 'q1', n: 1, open: true, draft: '', error: 'Claude is busy right now; your answer is saved.' },
-  },
-  conflict: { ...onFeatX, tone: 'warn', title: 'The check file has a merge conflict', line: 'Both sides of the conflict can be kept.', rows: [], action: { id: 'merge', label: 'Keep both answers' } },
-  none: { ...onFeatX, title: `No check yet for ${LONG_BRANCH}`, line: '28 code lines changed.', rows: [], action: { id: 'start', label: 'Start' } },
-  // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
-  tour: {
-    branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', ...answering('1 of 3 done'),
-    tour: { label: 'Walk the tour · 9 steps', action: 'walk' },
-    rows: [
-      row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts before the worker takes its refund job?', 'api/orders.js:44', 'todo', '', { step: 4 }),
-      row('q2', 2, 'Edge case', 'After a failed refund, what happens when the customer asks again for a different amount, given the idempotency key?', 'worker/refund.js:7', 'retry', 'try again', { step: 9, flag: 'may be a bug' }),
-      row('q3', 3, 'Why', 'Why does startRefund check the status inside its UPDATE instead of relying on the status read in refundOrder?', 'api/store.js:44', 'pass', '', { step: 2 }),
-    ],
-  },
-  tourWriting: {
-    branch: 'feat/refunds', file: 'understanding/feat-refunds.json', tone: 'todo', ...answering('0 of 3 done'),
-    tour: { label: 'Writing the tour · 1:20' },
-    rows: [
-      row('q1', 1, 'Failure', 'What happens to an order in refund_pending if the API restarts?', 'api/orders.js:44', 'todo', ''),
-      row('q2', 2, 'Why', 'Why is the status checked in the UPDATE?', 'api/store.js:44', 'todo', ''),
-    ],
-  },
-  writing: { ...onFeatX, title: 'No check yet for feat/x', line: '28 code lines changed.', rows: [], busy: 'Writing questions · 0:42 · reading the change' },
+/**
+ * Where branch `branch` stands: its check (`questions`, their `states`) in phase `phase`. Its check has no tour and
+ * offers none (`noTour`), unless `tour` (a tour being written) or a journey is given: the tour's own states show it.
+ */
+function status(branch, phase, { questions, states, tour = false, ...over } = {}) {
+  const file = `understanding/${branch.replace(/\//g, '-')}.json`
+  const check = questions && { version: 1, branch, head: 'abcdef1', answeredBy: ADA, questions, ...(tour ? {} : { noTour: true }) }
+  return { branch, file, changed: 28, exists: !!check, check, summary: states && { states }, state: { phase }, ...over }
 }
+/** The CLI's words for it. */
+const words = (tone, title, line) => ({ tone, bar: title, title, line, rule: line })
+/** "Answer all 3 · 2 must pass." with its title. */
+const answering = (title, all = 3) => words('todo', title, `Answer all ${all} · 2 must pass.`)
+
+/** The three questions of feat/x being answered: the first passed, the second to retry, the third to do. */
+const featX = (second = {}, third = {}) => [
+  q('q1', 'failure', SAVED_RESULTS, 'worker/worker.js', 42),
+  q('q2', 'why', SAFE_RETRY, 'worker/charge.js', 19, second),
+  q('q3', 'edge', 'What does `takeJob` return when two workers take the same job?', 'api/queue.js', 7, third),
+]
+
+/** A graded attempt: `verdict`, its feedback and hint, the code links their phrases name. */
+const attempt = (verdict, feedback, links = [], hint) => ({ answer: 'An answer.', verdict, feedback, hint, links: links.map((phrase) => ({ phrase, file: 'worker/charge.js', start: 19, end: 19 })) })
+
+const STATES = {
+  answering: [
+    status('feat/retry-charges', 'answering', {
+      questions: [
+        q('q1', 'failure', 'What happens to the saved results if replayUnreported throws or the worker dies halfway through the loop?', 'worker/worker.js', 42),
+        q('q2', 'why', SAFE_RETRY, 'worker/charge.js', 19, { also: [{ file: 'api/queue.js', start: 84, end: 96 }] }),
+        q('q3', 'edge', LONG_QUESTION, LONG_PATH, 32, suspect),
+      ],
+      states: ['pass', 'retry', 'todo'],
+    }),
+    answering('1 of 3 done'),
+    { notice: 'Not asked about (uncommitted): README.md, allowlist.js' },
+  ],
+  done: [
+    status(LONG_BRANCH, 'done', {
+      questions: [1, 2, 3, 4].map((i) => q(`q${i}`, 'how', SECOND_CHARGE(i), 'api/orders.js', 12, i === 3 ? flagged : {})),
+      states: ['pass', 'restated', 'explained', 'pass'],
+      dirty: true,
+    }),
+    words('ok', '✓ Done', 'Commit and push.'),
+    { me: BOB, commit: { files: [`understanding/${LONG_SLUG}.json`], todos: [REFUNDS], include: new Set(), fold: true } },
+  ],
+  // The answer box under the selected question: a miss with a hint and a code link, a draft in the box.
+  answer: [
+    status('feat/x', 'answering', {
+      questions: featX({ attempts: [attempt('retry', 'right about the key; re-check when it is written.', ['the INSERT after the charge'], 'What does the INSERT after the charge do on a retry?')] }),
+      states: ['pass', 'retry', 'todo'],
+    }),
+    answering('1 of 3 done'),
+    { selected: 'q2', draft: 'It checks the idempotency key first, so' },
+  ],
+  // A pass: the box is gone, the grade and "Next question ›".
+  passed: [
+    status('feat/x', 'answering', {
+      questions: featX({
+        text: 'Why is the charge retried?',
+        attempts: [attempt('pass', 'Right: the unique key turns the second charge into an error, not a double charge.', ['the unique key'])],
+        ...concern('The retry after a timeout charges again when the first attempt went through: no idempotency key is sent.'),
+      }, { text: 'What happens when two workers take the same job?' }),
+      states: ['pass', 'pass', 'todo'],
+    }),
+    answering('2 of 3 done'),
+    { selected: 'q2' },
+  ],
+  drift: [
+    status('feat/x', 'drift', { questions: [q('q1', 'how', 'How does it work?', 'api/orders.js', 1), q('q2', 'why', 'Why so?', 'api/orders.js', 9)], states: ['pass', 'pass'] }),
+    words('warn', 'Needs top-up: +46 lines', 'Add 1–2 questions about the new lines.'),
+  ],
+  // Done after an applied fix and a push of a branch without a merge request: said, the fix offered, the link.
+  doneFix: [
+    status('feat/x', 'done', {
+      questions: [1, 2, 3].map((i) => q(`q${i}`, 'how', SECOND_CHARGE(i), 'api/orders.js', 12, i === 3 ? concern('The refund is not checked.') : {})),
+      states: ['pass', 'pass', 'pass'],
+      dirty: false,
+    }),
+    words('ok', '✓ Done', 'Commit and push.'),
+    {
+      said: 'Both answers kept.', unpushed: false,
+      mr: 'https://git.example.com/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fa-branch-with-a-rather-long-name',
+      commit: { files: [], todos: [], include: new Set(), fixes: [REFUNDS], exclude: new Set([REFUNDS]), applied: ['q3'] },
+    },
+  ],
+  // Claude Code not found: the ways on, in one line.
+  notFound: [status('feat/x', 'none'), words('todo', 'No check yet for feat/x', '28 code lines changed.'), { failed: { text: "Claude Code wasn't found.", path: true } }],
+  // Grading failed: said under the box with Try again.
+  gradeError: [
+    status('feat/x', 'answering', { questions: featX().slice(0, 2).map((x, i) => (i ? { ...x, text: 'Why is the charge retried?' } : x)), states: ['ungraded', 'todo'] }),
+    answering('0 of 2 done', 2),
+    { selected: 'q1', error: 'Claude is busy right now; your answer is saved.' },
+  ],
+  conflict: [
+    status('feat/x', 'invalid', { state: { phase: 'invalid', conflict: { line: 3, mergeable: true } } }),
+    words('warn', 'The check file has a merge conflict', 'Both sides of the conflict can be kept.'),
+  ],
+  none: [status('feat/x', 'none'), words('todo', `No check yet for ${LONG_BRANCH}`, '28 code lines changed.')],
+  // The tour of the change: the rows say their step; one link walks it (or one muted line while it is written).
+  tour: [
+    status('feat/refunds', 'answering', {
+      tour: true,
+      questions: [
+        q('q1', 'failure', 'What happens to an order in refund_pending if the API restarts before the worker takes its refund job?', 'api/orders.js', 44, { step: 4 }),
+        q('q2', 'edge', 'After a failed refund, what happens when the customer asks again for a different amount, given the idempotency key?', 'worker/refund.js', 7, { step: 9, ...suspect }),
+        q('q3', 'why', 'Why does startRefund check the status inside its UPDATE instead of relying on the status read in refundOrder?', 'api/store.js', 44, { step: 2 }),
+      ],
+      states: ['todo', 'retry', 'pass'],
+    }),
+    answering('1 of 3 done'),
+  ],
+  tourWriting: [
+    status('feat/refunds', 'answering', {
+      tour: true,
+      questions: [
+        q('q1', 'failure', 'What happens to an order in refund_pending if the API restarts?', 'api/orders.js', 44),
+        q('q2', 'why', 'Why is the status checked in the UPDATE?', 'api/store.js', 44),
+      ],
+      states: ['todo', 'todo'],
+    }),
+    answering('0 of 3 done'),
+    { tourBusy: 'Writing the tour · 1:20' },
+  ],
+  writing: [status('feat/x', 'none'), words('todo', 'No check yet for feat/x', '28 code lines changed.'), { busy: 'Writing questions · 0:42 · reading the change' }],
+}
+// The tour's check has a tour of nine steps (only their number shows in the view).
+STATES.tour[0].check.journey = { title: 'Refunds', steps: Array.from({ length: 9 }, (_, i) => ({ title: `Step ${i + 1}`, file: 'api/orders.js', range: { start: 1, end: 2 } })) }
+
+/** Each state's view, as the extension sends it. */
+export const views = Object.fromEntries(Object.entries(STATES).map(([name, [st, w, o]]) => [name, VM.checkView(st, w, o)]))
