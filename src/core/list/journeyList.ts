@@ -5,9 +5,10 @@
 import { matchScore, queryWords } from './match'
 import { baseName } from '../paths'
 import { ageOf, stamp } from '../time'
+import { byPlace, Span, stepsIn } from './place'
 
-/** Only journeys are listed ('review': nothing makes one yet). 'check' is not listed: a check lives in the Check view. */
-export type ListKind = 'journey' | 'check' | 'review'
+/** Only journeys are listed; 'check' is the kind filter the panel can ask for (a check lives in the Check view). */
+export type ListKind = 'journey' | 'check'
 export type Sort = 'area' | 'newest' | 'walked' | 'name'
 export const SORTS: { id: Sort; label: string }[] = [
   { id: 'area', label: 'By area' },
@@ -41,8 +42,6 @@ export interface ListItem {
   /** When it was last walked (ms). */
   walkedAt?: number
   start?: boolean
-  /** Unused here (a check's progress); not listed. */
-  progress?: string; open?: boolean
 }
 
 export interface ListRow extends ListItem {
@@ -113,17 +112,6 @@ export interface ListOptions {
   searchSort?: Sort | 'best'
 }
 
-/** 1-based lines, inclusive. */
-type Span = { start: number; end: number }
-/** Lines `r` and `span` share at least one line. */
-const overlaps = (r: Span, span: Span) => r.start <= span.end && r.end >= span.start
-/** How many lines lie between `r` and `span` (0: they overlap). */
-function distance(r: Span, span: Span): number {
-  if (r.end < span.start) return span.start - r.end
-  if (r.start > span.end) return r.start - span.end
-  return 0
-}
-
 const quote = (ws: string[]) => ws.map((w) => `“${w}”`).join(', ')
 const stepCount = (n: number) => `${n} step${n === 1 ? '' : 's'}`
 const keys = (l: ListRow[]) => l.map((r) => r.key)
@@ -140,14 +128,9 @@ const ORDER: Record<Sort, (x: ListRow, y: ListRow) => number> = {
 function rowOf(it: ListItem, o: ListOptions, now: number): ListRow {
   const area = areaOf(it.files)
   const age = ageOf(it.createdAt, now)
-  const hereIdx = o.activeFile ? it.files.flatMap((f, i) => (f === o.activeFile ? [i] : [])) : []
-  const span = o.activeSpan
-  const atSpan = (i: number) => {
-    const r = it.ranges?.[i]
-    return !!r && !!span && overlaps(r, span)
-  }
-  const cursorSteps = span ? hereIdx.filter(atSpan).length : 0
-  const hereSteps = hereIdx.length
+  const { inFile, onSpan } = stepsIn(it, new Set(o.activeFile ? [o.activeFile] : []), o.activeSpan)
+  const cursorSteps = onSpan.length
+  const hereSteps = inFile.length
   return {
     ...it,
     area,
@@ -162,53 +145,66 @@ function rowOf(it: ListItem, o: ListOptions, now: number): ListRow {
   }
 }
 
+/** A row the search found: how well it matched, and the words it matched (for highlighting). */
+type Hit = { score: number; hits: string[] }
+
 /**
- * The rows the search finds (all, without a query), with their scores; their `hits` set. Several words and no journey
- * has them all: rows with any of them, and one line saying so (an empty list is a dead end).
+ * The rows the search finds (all, without a query), and what each matched. Several words and no journey has them
+ * all: rows with any of them, and one line saying so (an empty list is a dead end).
  */
-interface Found { shown: ListRow[]; scores: Map<string, number>; fallback?: ListModel['fallback'] }
+interface Found { shown: ListRow[]; found: Map<string, Hit>; fallback?: ListModel['fallback'] }
 
 function search(all: ListRow[], query: string, inFilter: (r: ListRow) => boolean): Found {
-  const scores = new Map<string, number>()
-  const pick = (any: boolean) => all.filter((r) => {
-    if (!inFilter(r)) return false
-    const m = matchScore(r, query, any)
-    if (!m.score) return false
-    r.hits = m.hits
-    scores.set(r.key, m.score)
-    return true
-  })
-  const shown = pick(false)
+  const pick = (any: boolean) => {
+    const found = new Map<string, Hit>()
+    for (const r of all) {
+      if (!inFilter(r)) continue
+      const m = matchScore(r, query, any)
+      if (m.score) found.set(r.key, m)
+    }
+    return { shown: all.filter((r) => found.has(r.key)), found }
+  }
+  const every = pick(false)
   const tokens = queryWords(query)
-  if (shown.length || tokens.length < 2) return { shown, scores }
-  const anyOf = pick(true)
-  if (!anyOf.length) return { shown: anyOf, scores }
+  if (every.shown.length || tokens.length < 2) return every
+  const some = pick(true)
+  if (!some.shown.length) return some
   const missing = tokens.filter((t) => !all.some((r) => inFilter(r) && matchScore(r, t).score))
-  const found = tokens.filter((t) => !missing.includes(t))
+  const matched = tokens.filter((t) => !missing.includes(t))
   const note = missing.length
-    ? `No journey about ${quote(missing)}; closest for ${quote(found)}`
+    ? `No journey about ${quote(missing)}; closest for ${quote(matched)}`
     : 'No journey has every word; showing any'
-  return { shown: anyOf, scores, fallback: { missing, note } }
+  return { ...some, fallback: { missing, note } }
 }
 
-/** Sorted Newest: rows of the same age ("13 d") say when, so the newest can be told. */
-function stampSameAge(sorted: ListRow[]): void {
+/** Sorted Newest: rows of the same age ("13 d") say when, so the newest can be told. The rows' new ages, by key. */
+function sameAgeStamps(rows: ListRow[]): Map<string, string> {
   const byAge = new Map<string, ListRow[]>()
-  for (const r of sorted) if (r.age) byAge.set(r.age, [...(byAge.get(r.age) ?? []), r])
+  for (const r of rows) if (r.age) byAge.set(r.age, [...(byAge.get(r.age) ?? []), r])
+  const out = new Map<string, string>()
   for (const l of byAge.values()) {
     if (l.length < 2 || new Set(l.map(when)).size < 2) continue
-    for (const r of l) {
-      r.age = stamp(when(r))
-      r.meta = [r.area, stepCount(r.steps), r.age].join(' · ')
-    }
+    for (const r of l) out.set(r.key, stamp(when(r)))
+  }
+  return out
+}
+
+/** A row as the list shows it after the search and the sort: the words it matched, and its age as a stamp. */
+function finished(r: ListRow, hit: Hit | undefined, age: string | undefined): ListRow {
+  if (!hit && age === undefined) return r
+  return {
+    ...r,
+    ...(age !== undefined ? { age, meta: [r.area, stepCount(r.steps), age].join(' · ') } : {}),
+    hits: hit?.hits ?? [],
   }
 }
 
-/** In this file, ranked: a step in the function under the cursor, then the most steps here, then the largest share. */
+/** In this file, ranked (place.ts): steps in the function under the cursor, then the most steps here; then the
+ *  largest share of the journey. */
 function hereRows(sorted: ListRow[]): ListRow[] {
   const share = (r: ListRow) => r.hereSteps / r.steps
-  return sorted.filter((r) => r.here).sort((x, y) =>
-    y.cursorSteps - x.cursorSteps || y.hereSteps - x.hereSteps || share(y) - share(x) || byName(x, y))
+  const place = (r: ListRow) => ({ onSpan: r.cursorSteps, inFile: r.hereSteps })
+  return sorted.filter((r) => r.here).sort((x, y) => byPlace(place(x), place(y)) || share(y) - share(x) || byName(x, y))
 }
 
 /** Continue: past step 1 (opening a journey is not reading it), the one being walked first, then the last walked. */
@@ -239,12 +235,13 @@ function part(id: string, label: string, rows: ListRow[], more = 0): Section {
 /** Each area's rows (areas A–Z), one part each. */
 const areaParts = (rows: ListRow[]): Section[] => byArea(rows).map(([a, l]) => part(`area:${a}`, a, l))
 
-/** What both the panel's sections and the sidebar's groups are made from. */
-interface Parts {
+/** The rows after the search, the filters and the sort, and the lists both views are made of. */
+interface ListRows {
   sort: Sort
-  /** In this file (all of them, and as many as are shown). */
-  here: ListRow[]; hereShown: ListRow[]
-  cont: ListRow[]; fresh: ListRow[]; sorted: ListRow[]
+  sorted: ListRow[]
+  /** In this file: all of them, and as many as are shown (HERE_CAP, unless shown in full). */
+  inFileRows: ListRow[]; inFileShown: ListRow[]
+  continueRows: ListRow[]; newRows: ListRow[]
   /** The active file's name, for "In <name>". */
   fileName?: string
 }
@@ -254,30 +251,30 @@ interface Parts {
  * In <file>, New, then the rest by area (or in one sorted section); each row once (what is listed above is not
  * repeated below). Empty sections are left out.
  */
-function panelSections(p: Parts, area: string, results?: ListRow[]): Section[] {
+function panelSections(p: ListRows, area: string, results?: ListRow[]): Section[] {
   if (results) return [part('results', `${results.length} found`, results)]
-  if (area === 'here') return [part('here', `In ${p.fileName ?? 'this file'}`, p.here)]
+  if (area === 'here') return [part('here', `In ${p.fileName ?? 'this file'}`, p.inFileRows)]
   const hereSection = !!p.fileName
-  const above = new Set([...p.cont, ...(hereSection ? p.hereShown : []), ...p.fresh].map((r) => r.key))
+  const above = new Set([...p.continueRows, ...(hereSection ? p.inFileShown : []), ...p.newRows].map((r) => r.key))
   const rest = p.sorted.filter((r) => !above.has(r.key))
-  const out: Section[] = [part('continue', 'Continue', p.cont)]
-  if (hereSection) out.push(part('here', `In ${p.fileName}`, p.hereShown, p.here.length - p.hereShown.length))
-  out.push(part('new', 'New', p.fresh))
+  const out: Section[] = [part('continue', 'Continue', p.continueRows)]
+  if (hereSection) out.push(part('here', `In ${p.fileName}`, p.inFileShown, p.inFileRows.length - p.inFileShown.length))
+  out.push(part('new', 'New', p.newRows))
   if (p.sort === 'area') out.push(...areaParts(rest))
   else out.push(part('all', SORTS.find((s) => s.id === p.sort)!.label, rest))
   return out.filter((s) => s.keys.length)
 }
 
 /** The sidebar's groups: In this file (but the walk's journey) and Continue when they have rows, then All (by area, or flat). */
-function sidebarGroups(p: Parts): Group[] {
+function sidebarGroups(p: ListRows): Group[] {
   const out: Group[] = []
   // The journey being walked (or listened to) is in Continue: not again in "In this file", which would come and go as
   // the walk changes files.
-  const walking = new Set(p.cont.filter((r) => r.walking).map((r) => r.key))
-  const hereShown = p.hereShown.filter((r) => !walking.has(r.key))
-  const hereAll = p.here.filter((r) => !walking.has(r.key))
+  const walking = new Set(p.continueRows.filter((r) => r.walking).map((r) => r.key))
+  const hereShown = p.inFileShown.filter((r) => !walking.has(r.key))
+  const hereAll = p.inFileRows.filter((r) => !walking.has(r.key))
   if (hereAll.length) out.push(part('here', 'In this file', hereShown, hereAll.length - hereShown.length))
-  if (p.cont.length) out.push(part('continue', 'Continue', p.cont))
+  if (p.continueRows.length) out.push(part('continue', 'Continue', p.continueRows))
   if (p.sort === 'area') out.push({ id: 'all', label: 'All', keys: [], children: areaParts(p.sorted) })
   else out.push(part('all', 'All', p.sorted))
   return out
@@ -290,79 +287,62 @@ function chipFilter(area: string): (r: ListRow) => boolean {
   return (r) => !area || r.area === area
 }
 
-/** The list: rows (derived metadata), filtered by search/kind/area, sorted, in the panel's sections and the sidebar's groups. */
+/** The list: rows (derived metadata), filtered by search/kind/area, sorted, in the panel's sections and the sidebar's
+ *  groups (one model: the panel and the sidebar show the same rows and counts). */
 export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
-  const now = o.now ?? Date.now()
   const query = (o.query ?? '').trim()
   const sort = o.sort ?? 'area'
   const kind = o.kind ?? 'all'
   const area = o.area ?? ''
-  const rows: Record<string, ListRow> = Object.fromEntries(items.map((it) => [it.key, rowOf(it, o, now)]))
-  const all = Object.values(rows)
+  const now = o.now ?? Date.now()
+  const base = items.map((it) => rowOf(it, o, now))
   const inChip = chipFilter(area)
-  const inFilter = (r: ListRow) => (kind === 'all' || r.kind === kind) && inChip(r)
-  const { shown, scores, fallback } = search(all, query, inFilter)
-  const sorted = [...shown].sort(ORDER[sort])
-  if (sort === 'newest') stampSameAge(sorted)
-  const here = hereRows(sorted)
-  const parts: Parts = {
-    sort, here, sorted,
-    hereShown: o.hereAll ? here : here.slice(0, HERE_CAP),
-    cont: continueRows(sorted),
-    fresh: sorted.filter((r) => r.isNew),
-    fileName: o.activeFile === undefined ? undefined : baseName(o.activeFile),
-  }
+  const { shown: found, found: hits, fallback } = search(base, query, (r) => (kind === 'all' || r.kind === kind) && inChip(r))
+  const stamps = sort === 'newest' ? sameAgeStamps(found) : new Map<string, string>()
+  const all = base.map((r) => finished(r, hits.get(r.key), stamps.get(r.key)))
+  const rows: Record<string, ListRow> = Object.fromEntries(all.map((r) => [r.key, r]))
+  const shown = found.map((r) => rows[r.key])
+  const list = listRows(shown, sort, o)
   // A search keeps the list's order when one was picked (Newest, Recently walked, A–Z); "By area" means best match.
   const searchSort = o.searchSort ?? (sort === 'area' ? 'best' : sort)
-  const best = (x: ListRow, y: ListRow) => (scores.get(y.key)! - scores.get(x.key)!) || ORDER[sort](x, y)
+  const best = (x: ListRow, y: ListRow) => (hits.get(y.key)!.score - hits.get(x.key)!.score) || ORDER[sort](x, y)
   const results = query ? [...shown].sort(searchSort === 'best' ? best : ORDER[searchSort]) : undefined
-  const sections = panelSections(parts, area, results)
-  const areas = [...countBy(all, (r) => r.area)]
-    .map(([name, c]) => ({ name, count: c }))
-    .sort((x, y) => y.count - x.count || x.name.localeCompare(y.name))
   return {
     rows, query, sort, searchSort, kind, area,
     ...(all.some((r) => r.here) ? { file: o.activeFile } : {}),
     kinds: [...countBy(all, (r) => r.kind)].map(([id, c]) => ({ id: id as ListKind, count: c })),
-    areas,
+    areas: areaCounts(all),
     staleCount: all.filter((r) => r.stale > 0).length,
     ...(fallback ? { fallback } : {}),
-    sections,
-    groups: sidebarGroups(parts),
+    sections: panelSections(list, area, results),
+    groups: sidebarGroups(list),
     count: shown.length,
     total: all.length,
   }
 }
 
-/**
- * "See also" under a check's question or at the end of its tour: the journey step that best shows `file` near `span`,
- * ranked as "In this file" ranks: a step on those lines first, then the journey with the most steps in the file, then
- * the nearest step. With several files (the tour's), the journey with the most steps in them, at its first one there.
- */
-export function seeAlso(items: ListItem[], files: string[], span?: Span): { key: string; step: number } | undefined {
-  const want = new Set(files)
-  let best: { key: string; step: number; rank: SeeAlsoRank } | undefined
-  for (const it of items) {
-    if (it.kind !== 'journey') continue
-    const here = it.files.flatMap((f, i) => (want.has(f) ? [i] : []))
-    if (!here.length) continue
-    const dist = (i: number) => {
-      const r = it.ranges?.[i]
-      return r && span ? distance(r, span) : FAR
-    }
-    const near = span ? here.reduce((a, i) => (dist(i) < dist(a) ? i : a)) : here[0]
-    const rank = { onSpan: !!span && dist(near) === 0, stepsHere: here.length, distance: dist(near) }
-    if (!best || byRank(rank, best.rank) < 0) best = { key: it.key, step: near + 1, rank }
+/** The shown rows sorted, and the lists both views are made of: In this file, Continue, New. */
+function listRows(shown: ListRow[], sort: Sort, o: ListOptions): ListRows {
+  const sorted = [...shown].sort(ORDER[sort])
+  const inFileRows = hereRows(sorted)
+  return {
+    sort, sorted, inFileRows,
+    inFileShown: o.hereAll ? inFileRows : inFileRows.slice(0, HERE_CAP),
+    continueRows: continueRows(sorted),
+    newRows: sorted.filter((r) => r.isNew),
+    fileName: o.activeFile === undefined ? undefined : baseName(o.activeFile),
   }
-  return best && { key: best.key, step: best.step }
 }
 
-/** How well a journey shows the lines for "See also": a step on them, its steps in the file, its nearest step's distance. */
-interface SeeAlsoRank { onSpan: boolean; stepsHere: number; distance: number }
-/** The distance of a step without lines (or with no lines asked for): farther than any real one. */
-const FAR = 1e6
+/** The areas with rows, the largest first (for the chips). */
+const areaCounts = (all: ListRow[]) => [...countBy(all, (r) => r.area)]
+  .map(([name, count]) => ({ name, count }))
+  .sort((x, y) => y.count - x.count || x.name.localeCompare(y.name))
 
-/** Negative when `x` ranks before `y`: a step on the lines first, then the most steps in the file, then the nearest. */
-function byRank(x: SeeAlsoRank, y: SeeAlsoRank): number {
-  return Number(y.onSpan) - Number(x.onSpan) || y.stepsHere - x.stepsHere || x.distance - y.distance
+/** "See also": seeAlso.ts. */
+export { seeAlso } from './seeAlso'
+
+/** The first step title holding a word the search matched ('' without one): said under a search result. */
+export function matchedStep(r: Pick<ListRow, 'stepTitles' | 'hits'>): string {
+  return r.stepTitles.find((t) => r.hits.some((h) => t.toLowerCase().includes(h))) ?? ''
 }

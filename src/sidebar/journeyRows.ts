@@ -1,5 +1,5 @@
-// A journey's row (as both views show it), the notes asked from its steps and their rows, a journey file that can't
-// be read, and revealing rows in the Journeys view.
+// A journey's row (as both views show it), the notes asked from its steps and their rows, and a journey file that
+// can't be read. A row's state is worked out once (JourneyRowState) and said in each of its texts.
 
 import * as vscode from 'vscode'
 import { journeys, podcastStatus, tour } from './ports'
@@ -10,20 +10,21 @@ import { ListModel } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { isNewJourney, unread } from '../notes/seen'
 import { Note } from '../notes/store'
-import { isolate, plural } from '../core/text'
+import { isolate } from '../core/text'
 import { escapeMarkdown } from '../core/escape'
 import { isUpdateRequest } from '../tour/texts'
 import { provenance } from '../tour/provenance'
 import { refreshing } from '../write/refreshJourney'
-import { journeysTree, journeysView } from './journeysTree'
-import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
-import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode } from './nodes'
+import { journeysTree } from './journeysTree'
+import { staleCount, staleLine } from './listModel'
+import { badJourneyNodes, cached, journeyNode, Node, noteNode } from './nodes'
 import { matchesFilter, order } from '../notes/model'
 import { journeyOfNote as journeyOf, stepLinkOf } from '../notes/model/journeyLink'
 import { fileName } from '../platform/jsonFolder'
-import { clock } from '../core/format/podcast/model'
 import { STATE } from '../platform/state'
-import { Cmd } from '../platform/commands'
+import { cmdLink, Cmd } from '../platform/commands'
+import { trustedMarkdown } from '../platform/commandLinks'
+import { journeyDescription, journeyLabel, JourneyRowState, journeyTooltip, nestsQuestions, podcastContext } from './journeyRowText'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys().all().map(journeyNode), ...badJourneyNodes()]
@@ -80,106 +81,55 @@ export function journeyQuestionRows(lj: LoadedJourney): Node[] {
   return q && q.kind === 'questions' ? questionRows(q.notes) : []
 }
 
-/** What a journey's row says about the walk: being walked, where it was left (past step 1), new replies. */
-interface JourneyState { active: boolean; left: number; newReplies: number }
-
-const replies = (n: number) => plural(n, 'reply', 'replies')
+/** The state of `lj`'s row, with `questions` its open step questions. */
+export function journeyRowState(lj: LoadedJourney, questions: Note[], model: ListModel | undefined): JourneyRowState {
+  const { key, step } = tour().state
+  const active = lj.key === key && step > 0
+  const resumeAt = active ? 0 : tour().resumeAt(lj)
+  return {
+    active,
+    left: active ? step : resumeAt > 1 ? resumeAt : 0,
+    steps: lj.j.steps.length,
+    newReplies: questions.filter((n) => unread(n) > 0).length,
+    pod: podcastStatus(lj),
+    refreshing: refreshing.has(lj.key),
+    stale: staleCount(lj) > 0,
+    unreadable: !!lj.readError,
+    isNew: isNewJourney(lj),
+    row: model?.rows[lj.key],
+  }
+}
 
 /**
  * A journey's row. The short title is the row; the question is the tooltip. The description is state only.
  * `group`: the Journeys view's group it is listed in (its id says which; only All and the areas nest its questions).
+ * `model`: the list model the view drew (the row's area, age and "here" text).
  */
-export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem {
+export function journeyItem(lj: LoadedJourney, group?: string, model: ListModel | undefined = journeysTree.drawnModel()): vscode.TreeItem {
   const q = questionsNode(lj)
-  // A reply to a step question shows on the folded row, like an unread note.
-  const qs = q && q.kind === 'questions' ? q.notes : []
-  const active = lj.key === tour().state.key && tour().state.step > 0
-  // Where it is (walking) or was left past step 1, quietly (as in the panel's list); opening one is not reading it.
-  const left = active ? tour().state.step : tour().resumeAt(lj) > 1 ? tour().resumeAt(lj) : 0
-  const s: JourneyState = { active, left, newReplies: qs.filter((n) => unread(n) > 0).length }
-  const nestsQuestions = !group || group === 'all' || group.startsWith('area:')
+  const s = journeyRowState(lj, q && q.kind === 'questions' ? q.notes : [], model)
   // The title isolated: right-to-left text in it never pulls the description into the label.
-  const folds = q && nestsQuestions ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+  const folds = q && nestsQuestions(group) ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
   const item = new vscode.TreeItem(isolate(lj.j.title), folds)
   item.id = group ? `${group}|journey:${lj.key}` : `journey:${lj.key}`
-  item.description = journeyDescription(lj, s, group)
+  item.description = journeyDescription(s, group)
   item.iconPath = journeyIcon(s)
-  item.tooltip = journeyTooltip(lj, s)
+  item.tooltip = journeyTooltip(s, { question: lj.j.question, summary: lj.j.summary, provenance: provenance(lj).text, staleLine: staleLine(lj) })
   // The name read is the title and its state; the question is only the tooltip.
-  item.accessibilityInformation = { label: journeyLabel(lj, s) }
+  item.accessibilityInformation = { label: journeyLabel(lj.j.title, s) }
   // A podcast: ▶ Listen on the row unless it plays (paused, ▶ goes on where it was); one that can't be played: no ▶
   // (the tooltip says why).
-  item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + podcastContext(lj)
+  item.contextValue = (s.stale ? 'journey;stale' : 'journey') + podcastContext(s.pod)
   item.command = { command: Cmd.openJourney, title: 'Walk Journey', arguments: [lj.key] }
   return item
 }
 
-/**
- * State only, muted and short: where it was left (step 3/14; while walking the icon says so and the card and status
- * bar have the position), else its area and age (journeyList.ts; under its area's group the area is not said again);
- * Refreshing… or ⚠ Stale; new replies; unreadable; new. No step count, no question count (the questions are the rows
- * below). In this file (`here`): how much of it is here ("3 of 7 steps here"), unless it is being walked or was left.
- */
-function journeyDescription(lj: LoadedJourney, s: JourneyState, group: string | undefined): string | undefined {
-  const row = listState.last?.rows[lj.key]
-  const pod = podcastText(lj)
-  if (group === 'here' && row && !(row.walking || row.resume > 1)) return [pod, row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
-  const groupArea = group?.startsWith('area:') ? group.slice(5) : ''
-  const areaAndAge = row ? [groupArea && row.area === groupArea ? '' : row.area, row.age].filter(Boolean).join(' · ') : ''
-  return [
-    pod,
-    // Listened to: no step (the player has where it is).
-    podcastStatus(lj)?.session ? '' : s.left ? `step ${s.left}/${lj.j.steps.length}` : areaAndAge,
-    refreshing.has(lj.key) ? 'Refreshing…' : staleCount(lj) ? '⚠ Stale' : '',
-    s.newReplies ? replies(s.newReplies) : '',
-    lj.readError ? '⚠ unreadable' : '',
-    isNewJourney(lj) ? 'new' : '',
-  ].filter(Boolean).join(' · ') || undefined
-}
-
 /** The icon says state only: walking, or new replies; a plain row otherwise (no stale ⚠: the step card says it, the
  *  storyline marks the step; nothing for listening: the player says it). */
-function journeyIcon(s: JourneyState): vscode.ThemeIcon | undefined {
+function journeyIcon(s: JourneyRowState): vscode.ThemeIcon | undefined {
   if (s.active) return new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('codeNotes.noteRuler'))
   if (s.newReplies) return new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('codeNotes.unreadForeground'))
   return undefined
-}
-
-/** The question, the summary, who wrote it, which steps are stale, unread replies ("new" is only a new journey: an
- *  unread answer is said in full here). */
-function journeyTooltip(lj: LoadedJourney, s: JourneyState): string {
-  const unreadReplies = s.newReplies ? `${plural(s.newReplies, 'unread reply', 'unread replies')} from Claude` : ''
-  return [lj.j.question, lj.j.summary, provenance(lj).text, staleLine(lj), unreadReplies, podcastLine(lj)].filter(Boolean).join('\n')
-}
-
-/** The podcast's line in the tooltip: only for one that can't be played, and why (the row offers no ▶ then). */
-function podcastLine(lj: LoadedJourney): string {
-  const pod = podcastStatus(lj)
-  return pod?.state === 'broken' ? `Podcast unavailable: ${pod.text}` : ''
-}
-
-/** The row's quiet podcast mark: its length, always (listening or not: the player has the state and the time). */
-function podcastText(lj: LoadedJourney): string {
-  const pod = podcastStatus(lj)
-  return pod?.state === 'ok' ? `♪ ${clock(pod.duration ?? 0)}` : ''
-}
-
-/** Whether the row offers ▶ Listen: a podcast that plays, unless it is playing (paused, ▶ goes on where it was). */
-function podcastContext(lj: LoadedJourney): string {
-  const pod = podcastStatus(lj)
-  if (!pod) return ''
-  if (pod.state !== 'ok') return ';podcastBroken'
-  return pod.playing ? ';podcastPlaying' : ';podcast'
-}
-
-/** What a screen reader says: the title, then where the walk is, unread replies, new. */
-function journeyLabel(lj: LoadedJourney, s: JourneyState): string {
-  const total = lj.j.steps.length
-  const where = s.active ? `walking, step ${tour().state.step} of ${total}` : s.left ? `left at step ${s.left} of ${total}` : ''
-  const unreadReplies = s.newReplies ? plural(s.newReplies, 'unread reply', 'unread replies') : ''
-  const pod = podcastStatus(lj)
-  const listen = pod?.state === 'ok' ? `podcast ${clock(pod.duration ?? 0)}` : ''
-  return [lj.j.title, where, listen, unreadReplies, isNewJourney(lj) ? 'new' : ''].filter(Boolean).join(', ')
 }
 
 /** The notes asked from a journey's steps: one row, open, with how many are new. */
@@ -199,42 +149,13 @@ export function badJourneyItem(node: Extract<Node, { kind: 'badJourney' }>): vsc
   const item = new vscode.TreeItem('')
   item.id = `badJourney:${node.uri}`
   item.description = `⚠ ${name}`
-  const open = `command:vscode.open?${encodeURIComponent(JSON.stringify([node.uri.toString()]))}`
-  const tip = new vscode.MarkdownString(`${escapeMarkdown(node.why)}\n\n[Open file](${open})`)
-  tip.isTrusted = { enabledCommands: ['vscode.open'] }
-  item.tooltip = tip
+  item.tooltip = trustedMarkdown(`${escapeMarkdown(node.why)}\n\n${cmdLink('Open file', 'vscode.open', node.uri.toString())}`, ['vscode.open'])
   item.accessibilityInformation = { label: `${name}: can't be read` }
   item.command = { command: 'vscode.open', title: 'Open file', arguments: [node.uri] }
   item.contextValue = 'badJourney'
   return item
 }
 
-/**
- * A reveal in the Journeys view goes only to a node the view holds now and keeps holding: a reveal of a node that a
- * redraw dropped meanwhile (the "In this file" group of the file before) logged "Failed to resolve tree node".
- * So: once things settle, against the model as it is then, and only for groups that don't come and go with the editor
- * (and the view waits until it holds the row: viewSync.ts).
- */
-let revealTimer: NodeJS.Timeout | undefined
-
-function revealSettled(f: (m: ListModel) => Node | undefined, o: { select: boolean; expand: boolean }, wait: number): void {
-  clearTimeout(revealTimer)
-  if (!journeysView?.visible) return
-  const file = activeRel()
-  revealTimer = setTimeout(() => journeysTree.revealRow(() => (activeRel() === file ? f(listModel()) : undefined), o), wait)
-}
-
-/** The walk's row in Continue (where a walk is listed first): never deep in All, which scrolled the view away. */
-export function revealJourneyRow(lj: LoadedJourney): void {
-  const inContinue = (m: ListModel) => m.groups.find((x) => x.id === 'continue')?.keys.includes(lj.key)
-  revealSettled((m) => (inContinue(m) ? journeyRowNode(lj, 'continue') : undefined), { select: true, expand: false }, 300)
-}
-
-/** The editor changed (and stayed): the Journeys view shows "In this file" (the top), not a row deep in All. */
-export function revealHereGroup(): void {
-  if (tour().touring()) return
-  revealSettled((m) => {
-    const g = m.groups.find((x) => x.id === 'here')
-    return g ? jgroupNode(g) : undefined
-  }, { select: false, expand: true }, 700)
-}
+/** A row's texts: journeyRowText.ts; revealing rows in the Journeys view: journeysTree.ts. */
+export { JourneyRowState, nestsQuestions } from './journeyRowText'
+export { revealHereGroup, revealJourneyRow } from './journeysTree'

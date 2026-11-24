@@ -5,7 +5,9 @@ import { Cmd } from '../platform/commands'
 import { registerCommands } from '../platform/registerCommands'
 import type { NotesApi } from '../notes/model'
 import { deleteSession, hideSession, resolveSession, showAllSessions, showOnlySession, showSession } from '../notes/sessions'
-import { createJourneysView, followJourneyMoves, journeysHereAll, journeysTree, searchJourneys, sortJourneys } from './journeysTree'
+import { createJourneysView, followJourneyMoves, journeysHereAll, journeysTree, sortJourneys } from './journeysTree'
+import { searchJourneys } from './journeySearch'
+import { onDidChangeListState } from './listModel'
 import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilter, showResolvedNotes } from './notesFilter'
 import { createNotesView, followNotes, rowsSelected, treeView } from './notesTree'
 import { SidebarPorts, useSidebarPorts } from './ports'
@@ -23,6 +25,8 @@ export function activateSidebar(context: vscode.ExtensionContext, ports: Sidebar
   useSidebarPorts(ports)
   loadGroupMode()
   createJourneysView(context)
+  // The panel's home lists the journeys too: it follows the same changes (the Journeys view does in createJourneysView).
+  context.subscriptions.push(onDidChangeListState(() => ports.mapPanel.update()))
   createNotesView(context)
   context.subscriptions.push(treeView)
   registerCommands(context, {
@@ -43,7 +47,7 @@ export function activateSidebar(context: vscode.ExtensionContext, ports: Sidebar
     [Cmd.sortJourneys]: sortJourneys,
   })
   return {
-    refreshJourneys: () => journeysTree?.refresh(),
+    refreshJourneys: () => journeysTree.refresh(),
     followNotes: (model) => followNotes(model),
     followJourneys: () => vscode.Disposable.from(
       followJourneyMoves(ports.journeys),

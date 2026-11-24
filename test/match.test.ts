@@ -1,7 +1,30 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchScore, queryWords, scoreJourney, stem, tellingWords, STOP } from '../src/core/list/match'
+import { matchScore, questionStem, queryWords, scoreJourney, searchStem, stem, tellingWords, STOP } from '../src/core/list/match'
 import { items } from './fixtures/journeyList'
+
+// Two scorers, on purpose (src/core/list/match.ts's header): the list's search runs as you type, so a prefix must hit
+// ("retr") and every word must match; a question is a sentence, so its filler drops out, synonyms count and most of its
+// words are enough. They share the stop-words both drop and the loop that weighs a word's best hit; their weights
+// differ (a search: title 6 … path 1; a question: title and question 3, a synonym × 0.8). Giving both one rule set
+// changes the top answers (measured), so the halves below test each one's own rules.
+
+test('the two stemmers, word by word', () => {
+  const table: [word: string, search: string, question: string][] = [
+    ['retry', 'retry', 'retry'],
+    ['retried', 'retry', 'retri'],
+    ['retries', 'retry', 'retri'],
+    ['retrying', 'retry', 'retry'],
+    ['charges', 'charg', 'charg'],
+    ['charge', 'charg', 'charge'],
+    ['environments', 'environment', 'environment'],
+    ['versioned', 'version', 'version'],
+    ['running', 'runn', 'runn'],
+    ['bus', 'bus', 'bus'],
+    ['uses', 'us', 'uses'],
+  ]
+  assert.deepEqual(table.map(([w]) => [w, searchStem(w), questionStem(w)]), table)
+})
 
 // ---------- the Journeys list's search (matchScore, queryWords) ----------
 

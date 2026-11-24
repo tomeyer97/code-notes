@@ -23,7 +23,6 @@ const slot = portsSlot<SidebarPorts>('the views')
 export const useSidebarPorts = slot.set
 
 export const journeys = () => slot.get().journeys
-export const mapPanel = () => slot.get().mapPanel
 export const notesStore = () => slot.get().store
 export const tour = () => slot.get().tour
 export const podcastStatus = (lj: LoadedJourney) => slot.get().podcastStatus(lj)

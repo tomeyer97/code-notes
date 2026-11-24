@@ -6,40 +6,72 @@
 // partial word must hit ("retr" finds "retries") and an identifier typed is one word; a question is a sentence, so its
 // filler ("how does … work in the app") drops out and synonyms count. Giving both the same rules changes what is
 // found (measured on 16 real journeys: the top answer to 4-12 of ~300 questions, and the list's results for 3-7
-// searches), so that is a product decision, not a clean-up.
+// searches), so that is a product decision, not a clean-up. What they share is written once: the stop-words both
+// drop (BASE_STOP) and the loop that weighs a word's best hit over a journey's fields (bestWeight).
+import { SYNONYMS } from './synonyms'
 
 /** How a scorer splits text into words, which words say nothing, and how a word is cut to its stem. */
 interface WordRules { words: (s: string) => string[]; stop: Set<string>; stem: (w: string) => string }
 
-const stopWords = (s: string) => new Set(s.split(' '))
+/** Words neither kind of text says anything about the code with. */
+const BASE_STOP = [
+  'a an the and or of to in on at by for from with into as so',
+  'is are was be do does did can could should would will get gets',
+  'how what when where why which who this that it its we our you your i my me their there',
+]
+
+const stopWords = (...lines: string[]) => new Set(lines.join(' ').split(' '))
+
+/** The list's stem: "retried", "retries", "retrying" and "retry" meet; so do "charges", "charged" and "charge". Words
+ *  of 3 letters or less are kept. */
+export function searchStem(w: string): string {
+  if (w.length <= 3) return w
+  const y = w.replace(/(ies|ied)$/, 'y').replace(/(ying)$/, 'y')
+  return y.replace(/(ing|ed|es|s|e)$/, '')
+}
+
+/** A question's stem: -ing, -ed, -es or -s goes when 4 letters are left ("environments" → "environment", "bus"). */
+export function questionStem(w: string): string {
+  return w.replace(/(?:ing|ed|es|s)$/, (end) => (w.length - end.length >= 4 ? '' : end))
+}
 
 /** The list's search: words keep `_` (an identifier); stems also meet across -y/-ies ("retry", "retries"). */
 const SEARCH: WordRules = {
   words: (s) => s.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter(Boolean),
-  /** Words a question is made of that say nothing about the code ("how are charges retried": charges, retried). */
-  stop: stopWords([
-    'a an the and or but of to in on at by for from with into about as',
-    'is are was were be been being do does did done',
-    'how what when where why which who whom whose',
-    'this that these those it its we our you your i my me they them their there here',
-    'can could should would will shall may might must has have had get gets got',
-    'if then than so not no yes any some all each every',
-  ].join(' ')),
-  /** "retried", "retries", "retrying" and "retry" meet; so do "charges", "charged" and "charge". */
-  stem: (w) => (w.length > 3 ? w.replace(/(ies|ied)$/, 'y').replace(/(ying)$/, 'y').replace(/(ing|ed|es|s|e)$/, '') : w),
+  /** Also the words a sentence typed as a search is made of ("how are charges retried": charges, retried). */
+  stop: stopWords(...BASE_STOP,
+    'but about were been being done whom whose these those they them here',
+    'shall may might must has have had got if then than not no yes any some all each every'),
+  stem: searchStem,
 }
 
-/** A question: words split at `_` too; stems keep at least 4 letters ("environments", "versioned" → "environment", "version"). */
+/** A question: words split at `_` too; stems keep at least 4 letters. */
 const QUESTION: WordRules = {
   words: (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter(Boolean),
-  /** Words that say nothing about which journey ("how does … work?"). */
-  stop: stopWords([
-    'a an and are as at be by can could did do does doing for from get gets go goes how',
-    'i in into is it its me my of on or our should so that the their there this to us',
-    'was we what when where which who why will with work works would you your',
-    'explain happen happens whole application app code flow most',
-  ].join(' ')),
-  stem: (w) => w.replace(/(?:ing|ed|es|s)$/, (m) => (w.length - m.length >= 4 ? '' : m)),
+  /** Also the words of "how does … work?" and "explain the whole app". */
+  stop: stopWords(...BASE_STOP,
+    'doing go goes us work works explain happen happens whole application app code flow most'),
+  stem: questionStem,
+}
+
+/** A field of a journey a scorer looks in: its words, and how much a hit there weighs. */
+type Field = [words: string[], weight: number]
+
+/**
+ * The best weight a word of the query gets over `fields`: a field's weight times how well one of its words hits
+ * (`hit`: 0 for no hit). `found` is told every word that hit. Both scorers below are this and their own rules.
+ */
+function bestWeight(fields: Field[], hit: (word: string) => number, found?: (word: string) => void): number {
+  let best = 0
+  for (const [ws, weight] of fields) {
+    for (const w of ws) {
+      const k = hit(w)
+      if (!k) continue
+      best = Math.max(best, weight * k)
+      found?.(w)
+    }
+  }
+  return best
 }
 
 // ---- The list's search ----
@@ -78,7 +110,7 @@ export function matchScore(it: SearchText, query: string, any = false): { score:
   const tokens = queryWords(query)
   if (!tokens.length) return { score: 1, hits: [] }
   const w = SEARCH_WEIGHTS
-  const fields: [string[], number][] = [
+  const fields: Field[] = [
     [SEARCH.words(it.title), w.title],
     [SEARCH.words(it.question), w.question],
     [SEARCH.words(it.stepTitles.join(' ')), w.stepTitles],
@@ -88,14 +120,7 @@ export function matchScore(it: SearchText, query: string, any = false): { score:
   let score = 0
   const hits = new Set<string>()
   for (const t of tokens) {
-    let best = 0
-    for (const [ws, weight] of fields) {
-      for (const x of ws) {
-        if (!searchWordHit(x, t)) continue
-        best = Math.max(best, weight * (x === t ? WHOLE_WORD : 1))
-        hits.add(x)
-      }
-    }
+    const best = bestWeight(fields, (x) => (searchWordHit(x, t) ? (x === t ? WHOLE_WORD : 1) : 0), (x) => hits.add(x))
     if (!best && !any) return { score: 0, hits: [] }
     score += best
   }
@@ -106,25 +131,6 @@ export function matchScore(it: SearchText, query: string, any = false): { score:
 
 /** Words that say nothing about which journey ("how does … work?"). */
 export const STOP = QUESTION.stop
-
-const SYNONYMS = [
-  ['update', 'change', 'modify', 'edit', 'upgrade'],
-  ['delete', 'remove', 'drop', 'destroy'],
-  ['create', 'add', 'new', 'make'],
-  ['start', 'launch', 'begin', 'boot'],
-  ['stop', 'end', 'halt', 'teardown', 'shutdown'],
-  ['auth', 'authentication', 'login', 'signin', 'sign'],
-  ['permission', 'rbac', 'access', 'role', 'authorization'],
-  ['save', 'store', 'persist', 'storage', 'write'],
-  ['load', 'read', 'fetch'],
-  ['test', 'check', 'verify', 'verdict'],
-  ['deploy', 'install', 'release', 'rollout'],
-  ['error', 'fail', 'failure', 'crash'],
-  ['config', 'configuration', 'setting', 'settings'],
-  ['user', 'account', 'member'],
-  ['env', 'environment'],
-  ['cert', 'certificate', 'tls', 'ssl'],
-]
 
 /** The telling words of a question, stemmed. */
 export function tellingWords(q: string): string[] {
@@ -139,8 +145,8 @@ function variants(w: string): string[] {
 }
 
 /** A question's word: the same word, or one starts the other (both of 4+ letters). (The list's search: searchWordHit.) */
-function questionWordHit(v: string, hay: string[]): boolean {
-  return hay.some((h) => h === v || (v.length >= 4 && h.startsWith(v)) || (h.length >= 4 && v.startsWith(h)))
+function questionWordHit(v: string, h: string): boolean {
+  return h === v || (v.length >= 4 && h.startsWith(v)) || (h.length >= 4 && v.startsWith(h))
 }
 
 /** Where a question's word is found, and how much that weighs. */
@@ -160,18 +166,14 @@ export function scoreJourney(j: JourneyText, question: string): { matched: numbe
   const qs = tellingWords(question)
   const stemmed = (ws: string[]) => ws.map(QUESTION.stem)
   const w = QUESTION_WEIGHTS
-  const fields: [string[], number][] = [
+  const fields: Field[] = [
     [stemmed([...QUESTION.words(j.title), ...QUESTION.words(j.question)]), w.head],
     [stemmed(QUESTION.words(j.summary)), w.summary],
     [stemmed(j.steps.flatMap(QUESTION.words)), w.steps],
   ]
   let matched = 0, weight = 0
   for (const q of qs) {
-    let best = 0
-    for (const v of variants(q)) {
-      const k = v === q ? 1 : SYNONYM
-      for (const [ws, fieldWeight] of fields) if (questionWordHit(v, ws)) best = Math.max(best, fieldWeight * k)
-    }
+    const best = Math.max(...variants(q).map((v) => bestWeight(fields, (h) => (questionWordHit(v, h) ? (v === q ? 1 : SYNONYM) : 0))))
     if (best) { matched++; weight += best }
   }
   const total = qs.length
