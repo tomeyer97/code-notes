@@ -149,7 +149,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -157,78 +156,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9,
-          "say": "spoken intro",
-          "extra": 1
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19,
-          "say": "spoken a1",
-          "extra": 1
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29,
-          "say": "spoken b",
-          "extra": 1
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39,
-          "say": "spoken c2",
-          "extra": 1
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100,
-          "say": "spoken outro",
-          "extra": 1
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "invalid JSON",
@@ -249,8 +177,7 @@
         "end": 46
       }
     ],
-    "syntax": "line 1, column 47: the file ends too early (cut off?)",
-    "parsed": "not JSON: Unexpected end of JSON input"
+    "syntax": "line 1, column 47: the file ends too early (cut off?)"
   },
   {
     "name": "an empty file",
@@ -271,8 +198,7 @@
         "end": 0
       }
     ],
-    "syntax": "line 1, column 1: the file ends too early (cut off?)",
-    "parsed": "not JSON: Unexpected end of JSON input"
+    "syntax": "line 1, column 1: the file ends too early (cut off?)"
   },
   {
     "name": "not an object",
@@ -293,8 +219,7 @@
         "end": 6
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "not an object"
+    "syntax": "[undefined]"
   },
   {
     "name": "version 2",
@@ -317,8 +242,7 @@
         "end": 16
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "version 2 (this player reads version 1)"
+    "syntax": "[undefined]"
   },
   {
     "name": "no version",
@@ -339,8 +263,7 @@
         "end": 878
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "version undefined (this player reads version 1)"
+    "syntax": "[undefined]"
   },
   {
     "name": "no audio field",
@@ -423,8 +346,7 @@
         "end": 874
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "no \"audio\" file"
+    "syntax": "[undefined]"
   },
   {
     "name": "audio outside the journeys folder",
@@ -509,68 +431,7 @@
         "end": 89
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "../x.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio by absolute path",
@@ -655,68 +516,7 @@
         "end": 91
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "/tmp/x.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio as a URL",
@@ -801,68 +601,7 @@
         "end": 106
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "https://example.com/x.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio in a subfolder is fine",
@@ -1004,7 +743,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -1012,68 +750,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "audio/../audio/j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio file missing",
@@ -1158,68 +835,7 @@
         "end": 86
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio file empty",
@@ -1304,68 +920,7 @@
         "end": 86
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "segments missing",
@@ -1399,8 +954,7 @@
         "end": 107
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "no \"segments\""
+    "syntax": "[undefined]"
   },
   {
     "name": "segments empty",
@@ -1436,8 +990,7 @@
         "end": 123
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "\"segments\" is empty"
+    "syntax": "[undefined]"
   },
   {
     "name": "segments not a list",
@@ -1473,8 +1026,7 @@
         "end": 264
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": "\"segments\" is not a list"
+    "syntax": "[undefined]"
   },
   {
     "name": "no segment has a start",
@@ -1529,24 +1081,7 @@
         "end": 168
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "x",
-          "at": null
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a segment that is not an object is skipped",
@@ -1688,7 +1223,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -1711,68 +1245,7 @@
         "end": 900
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "broken links: a beat out of range, an unknown step, a bad at",
@@ -1899,11 +1372,6 @@
           "step": 0
         }
       ],
-      "warnings": [
-        "Step 1: no beat 9 (it has 3); showing the whole step",
-        "step \"nope\" isn't in the journey (segment x, 0:20–0:29): it keeps the view before it",
-        "segment bad: \"at\" is not null or { step, beat }; it keeps the view before it"
-      ],
       "problems": [
         {
           "level": "warning",
@@ -2002,65 +1470,7 @@
         "end": 629
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a9",
-          "at": {
-            "step": "a",
-            "beat": 9
-          },
-          "speaker": "host",
-          "text": "a9",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "x",
-          "at": {
-            "step": "nope"
-          },
-          "speaker": "host",
-          "text": "x",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "bad",
-          "at": "step c",
-          "speaker": "host",
-          "text": "bad",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "none",
-          "at": null,
-          "speaker": "host",
-          "text": "none",
-          "start": 40,
-          "end": 50
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a missing at",
@@ -2118,9 +1528,6 @@
           "step": 0
         }
       ],
-      "warnings": [
-        "segment noat: \"at\" is missing; it keeps the view before it"
-      ],
       "problems": [
         {
           "level": "warning",
@@ -2155,33 +1562,7 @@
         "end": 322
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "noat",
-          "start": 10,
-          "end": 20
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "overlap, out of order, end before start",
@@ -2298,7 +1679,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -2369,58 +1749,7 @@
         "end": 687
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "s1",
-          "start": 0,
-          "end": 10
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "s2",
-          "start": 8,
-          "end": 20
-        },
-        {
-          "id": "s4",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "s4",
-          "start": 40,
-          "end": 50
-        },
-        {
-          "id": "s3",
-          "at": {
-            "step": "c"
-          },
-          "speaker": "host",
-          "text": "s3",
-          "start": 30,
-          "end": 25
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "end past the declared duration",
@@ -2489,7 +1818,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -2514,38 +1842,7 @@
         "end": 398
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "s1",
-          "start": 0,
-          "end": 10
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "s2",
-          "start": 10,
-          "end": 150
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a start that is not a number is skipped",
@@ -2600,7 +1897,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -2625,38 +1921,7 @@
         "end": 382
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "s1",
-          "start": 0,
-          "end": 10
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "s2",
-          "start": "10",
-          "end": 20
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "an end that is not a number",
@@ -2725,7 +1990,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -2750,38 +2014,7 @@
         "end": 398
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "s1",
-          "start": 0,
-          "end": 10
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "s2",
-          "start": 10,
-          "end": "x"
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a duplicate id and an unknown cue",
@@ -2851,7 +2084,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -2891,39 +2123,7 @@
         "end": 418
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "s1",
-          "start": 0,
-          "end": 10
-        },
-        {
-          "id": "s1",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "s1",
-          "start": 10,
-          "end": 20,
-          "cue": "zoom"
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "duration is not a number",
@@ -3065,7 +2265,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -3087,68 +2286,7 @@
         "end": 109
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": "[undefined]",
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "written for another journey",
@@ -3290,7 +2428,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -3313,68 +2450,7 @@
         "end": 66
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "other",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "declared duration differs from the audio",
@@ -3516,7 +2592,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -3553,68 +2628,7 @@
         "end": 882
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "cut-off audio: one plain warning",
@@ -3756,7 +2770,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -3778,68 +2791,7 @@
         "end": 86
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "audio a little longer than the duration is fine",
@@ -3981,7 +2933,6 @@
           "step": 0
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -3989,68 +2940,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "a1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "c2",
-          "at": {
-            "step": "c",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "c2",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "outro",
-          "at": null,
-          "speaker": "host",
-          "text": "outro",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a step the journey doesn't have, in three segments: said once, with its segments and times",
@@ -4175,9 +3065,6 @@
           "step": 2
         }
       ],
-      "warnings": [
-        "step \"gone\" isn't in the journey (segments x1–x3, 0:10–0:39): they keep the view before them"
-      ],
       "problems": [
         {
           "level": "warning",
@@ -4226,70 +3113,7 @@
         "end": 316
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "x1",
-          "at": {
-            "step": "gone",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "x1",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "x2",
-          "at": {
-            "step": "gone"
-          },
-          "speaker": "host",
-          "text": "x2",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "x3",
-          "at": {
-            "step": "gone",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "x3",
-          "start": 30,
-          "end": 39
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 40,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a beat written as a string",
@@ -4359,9 +3183,6 @@
           "step": 1
         }
       ],
-      "warnings": [
-        "Step 1: beat must be a number, got the string \"2\"; showing the whole step"
-      ],
       "problems": [
         {
           "level": "warning",
@@ -4400,39 +3221,7 @@
         "end": 334
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a2",
-          "at": {
-            "step": "a",
-            "beat": "2"
-          },
-          "speaker": "host",
-          "text": "a2",
-          "start": 10,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "narrated in another order than the journey's (steps reordered since)",
@@ -4549,7 +3338,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -4575,58 +3363,7 @@
         "end": 464
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "c",
-          "at": {
-            "step": "c"
-          },
-          "speaker": "host",
-          "text": "c",
-          "start": 10,
-          "end": 19
-        },
-        {
-          "id": "a",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "a",
-          "start": 20,
-          "end": 29
-        },
-        {
-          "id": "b",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "b",
-          "start": 30,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "recorded for an older commit, steps changed since: a quiet note",
@@ -4695,7 +3432,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -4718,38 +3454,7 @@
         "end": 87
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "609d0bb"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "a",
-          "start": 10,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "recorded for an older commit, nothing changed since: nothing said",
@@ -4818,7 +3523,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -4826,38 +3530,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "609d0bb"
-      },
-      "audio": "j.mp3",
-      "duration": 100,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "a",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "a",
-          "start": 10,
-          "end": 100
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "sentences: timed sentences are used, no problem",
@@ -4946,7 +3619,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -4954,48 +3626,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 10,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "First one. Second one.",
-          "start": 3,
-          "end": 5.8,
-          "sentences": [
-            {
-              "start": 3,
-              "text": "First one."
-            },
-            {
-              "start": 4.4,
-              "text": "Second one."
-            }
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "Then this.",
-          "start": 6,
-          "end": 9
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "sentences: not a list",
@@ -5068,7 +3699,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -5093,42 +3723,7 @@
         "end": 342
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 10,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "First one. Second one.",
-          "start": 3,
-          "end": 5.8,
-          "sentences": {
-            "start": 3,
-            "text": "First one."
-          }
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "Then this.",
-          "start": 6,
-          "end": 9
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "sentences: out of order",
@@ -5211,7 +3806,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -5238,52 +3832,7 @@
         "end": 469
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 10,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "First one. Second one.",
-          "start": 3,
-          "end": 5.8,
-          "sentences": [
-            {
-              "start": 3,
-              "text": "First one."
-            },
-            {
-              "start": 4.4,
-              "text": "Second one."
-            },
-            {
-              "start": 4,
-              "text": "Third."
-            }
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "Then this.",
-          "start": 6,
-          "end": 9
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "sentences: a start outside the segment",
@@ -5362,7 +3911,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -5389,48 +3937,7 @@
         "end": 392
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 10,
-      "segments": [
-        {
-          "id": "s1",
-          "at": null,
-          "speaker": "host",
-          "text": "First one. Second one.",
-          "start": 3,
-          "end": 5.8,
-          "sentences": [
-            {
-              "start": 3,
-              "text": "First one."
-            },
-            {
-              "start": 6.5,
-              "text": "Second one."
-            }
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "Then this.",
-          "start": 6,
-          "end": 9
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "marks: good ones, their code where they say (one found 2 lines down)",
@@ -5668,7 +4175,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -5695,121 +4201,7 @@
         "end": 1808
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 60,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "Hello, and a look at the file.",
-          "start": 0,
-          "end": 9,
-          "marks": [
-            {
-              "phrase": "the file",
-              "at": 2,
-              "file": "src/b.go",
-              "lines": [
-                1,
-                1
-              ]
-            }
-          ]
-        },
-        {
-          "id": "s1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "If it requires a model and the grant is missing, it is rejected right there.",
-          "start": 10,
-          "end": 20,
-          "marks": [
-            {
-              "phrase": "requires a model",
-              "at": 0.9,
-              "lines": [
-                4,
-                4
-              ],
-              "match": "NeedsModel(steps)"
-            },
-            {
-              "phrase": "the grant is missing",
-              "at": 2.5,
-              "lines": [
-                4,
-                4
-              ],
-              "match": "g == nil"
-            },
-            {
-              "phrase": "right there",
-              "at": 4,
-              "lines": [
-                5,
-                5
-              ],
-              "match": "reject(400)"
-            },
-            {
-              "phrase": "right there",
-              "at": 4,
-              "lines": [
-                4,
-                7
-              ],
-              "match": "reject(400)",
-              "nth": 2
-            }
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "Two.",
-          "start": 20,
-          "end": 30,
-          "marks": [
-            {
-              "phrase": "Two",
-              "at": 0.1,
-              "lines": [
-                5,
-                5
-              ],
-              "match": "return 2"
-            }
-          ]
-        },
-        {
-          "id": "s3",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "The end.",
-          "start": 30,
-          "end": 60
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "marks: good ones, the code not read",
@@ -6047,7 +4439,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [],
@@ -6055,121 +4446,7 @@
     "notice": "[undefined]",
     "broken": 0,
     "spans": [],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 60,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "Hello, and a look at the file.",
-          "start": 0,
-          "end": 9,
-          "marks": [
-            {
-              "phrase": "the file",
-              "at": 2,
-              "file": "src/b.go",
-              "lines": [
-                1,
-                1
-              ]
-            }
-          ]
-        },
-        {
-          "id": "s1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "If it requires a model and the grant is missing, it is rejected right there.",
-          "start": 10,
-          "end": 20,
-          "marks": [
-            {
-              "phrase": "requires a model",
-              "at": 0.9,
-              "lines": [
-                4,
-                4
-              ],
-              "match": "NeedsModel(steps)"
-            },
-            {
-              "phrase": "the grant is missing",
-              "at": 2.5,
-              "lines": [
-                4,
-                4
-              ],
-              "match": "g == nil"
-            },
-            {
-              "phrase": "right there",
-              "at": 4,
-              "lines": [
-                5,
-                5
-              ],
-              "match": "reject(400)"
-            },
-            {
-              "phrase": "right there",
-              "at": 4,
-              "lines": [
-                4,
-                7
-              ],
-              "match": "reject(400)",
-              "nth": 2
-            }
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "a",
-            "beat": 2
-          },
-          "speaker": "host",
-          "text": "Two.",
-          "start": 20,
-          "end": 30,
-          "marks": [
-            {
-              "phrase": "Two",
-              "at": 0.1,
-              "lines": [
-                5,
-                5
-              ],
-              "match": "return 2"
-            }
-          ]
-        },
-        {
-          "id": "s3",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "The end.",
-          "start": 30,
-          "end": 60
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "marks: bad ones are ignored, out of order and a phrase not said are kept",
@@ -6362,7 +4639,6 @@
           "step": 2
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -6537,121 +4813,7 @@
         "end": 1739
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 60,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "Hello.",
-          "start": 0,
-          "end": 9,
-          "marks": [
-            {
-              "phrase": "Hello",
-              "at": 1,
-              "lines": [
-                1,
-                1
-              ]
-            }
-          ]
-        },
-        {
-          "id": "s1",
-          "at": {
-            "step": "a",
-            "beat": 1
-          },
-          "speaker": "host",
-          "text": "One two three four.",
-          "start": 10,
-          "end": 20,
-          "marks": [
-            {
-              "at": 1,
-              "lines": [
-                1,
-                1
-              ]
-            },
-            {
-              "phrase": "One",
-              "at": 12,
-              "lines": [
-                1,
-                1
-              ]
-            },
-            {
-              "phrase": "two",
-              "at": 1,
-              "lines": [
-                3,
-                2
-              ]
-            },
-            {
-              "phrase": "two",
-              "at": 1,
-              "lines": [
-                2,
-                2
-              ],
-              "nth": 0
-            },
-            {
-              "phrase": "four",
-              "at": 5,
-              "lines": [
-                2,
-                2
-              ]
-            },
-            {
-              "phrase": "three",
-              "at": 3,
-              "lines": [
-                2,
-                2
-              ]
-            },
-            {
-              "phrase": "five",
-              "at": 6,
-              "lines": [
-                2,
-                2
-              ]
-            },
-            "x"
-          ]
-        },
-        {
-          "id": "s2",
-          "at": {
-            "step": "b"
-          },
-          "speaker": "host",
-          "text": "Two.",
-          "start": 20,
-          "end": 60,
-          "marks": {
-            "phrase": "Two"
-          }
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "marks: against the code: not found, past the end, a missing file, a third occurrence",
@@ -6791,7 +4953,6 @@
           "step": 1
         }
       ],
-      "warnings": [],
       "problems": []
     },
     "problems": [
@@ -6886,76 +5047,7 @@
         "end": 1064
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 60,
-      "segments": [
-        {
-          "id": "s1",
-          "at": {
-            "step": "a"
-          },
-          "speaker": "host",
-          "text": "Gone, far, missing, nowhere, twice.",
-          "start": 0,
-          "end": 60,
-          "marks": [
-            {
-              "phrase": "Gone",
-              "at": 1,
-              "lines": [
-                4,
-                4
-              ],
-              "match": "NotThere("
-            },
-            {
-              "phrase": "far",
-              "at": 2,
-              "lines": [
-                40,
-                41
-              ]
-            },
-            {
-              "phrase": "missing",
-              "at": 3,
-              "file": "src/gone.go",
-              "lines": [
-                1,
-                1
-              ]
-            },
-            {
-              "phrase": "nowhere",
-              "at": 4,
-              "lines": [
-                7,
-                9
-              ]
-            },
-            {
-              "phrase": "twice",
-              "at": 5,
-              "lines": [
-                3,
-                7
-              ],
-              "match": "reject(400)",
-              "nth": 3
-            }
-          ]
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   },
   {
     "name": "a beat the step doesn't have: said once, its marks on the beat's code not checked against the step's file (a mark with its own file still is)",
@@ -7067,9 +5159,6 @@
           "step": 1
         }
       ],
-      "warnings": [
-        "Step 1: no beat 99 (it has 2); showing the whole step"
-      ],
       "problems": [
         {
           "level": "warning",
@@ -7125,59 +5214,6 @@
         "end": 332
       }
     ],
-    "syntax": "[undefined]",
-    "parsed": {
-      "version": 1,
-      "title": "T",
-      "journey": {
-        "id": "j",
-        "file": "[undefined]",
-        "commit": "[undefined]"
-      },
-      "audio": "j.mp3",
-      "duration": 30,
-      "segments": [
-        {
-          "id": "intro",
-          "at": null,
-          "speaker": "host",
-          "text": "intro",
-          "start": 0,
-          "end": 9
-        },
-        {
-          "id": "s1",
-          "at": {
-            "step": "a",
-            "beat": 99
-          },
-          "speaker": "host",
-          "text": "The function two returns two, in the other file.",
-          "start": 10,
-          "end": 29,
-          "marks": [
-            {
-              "phrase": "two returns two",
-              "at": 1,
-              "lines": [
-                7,
-                7
-              ],
-              "match": "return 2"
-            },
-            {
-              "phrase": "the other file",
-              "at": 3,
-              "file": "src/b.go",
-              "lines": [
-                1,
-                1
-              ],
-              "match": "nope"
-            }
-          ]
-        }
-      ]
-    }
+    "syntax": "[undefined]"
   }
 ]

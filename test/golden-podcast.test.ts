@@ -5,23 +5,23 @@ import { test } from 'node:test'
 import * as fs from 'fs'
 import * as path from 'path'
 import { expectGolden } from './golden'
-import { Journey } from '../src/core/format/journeyModel'
 import { journeyOf } from './formats'
-import { calmViews, chapterJump, chaptersOf, clock, clockMs, Episode, isPodcastFile, JourneyShape, markTimes, marksAt, marksOf, marksProblems, parsePodcast, planMarks, podcastFileOf, resolveEpisode, segmentAt, timeOf, viewAt } from '../src/core/format/podcast/model'
-import { audioPathProblem, brokenLinks, jsonSyntaxError, lineCol, locate, markFileNames, playNotice, validatePodcast } from '../src/core/format/podcast/validate'
+import { clock, clockMs } from '../src/core/clock'
+import { Episode, isPodcastFile, podcastFileOf } from '../src/core/format/podcast/format'
+import { IdentifiedJourneyShape, journeyShapeOf } from '../src/core/format/podcast/journeyShape'
+import { markTimes, marksAt, marksOf, marksProblems, planMarks } from '../src/core/format/podcast/marks'
+import { resolveEpisode } from '../src/core/format/podcast/resolve'
+import { calmViews, chapterJump, chaptersOf, segmentAt, timeOf, viewAt } from '../src/core/format/podcast/timeline'
+import { audioPathProblem, brokenLinks, markFileNames, playNotice, validatePodcast } from '../src/core/format/podcast/validate'
+import { jsonSyntaxError, lineCol, locate } from '../src/core/json/spans'
 import { afterStep, remapTime, resumeTime } from '../src/podcast/resume'
 
 const AREA = 'podcast'
 
-/** parsePodcast's result as the goldens hold it: the podcast, or the reason it was refused. */
-const parsedOrWhy = (raw: string) => {
-  const r = parsePodcast(raw)
-  return r.ok ? r.value : r.why
-}
 const root = path.join(__dirname, '../..')
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
 
-interface Case { name: string; raw: string; journey: JourneyShape & { id: string }; audio?: { exists: boolean; size?: number }; audioDuration?: number; changed?: number[]; files?: Record<string, string | null> }
+interface Case { name: string; raw: string; journey: IdentifiedJourneyShape; audio?: { exists: boolean; size?: number }; audioDuration?: number; changed?: number[]; files?: Record<string, string | null> }
 const cases: Case[] = JSON.parse(read('test/fixtures/podcast/cases.json'))
 const ctxOf = (c: Case) => ({ journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed, ...(c.files ? { files: (f: string) => (f in c.files! ? c.files![f] : undefined) } : {}) })
 
@@ -34,23 +34,18 @@ test('golden: every podcast case checked in full (problems, messages, paths, the
       // Where each problem is in the file (what the Problems view underlines).
       spans: v.problems.map((p) => locate(c.raw, p.path)),
       syntax: jsonSyntaxError(c.raw),
-      parsed: parsedOrWhy(c.raw),
     }
   }))
 })
 
 /** The sample journey's shape, as load.ts gives it to the player. */
-const sample = journeyOf(read('test/journey-scene/sample.json'), 'sample')
-const shape: JourneyShape & { id: string } = {
-  id: sample.id,
-  steps: sample.steps.map((s) => ({ id: s.id, beats: s.scene?.beats?.length ?? 0, file: s.file, beatFiles: (s.scene?.beats ?? []).map((b) => (typeof b.code?.file === 'string' ? b.code.file : null)) })),
-}
+const shape = journeyShapeOf(journeyOf(read('test/journey-scene/sample.json'), 'sample'))
 const raw = read('test/fixtures/podcast/sample.podcast.json')
 
 test('golden: the sample podcast against its journey: the episode the panel is sent', () => {
   const v = validatePodcast(raw, { journey: shape, audio: { exists: true, size: 1000 }, audioDuration: 40.2 })
   expectGolden(AREA, 'sample.validation', { shape, ...v, markFiles: v.podcast ? markFileNames(v.podcast, shape) : [] })
-  expectGolden(AREA, 'sample.resolved', resolveEpisode(parsedOrWhy(raw) as never, shape))
+  expectGolden(AREA, 'sample.resolved', resolveEpisode(v.podcast!, shape))
 })
 
 test('golden: the sample episode\'s timing: views, chapters, jumps, calm views, resume', () => {

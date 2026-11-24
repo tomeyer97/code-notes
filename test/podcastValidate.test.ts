@@ -2,45 +2,97 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { audioPathProblem, brokenLinks, lineCol, locate, playNotice, validatePodcast } from '../src/core/format/podcast/validate'
+import { audioPathProblem, brokenLinks, playNotice, PodcastContext, readPodcastText, validatePodcast, validateRead } from '../src/core/format/podcast/validate'
+import { lineCol, locate } from '../src/core/json/spans'
 
-// The podcast file's full check (src/core/format/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json are run here
-// and through the code-journey skill's `journey.py podcast` (test/cli/podcast.test.mjs): the same rules in both.
+// The podcast file's full check (src/core/format/podcast/validate.ts). The cases in test/fixtures/podcast/cases.json
+// are run here and through the code-journey skill's `journey.py podcast` (test/cli/podcast.test.mjs): with node it
+// runs this validator, without it its own fallback copy of the rules, which must give the same problems. The cases
+// are asserted by code and place; the wording is one test below (and every message is in the golden,
+// test/goldens/podcast/validate.cases.json).
 
-interface Case { name: string; raw: string; journey: { id: string; steps: { id: string; beats: number }[] }; audio?: { exists: boolean; size?: number }; audioDuration?: number; changed?: number[]; files?: Record<string, string | null>; expect: string[] }
+interface Case {
+  name: string
+  /** The podcast file's text: needed as text for the cases that aren't JSON; else `podcast`, written out here. */
+  raw?: string
+  podcast?: unknown
+  journey: NonNullable<PodcastContext['journey']>
+  audio?: { exists: boolean; size?: number }
+  audioDuration?: number
+  changed?: number[]
+  files?: Record<string, string | null>
+  expect: string[]
+}
 const cases: Case[] = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/podcast/cases.json'), 'utf8'))
-/** The case's context: its repository files (for the marks) read from `files` (a file not listed: not read). */
-const ctxOf = (c: Case) => ({ journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed, ...(c.files ? { files: (f: string) => (f in c.files! ? c.files![f] : undefined) } : {}) })
-const codes = (c: Case) => validatePodcast(c.raw, ctxOf(c)).problems.map((p) => `${p.level}:${p.code}${p.segment ? `@${p.segment}` : ''}`)
+
+/** A case's podcast file as text. */
+const rawOf = (c: Case) => c.raw ?? JSON.stringify(c.podcast, null, 2)
+
+/** A case's context: its journey and audio, and its repository files (for the marks) from `files` (a file not
+ *  listed: not read). */
+function contextFor(c: Case): PodcastContext {
+  const files = c.files
+  return {
+    journey: c.journey,
+    audio: c.audio,
+    audioDuration: c.audioDuration,
+    changed: c.changed,
+    ...(files ? { files: (f: string) => (f in files ? files[f] : undefined) } : {}),
+  }
+}
+
+const check = (c: Case) => validatePodcast(rawOf(c), contextFor(c))
+const caseNamed = (name: string) => cases.find((x) => x.name === name)!
+const problemsOf = (name: string) => check(caseNamed(name)).problems
+/** A problem by what the tests compare: level, code, segment, path. */
+const said = (p: { level: string; code: string; segment?: string; path: (string | number)[] }) => [p.level, p.code, p.segment ?? null, p.path.join('.')]
+const codes = (c: Case) => check(c).problems.map((p) => `${p.level}:${p.code}${p.segment ? `@${p.segment}` : ''}`)
 
 for (const c of cases) {
   test(`podcast check: ${c.name}`, () => {
     assert.deepEqual([...codes(c)].sort(), [...c.expect].sort())
-    const v = validatePodcast(c.raw, ctxOf(c))
+    const v = check(c)
     assert.equal(v.playable, !c.expect.some((e) => e.startsWith('error:')), 'playable = no error')
     assert.equal(!!v.episode, v.playable)
   })
 }
 
-test('podcast check: errors come first, the messages say what is wrong in plain words', () => {
-  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, ctxOf(c)).problems }
-  assert.match(get('version 2')[0].message, /version 2: this player reads version 1/)
-  assert.match(get('segments empty')[0].message, /"segments" is empty/)
-  assert.match(get('segments missing')[0].message, /no "segments"/)
-  assert.match(get('segments not a list')[0].message, /"segments" is not a list \(it is an object\)/)
-  assert.equal(get('audio outside the journeys folder')[0].message, 'audio must be in the journeys folder (got ../x.mp3)')
-  assert.match(get('audio file missing')[0].message, /the audio file j\.mp3 isn't there/)
-  assert.equal(get('cut-off audio: one plain warning')[0].message, 'The audio is 0:13 long but the episode is 1:40: the file looks cut off (3 parts start after its end)')
-  const timing = get('overlap, out of order, end before start').map((p) => p.message)
-  assert.ok(timing.includes('segment s2: starts at 0:08, before segment s1 ends (0:10): the later one wins from its start'), timing.join('\n'))
-  assert.ok(timing.includes('segment s3: ends at 0:25, before it starts (0:30)'), timing.join('\n'))
-  assert.ok(timing.includes('segment s3: starts at 0:30, before segment s4 above it (0:40): segments play in time order, not in file order'), timing.join('\n'))
-  assert.match(get('written for another journey')[0].message, /written for journey "other", but it is next to "j"/)
-  assert.match(get('end past the declared duration')[0].message, /segment s2: ends at 2:30, after the episode's "duration" \(1:40\)/)
-  assert.equal(get('sentences: out of order')[0].message, 'segment s1: sentences: item 3 starts at 0:04, before item 2 (0:04.4); the caption is estimated from the text instead')
-  assert.equal(get('sentences: a start outside the segment')[0].message, 'segment s1: sentences: item 2 starts at 0:06.5, outside the segment (0:03–0:05.8); the caption is estimated from the text instead')
-  assert.deepEqual(get('sentences: a start outside the segment')[0].path, ['segments', 0, 'sentences', 1, 'start'])
-  assert.equal(get('sentences: not a list')[0].message, 'segment s1: sentences is not a list of { start, text }; the caption is estimated from the text instead')
+test('podcast check: errors come first, each on the field at fault', () => {
+  const first = (name: string) => said(problemsOf(name)[0])
+  assert.deepEqual(first('version 2'), ['error', 'version', null, 'version'])
+  assert.deepEqual(first('segments empty'), ['error', 'segments', null, 'segments'])
+  assert.deepEqual(first('segments missing'), ['error', 'segments', null, ''])
+  assert.deepEqual(first('segments not a list'), ['error', 'segments', null, 'segments'])
+  assert.deepEqual(first('audio outside the journeys folder'), ['error', 'audio-outside', null, 'audio'])
+  assert.deepEqual(first('audio file missing'), ['error', 'audio-missing', null, 'audio'])
+  assert.deepEqual(first('cut-off audio: one plain warning'), ['warning', 'audio-short', null, 'audio'])
+  assert.deepEqual(first('written for another journey'), ['warning', 'journey', null, 'journey.id'])
+  assert.deepEqual(first('end past the declared duration'), ['warning', 'past-duration', 's2', 'segments.1.end'])
+  assert.deepEqual(problemsOf('overlap, out of order, end before start').map(said), [
+    ['warning', 'overlap', 's2', 'segments.1.start'],
+    ['warning', 'narration-order', 's4', 'segments.2.at.step'],
+    ['warning', 'end-before-start', 's3', 'segments.3.end'],
+    ['warning', 'order', 's3', 'segments.3.start'],
+  ])
+  assert.deepEqual(first('sentences: out of order'), ['warning', 'sentences', 's1', 'segments.0.sentences.2.start'])
+  assert.deepEqual(first('sentences: a start outside the segment'), ['warning', 'sentences', 's1', 'segments.0.sentences.1.start'])
+  assert.deepEqual(first('sentences: not a list'), ['warning', 'sentences', 's1', 'segments.0.sentences'])
+})
+
+test('podcast check: the messages say what is wrong in plain words', () => {
+  const message = (name: string, code?: string) => problemsOf(name).find((p) => !code || p.code === code)!.message
+  assert.equal(message('version 2'), 'version 2: this player reads version 1')
+  assert.equal(message('segments not a list'), '"segments" is not a list (it is an object)')
+  assert.equal(message('audio outside the journeys folder'), 'audio must be in the journeys folder (got ../x.mp3)')
+  assert.equal(message('cut-off audio: one plain warning'), 'The audio is 0:13 long but the episode is 1:40: the file looks cut off (3 parts start after its end)')
+  assert.equal(message('overlap, out of order, end before start', 'overlap'), 'segment s2: starts at 0:08, before segment s1 ends (0:10): the later one wins from its start')
+  assert.equal(message('overlap, out of order, end before start', 'order'), 'segment s3: starts at 0:30, before segment s4 above it (0:40): segments play in time order, not in file order')
+  assert.equal(message('sentences: a start outside the segment'), 'segment s1: sentences: item 2 starts at 0:06.5, outside the segment (0:03–0:05.8); the caption is estimated from the text instead')
+  assert.equal(message("a step the journey doesn't have, in three segments: said once, with its segments and times"), 'step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them')
+  assert.equal(message('a beat written as a string'), 'Step 1: beat must be a number, got the string "2"; showing the whole step')
+  assert.equal(message('a duplicate id and an unknown cue', 'id'), 'segment s1: the id "s1" is used twice (0:00 and 0:10)')
+  assert.match(message("narrated in another order than the journey's (steps reordered since)"), /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
+  assert.equal(message('recorded for an older commit, steps changed since: a quiet note'), 'Code changed since recording: steps 1, 3')
 })
 
 test('podcast check: audio paths', () => {
@@ -65,7 +117,7 @@ test('podcast check: each problem is located in the text (the field, else the se
 })
 
 test('podcast check: what the player says, in one short line: as many problems as the Problems view lists', () => {
-  const v = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, ctxOf(c)).problems }
+  const v = problemsOf
   const links = v('broken links: a beat out of range, an unknown step, a bad at')
   assert.equal(brokenLinks(links), 3)
   assert.equal(playNotice(links), '3 problems')
@@ -75,21 +127,29 @@ test('podcast check: what the player says, in one short line: as many problems a
   assert.equal(playNotice([]), undefined)
 })
 
-test('podcast check: a missing step once, a beat as a string, duplicate ids with times, narration order, recorded for', () => {
-  const get = (name: string) => { const c = cases.find((x) => x.name === name)!; return validatePodcast(c.raw, ctxOf(c)).problems }
-  const missing = get("a step the journey doesn't have, in three segments: said once, with its segments and times")
-  assert.equal(missing.length, 1)
-  assert.equal(missing[0].message, 'step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them')
+test('podcast check: a missing step once, a beat as a string, duplicate ids, narration order, recorded for', () => {
+  const missing = problemsOf("a step the journey doesn't have, in three segments: said once, with its segments and times")
+  assert.deepEqual(missing.map(said), [['warning', 'step', 'x1', 'segments.1.at.step']])
   assert.deepEqual(missing[0].segments, ['x1', 'x2', 'x3'])
   assert.equal(brokenLinks(missing), 3, 'each segment counts as a part that can\'t be shown')
-  assert.equal(get('a beat written as a string')[0].message, 'Step 1: beat must be a number, got the string "2"; showing the whole step')
-  assert.equal(get('a duplicate id and an unknown cue').find((p) => p.code === 'id')!.message.replace(/^segment \S+: /, ''), 'the id "s1" is used twice (0:00 and 0:10)')
-  assert.match(get("narrated in another order than the journey's (steps reordered since)")[0].message, /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
-  const knock = get("a beat the step doesn't have: said once, its marks on the beat's code not checked against the step's file (a mark with its own file still is)")
-  assert.deepEqual(knock.map((p) => p.message).sort(), ['Step 1: no beat 99 (it has 2); showing the whole step', 'segment s1: mark 2: "nope" isn\'t in line 1 of src/b.go, nor within 20 lines: the whole lines light'].sort())
-  const rec = get('recorded for an older commit, steps changed since: a quiet note')
-  assert.equal(rec[0].level, 'info')
-  assert.equal(rec[0].message, 'Code changed since recording: steps 1, 3')
-  assert.equal(playNotice(rec), 'Code changed since recording: steps 1, 3', 'nothing wrong with the file: the quiet line itself')
-  assert.equal(playNotice(get("narrated in another order than the journey's (steps reordered since)")), '1 problem')
+  assert.deepEqual(problemsOf('a beat written as a string').map(said), [['warning', 'beat', 'a2', 'segments.1.at.beat']])
+  assert.deepEqual(problemsOf('a duplicate id and an unknown cue').map(said), [['warning', 'id', 's1', 'segments.1.id'], ['warning', 'cue', 's1', 'segments.1.cue']])
+  assert.deepEqual(problemsOf("narrated in another order than the journey's (steps reordered since)").map(said), [['warning', 'narration-order', 'a', 'segments.2.at.step']])
+  // The beat is said once; of its marks, only the one with its own file is checked against the code.
+  const knock = problemsOf("a beat the step doesn't have: said once, its marks on the beat's code not checked against the step's file (a mark with its own file still is)")
+  assert.deepEqual(knock.map(said), [['warning', 'mark', 's1', 'segments.1.marks.1.match'], ['warning', 'beat', 's1', 'segments.1.at.beat']])
+  assert.equal(knock[0].message.includes('src/b.go'), true, 'the mark with its own file: checked against it')
+  const rec = problemsOf('recorded for an older commit, steps changed since: a quiet note')
+  assert.deepEqual(rec.map(said), [['info', 'recorded-for', null, 'journey.commit']])
+  assert.equal(playNotice(rec), rec[0].message, 'nothing wrong with the file: the quiet line itself')
+  assert.equal(playNotice(problemsOf("narrated in another order than the journey's (steps reordered since)")), '1 problem')
+})
+
+test('podcast check: one reading of the file for both the shape and the rules', () => {
+  // readPodcastText + validateRead is validatePodcast in two steps (load.ts gathers the context between them).
+  for (const c of cases) assert.deepEqual(validateRead(readPodcastText(rawOf(c)), contextFor(c)), check(c), c.name)
+  // A podcast of another version is not read, but the journey it names is (the stray-file line says it).
+  const other = readPodcastText(JSON.stringify({ version: 2, journey: { id: 'j' } }))
+  assert.equal(other.podcast, undefined)
+  assert.equal(other.journey?.id, 'j')
 })

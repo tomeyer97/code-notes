@@ -341,145 +341,24 @@ function checkMark(m, file, doc, onMissing) {
 import fs2 from "node:fs";
 import path2 from "node:path";
 
-// src/core/format/podcast/model.ts
-var isObj2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
-function resolveEpisode(p, journey) {
-  const problems = [];
-  const byId = new Map(journey.steps.map((s, i) => [s.id, { n: i + 1, beats: s.beats }]));
-  const timed = p.segments.map((s, i) => ({ s, i, start: num(s.start) })).filter((x) => {
-    const ok = x.start !== void 0 && x.start >= 0;
-    if (!ok) problems.push(segProblem(x.s, x.i, "start", `${x.s.start === void 0 ? "no start time" : `start ${JSON.stringify(x.s.start)} is not a time in seconds`}; skipped`, ["start"]));
-    return ok;
-  }).sort((a, b) => a.start - b.start || a.i - b.i);
-  let prev = { step: 0 };
-  const segments = timed.map((x, k) => {
-    const id = typeof x.s.id === "string" ? x.s.id : `#${x.i + 1}`;
-    const view = viewOf(x.s, x.i, byId, prev, problems);
-    prev = view;
-    const next = timed[k + 1]?.start;
-    const end = num(x.s.end) ?? next ?? num(p.duration) ?? x.start;
-    const stepId = view.step ? journey.steps[view.step - 1]?.id : void 0;
-    const seg = { id, start: x.start, end: Math.max(end, x.start), text: typeof x.s.text === "string" ? x.s.text : "", speaker: typeof x.s.speaker === "string" ? x.s.speaker : "", ...view, ...stepId ? { stepId } : {} };
-    const known = sentenceBound(x.s, x.start, next, p.duration);
-    if (x.s.sentences !== void 0 && !sentencesProblem(x.s.sentences, x.start, known)) {
-      seg.sentences = x.s.sentences.map((t) => ({ start: t.start, text: t.text }));
-    }
-    const marks = marksOf(x.s.marks, seg.text, seg.start, seg.end, x.s.at === null);
-    if (marks) seg.marks = marks;
-    return seg;
-  });
-  const last = segments[segments.length - 1];
-  const duration = Math.max(num(p.duration) ?? 0, last ? last.end : 0);
-  return { title: p.title, duration, segments, chapters: chaptersOf(segments, duration), warnings: problems.map((w) => w.message), problems };
-}
-var segmentName = (s, i) => typeof s.id === "string" && s.id ? s.id : `#${i + 1}`;
-function segProblem(s, i, code, what, sub = []) {
-  const name = segmentName(s, i);
-  return { level: "warning", code, message: `segment ${name}: ${what}`, path: ["segments", i, ...sub], segment: name };
-}
-function stepProblem(s, i, n, code, what, sub = []) {
-  return { ...segProblem(s, i, code, what, sub), message: `Step ${n}: ${what}` };
-}
-var beatsItHas = (n) => `it has ${n || "none"}`;
-var SENTENCE_SLACK_S = 0.05;
-function sentenceBound(s, start, next, duration) {
-  const end = num(s.end) ?? next ?? num(duration);
-  return end === void 0 ? void 0 : Math.max(end, start);
-}
-function sentencesProblem(v, start, end) {
-  if (!Array.isArray(v) || !v.length) return { what: Array.isArray(v) ? "sentences is empty" : "sentences is not a list of { start, text }", sub: ["sentences"] };
-  let prev;
-  for (let k = 0; k < v.length; k++) {
-    const t = v[k];
-    if (!isObj2(t) || typeof t.text !== "string" || !t.text.trim()) return { what: `sentences: item ${k + 1} is not { start, text } with a text`, sub: ["sentences", k] };
-    const at = num(t.start);
-    if (at === void 0) return { what: `sentences: item ${k + 1} has no start time in seconds`, sub: ["sentences", k, "start"] };
-    if (prev !== void 0 && at < prev - SENTENCE_SLACK_S) return { what: `sentences: item ${k + 1} starts at ${clockMs(at)}, before item ${k} (${clockMs(prev)})`, sub: ["sentences", k, "start"] };
-    if (at < start - SENTENCE_SLACK_S || end !== void 0 && at > end + SENTENCE_SLACK_S) {
-      const seg = end !== void 0 ? `outside the segment (${clockMs(start)}–${clockMs(end)})` : `before the segment starts (${clockMs(start)})`;
-      return { what: `sentences: item ${k + 1} starts at ${clockMs(at)}, ${seg}`, sub: ["sentences", k, "start"] };
-    }
-    prev = at;
-  }
-  return void 0;
-}
-function viewOf(s, i, byId, prev, problems) {
-  const at = s.at;
-  if (at === null) return { step: 0 };
-  if (!isObj2(at) || typeof at.step !== "string") {
-    problems.push(segProblem(s, i, "at", `"at" is ${at === void 0 ? "missing" : "not null or { step, beat }"}; it keeps the view before it`, at === void 0 ? [] : ["at"]));
-    return prev;
-  }
-  const st = byId.get(at.step);
-  if (!st) {
-    problems.push(segProblem(s, i, "step", `no step "${at.step}" in the journey; it keeps the view before it`, ["at", "step"]));
-    return prev;
-  }
-  if (at.beat === void 0 || s.cue === "map") return { step: st.n };
-  const b = at.beat;
-  if (typeof b === "string") {
-    problems.push(stepProblem(s, i, st.n, "beat", `beat must be a number, got the string ${JSON.stringify(b)}; showing the whole step`, ["at", "beat"]));
-    return { step: st.n };
-  }
-  if (typeof b !== "number" || !Number.isInteger(b) || b < 1 || b > st.beats) {
-    problems.push(stepProblem(s, i, st.n, "beat", `no beat ${JSON.stringify(b)} (${beatsItHas(st.beats)}); showing the whole step`, ["at", "beat"]));
-    return { step: st.n };
-  }
-  return { step: st.n, beat: b - 1 };
-}
-function chaptersOf(segments, duration) {
-  const out = [];
-  for (const s of segments) {
-    const last = out[out.length - 1];
-    if (last && last.step === s.step) continue;
-    if (last) last.end = s.start;
-    out.push({ start: out.length ? s.start : 0, end: duration, step: s.step });
-  }
-  return out;
-}
-var MARK_SLACK_S = 0.05;
-function marksProblems(v, text, start, end, onMap) {
-  if (v === void 0) return [];
-  if (!Array.isArray(v)) return [{ what: "marks is not a list of { phrase, at, lines }; ignored", sub: ["marks"], drop: true }];
-  const out = [];
-  const len2 = Math.max(0, end - start);
-  let prevAt;
-  let from = 0;
-  let prevPhrase;
-  let prevPos = -1;
-  v.forEach((m, k) => {
-    const bad = (what, sub = []) => out.push({ k, what: `mark ${k + 1}: ${what}; ignored`, sub: ["marks", k, ...sub], drop: true });
-    if (!isObj2(m)) return bad("not an object { phrase, at, lines }");
-    if (typeof m.phrase !== "string" || !m.phrase.trim()) return bad("no phrase", m.phrase === void 0 ? [] : ["phrase"]);
-    const at = num(m.at);
-    if (at === void 0) return bad(m.at === void 0 ? `no "at" (seconds from the segment's start)` : `at ${JSON.stringify(m.at)} is not a time in seconds`, m.at === void 0 ? [] : ["at"]);
-    if (at < -MARK_SLACK_S || at > len2 + MARK_SLACK_S) return bad(`at ${clockMs(start + at)} (${round2(at)} s) is outside the segment (${clockMs(start)}–${clockMs(end)})`, ["at"]);
-    const shape = markShapeProblem(m);
-    if (shape) return bad(shape.what, shape.sub);
-    if (m.file === void 0 && onMap) return bad('a mark in a segment on the map ("at": null) needs its own "file"');
-    if (prevAt !== void 0 && at < prevAt - MARK_SLACK_S) out.push({ k, what: `mark ${k + 1} lights at ${round2(at)} s, before mark ${k} (${round2(prevAt)} s): marks light in the order they are said`, sub: ["marks", k, "at"], drop: false });
-    const p = m.phrase === prevPhrase ? prevPos : text.indexOf(m.phrase, from);
-    if (p < 0) out.push({ k, what: `mark ${k + 1}: the phrase ${JSON.stringify(m.phrase)} isn't in the text${from ? " after the phrase before it" : ""}`, sub: ["marks", k, "phrase"], drop: false });
-    else from = p + m.phrase.length;
-    prevPhrase = m.phrase;
-    prevPos = p;
-    prevAt = at;
-  });
-  return out;
-}
-var round2 = (t) => Math.round(t * 100) / 100;
-function marksOf(v, text, start, end, onMap) {
-  if (!Array.isArray(v) || !v.length) return void 0;
-  const drop = new Set(marksProblems(v, text, start, end, onMap).filter((p) => p.drop).map((p) => p.k));
-  const out = [];
-  v.forEach((m, k) => {
-    if (drop.has(k)) return;
-    const x = m;
-    out.push({ phrase: x.phrase, at: x.at, ...codeMarkOf(x) });
-  });
-  out.sort((a, b) => a.at - b.at);
-  return out.length ? out : void 0;
+// src/core/format/versions.ts
+var VERSIONS = {
+  /** A journey (`<slug>.json`): v1 (steps as notes) is refused with a reason; it needs migrating. */
+  journey: 2,
+  /** A podcast (`<slug>.podcast.json`). */
+  podcast: 1,
+  /** A note (`.code-notes/*.json`): a file without `version` is version 1; the extension writes it. */
+  note: 1,
+  /** An understanding check (`understanding/<branch>.json`). */
+  check: 1
+};
+
+// src/core/clock.ts
+function clock(t) {
+  const s = Math.max(0, Math.floor(t));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return `${h ? `${h}:` : ""}${mm}:${String(r).padStart(2, "0")}`;
 }
 function clockMs(t) {
   const tenths = Math.round(t * 10) / 10;
@@ -487,287 +366,8 @@ function clockMs(t) {
   const frac = Math.round((tenths - whole) * 10);
   return frac ? `${clock(whole)}.${frac}` : clock(whole);
 }
-function clock(t) {
-  const s = Math.max(0, Math.floor(t));
-  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
-  const mm = h ? String(m).padStart(2, "0") : String(m);
-  return `${h ? `${h}:` : ""}${mm}:${String(r).padStart(2, "0")}`;
-}
 
-// src/core/format/podcast/validate.ts
-var isObj3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var num2 = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
-var error = (code, message, path3 = []) => ({ level: "error", code, message, path: path3 });
-var warning = (code, message, path3 = []) => ({ level: "warning", code, message, path: path3 });
-var SLACK_S = 0.05;
-var DURATION_SLACK_S = 1;
-var DURATION_SLACK_SHARE = 0.01;
-var CUES = /* @__PURE__ */ new Set(["map", "open", "beat"]);
-function audioPathProblem(audio) {
-  const a = audio.replace(/\\/g, "/");
-  if (/^[a-z][a-z0-9+.-]*:/i.test(a) && !/^[a-z]:\//i.test(a)) return `audio must be a file in the journeys folder, not a URL (got ${audio})`;
-  if (a.startsWith("/") || /^[a-z]:\//i.test(a)) return `audio must be in the journeys folder, as a path relative to the podcast file (got ${audio})`;
-  let depth = 0;
-  for (const part2 of a.split("/")) {
-    if (part2 === "..") depth--;
-    else if (part2 && part2 !== ".") depth++;
-    if (depth < 0) return `audio must be in the journeys folder (got ${audio})`;
-  }
-  return void 0;
-}
-function validatePodcast(raw, ctx = {}) {
-  const problems = [];
-  const fail = (p) => ({ problems: [p, ...problems], playable: false });
-  let d;
-  try {
-    d = JSON.parse(raw);
-  } catch (e) {
-    if (!raw.trim()) return fail(error("json", "the file is empty"));
-    return fail(error("json", `not valid JSON: ${jsonSyntaxError(raw) ?? e.message}`));
-  }
-  if (!isObj3(d)) return fail(error("object", "not a podcast: the file is not a JSON object"));
-  if (d.version !== 1) {
-    return fail(error("version", d.version === void 0 ? 'no "version" (this player reads version 1)' : `version ${JSON.stringify(d.version)}: this player reads version 1`, d.version === void 0 ? [] : ["version"]));
-  }
-  const errors = [];
-  const audio = typeof d.audio === "string" ? d.audio.trim() : "";
-  if (!audio) errors.push(error("audio", d.audio === void 0 ? 'no "audio": the audio file, relative to this file' : '"audio" is not a file name', d.audio === void 0 ? [] : ["audio"]));
-  else {
-    const where = audioPathProblem(audio);
-    if (where) errors.push(error("audio-outside", where, ["audio"]));
-    else if (ctx.audio && !ctx.audio.exists) errors.push(error("audio-missing", `the audio file ${audio} isn't there`, ["audio"]));
-    else if (ctx.audio && ctx.audio.size === 0) errors.push(error("audio-empty", `the audio file ${audio} is empty`, ["audio"]));
-  }
-  if (d.segments === void 0) errors.push(error("segments", 'no "segments": the parts of the episode'));
-  else if (!Array.isArray(d.segments)) errors.push(error("segments", `"segments" is not a list (it is ${typeof d.segments === "object" ? "an object" : `a ${typeof d.segments}`})`, ["segments"]));
-  else if (!d.segments.length) errors.push(error("segments", '"segments" is empty: the episode has no parts', ["segments"]));
-  const j = isObj3(d.journey) ? d.journey : {};
-  const segs = Array.isArray(d.segments) ? d.segments : [];
-  const written = [];
-  segs.forEach((s, i) => {
-    if (isObj3(s)) written.push({ s, i });
-    else problems.push(warning("segment", `segment #${i + 1} is not an object; skipped`, ["segments", i]));
-  });
-  const podcast = {
-    version: 1,
-    title: typeof d.title === "string" ? d.title : "",
-    journey: { id: typeof j.id === "string" ? j.id : "", file: typeof j.file === "string" ? j.file : void 0, commit: typeof j.commit === "string" ? j.commit : void 0 },
-    audio,
-    duration: num2(d.duration),
-    // Each segment at its index in the file, so that problems point at it (the ones not objects are left out below).
-    segments: written.map((x) => x.s)
-  };
-  if (podcast.journey.id && ctx.journey && podcast.journey.id !== ctx.journey.id) {
-    problems.push(warning("journey", `written for journey "${podcast.journey.id}", but it is next to "${ctx.journey.id}": it plays with the journey next to it`, ["journey", "id"]));
-  }
-  if (d.duration !== void 0 && !(num2(d.duration) > 0)) problems.push(warning("duration", `"duration" ${JSON.stringify(d.duration)} is not a length in seconds; ignored`, ["duration"]));
-  problems.push(...timingProblems(written, podcast.duration));
-  if (ctx.journey) problems.push(...narrationOrder(written, ctx.journey));
-  if (ctx.journey && ctx.files) problems.push(...markCodeProblems(written, ctx.journey, ctx.files, podcast.duration));
-  let episode;
-  if (ctx.journey) {
-    episode = resolveEpisode(podcast, ctx.journey);
-    for (const p of episode.problems) {
-      const k = p.path[1];
-      if (typeof k === "number") p.path = ["segments", written[k]?.i ?? k, ...p.path.slice(2)];
-    }
-    episode.problems = missingStepsOnce(episode.problems.filter((p) => p.code !== "start"), written);
-    problems.push(...episode.problems);
-    episode.warnings = episode.problems.map((p) => p.message);
-  }
-  if (podcast.journey.commit && ctx.changed?.length) {
-    const n = ctx.changed.length;
-    problems.push({ level: "info", code: "recorded-for", message: `Code changed since recording: ${n === 1 ? "step" : "steps"} ${ctx.changed.join(", ")}`, path: ["journey", "commit"] });
-  }
-  if (ctx.audioDuration !== void 0 && ctx.audioDuration > 0) problems.push(...audioLengthProblems(written, podcast.duration, ctx.audioDuration));
-  if (written.length && !written.some((x) => num2(x.s.start) !== void 0 && num2(x.s.start) >= 0)) {
-    errors.push(error("segments", "no segment has a start time: nothing to play", ["segments"]));
-  }
-  problems.sort((a, b) => order(a.path) - order(b.path));
-  const all = [...errors, ...problems];
-  const playable = !errors.length;
-  return { podcast, episode: playable ? episode : void 0, problems: all, playable };
-}
-var order = (path3) => path3[0] === "segments" && typeof path3[1] === "number" ? path3[1] + 1 : 0;
-function timingProblems(written, duration) {
-  const out = [];
-  const ids = /* @__PURE__ */ new Map();
-  let prevInFile;
-  const timed = [];
-  for (const { s, i } of written) {
-    const name = segmentName(s, i);
-    if (typeof s.id === "string" && s.id) {
-      const first = ids.get(s.id);
-      if (first) out.push(segProblem(s, i, "id", `the id "${s.id}" is used twice (${placeOf(first)} and ${placeOf({ i, start: s.start })})`, ["id"]));
-      else ids.set(s.id, { i, start: s.start });
-    }
-    if (s.cue !== void 0 && !(typeof s.cue === "string" && CUES.has(s.cue))) out.push(segProblem(s, i, "cue", `cue ${JSON.stringify(s.cue)} is not map, open or beat; ignored`, ["cue"]));
-    const start = num2(s.start);
-    if (start === void 0 || start < 0) {
-      out.push(segProblem(s, i, "start", `${s.start === void 0 ? "no start time" : `start ${JSON.stringify(s.start)} is not a time in seconds`}; skipped`, s.start === void 0 ? [] : ["start"]));
-      continue;
-    }
-    let end = num2(s.end);
-    if (s.end !== void 0 && end === void 0) out.push(segProblem(s, i, "end", `end ${JSON.stringify(s.end)} is not a time in seconds; it ends where the next one starts`, ["end"]));
-    if (end !== void 0 && end < start - SLACK_S) {
-      out.push(segProblem(s, i, "end-before-start", `ends at ${clockMs(end)}, before it starts (${clockMs(start)})`, ["end"]));
-      end = void 0;
-    }
-    if (prevInFile && start < prevInFile.start - SLACK_S) {
-      out.push(segProblem(s, i, "order", `starts at ${clockMs(start)}, before segment ${prevInFile.name} above it (${clockMs(prevInFile.start)}): segments play in time order, not in file order`, ["start"]));
-    }
-    if (duration !== void 0 && duration > 0 && (end ?? start) > duration + SLACK_S) {
-      out.push(segProblem(s, i, "past-duration", `${end !== void 0 ? `ends at ${clockMs(end)}` : `starts at ${clockMs(start)}`}, after the episode's "duration" (${clockMs(duration)})`, [end !== void 0 ? "end" : "start"]));
-    }
-    prevInFile = { name, start };
-    timed.push({ s, i, start, end });
-  }
-  const sorted2 = [...timed].sort((a, b) => a.start - b.start || a.i - b.i);
-  for (let k = 1; k < sorted2.length; k++) {
-    const a = sorted2[k - 1], b = sorted2[k];
-    if (a.end !== void 0 && b.start < a.end - SLACK_S) {
-      out.push(segProblem(b.s, b.i, "overlap", `starts at ${clockMs(b.start)}, before segment ${segmentName(a.s, a.i)} ends (${clockMs(a.end)}): the later one wins from its start`, ["start"]));
-    }
-  }
-  sorted2.forEach((x, k) => {
-    if (x.s.sentences === void 0) return;
-    const bad = sentencesProblem(x.s.sentences, x.start, sentenceBound(x.s, x.start, sorted2[k + 1]?.start, duration));
-    if (bad) out.push(segProblem(x.s, x.i, "sentences", `${bad.what}; the caption is estimated from the text instead`, bad.sub));
-  });
-  sorted2.forEach((x, k) => {
-    if (x.s.marks === void 0) return;
-    const end = Math.max(num2(x.s.end) ?? sorted2[k + 1]?.start ?? duration ?? x.start, x.start);
-    const text = typeof x.s.text === "string" ? x.s.text : "";
-    for (const p of marksProblems(x.s.marks, text, x.start, end, x.s.at === null)) out.push(segProblem(x.s, x.i, "mark", p.what, p.sub));
-  });
-  return out;
-}
-function markCodeProblems(written, journey, files, duration) {
-  const out = [];
-  const byId = new Map(journey.steps.map((s) => [s.id, s]));
-  const timed = written.map((x) => ({ ...x, start: num2(x.s.start) })).filter((x) => x.start !== void 0 && x.start >= 0).sort((a, b) => a.start - b.start || a.i - b.i);
-  const docs = /* @__PURE__ */ new Map();
-  const doc = (f) => {
-    if (!docs.has(f)) {
-      const t = files(f);
-      docs.set(f, typeof t === "string" ? t.split(/\r?\n/) : t);
-    }
-    return docs.get(f);
-  };
-  timed.forEach((x, k) => {
-    if (!Array.isArray(x.s.marks)) return;
-    const end = Math.max(num2(x.s.end) ?? timed[k + 1]?.start ?? duration ?? x.start, x.start);
-    const text = typeof x.s.text === "string" ? x.s.text : "";
-    const dropped = new Set(marksProblems(x.s.marks, text, x.start, end, x.s.at === null).filter((p) => p.drop).map((p) => p.k));
-    const own = ownFile(x.s, byId);
-    const badBeat = hasBadBeat(x.s, byId);
-    x.s.marks.forEach((m, n) => {
-      if (dropped.has(n)) return;
-      if (badBeat && typeof m.file !== "string") return;
-      const file = typeof m.file === "string" ? m.file : own;
-      if (!file) return;
-      const lines = doc(file);
-      if (lines === void 0) return;
-      const p = markCodeProblem({ doc: lines, file, mark: codeMarkOf(m), onMissing: "lines" });
-      if (p) out.push(segProblem(x.s, x.i, "mark", `mark ${n + 1}: ${p.what}`, ["marks", n, p.sub]));
-    });
-  });
-  return out;
-}
-function ownFile(s, byId) {
-  const at = s.at;
-  if (!isObj3(at) || typeof at.step !== "string") return "";
-  const st = byId.get(at.step);
-  if (!st) return "";
-  const b = at.beat;
-  const beatFile = s.cue !== "map" && typeof b === "number" && Number.isInteger(b) && b >= 1 ? st.beatFiles?.[b - 1] : void 0;
-  return beatFile ?? st.file ?? "";
-}
-function hasBadBeat(s, byId) {
-  const at = s.at;
-  if (!isObj3(at) || typeof at.step !== "string" || at.beat === void 0 || s.cue === "map") return false;
-  const st = byId.get(at.step);
-  const b = at.beat;
-  return !!st && !(typeof b === "number" && Number.isInteger(b) && b >= 1 && b <= st.beats);
-}
-var placeOf = (x) => num2(x.start) !== void 0 && num2(x.start) >= 0 ? clockMs(num2(x.start)) : `#${x.i + 1}`;
-function missingStepsOnce(problems, written) {
-  const byStep = /* @__PURE__ */ new Map();
-  const atStep = (p) => {
-    const w = written.find((x) => x.i === p.path[1]);
-    const at = w?.s.at;
-    return w && typeof at?.step === "string" ? { w, step: at.step } : void 0;
-  };
-  for (const p of problems) {
-    const a = p.code === "step" ? atStep(p) : void 0;
-    if (a) byStep.set(a.step, [...byStep.get(a.step) ?? [], a.w]);
-  }
-  const out = [];
-  for (const p of problems) {
-    const a = p.code === "step" ? atStep(p) : void 0;
-    if (!a) {
-      out.push(p);
-      continue;
-    }
-    const segs = byStep.get(a.step);
-    if (segs[0] !== a.w) continue;
-    out.push(missingStep(a.step, segs));
-  }
-  return out;
-}
-function missingStep(step, segs) {
-  const names = segs.map((x) => segmentName(x.s, x.i));
-  const first = segs[0], last = segs[segs.length - 1];
-  const from = num2(first.s.start) ?? 0;
-  const to = num2(last.s.end) ?? num2(last.s.start) ?? from;
-  const which = names.length === 1 ? `segment ${names[0]}` : `segments ${names[0]}–${names[names.length - 1]}`;
-  const keep = names.length === 1 ? "it keeps the view before it" : "they keep the view before them";
-  return {
-    level: "warning",
-    code: "step",
-    path: ["segments", first.i, "at", "step"],
-    segment: names[0],
-    segments: names,
-    message: `step "${step}" isn't in the journey (${which}, ${clockMs(from)}–${clockMs(to)}): ${keep}`
-  };
-}
-function narrationOrder(written, journey) {
-  const index = new Map(journey.steps.map((s, k) => [s.id, k]));
-  const firsts = [];
-  const timed = written.map((x) => ({ ...x, start: num2(x.s.start) })).filter((x) => x.start !== void 0 && x.start >= 0).sort((a, b) => a.start - b.start || a.i - b.i);
-  for (const x of timed) {
-    const at = x.s.at;
-    const step = at && typeof at === "object" && typeof at.step === "string" ? at.step : void 0;
-    const k = step === void 0 ? void 0 : index.get(step);
-    if (step === void 0 || k === void 0 || firsts.some((f2) => f2.step === step)) continue;
-    firsts.push({ step, k, start: x.start, s: x.s, i: x.i });
-  }
-  const late = firsts.filter((f2, n) => n > 0 && f2.k < firsts[n - 1].k);
-  if (!late.length) return [];
-  const f = late[0];
-  const before = firsts[firsts.indexOf(f) - 1];
-  const more = late.length > 1 ? ` (${late.length} steps out of order)` : "";
-  return [segProblem(f.s, f.i, "narration-order", `narrates step ${f.k + 1} ("${f.step}") after step ${before.k + 1} ("${before.step}"): the journey's steps were reordered since it was recorded; re-record it, or put the steps back${more}`, ["at", "step"])];
-}
-function audioLengthProblems(written, duration, audioLen) {
-  const out = [];
-  const ends = written.map(({ s }) => num2(s.end) ?? num2(s.start)).filter((x) => x !== void 0);
-  const episodeLen = Math.max(duration ?? 0, ...ends, 0);
-  const slack = Math.max(DURATION_SLACK_S, audioLen * DURATION_SLACK_SHARE);
-  const past = written.filter(({ s }) => (num2(s.start) ?? -1) >= audioLen);
-  if (episodeLen > audioLen + Math.max(2, slack) && past.length) {
-    out.push(warning("audio-short", `The audio is ${clock(audioLen)} long but the episode is ${clock(episodeLen)}: the file looks cut off (${past.length} ${past.length === 1 ? "part starts" : "parts start"} after its end)`, ["audio"]));
-    return out;
-  }
-  if (duration !== void 0 && Math.abs(duration - audioLen) > slack) {
-    out.push(warning("duration", `"duration" says ${clockMs(duration)} but the audio is ${clockMs(audioLen)} long`, ["duration"]));
-  }
-  for (const { s, i } of written) {
-    const end = num2(s.end);
-    if (end !== void 0 && end > audioLen + slack) out.push(segProblem(s, i, "past-audio", `ends at ${clockMs(end)}, after the audio's end (${clockMs(audioLen)})`, ["end"]));
-  }
-  return out;
-}
+// src/core/json/spans.ts
 var JsonSyntax = class extends Error {
   constructor(at, what) {
     super(what);
@@ -785,93 +385,6 @@ function jsonSyntaxError(raw) {
     return `line ${line + 1}, column ${col + 1}: ${e.message}`;
   }
 }
-function valueSpans(raw) {
-  const out = /* @__PURE__ */ new Map();
-  let i = 0;
-  const bad = (what) => {
-    throw new JsonSyntax(i, what ?? (i >= raw.length ? "the file ends too early (cut off?)" : `unexpected ${JSON.stringify(raw[i])}`));
-  };
-  const ws = () => {
-    while (i < raw.length && " 	\n\r".includes(raw[i])) i++;
-  };
-  const expect = (c) => {
-    ws();
-    if (raw[i] !== c) bad(i >= raw.length ? void 0 : `expected ${JSON.stringify(c)}, found ${JSON.stringify(raw[i])}`);
-    i++;
-  };
-  const str3 = () => {
-    if (raw[i] !== '"') bad();
-    const s = i;
-    i++;
-    while (i < raw.length && raw[i] !== '"') {
-      if (raw[i] === "\n") bad("a line break inside a string");
-      i += raw[i] === "\\" ? 2 : 1;
-    }
-    if (i >= raw.length) bad();
-    i++;
-    try {
-      return JSON.parse(raw.slice(s, i));
-    } catch {
-      i = s;
-      return bad("a bad escape in a string");
-    }
-  };
-  const value = (path3, from) => {
-    ws();
-    const start = from ?? i;
-    const c = raw[i];
-    if (c === "{") {
-      i++;
-      ws();
-      if (raw[i] === "}") i++;
-      else for (; ; ) {
-        ws();
-        const keyAt = i;
-        const k = str3();
-        expect(":");
-        value([...path3, k], keyAt);
-        ws();
-        if (raw[i] === ",") {
-          i++;
-          continue;
-        }
-        if (raw[i] === "}") {
-          i++;
-          break;
-        }
-        bad(i >= raw.length ? void 0 : `expected "," or "}", found ${JSON.stringify(raw[i])}`);
-      }
-    } else if (c === "[") {
-      i++;
-      ws();
-      let n = 0;
-      if (raw[i] === "]") i++;
-      else for (; ; ) {
-        value([...path3, n++]);
-        ws();
-        if (raw[i] === ",") {
-          i++;
-          continue;
-        }
-        if (raw[i] === "]") {
-          i++;
-          break;
-        }
-        bad(i >= raw.length ? void 0 : `expected "," or "]", found ${JSON.stringify(raw[i])}`);
-      }
-    } else if (c === '"') str3();
-    else {
-      const m = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(raw.slice(i, i + 64));
-      if (!m) bad();
-      i += m[0].length;
-    }
-    out.set(JSON.stringify(path3), { start, end: i });
-  };
-  value([]);
-  ws();
-  if (i < raw.length) bad();
-  return out;
-}
 function lineCol(raw, offset) {
   let line = 0, last = -1;
   for (let k = 0; k < offset && k < raw.length; k++) if (raw[k] === "\n") {
@@ -879,6 +392,661 @@ function lineCol(raw, offset) {
     last = k;
   }
   return { line, col: offset - last - 1 };
+}
+var WHITESPACE = " 	\n\r";
+var SCALAR = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/;
+var SCALAR_LOOKAHEAD = 64;
+function valueSpans(raw) {
+  const reader = new SpanReader(raw);
+  reader.value([]);
+  reader.end();
+  return reader.spans;
+}
+var SpanReader = class {
+  constructor(raw) {
+    this.raw = raw;
+  }
+  raw;
+  spans = /* @__PURE__ */ new Map();
+  i = 0;
+  /** The value at the reader's place, at `path`; `from`: where its span starts (its key, in an object). */
+  value(path3, from) {
+    this.ws();
+    const start = from ?? this.i;
+    const c = this.raw[this.i];
+    if (c === "{") this.object(path3);
+    else if (c === "[") this.array(path3);
+    else if (c === '"') this.str();
+    else this.scalar();
+    this.spans.set(JSON.stringify(path3), { start, end: this.i });
+  }
+  /** Only whitespace is left. */
+  end() {
+    this.ws();
+    if (this.i < this.raw.length) this.bad();
+  }
+  object(path3) {
+    this.i++;
+    this.ws();
+    if (this.raw[this.i] === "}") {
+      this.i++;
+      return;
+    }
+    do {
+      this.ws();
+      const keyAt = this.i;
+      const key = this.str();
+      this.expect(":");
+      this.value([...path3, key], keyAt);
+    } while (this.listGoesOn("}"));
+  }
+  array(path3) {
+    this.i++;
+    this.ws();
+    if (this.raw[this.i] === "]") {
+      this.i++;
+      return;
+    }
+    let n = 0;
+    do
+      this.value([...path3, n++]);
+    while (this.listGoesOn("]"));
+  }
+  /** After an item: true on ",", false on `close` (both read), else a syntax error. */
+  listGoesOn(close) {
+    this.ws();
+    const c = this.raw[this.i];
+    if (c === "," || c === close) {
+      this.i++;
+      return c === ",";
+    }
+    return this.bad(this.atEnd() ? void 0 : `expected "," or "${close}", found ${JSON.stringify(c)}`);
+  }
+  str() {
+    const raw = this.raw;
+    if (raw[this.i] !== '"') this.bad();
+    const s = this.i;
+    this.i++;
+    while (this.i < raw.length && raw[this.i] !== '"') {
+      if (raw[this.i] === "\n") this.bad("a line break inside a string");
+      this.i += raw[this.i] === "\\" ? 2 : 1;
+    }
+    if (this.atEnd()) this.bad();
+    this.i++;
+    try {
+      return JSON.parse(raw.slice(s, this.i));
+    } catch {
+      this.i = s;
+      return this.bad("a bad escape in a string");
+    }
+  }
+  scalar() {
+    const m = SCALAR.exec(this.raw.slice(this.i, this.i + SCALAR_LOOKAHEAD));
+    if (!m) this.bad();
+    this.i += m[0].length;
+  }
+  expect(c) {
+    this.ws();
+    if (this.raw[this.i] !== c) this.bad(this.atEnd() ? void 0 : `expected ${JSON.stringify(c)}, found ${JSON.stringify(this.raw[this.i])}`);
+    this.i++;
+  }
+  ws() {
+    while (this.i < this.raw.length && WHITESPACE.includes(this.raw[this.i])) this.i++;
+  }
+  atEnd() {
+    return this.i >= this.raw.length;
+  }
+  bad(what) {
+    throw new JsonSyntax(this.i, what ?? (this.atEnd() ? "the file ends too early (cut off?)" : `unexpected ${JSON.stringify(this.raw[this.i])}`));
+  }
+};
+
+// src/core/format/podcast/guards.ts
+var isObj2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
+var TIME_SLACK_S = 0.05;
+
+// src/core/format/podcast/format.ts
+var segmentName = (s, i) => typeof s.id === "string" && s.id ? s.id : `#${i + 1}`;
+function segProblem(s, i, code, what, sub = []) {
+  const name = segmentName(s, i);
+  return { level: "warning", code, message: `segment ${name}: ${what}`, path: ["segments", i, ...sub], segment: name };
+}
+function stepProblem(s, i, n, code, what, sub = []) {
+  return { ...segProblem(s, i, code, what, sub), message: `Step ${n}: ${what}` };
+}
+var beatsItHas = (n) => `it has ${n || "none"}`;
+function startOf(s) {
+  const t = num(s.start);
+  return t !== void 0 && t >= 0 ? t : void 0;
+}
+function sentenceBound(s, start, next, duration) {
+  const end = num(s.end) ?? next ?? num(duration);
+  return end === void 0 ? void 0 : Math.max(end, start);
+}
+var segmentEnd = (s, start, next, duration) => sentenceBound(s, start, next, duration) ?? start;
+var notSentences = (v) => ({
+  what: Array.isArray(v) ? "sentences is empty" : "sentences is not a list of { start, text }",
+  sub: ["sentences"]
+});
+function sentencesProblem(v, start, end) {
+  if (!Array.isArray(v) || !v.length) return notSentences(v);
+  let prev;
+  for (const [k, t] of v.entries()) {
+    const item = `sentences: item ${k + 1}`;
+    if (!isObj2(t) || typeof t.text !== "string" || !t.text.trim()) {
+      return { what: `${item} is not { start, text } with a text`, sub: ["sentences", k] };
+    }
+    const at = num(t.start);
+    const sub = ["sentences", k, "start"];
+    if (at === void 0) return { what: `${item} has no start time in seconds`, sub };
+    if (prev !== void 0 && at < prev - TIME_SLACK_S) {
+      return { what: `${item} starts at ${clockMs(at)}, before item ${k} (${clockMs(prev)})`, sub };
+    }
+    if (at < start - TIME_SLACK_S || end !== void 0 && at > end + TIME_SLACK_S) {
+      const seg = end !== void 0 ? `outside the segment (${clockMs(start)}–${clockMs(end)})` : `before the segment starts (${clockMs(start)})`;
+      return { what: `${item} starts at ${clockMs(at)}, ${seg}`, sub };
+    }
+    prev = at;
+  }
+  return void 0;
+}
+
+// src/core/format/podcast/journeyShape.ts
+var stepIndex = (journey) => new Map(journey.steps.map((s, i) => [s.id, { ...s, n: i + 1 }]));
+function stepAt(s, steps) {
+  const at = s.at;
+  if (!isObj2(at) || typeof at.step !== "string") return void 0;
+  const step = steps.get(at.step);
+  return step && { step, beat: at.beat };
+}
+var isBeatNumber = (b) => typeof b === "number" && Number.isInteger(b) && b >= 1;
+function segmentFile(s, steps) {
+  const at = stepAt(s, steps);
+  if (!at) return "";
+  const beatFile = s.cue !== "map" && isBeatNumber(at.beat) ? at.step.beatFiles?.[at.beat - 1] : void 0;
+  return beatFile ?? at.step.file ?? "";
+}
+function hasBadBeat(s, steps) {
+  const at = stepAt(s, steps);
+  if (!at || at.beat === void 0 || s.cue === "map") return false;
+  return !(isBeatNumber(at.beat) && at.beat <= at.step.beats);
+}
+
+// src/core/format/podcast/timeline.ts
+function chaptersOf(segments, duration) {
+  const out = [];
+  for (const s of segments) {
+    const last = out[out.length - 1];
+    if (last && last.step === s.step) continue;
+    if (last) last.end = s.start;
+    out.push({ start: out.length ? s.start : 0, end: duration, step: s.step });
+  }
+  return out;
+}
+
+// src/core/format/podcast/marks.ts
+var round2 = (t) => Math.round(t * 100) / 100;
+function unusable(m, seg) {
+  if (!isObj2(m)) return { what: "not an object { phrase, at, lines }", sub: [] };
+  if (typeof m.phrase !== "string" || !m.phrase.trim()) return { what: "no phrase", sub: m.phrase === void 0 ? [] : ["phrase"] };
+  const at = num(m.at);
+  if (at === void 0) {
+    return m.at === void 0 ? { what: `no "at" (seconds from the segment's start)`, sub: [] } : { what: `at ${JSON.stringify(m.at)} is not a time in seconds`, sub: ["at"] };
+  }
+  const len2 = Math.max(0, seg.end - seg.start);
+  if (at < -TIME_SLACK_S || at > len2 + TIME_SLACK_S) {
+    const where = `outside the segment (${clockMs(seg.start)}–${clockMs(seg.end)})`;
+    return { what: `at ${clockMs(seg.start + at)} (${round2(at)} s) is ${where}`, sub: ["at"] };
+  }
+  const shape = markShapeProblem(m);
+  if (shape) return shape;
+  if (m.file === void 0 && seg.onMap) return { what: 'a mark in a segment on the map ("at": null) needs its own "file"', sub: [] };
+  return void 0;
+}
+function marksProblems(v, text, start, end, onMap) {
+  if (v === void 0) return [];
+  if (!Array.isArray(v)) return [{ what: "marks is not a list of { phrase, at, lines }; ignored", sub: ["marks"], drop: true }];
+  const seg = { text, start, end, onMap };
+  const out = [];
+  let prev;
+  let from = 0;
+  for (const [k, m] of v.entries()) {
+    const bad = unusable(m, seg);
+    if (bad) {
+      out.push({ k, what: `mark ${k + 1}: ${bad.what}; ignored`, sub: ["marks", k, ...bad.sub], drop: true });
+      continue;
+    }
+    const { phrase, at } = m;
+    if (prev && at < prev.at - TIME_SLACK_S) {
+      const what = `mark ${k + 1} lights at ${round2(at)} s, before mark ${k} (${round2(prev.at)} s): marks light in the order they are said`;
+      out.push({ k, what, sub: ["marks", k, "at"], drop: false });
+    }
+    const pos = phrase === prev?.phrase ? prev.pos : text.indexOf(phrase, from);
+    if (pos < 0) {
+      const what = `mark ${k + 1}: the phrase ${JSON.stringify(phrase)} isn't in the text${from ? " after the phrase before it" : ""}`;
+      out.push({ k, what, sub: ["marks", k, "phrase"], drop: false });
+    } else from = pos + phrase.length;
+    prev = { at, phrase, pos };
+  }
+  return out;
+}
+function marksOf(v, text, start, end, onMap) {
+  if (!Array.isArray(v) || !v.length) return void 0;
+  const drop = new Set(marksProblems(v, text, start, end, onMap).filter((p) => p.drop).map((p) => p.k));
+  const out = [];
+  for (const [k, m] of v.entries()) {
+    if (drop.has(k)) continue;
+    const x = m;
+    out.push({ phrase: x.phrase, at: x.at, ...codeMarkOf(x) });
+  }
+  out.sort((a, b) => a.at - b.at);
+  return out.length ? out : void 0;
+}
+
+// src/core/format/podcast/resolve.ts
+function timedSegments(written) {
+  const out = [];
+  for (const x of written) {
+    const start = startOf(x.s);
+    if (start !== void 0) out.push({ ...x, start });
+  }
+  return out.sort((a, b) => a.start - b.start || a.i - b.i);
+}
+var noStart = (s) => `${s.start === void 0 ? "no start time" : `start ${JSON.stringify(s.start)} is not a time in seconds`}; skipped`;
+function resolveEpisode(p, journey) {
+  const problems = [];
+  const indexed = p.segments.map((s, i) => ({ s, i }));
+  for (const { s, i } of indexed) {
+    if (startOf(s) === void 0) problems.push(segProblem(s, i, "start", noStart(s), ["start"]));
+  }
+  const timed = timedSegments(indexed);
+  const steps = stepIndex(journey);
+  let prev = { step: 0 };
+  const segments = timed.map((x, k) => {
+    const view = viewOf(x, steps, prev, problems);
+    prev = view;
+    return segmentOf(x, view, timed[k + 1]?.start, p.duration, journey);
+  });
+  const last = segments[segments.length - 1];
+  const duration = Math.max(num(p.duration) ?? 0, last ? last.end : 0);
+  return { title: p.title, duration, segments, chapters: chaptersOf(segments, duration), problems };
+}
+function segmentOf(x, view, next, duration, journey) {
+  const { s, i, start } = x;
+  const stepId = view.step ? journey.steps[view.step - 1]?.id : void 0;
+  const seg = {
+    id: typeof s.id === "string" ? s.id : `#${i + 1}`,
+    start,
+    end: segmentEnd(s, start, next, duration),
+    text: typeof s.text === "string" ? s.text : "",
+    speaker: typeof s.speaker === "string" ? s.speaker : "",
+    ...view,
+    ...stepId ? { stepId } : {}
+  };
+  if (s.sentences !== void 0 && !sentencesProblem(s.sentences, start, sentenceBound(s, start, next, duration))) {
+    seg.sentences = s.sentences.map((t) => ({ start: t.start, text: t.text }));
+  }
+  const marks = marksOf(s.marks, seg.text, seg.start, seg.end, s.at === null);
+  if (marks) seg.marks = marks;
+  return seg;
+}
+function viewOf({ s, i }, steps, prev, problems) {
+  if (s.at === null) return { step: 0 };
+  if (!isObj2(s.at) || typeof s.at.step !== "string") {
+    const what = `"at" is ${s.at === void 0 ? "missing" : "not null or { step, beat }"}; it keeps the view before it`;
+    problems.push(segProblem(s, i, "at", what, s.at === void 0 ? [] : ["at"]));
+    return prev;
+  }
+  const at = stepAt(s, steps);
+  if (!at) {
+    problems.push(segProblem(s, i, "step", `no step "${s.at.step}" in the journey; it keeps the view before it`, ["at", "step"]));
+    return prev;
+  }
+  const { n, beats } = at.step;
+  const b = at.beat;
+  if (b === void 0 || s.cue === "map") return { step: n };
+  if (typeof b === "string") {
+    problems.push(stepProblem(s, i, n, "beat", `beat must be a number, got the string ${JSON.stringify(b)}; showing the whole step`, ["at", "beat"]));
+    return { step: n };
+  }
+  if (typeof b !== "number" || !Number.isInteger(b) || b < 1 || b > beats) {
+    problems.push(stepProblem(s, i, n, "beat", `no beat ${JSON.stringify(b)} (${beatsItHas(beats)}); showing the whole step`, ["at", "beat"]));
+    return { step: n };
+  }
+  return { step: n, beat: b - 1 };
+}
+
+// src/core/format/podcast/validate.ts
+var problem = (level) => (code, message, path3 = []) => ({ level, code, message, path: path3 });
+var error = problem("error");
+var warning = problem("warning");
+var info = problem("info");
+var DURATION_SLACK_S = 1;
+var DURATION_SLACK_SHARE = 0.01;
+var CUT_OFF_S = 2;
+var CUES = /* @__PURE__ */ new Set(["map", "open", "beat"]);
+var SAY = {
+  noVersion: () => `no "version" (this player reads version ${VERSIONS.podcast})`,
+  otherVersion: (v) => `version ${JSON.stringify(v)}: this player reads version ${VERSIONS.podcast}`,
+  noAudio: (v) => v === void 0 ? 'no "audio": the audio file, relative to this file' : '"audio" is not a file name',
+  audioMissing: (audio) => `the audio file ${audio} isn't there`,
+  audioEmpty: (audio) => `the audio file ${audio} is empty`,
+  segmentsNotList: (v) => `"segments" is not a list (it is ${typeof v === "object" ? "an object" : `a ${typeof v}`})`,
+  notASegment: (i) => `segment #${i + 1} is not an object; skipped`,
+  otherJourney: (id, next) => `written for journey "${id}", but it is next to "${next}": it plays with the journey next to it`,
+  badDuration: (v) => `"duration" ${JSON.stringify(v)} is not a length in seconds; ignored`,
+  duplicateId: (id, first, again) => `the id "${id}" is used twice (${first} and ${again})`,
+  badCue: (cue) => `cue ${JSON.stringify(cue)} is not map, open or beat; ignored`,
+  badEnd: (end) => `end ${JSON.stringify(end)} is not a time in seconds; it ends where the next one starts`,
+  endBeforeStart: (end, start) => `ends at ${clockMs(end)}, before it starts (${clockMs(start)})`,
+  outOfOrder: (start, above) => `starts at ${clockMs(start)}, before segment ${above.name} above it (${clockMs(above.start)}): segments play in time order, not in file order`,
+  pastDuration: (start, end, duration) => `${end !== void 0 ? `ends at ${clockMs(end)}` : `starts at ${clockMs(start)}`}, after the episode's "duration" (${clockMs(duration)})`,
+  overlap: (start, before, end) => `starts at ${clockMs(start)}, before segment ${before} ends (${clockMs(end)}): the later one wins from its start`,
+  sentences: (what) => `${what}; the caption is estimated from the text instead`,
+  narrationOrder: (late, before, more) => `narrates step ${late.k + 1} ("${late.step}") after step ${before.k + 1} ("${before.step}"): the journey's steps were reordered since it was recorded; re-record it, or put the steps back` + (more > 1 ? ` (${more} steps out of order)` : ""),
+  missingStep: (step, names, from, to) => {
+    const which = names.length === 1 ? `segment ${names[0]}` : `segments ${names[0]}–${names[names.length - 1]}`;
+    const keep = names.length === 1 ? "it keeps the view before it" : "they keep the view before them";
+    return `step "${step}" isn't in the journey (${which}, ${clockMs(from)}–${clockMs(to)}): ${keep}`;
+  },
+  recordedFor: (steps) => `Code changed since recording: ${steps.length === 1 ? "step" : "steps"} ${steps.join(", ")}`,
+  cutOff: (audioLen, episodeLen, past) => `The audio is ${clock(audioLen)} long but the episode is ${clock(episodeLen)}: the file looks cut off (${past} ${past === 1 ? "part starts" : "parts start"} after its end)`,
+  durationVsAudio: (duration, audioLen) => `"duration" says ${clockMs(duration)} but the audio is ${clockMs(audioLen)} long`,
+  pastAudio: (end, audioLen) => `ends at ${clockMs(end)}, after the audio's end (${clockMs(audioLen)})`
+};
+function audioPathProblem(audio) {
+  const a = audio.replace(/\\/g, "/");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(a) && !/^[a-z]:\//i.test(a)) return `audio must be a file in the journeys folder, not a URL (got ${audio})`;
+  if (a.startsWith("/") || /^[a-z]:\//i.test(a)) return `audio must be in the journeys folder, as a path relative to the podcast file (got ${audio})`;
+  let depth = 0;
+  for (const part2 of a.split("/")) {
+    if (part2 === "..") depth--;
+    else if (part2 && part2 !== ".") depth++;
+    if (depth < 0) return `audio must be in the journeys folder (got ${audio})`;
+  }
+  return void 0;
+}
+function validatePodcast(raw, ctx = {}) {
+  return validateRead(readPodcastText(raw), ctx);
+}
+function readPodcastText(raw) {
+  const fatal = (p) => ({ written: [], errors: [p], problems: [] });
+  let d;
+  try {
+    d = JSON.parse(raw);
+  } catch (e) {
+    if (!raw.trim()) return fatal(error("json", "the file is empty"));
+    return fatal(error("json", `not valid JSON: ${jsonSyntaxError(raw) ?? e.message}`));
+  }
+  if (!isObj2(d)) return fatal(error("object", "not a podcast: the file is not a JSON object"));
+  const journey = journeyOf(d.journey);
+  if (d.version !== VERSIONS.podcast) {
+    const p = d.version === void 0 ? error("version", SAY.noVersion()) : error("version", SAY.otherVersion(d.version), ["version"]);
+    return { ...fatal(p), journey };
+  }
+  const audio = typeof d.audio === "string" ? d.audio.trim() : "";
+  const segs = Array.isArray(d.segments) ? d.segments : [];
+  const written = [];
+  const problems = [];
+  for (const [i, s] of segs.entries()) {
+    if (isObj2(s)) written.push({ s, i });
+    else problems.push(warning("segment", SAY.notASegment(i), ["segments", i]));
+  }
+  const errors = [...audioNameErrors(d.audio, audio), ...segmentsErrors(d.segments)];
+  if (written.length && !written.some((x) => startOf(x.s) !== void 0)) {
+    errors.push(error("segments", "no segment has a start time: nothing to play", ["segments"]));
+  }
+  const podcast = {
+    version: VERSIONS.podcast,
+    title: typeof d.title === "string" ? d.title : "",
+    journey,
+    audio,
+    duration: num(d.duration),
+    // The segments that are objects; `written` keeps their index in the file, so that problems point at it.
+    segments: written.map((x) => x.s)
+  };
+  return { podcast, journey, written, writtenDuration: d.duration, errors, problems };
+}
+function journeyOf(v) {
+  const j = isObj2(v) ? v : {};
+  const str3 = (x) => typeof x === "string" ? x : void 0;
+  return { id: str3(j.id) ?? "", file: str3(j.file), commit: str3(j.commit) };
+}
+function audioNameErrors(v, audio) {
+  if (audio) return [];
+  return [error("audio", SAY.noAudio(v), v === void 0 ? [] : ["audio"])];
+}
+function segmentsErrors(v) {
+  if (v === void 0) return [error("segments", 'no "segments": the parts of the episode')];
+  if (!Array.isArray(v)) return [error("segments", SAY.segmentsNotList(v), ["segments"])];
+  if (!v.length) return [error("segments", '"segments" is empty: the episode has no parts', ["segments"])];
+  return [];
+}
+function audioFileErrors(audio, ctx) {
+  if (!audio) return [];
+  const where = audioPathProblem(audio);
+  if (where) return [error("audio-outside", where, ["audio"])];
+  if (ctx.audio && !ctx.audio.exists) return [error("audio-missing", SAY.audioMissing(audio), ["audio"])];
+  if (ctx.audio && ctx.audio.size === 0) return [error("audio-empty", SAY.audioEmpty(audio), ["audio"])];
+  return [];
+}
+var RULES = [
+  otherJourney,
+  badDuration,
+  segmentFieldProblems,
+  overlapProblems,
+  sentenceProblems,
+  markShapeProblems,
+  narrationOrder,
+  markCodeProblems,
+  linkProblems,
+  recordedFor,
+  audioLengthProblems
+];
+function validateRead(read, ctx = {}) {
+  const { podcast, written } = read;
+  if (!podcast) return { problems: [...read.errors], playable: false };
+  const errors = [...audioFileErrors(podcast.audio, ctx), ...read.errors];
+  const episode = ctx.journey ? episodeOf(podcast, written, ctx.journey) : void 0;
+  const checked = { read, podcast, written, timed: timedSegments(written), ctx, episode };
+  const problems = [...read.problems, ...RULES.flatMap((rule) => rule(checked))];
+  problems.sort((a, b) => order(a.path) - order(b.path));
+  const playable = !errors.length;
+  return { podcast, episode: playable ? episode : void 0, problems: [...errors, ...problems], playable };
+}
+var order = (path3) => path3[0] === "segments" && typeof path3[1] === "number" ? path3[1] + 1 : 0;
+function episodeOf(podcast, written, journey) {
+  const ep = resolveEpisode(podcast, journey);
+  const inFile = ep.problems.map((p) => {
+    const k = p.path[1];
+    return typeof k === "number" ? { ...p, path: ["segments", written[k]?.i ?? k, ...p.path.slice(2)] } : p;
+  });
+  return { ...ep, problems: missingStepsOnce(inFile.filter((p) => p.code !== "start"), written) };
+}
+function otherJourney({ podcast, ctx }) {
+  const id = podcast.journey.id;
+  if (!id || !ctx.journey || id === ctx.journey.id) return [];
+  return [warning("journey", SAY.otherJourney(id, ctx.journey.id), ["journey", "id"])];
+}
+function badDuration({ read }) {
+  const d = read.writtenDuration;
+  return d !== void 0 && !((num(d) ?? 0) > 0) ? [warning("duration", SAY.badDuration(d), ["duration"])] : [];
+}
+function usableEnd(s, start) {
+  const end = num(s.end);
+  return end !== void 0 && end >= start - TIME_SLACK_S ? end : void 0;
+}
+function segmentFieldProblems({ written, podcast }) {
+  const out = [];
+  const firstWithId = /* @__PURE__ */ new Map();
+  let above;
+  const duration = podcast.duration;
+  for (const { s, i } of written) {
+    if (typeof s.id === "string" && s.id) {
+      const first = firstWithId.get(s.id);
+      if (first) out.push(segProblem(s, i, "id", SAY.duplicateId(s.id, placeOf(first), placeOf({ i, start: s.start })), ["id"]));
+      else firstWithId.set(s.id, { i, start: s.start });
+    }
+    if (s.cue !== void 0 && !(typeof s.cue === "string" && CUES.has(s.cue))) out.push(segProblem(s, i, "cue", SAY.badCue(s.cue), ["cue"]));
+    const start = startOf(s);
+    if (start === void 0) {
+      out.push(segProblem(s, i, "start", noStart(s), s.start === void 0 ? [] : ["start"]));
+      continue;
+    }
+    const end = usableEnd(s, start);
+    if (s.end !== void 0 && num(s.end) === void 0) out.push(segProblem(s, i, "end", SAY.badEnd(s.end), ["end"]));
+    if (num(s.end) !== void 0 && end === void 0) out.push(segProblem(s, i, "end-before-start", SAY.endBeforeStart(num(s.end), start), ["end"]));
+    if (above && start < above.start - TIME_SLACK_S) out.push(segProblem(s, i, "order", SAY.outOfOrder(start, above), ["start"]));
+    if (duration !== void 0 && duration > 0 && (end ?? start) > duration + TIME_SLACK_S) {
+      out.push(segProblem(s, i, "past-duration", SAY.pastDuration(start, end, duration), [end !== void 0 ? "end" : "start"]));
+    }
+    above = { name: segmentName(s, i), start };
+  }
+  return out;
+}
+var placeOf = (x) => {
+  const start = startOf({ start: x.start });
+  return start !== void 0 ? clockMs(start) : `#${x.i + 1}`;
+};
+function overlapProblems({ timed }) {
+  const out = [];
+  for (const [k, b] of timed.entries()) {
+    const a = timed[k - 1];
+    const aEnd = a && usableEnd(a.s, a.start);
+    if (aEnd !== void 0 && b.start < aEnd - TIME_SLACK_S) {
+      out.push(segProblem(b.s, b.i, "overlap", SAY.overlap(b.start, segmentName(a.s, a.i), aEnd), ["start"]));
+    }
+  }
+  return out;
+}
+function sentenceProblems({ timed, podcast }) {
+  const out = [];
+  for (const [k, x] of timed.entries()) {
+    if (x.s.sentences === void 0) continue;
+    const bad = sentencesProblem(x.s.sentences, x.start, sentenceBound(x.s, x.start, timed[k + 1]?.start, podcast.duration));
+    if (bad) out.push(segProblem(x.s, x.i, "sentences", SAY.sentences(bad.what), bad.sub));
+  }
+  return out;
+}
+function marksIn(timed, k, duration) {
+  const x = timed[k];
+  const end = segmentEnd(x.s, x.start, timed[k + 1]?.start, duration);
+  const text = typeof x.s.text === "string" ? x.s.text : "";
+  return marksProblems(x.s.marks, text, x.start, end, x.s.at === null);
+}
+function markShapeProblems({ timed, podcast }) {
+  const out = [];
+  for (const [k, x] of timed.entries()) {
+    if (x.s.marks === void 0) continue;
+    for (const p of marksIn(timed, k, podcast.duration)) out.push(segProblem(x.s, x.i, "mark", p.what, p.sub));
+  }
+  return out;
+}
+function narrationOrder({ timed, ctx }) {
+  if (!ctx.journey) return [];
+  const index = new Map(ctx.journey.steps.map((s, k) => [s.id, k]));
+  const firsts = [];
+  for (const { s, i } of timed) {
+    const step = isObj2(s.at) && typeof s.at.step === "string" ? s.at.step : void 0;
+    const k = step === void 0 ? void 0 : index.get(step);
+    if (step === void 0 || k === void 0 || firsts.some((f2) => f2.step === step)) continue;
+    firsts.push({ step, k, s, i });
+  }
+  const late = firsts.filter((f2, n) => n > 0 && f2.k < firsts[n - 1].k);
+  if (!late.length) return [];
+  const f = late[0];
+  const before = firsts[firsts.indexOf(f) - 1];
+  return [segProblem(f.s, f.i, "narration-order", SAY.narrationOrder(f, before, late.length), ["at", "step"])];
+}
+function markCodeProblems({ timed, ctx, podcast }) {
+  const { journey, files } = ctx;
+  if (!journey || !files) return [];
+  const steps = stepIndex(journey);
+  const lines = /* @__PURE__ */ new Map();
+  const linesOf = (f) => {
+    if (!lines.has(f)) {
+      const t = files(f);
+      lines.set(f, typeof t === "string" ? t.split(/\r?\n/) : t);
+    }
+    return lines.get(f);
+  };
+  const out = [];
+  for (const [k, x] of timed.entries()) {
+    if (!Array.isArray(x.s.marks)) continue;
+    const dropped = new Set(marksIn(timed, k, podcast.duration).filter((p) => p.drop).map((p) => p.k));
+    const own = segmentFile(x.s, steps);
+    const badBeat = hasBadBeat(x.s, steps);
+    for (const [n, m] of x.s.marks.entries()) {
+      if (dropped.has(n) || badBeat && typeof m.file !== "string") continue;
+      const file = typeof m.file === "string" ? m.file : own;
+      const doc = file ? linesOf(file) : void 0;
+      if (doc === void 0) continue;
+      const p = markCodeProblem({ doc, file, mark: codeMarkOf(m), onMissing: "lines" });
+      if (p) out.push(segProblem(x.s, x.i, "mark", `mark ${n + 1}: ${p.what}`, ["marks", n, p.sub]));
+    }
+  }
+  return out;
+}
+function linkProblems({ episode }) {
+  return episode?.problems ?? [];
+}
+function recordedFor({ podcast, ctx }) {
+  if (!podcast.journey.commit || !ctx.changed?.length) return [];
+  return [info("recorded-for", SAY.recordedFor(ctx.changed), ["journey", "commit"])];
+}
+function audioLengthProblems({ written, podcast, ctx }) {
+  const audioLen = ctx.audioDuration;
+  if (audioLen === void 0 || !(audioLen > 0)) return [];
+  const duration = podcast.duration;
+  const ends = written.map(({ s }) => num(s.end) ?? num(s.start)).filter((x) => x !== void 0);
+  const episodeLen = Math.max(duration ?? 0, ...ends, 0);
+  const slack = Math.max(DURATION_SLACK_S, audioLen * DURATION_SLACK_SHARE);
+  const past = written.filter(({ s }) => (num(s.start) ?? -1) >= audioLen);
+  if (episodeLen > audioLen + Math.max(CUT_OFF_S, slack) && past.length) {
+    return [warning("audio-short", SAY.cutOff(audioLen, episodeLen, past.length), ["audio"])];
+  }
+  const out = [];
+  if (duration !== void 0 && Math.abs(duration - audioLen) > slack) {
+    out.push(warning("duration", SAY.durationVsAudio(duration, audioLen), ["duration"]));
+  }
+  for (const { s, i } of written) {
+    const end = num(s.end);
+    if (end !== void 0 && end > audioLen + slack) out.push(segProblem(s, i, "past-audio", SAY.pastAudio(end, audioLen), ["end"]));
+  }
+  return out;
+}
+function missingStepsOnce(problems, written) {
+  const byIndex = new Map(written.map((x) => [x.i, x]));
+  const stepOf = /* @__PURE__ */ new Map();
+  const segmentsOf = /* @__PURE__ */ new Map();
+  for (const p of problems) {
+    const w = p.code === "step" ? byIndex.get(p.path[1]) : void 0;
+    const at = w?.s.at;
+    if (!w || !isObj2(at) || typeof at.step !== "string") continue;
+    stepOf.set(p, at.step);
+    segmentsOf.set(at.step, [...segmentsOf.get(at.step) ?? [], w]);
+  }
+  return problems.flatMap((p) => {
+    const step = stepOf.get(p);
+    if (step === void 0) return [p];
+    const segs = segmentsOf.get(step);
+    return segs[0].i === p.path[1] ? [missingStep(step, segs)] : [];
+  });
+}
+function missingStep(step, segs) {
+  const names = segs.map((x) => segmentName(x.s, x.i));
+  const first = segs[0], last = segs[segs.length - 1];
+  const from = num(first.s.start) ?? 0;
+  const to = num(last.s.end) ?? num(last.s.start) ?? from;
+  return {
+    level: "warning",
+    code: "step",
+    path: ["segments", first.i, "at", "step"],
+    segment: names[0],
+    segments: names,
+    message: SAY.missingStep(step, names, from, to)
+  };
 }
 
 // cli/journey/podcast.ts
@@ -2089,80 +2257,80 @@ function actorIssues(actors, c) {
   return ids;
 }
 var ACTORS = {
-  service(a, problem) {
+  service(a, problem2) {
     const fn = get(a, "fn");
-    if (tooLong(fn, FN_CHARS)) problem(`fn "${str2(fn)}" is ${len(str2(fn))} chars (max ${FN_CHARS}: the name and "()")`);
+    if (tooLong(fn, FN_CHARS)) problem2(`fn "${str2(fn)}" is ${len(str2(fn))} chars (max ${FN_CHARS}: the name and "()")`);
     const checks = list(a, "checks");
-    if (checks.length > MAX_CHECKS) problem(`${checks.length} checks (max ${MAX_CHECKS})`);
-    for (const x of checks) if (tooLong(x, MAX_CHECK)) problem(`check "${str2(x)}" is ${len(str2(x))} chars (max ${MAX_CHECK})`);
+    if (checks.length > MAX_CHECKS) problem2(`${checks.length} checks (max ${MAX_CHECKS})`);
+    for (const x of checks) if (tooLong(x, MAX_CHECK)) problem2(`check "${str2(x)}" is ${len(str2(x))} chars (max ${MAX_CHECK})`);
   },
-  table(a, problem) {
+  table(a, problem2) {
     const rows = list(a, "rows");
-    if (rows.length > MAX_ROWS) problem(`${rows.length} rows (max ${MAX_ROWS})`);
+    if (rows.length > MAX_ROWS) problem2(`${rows.length} rows (max ${MAX_ROWS})`);
     for (const r of rows) {
       if (!isObj(r) || typeof r.id !== "string") {
-        problem('a row is {"id": "…", "chips": ["…"], "old"?: true}');
+        problem2('a row is {"id": "…", "chips": ["…"], "old"?: true}');
         continue;
       }
       const px = rowPx(r.id, or(r.chips, []));
-      if (px > ROW_PX) problem(`row "${r.id}" with chips ${str2(r.chips)} is about ${px} px wide (the row holds ${ROW_PX}): a shorter id or fewer, shorter chips`);
+      if (px > ROW_PX) problem2(`row "${r.id}" with chips ${str2(r.chips)} is about ${px} px wide (the row holds ${ROW_PX}): a shorter id or fewer, shorter chips`);
     }
   },
-  cluster(a, problem) {
+  cluster(a, problem2) {
     const pods = list(a, "pods");
-    for (const m of podsIssues(pods, PODS_PX, 32, 12)) problem(m);
+    for (const m of podsIssues(pods, PODS_PX, 32, 12)) problem2(m);
     const inner = a.inner;
     if (inner === void 0 || inner === null) return;
     if (!isObj(inner)) {
-      problem('"inner" is {"label", "sub"?, "ghost"?, "pods"}');
+      problem2('"inner" is {"label", "sub"?, "ghost"?, "pods"}');
       return;
     }
     const il = str2(or(inner.label, "cluster")) + (truthy(inner.sub) ? ` · ${str2(inner.sub)}` : "");
-    if (len(il) > INNER_LABEL_CHARS) problem(`inner label and sub "${il}" are ${len(il)} chars (about ${INNER_LABEL_CHARS} fit)`);
-    for (const m of podsIssues(Array.isArray(inner.pods) ? inner.pods : [], INNER_PODS_PX, 24, 10)) problem(`inner ${m}`);
-    if (pods.length > 2) problem(`${pods.length} pods above an inner cluster (1 or 2 fit)`);
+    if (len(il) > INNER_LABEL_CHARS) problem2(`inner label and sub "${il}" are ${len(il)} chars (about ${INNER_LABEL_CHARS} fit)`);
+    for (const m of podsIssues(Array.isArray(inner.pods) ? inner.pods : [], INNER_PODS_PX, 24, 10)) problem2(`inner ${m}`);
+    if (pods.length > 2) problem2(`${pods.length} pods above an inner cluster (1 or 2 fit)`);
   },
-  app(a, problem, warning2) {
-    for (const i of appIssues(a)) (i.level === "warning" ? warning2 : problem)(i.text);
+  app(a, problem2, warning2) {
+    for (const i of appIssues(a)) (i.level === "warning" ? warning2 : problem2)(i.text);
   },
-  browser(a, problem) {
-    for (const [key, n] of BROWSER_CHARS) if (tooLong(get(a, key), n)) problem(`${key} "${str2(a[key])}" is ${len(str2(a[key]))} chars (max ${n})`);
+  browser(a, problem2) {
+    for (const [key, n] of BROWSER_CHARS) if (tooLong(get(a, key), n)) problem2(`${key} "${str2(a[key])}" is ${len(str2(a[key]))} chars (max ${n})`);
     const name = str2(or(a.title, or(a.shop, "Shop"))), cart = str2(or(a.cart, "Cart 0"));
-    if (len(name) + len(cart) > SHOP_TOP) problem(`title "${name}" and cart "${cart}" share one line: ${len(name) + len(cart)} chars (max ${SHOP_TOP})`);
+    if (len(name) + len(cart) > SHOP_TOP) problem2(`title "${name}" and cart "${cart}" share one line: ${len(name) + len(cart)} chars (max ${SHOP_TOP})`);
     for (const p of list(a, "products").slice(0, 2)) {
       const nm = Array.isArray(p) && p.length ? p[0] : p;
-      if (tooLong(nm, PRODUCT_CHARS)) problem(`product "${str2(nm)}" is ${len(str2(nm))} chars (max ${PRODUCT_CHARS})`);
+      if (tooLong(nm, PRODUCT_CHARS)) problem2(`product "${str2(nm)}" is ${len(str2(nm))} chars (max ${PRODUCT_CHARS})`);
     }
   },
-  file(a, problem) {
+  file(a, problem2) {
     const numbered = truthy(a.from);
     const lim = numbered ? FILE_NUM_CHARS : FILE_CHARS;
-    if ("from" in a && !(isInt(a.from) && a.from >= 1)) problem('"from" is the number of the first line (omit it for a folder or a made-up document)');
+    if ("from" in a && !(isInt(a.from) && a.from >= 1)) problem2('"from" is the number of the first line (omit it for a folder or a made-up document)');
     for (const ln of list(a, "lines")) {
-      if (tooLong(ln, lim)) problem(`line "${str2(ln)}" is ${len(str2(ln))} chars (max ${lim}${numbered ? " with line numbers" : ""}; a longer one is cut)`);
+      if (tooLong(ln, lim)) problem2(`line "${str2(ln)}" is ${len(str2(ln))} chars (max ${lim}${numbered ? " with line numbers" : ""}; a longer one is cut)`);
     }
   },
-  chat(a, problem) {
+  chat(a, problem2) {
     for (const m of list(a, "messages")) {
       if (!(isObj(m) && ["me", "them"].includes(m.from) && typeof m.text === "string")) {
-        problem('a message is {"from": "me" | "them", "text": "…", "tool"?: true}');
+        problem2('a message is {"from": "me" | "them", "text": "…", "tool"?: true}');
         continue;
       }
       const tool = truthy(m.tool);
       const lim = tool ? CHAT_TOOL_CHARS : CHAT_CHARS;
-      if (len(m.text) > lim) problem(`message "${m.text}" is ${len(m.text)} chars (max ${lim}${tool ? " for a tool call" : ""}; one line)`);
+      if (len(m.text) > lim) problem2(`message "${m.text}" is ${len(m.text)} chars (max ${lim}${tool ? " for a tool call" : ""}; one line)`);
     }
   },
-  queue(a, problem) {
-    if ("slots" in a && !(isInt(a.slots) && a.slots >= 1)) problem(`"slots" is a number of places (${QUEUE_SLOTS} are drawn at most; "cap" says the real size)`);
-    if (tooLong(get(a, "cap"), NOTE_CHARS)) problem(`cap "${str2(a.cap)}" is ${len(str2(a.cap))} chars (max ${NOTE_CHARS})`);
+  queue(a, problem2) {
+    if ("slots" in a && !(isInt(a.slots) && a.slots >= 1)) problem2(`"slots" is a number of places (${QUEUE_SLOTS} are drawn at most; "cap" says the real size)`);
+    if (tooLong(get(a, "cap"), NOTE_CHARS)) problem2(`cap "${str2(a.cap)}" is ${len(str2(a.cap))} chars (max ${NOTE_CHARS})`);
   },
-  gauge(a, problem) {
-    if (!(isNumber(a.max) && Number(a.max) > 0)) problem('"max" is the limit, a number above 0');
+  gauge(a, problem2) {
+    if (!(isNumber(a.max) && Number(a.max) > 0)) problem2('"max" is the limit, a number above 0');
   },
-  terminal(a, problem) {
+  terminal(a, problem2) {
     for (const ln of list(a, "lines")) {
-      if (tooLong(ln, MAX_TERM_LINE)) problem(`line "${str2(ln)}" is ${len(str2(ln))} chars (max ${MAX_TERM_LINE}; a longer one is cut): shorten it, keeping what the code prints`);
+      if (tooLong(ln, MAX_TERM_LINE)) problem2(`line "${str2(ln)}" is ${len(str2(ln))} chars (max ${MAX_TERM_LINE}; a longer one is cut): shorten it, keeping what the code prints`);
     }
   }
 };

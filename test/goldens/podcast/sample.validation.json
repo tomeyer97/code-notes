@@ -397,9 +397,6 @@
         "step": 0
       }
     ],
-    "warnings": [
-      "Step 6: no beat 9 (it has 4); showing the whole step"
-    ],
     "problems": [
       {
         "level": "warning",

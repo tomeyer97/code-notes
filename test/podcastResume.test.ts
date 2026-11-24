@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePodcast, resolveEpisode } from '../src/core/format/podcast/model'
+import { TIME_SLACK_S } from '../src/core/format/podcast/guards'
+import { resolveEpisode } from '../src/core/format/podcast/resolve'
+import { validatePodcast } from '../src/core/format/podcast/validate'
 import { afterStep, remapTime, resumeTime } from '../src/podcast/resume'
 
 // Where a podcast goes on from (src/podcast/resume.ts): after a step it skips, when played again, after its file was
@@ -9,9 +11,9 @@ import { afterStep, remapTime, resumeTime } from '../src/podcast/resume'
 const journey = { steps: [{ id: 'a', beats: 3 }, { id: 'b', beats: 0 }, { id: 'c', beats: 2 }, { id: 'd', beats: 0 }] }
 const seg = (id: string, at: unknown, start: number, end: number) => ({ id, at, start, end, text: id, speaker: 'host' })
 const episode = (segments: object[]) => {
-  const p = parsePodcast(JSON.stringify({ version: 1, title: 'T', journey: { id: 'j' }, audio: 'j.mp3', duration: 100, segments }))
-  assert.ok(p.ok, p.ok ? '' : p.why)
-  return resolveEpisode(p.value, journey)
+  const v = validatePodcast(JSON.stringify({ version: 1, title: 'T', journey: { id: 'j' }, audio: 'j.mp3', duration: 100, segments }))
+  assert.ok(v.podcast, v.problems.map((p) => p.message).join('\n'))
+  return resolveEpisode(v.podcast, journey)
 }
 // Steps 1 and 3 are covered; 2 and 4 are not.
 const sample = () => episode([
@@ -55,6 +57,7 @@ test('the file rewritten: the same moment, by segment id when the times moved', 
   assert.equal(remapTime(was, moved, 42), 42, 'c did not move')
   const shorter = episode([seg('intro', null, 0, 4), seg('a3', { step: 'a', beat: 3 }, 5, 7)])
   assert.ok(remapTime(was, shorter, 28) < 7, 'kept inside its segment when it got shorter')
+  assert.equal(remapTime(was, shorter, 28), 7 - TIME_SLACK_S, 'just before its end: still that segment')
   const gone = episode([seg('intro', null, 0, 4), seg('x', { step: 'c' }, 5, 50)])
   assert.equal(remapTime(was, gone, 23.5), 23.5, 'its segment gone: the same time')
 })

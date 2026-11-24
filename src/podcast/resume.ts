@@ -1,7 +1,9 @@
 // Where a podcast goes on from: after the walk moved to a step it skips, when it is played again, when its file was
 // rewritten. Pure (no vscode): unit tests use it as is (test/podcastResume.test.ts); player.ts applies it.
 
-import { Episode, segmentAt, timeOf, viewAt } from '../core/format/podcast/model'
+import type { Episode } from '../core/format/podcast/format'
+import { TIME_SLACK_S } from '../core/format/podcast/guards'
+import { segmentAt, timeOf, viewAt } from '../core/format/podcast/timeline'
 
 /**
  * The walk is on step `step`, which the podcast never talks about: where ▶ goes on. The first part about a later
@@ -29,8 +31,8 @@ export function resumeTime(ep: Episode, saved: number, walkStep: number): number
 
 /**
  * The podcast file was rewritten while at second `t` of `from`: the same moment in `to`. Times unchanged: `t`. The
- * segment playing then moved: the same place in that segment (by id), kept inside it; it is gone: `t`, kept inside the
- * episode.
+ * segment playing then moved: the same place in that segment (by id), kept inside it (TIME_SLACK_S before its end, so
+ * it is still that segment); it is gone: `t`, kept inside the episode.
  */
 export function remapTime(from: Episode, to: Episode, t: number): number {
   const i = segmentAt(from.segments, t)
@@ -41,5 +43,5 @@ export function remapTime(from: Episode, to: Episode, t: number): number {
   if (!now) return clamp(t)
   if (now.start === was.start) return clamp(t)
   const into = Math.max(0, t - was.start)
-  return clamp(Math.min(now.start + into, Math.max(now.start, now.end - 0.05)))
+  return clamp(Math.min(now.start + into, Math.max(now.start, now.end - TIME_SLACK_S)))
 }
