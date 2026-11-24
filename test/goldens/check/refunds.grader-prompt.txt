@@ -54,33 +54,20 @@ index 0000000..1721166
 +    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])
 +  }
 +}
-diff --git a/deploy/chart/templates/worker.yaml b/deploy/chart/templates/worker.yaml
+diff --git a/docker-compose.yml b/docker-compose.yml
 new file mode 100644
-index 0000000..211e3da
+index 0000000..3c2b3f0
 --- /dev/null
-+++ b/deploy/chart/templates/worker.yaml
-@@ -0,0 +1,21 @@
-+apiVersion: apps/v1
-+kind: Deployment
-+metadata:
-+  name: shop-worker
-+spec:
-+  replicas: 1
-+  selector:
-+    matchLabels: { app: shop-worker }
-+  template:
-+    metadata:
-+      labels: { app: shop-worker }
-+    spec:
-+      containers:
-+        - name: worker
-+          image: "{{ .Values.image }}"
-+          command: ["node", "worker/worker.js"]
-+          env:
-+            - name: DATABASE_URL
-+              valueFrom: { secretKeyRef: { name: shop-db, key: url } }
-+            - name: SMTP_HOST
-+              value: "{{ .Values.smtpHost }}"
++++ b/docker-compose.yml
+@@ -0,0 +1,8 @@
++# The shop's services as they run in production.
++services:
++  worker:
++    image: shop-worker
++    command: ["node", "worker/worker.js"]
++    environment:
++      DATABASE_URL: ${DATABASE_URL}
++      SMTP_HOST: ${SMTP_HOST}
 diff --git a/migrations/002_refunds.sql b/migrations/002_refunds.sql
 new file mode 100644
 index 0000000..17272fe

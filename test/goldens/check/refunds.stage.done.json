@@ -8,14 +8,14 @@
       "head": "<sha2>",
       "change": {
         "files": 6,
-        "added": 81,
+        "added": 67,
         "removed": 1,
         "exempt": [],
         "exemptOnly": false,
         "docsOnly": false,
         "renamed": []
       },
-      "changed": 82,
+      "changed": 68,
       "exists": true,
       "check": {
         "version": 1,
@@ -24,7 +24,7 @@
         "head": "<sha2>",
         "diffStat": {
           "files": 6,
-          "added": 81,
+          "added": 67,
           "removed": 1
         },
         "answeredBy": {
@@ -380,14 +380,14 @@
       "head": "<sha2>",
       "change": {
         "files": 6,
-        "added": 81,
+        "added": 67,
         "removed": 1,
         "exempt": [],
         "exemptOnly": false,
         "docsOnly": false,
         "renamed": []
       },
-      "changed": 82,
+      "changed": 68,
       "exists": true,
       "check": {
         "version": 1,
@@ -396,7 +396,7 @@
         "head": "<sha2>",
         "diffStat": {
           "files": 6,
-          "added": 81,
+          "added": 67,
           "removed": 1
         },
         "answeredBy": {

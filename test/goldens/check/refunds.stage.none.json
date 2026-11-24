@@ -7,27 +7,27 @@
     "head": "<sha2>",
     "change": {
       "files": 6,
-      "added": 81,
+      "added": 67,
       "removed": 1,
       "exempt": [],
       "exemptOnly": false,
       "docsOnly": false,
       "renamed": []
     },
-    "changed": 82,
+    "changed": 68,
     "exists": false,
     "state": {
       "phase": "none",
-      "changed": 82,
+      "changed": 68,
       "want": 3
     },
-    "next": "82 code lines changed · 3 questions, ~2 min."
+    "next": "68 code lines changed · 3 questions, ~2 min."
   },
   "words": {
     "tone": "todo",
     "bar": "Understanding: start",
     "title": "No check yet for feat/refunds",
-    "line": "82 code lines changed · 3 questions, ~2 min.",
+    "line": "68 code lines changed · 3 questions, ~2 min.",
     "rule": ""
   },
   "view": {
@@ -35,7 +35,7 @@
     "file": "understanding/feat-refunds.json",
     "tone": "todo",
     "title": "No check yet for feat/refunds",
-    "line": "82 code lines changed · 3 questions, ~2 min.",
+    "line": "68 code lines changed · 3 questions, ~2 min.",
     "rows": [],
     "action": {
       "id": "start",
@@ -44,7 +44,7 @@
   },
   "bar": {
     "text": "$(checklist) Understanding: start",
-    "tip": "No check yet for feat/refunds · 82 code lines changed · 3 questions, ~2 min.",
+    "tip": "No check yet for feat/refunds · 68 code lines changed · 3 questions, ~2 min.",
     "warn": false
   },
   "run": "start",

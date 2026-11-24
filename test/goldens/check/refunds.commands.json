@@ -2,7 +2,7 @@
   "help": "understanding.mjs: an understanding check for a change (docs: https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md)",
   "status.none.text": {
     "code": 0,
-    "out": "No check yet for feat/refunds · 82 code lines changed · 3 questions, ~2 min.\n  Run \"Code Notes: Check my understanding\" in VS Code.\n  Without VS Code: add the understanding-check skill to .claude/skills (https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check), then type /understanding-check in Claude Code.\n  feat/refunds · understanding/feat-refunds.json (none yet) · 82 code lines changed"
+    "out": "No check yet for feat/refunds · 68 code lines changed · 3 questions, ~2 min.\n  Run \"Code Notes: Check my understanding\" in VS Code.\n  Without VS Code: add the understanding-check skill to .claude/skills (https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check), then type /understanding-check in Claude Code.\n  feat/refunds · understanding/feat-refunds.json (none yet) · 68 code lines changed"
   },
   "status.none.json": {
     "branch": "feat/refunds",
@@ -12,21 +12,21 @@
     "head": "<sha2>",
     "change": {
       "files": 6,
-      "added": 81,
+      "added": 67,
       "removed": 1,
       "exempt": [],
       "exemptOnly": false,
       "docsOnly": false,
       "renamed": []
     },
-    "changed": 82,
+    "changed": 68,
     "exists": false,
     "state": {
       "phase": "none",
-      "changed": 82,
+      "changed": 68,
       "want": 3
     },
-    "next": "82 code lines changed · 3 questions, ~2 min."
+    "next": "68 code lines changed · 3 questions, ~2 min."
   },
   "script": [
     {
@@ -36,7 +36,7 @@
         "main"
       ],
       "code": 0,
-      "out": "CHANGE: branch feat/refunds · 6 files · 82 code lines (+81 −1)\nWRITE: 3 questions, about code lines (never comments or blank lines), then `finish`. Files: api/refunds.js (+33 −0), api/restock.js (+7 −0), deploy/chart/templates/worker.yaml (+21 −0), migrations/002_refunds.sql (+10 −0), worker/alerts.js (+13 −0), worker/notify.js (+9 −1)\n\ndiff --git a/api/refunds.js b/api/refunds.js\nnew file mode 100644\nindex 0000000..a00c092\n--- /dev/null\n+++ b/api/refunds.js\n@@ -0,0 +1,33 @@\n    1 +// Refunds: staff refund part or all of an order. `key` is the request's Idempotency-Key: a retry with the\n    2 +// same key gets the refund made the first time back instead of a second refund.\n    3 +import { pool } from './pg.js'\n    4 +\n    5 +export class RefundError extends Error {\n    6 +  constructor(status, message) { super(message); this.status = status }\n    7 +}\n    8 +\n    9 +export async function createRefund(number, amount, key) {\n   10 +  if (!Number.isInteger(amount) || amount < 1) throw new RefundError(422, 'The amount must be a whole number of cents.')\n   11 +  const { rows: [prev] } = await pool.query(\n   12 +    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n   13 +  if (prev) return { refund: prev, replayed: true }\n   14 +\n   15 +  const client = await pool.connect()\n   16 +  try {\n   17 +    await client.query('BEGIN')\n   18 +    const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE number = $1 FOR UPDATE', [number])\n   19 +    if (!order) throw new RefundError(404, 'Order not found')\n   20 +    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)\n   21 +    const { rows: [refund] } = await client.query(\n   22 +      'INSERT INTO refunds (order_number, idempotency_key, amount) VALUES ($1, $2, $3) RETURNING *', [number, key, amount])\n   23 +    await client.query('UPDATE orders SET refunded = refunded + $2 WHERE number = $1', [number, amount])\n   24 +    await client.query(`INSERT INTO jobs (kind, payload) VALUES ('refund_notice', $1)`, [{ number, refund: refund.id }])\n   25 +    await client.query('COMMIT')\n   26 +    return { refund, replayed: false }\n   27 +  } catch (err) {\n   28 +    await client.query('ROLLBACK').catch(() => {})\n   29 +    throw err\n   30 +  } finally {\n   31 +    client.release()\n   32 +  }\n   33 +}\n\ndiff --git a/api/restock.js b/api/restock.js\nnew file mode 100644\nindex 0000000..1721166\n--- /dev/null\n+++ b/api/restock.js\n@@ -0,0 +1,7 @@\n    1 +// Refunded items: each refunded line is recorded, and its quantity goes back into the product's stock.\n    2 +export async function refundItems(client, number, items) {\n    3 +  for (const { sku, qty } of items) {\n    4 +    await client.query('INSERT INTO refund_items (order_number, sku, qty) VALUES ($1, $2, $3)', [number, sku, qty])\n    5 +    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])\n    6 +  }\n    7 +}\n\ndiff --git a/deploy/chart/templates/worker.yaml b/deploy/chart/templates/worker.yaml\nnew file mode 100644\nindex 0000000..211e3da\n--- /dev/null\n+++ b/deploy/chart/templates/worker.yaml\n@@ -0,0 +1,21 @@\n    1 +apiVersion: apps/v1\n    2 +kind: Deployment\n    3 +metadata:\n    4 +  name: shop-worker\n    5 +spec:\n    6 +  replicas: 1\n    7 +  selector:\n    8 +    matchLabels: { app: shop-worker }\n    9 +  template:\n   10 +    metadata:\n   11 +      labels: { app: shop-worker }\n   12 +    spec:\n   13 +      containers:\n   14 +        - name: worker\n   15 +          image: \"{{ .Values.image }}\"\n   16 +          command: [\"node\", \"worker/worker.js\"]\n   17 +          env:\n   18 +            - name: DATABASE_URL\n   19 +              valueFrom: { secretKeyRef: { name: shop-db, key: url } }\n   20 +            - name: SMTP_HOST\n   21 +              value: \"{{ .Values.smtpHost }}\"\n\ndiff --git a/migrations/002_refunds.sql b/migrations/002_refunds.sql\nnew file mode 100644\nindex 0000000..17272fe\n--- /dev/null\n+++ b/migrations/002_refunds.sql\n@@ -0,0 +1,10 @@\n    1 +-- Refunds: one row per refund. A retried request carries the same Idempotency-Key as the first one.\n    2 +CREATE TABLE IF NOT EXISTS refunds (\n    3 +  id              bigserial PRIMARY KEY,\n    4 +  order_number    integer NOT NULL REFERENCES orders(number),\n    5 +  idempotency_key text NOT NULL,\n    6 +  amount          integer NOT NULL CHECK (amount > 0),\n    7 +  created_at      timestamptz NOT NULL DEFAULT now(),\n    8 +  UNIQUE (order_number, idempotency_key)\n    9 +);\n   10 +ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded integer NOT NULL DEFAULT 0;\n\ndiff --git a/worker/alerts.js b/worker/alerts.js\nnew file mode 100644\nindex 0000000..aed8d35\n--- /dev/null\n+++ b/worker/alerts.js\n@@ -0,0 +1,13 @@\n    1 +// Low-stock alerts: when a product's stock falls under its threshold, operations get an email.\n    2 +import { pool } from '../api/pg.js'\n    3 +import { sendMail } from './notify.js'\n    4 +\n    5 +const OPS_EMAIL = process.env.OPS_EMAIL\n    6 +\n    7 +export async function checkStock() {\n    8 +  const { rows } = await pool.query('SELECT id, name, stock, low_at FROM products WHERE stock < low_at')\n    9 +  if (!rows.length || !OPS_EMAIL) return 0\n   10 +  const text = rows.map((p) => `${p.name}: ${p.stock} left`).join('\\n')\n   11 +  await sendMail(OPS_EMAIL, `Low stock: ${rows.length} products`, text)\n   12 +  return rows.length\n   13 +}\n\ndiff --git a/worker/notify.js b/worker/notify.js\nindex de496d5..01cadc8 100644\n--- a/worker/notify.js\n+++ b/worker/notify.js\n@@ -30,7 +30,15 @@ async function orderConfirmation({ number }) {\n   30    await pool.query('UPDATE orders SET receipt_sent_at = now() WHERE number = $1', [number])\n   31  }\n   32  \n      -const handlers = { order_confirmation: orderConfirmation }\n   33 +// A refund was made: tell the customer how much comes back to their card.\n   34 +async function refundNotice({ number, refund }) {\n   35 +  const { rows: [r] } = await pool.query(\n   36 +    'SELECT r.amount, o.email FROM refunds r JOIN orders o ON o.number = r.order_number WHERE r.id = $1', [refund])\n   37 +  const text = `We refunded ${(r.amount / 100).toFixed(2)} for order #${number}. It reaches your card in 3-5 days.`\n   38 +  await sendMail(r.email, `Refund for order #${number}`, text)\n   39 +}\n   40 +\n   41 +const handlers = { order_confirmation: orderConfirmation, refund_notice: refundNotice }\n   42  \n   43  // Takes the oldest due job; runs its handler; deletes it when the handler returns. A handler that throws: the\n   44  // job comes back after 2^tries seconds, and is marked dead after MAX_TRIES.\n"
+      "out": "CHANGE: branch feat/refunds · 6 files · 68 code lines (+67 −1)\nWRITE: 3 questions, about code lines (never comments or blank lines), then `finish`. Files: api/refunds.js (+33 −0), api/restock.js (+7 −0), docker-compose.yml (+8 −0), migrations/002_refunds.sql (+10 −0), worker/alerts.js (+13 −0), worker/notify.js (+9 −1)\n\ndiff --git a/api/refunds.js b/api/refunds.js\nnew file mode 100644\nindex 0000000..a00c092\n--- /dev/null\n+++ b/api/refunds.js\n@@ -0,0 +1,33 @@\n    1 +// Refunds: staff refund part or all of an order. `key` is the request's Idempotency-Key: a retry with the\n    2 +// same key gets the refund made the first time back instead of a second refund.\n    3 +import { pool } from './pg.js'\n    4 +\n    5 +export class RefundError extends Error {\n    6 +  constructor(status, message) { super(message); this.status = status }\n    7 +}\n    8 +\n    9 +export async function createRefund(number, amount, key) {\n   10 +  if (!Number.isInteger(amount) || amount < 1) throw new RefundError(422, 'The amount must be a whole number of cents.')\n   11 +  const { rows: [prev] } = await pool.query(\n   12 +    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n   13 +  if (prev) return { refund: prev, replayed: true }\n   14 +\n   15 +  const client = await pool.connect()\n   16 +  try {\n   17 +    await client.query('BEGIN')\n   18 +    const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE number = $1 FOR UPDATE', [number])\n   19 +    if (!order) throw new RefundError(404, 'Order not found')\n   20 +    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)\n   21 +    const { rows: [refund] } = await client.query(\n   22 +      'INSERT INTO refunds (order_number, idempotency_key, amount) VALUES ($1, $2, $3) RETURNING *', [number, key, amount])\n   23 +    await client.query('UPDATE orders SET refunded = refunded + $2 WHERE number = $1', [number, amount])\n   24 +    await client.query(`INSERT INTO jobs (kind, payload) VALUES ('refund_notice', $1)`, [{ number, refund: refund.id }])\n   25 +    await client.query('COMMIT')\n   26 +    return { refund, replayed: false }\n   27 +  } catch (err) {\n   28 +    await client.query('ROLLBACK').catch(() => {})\n   29 +    throw err\n   30 +  } finally {\n   31 +    client.release()\n   32 +  }\n   33 +}\n\ndiff --git a/api/restock.js b/api/restock.js\nnew file mode 100644\nindex 0000000..1721166\n--- /dev/null\n+++ b/api/restock.js\n@@ -0,0 +1,7 @@\n    1 +// Refunded items: each refunded line is recorded, and its quantity goes back into the product's stock.\n    2 +export async function refundItems(client, number, items) {\n    3 +  for (const { sku, qty } of items) {\n    4 +    await client.query('INSERT INTO refund_items (order_number, sku, qty) VALUES ($1, $2, $3)', [number, sku, qty])\n    5 +    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])\n    6 +  }\n    7 +}\n\ndiff --git a/docker-compose.yml b/docker-compose.yml\nnew file mode 100644\nindex 0000000..3c2b3f0\n--- /dev/null\n+++ b/docker-compose.yml\n@@ -0,0 +1,8 @@\n    1 +# The shop's services as they run in production.\n    2 +services:\n    3 +  worker:\n    4 +    image: shop-worker\n    5 +    command: [\"node\", \"worker/worker.js\"]\n    6 +    environment:\n    7 +      DATABASE_URL: ${DATABASE_URL}\n    8 +      SMTP_HOST: ${SMTP_HOST}\n\ndiff --git a/migrations/002_refunds.sql b/migrations/002_refunds.sql\nnew file mode 100644\nindex 0000000..17272fe\n--- /dev/null\n+++ b/migrations/002_refunds.sql\n@@ -0,0 +1,10 @@\n    1 +-- Refunds: one row per refund. A retried request carries the same Idempotency-Key as the first one.\n    2 +CREATE TABLE IF NOT EXISTS refunds (\n    3 +  id              bigserial PRIMARY KEY,\n    4 +  order_number    integer NOT NULL REFERENCES orders(number),\n    5 +  idempotency_key text NOT NULL,\n    6 +  amount          integer NOT NULL CHECK (amount > 0),\n    7 +  created_at      timestamptz NOT NULL DEFAULT now(),\n    8 +  UNIQUE (order_number, idempotency_key)\n    9 +);\n   10 +ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded integer NOT NULL DEFAULT 0;\n\ndiff --git a/worker/alerts.js b/worker/alerts.js\nnew file mode 100644\nindex 0000000..aed8d35\n--- /dev/null\n+++ b/worker/alerts.js\n@@ -0,0 +1,13 @@\n    1 +// Low-stock alerts: when a product's stock falls under its threshold, operations get an email.\n    2 +import { pool } from '../api/pg.js'\n    3 +import { sendMail } from './notify.js'\n    4 +\n    5 +const OPS_EMAIL = process.env.OPS_EMAIL\n    6 +\n    7 +export async function checkStock() {\n    8 +  const { rows } = await pool.query('SELECT id, name, stock, low_at FROM products WHERE stock < low_at')\n    9 +  if (!rows.length || !OPS_EMAIL) return 0\n   10 +  const text = rows.map((p) => `${p.name}: ${p.stock} left`).join('\\n')\n   11 +  await sendMail(OPS_EMAIL, `Low stock: ${rows.length} products`, text)\n   12 +  return rows.length\n   13 +}\n\ndiff --git a/worker/notify.js b/worker/notify.js\nindex de496d5..01cadc8 100644\n--- a/worker/notify.js\n+++ b/worker/notify.js\n@@ -30,7 +30,15 @@ async function orderConfirmation({ number }) {\n   30    await pool.query('UPDATE orders SET receipt_sent_at = now() WHERE number = $1', [number])\n   31  }\n   32  \n      -const handlers = { order_confirmation: orderConfirmation }\n   33 +// A refund was made: tell the customer how much comes back to their card.\n   34 +async function refundNotice({ number, refund }) {\n   35 +  const { rows: [r] } = await pool.query(\n   36 +    'SELECT r.amount, o.email FROM refunds r JOIN orders o ON o.number = r.order_number WHERE r.id = $1', [refund])\n   37 +  const text = `We refunded ${(r.amount / 100).toFixed(2)} for order #${number}. It reaches your card in 3-5 days.`\n   38 +  await sendMail(r.email, `Refund for order #${number}`, text)\n   39 +}\n   40 +\n   41 +const handlers = { order_confirmation: orderConfirmation, refund_notice: refundNotice }\n   42  \n   43  // Takes the oldest due job; runs its handler; deletes it when the handler returns. A handler that throws: the\n   44  // job comes back after 2^tries seconds, and is marked dead after MAX_TRIES.\n"
     },
     {
       "args": [
@@ -156,7 +156,7 @@
         "How does the readme describe the refunds that were added here?"
       ],
       "code": 1,
-      "out": "PROBLEM: README.md is not part of this change: ask about the changed files (api/refunds.js, api/restock.js, deploy/chart/templates/worker.yaml, migrations/002_refunds.sql, worker/alerts.js, worker/notify.js)\n"
+      "out": "PROBLEM: README.md is not part of this change: ask about the changed files (api/refunds.js, api/restock.js, docker-compose.yml, migrations/002_refunds.sql, worker/alerts.js, worker/notify.js)\n"
     },
     {
       "args": [
@@ -297,7 +297,7 @@
   },
   "status.answering.text": {
     "code": 0,
-    "out": "4 of 6 done · Answer all 6 · 4 must pass · ~1 min left.\n  feat/refunds · understanding/feat-refunds.json · 82 code lines changed\n  4 done, 4 passed · 0 lines since the check"
+    "out": "4 of 6 done · Answer all 6 · 4 must pass · ~1 min left.\n  feat/refunds · understanding/feat-refunds.json · 68 code lines changed\n  4 done, 4 passed · 0 lines since the check"
   },
   "next.done": {
     "code": 0,
@@ -315,14 +315,14 @@
     "head": "<sha2>",
     "change": {
       "files": 6,
-      "added": 81,
+      "added": 67,
       "removed": 1,
       "exempt": [],
       "exemptOnly": false,
       "docsOnly": false,
       "renamed": []
     },
-    "changed": 82,
+    "changed": 68,
     "exists": true,
     "summary": {
       "total": 6,
@@ -368,7 +368,7 @@
   },
   "status.committed.text": {
     "code": 0,
-    "out": "✓ Done · Committed.\n  feat/refunds · understanding/feat-refunds.json · 82 code lines changed\n  6 done, 5 passed · 0 lines since the check"
+    "out": "✓ Done · Committed.\n  feat/refunds · understanding/feat-refunds.json · 68 code lines changed\n  6 done, 5 passed · 0 lines since the check"
   },
   "ci.pass": {
     "code": 0,
