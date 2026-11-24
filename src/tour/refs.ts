@@ -84,7 +84,7 @@ async function openRefInTab(
     const stepLine = Math.max(0, (at.removed ? 1 : at.start) - 1)
     stepEditor.selection = new vscode.Selection(stepLine, 0, stepLine, 0)
   }
-  const ed = await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk().codeColumn() })
+  const ed = await vscode.window.showTextDocument(uri, { preview: true, viewColumn: walk().claimCodeColumn() })
   const { start: a, end: b } = clampLines(ed.document, line, end)
   const here = { uri: uri.toString(), start: a, end: b }
   tourState().refHere = here

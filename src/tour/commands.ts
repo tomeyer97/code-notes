@@ -2,45 +2,76 @@
 // reload, and the commands of the map and of a step link.
 
 import * as vscode from 'vscode'
-import { beats, codeLinks, journeys, mapPanel, valueHints } from './ports'
+import { journeys, mapPanel } from './ports'
 import { card, tourState, walk } from './instances'
 import { log, stored } from '../platform/host'
 import { prefixUsed } from '../platform/chordKey'
 import { MAP_VIEW } from '../journeys/mapPanel'
-import { fileOf, journeyById, LoadedJourney, posKey } from '../journeys/steps'
+import { journeyById, LoadedJourney } from '../journeys/steps'
 import { markJourneysSeen } from '../notes/seen'
 import { showIntro } from '../sidebar/journeyRows'
-import { tree } from '../sidebar/notesTree'
 import { cardOnly, codeGetsMoreRoom, keepWidthOnFocus, noteLayout, panelFits, roomForMap } from './panelLayout'
 import { pickJourney } from './pick'
 import { fireAndForget } from '../platform/run'
 import { STATE } from '../platform/state'
 import { HiddenCmd } from '../platform/commands'
+import { say } from './status'
+import { AFTER_RESTORE_MS, CHECK_TOUR_READ_MS } from './timings'
+import { numberOf, stepCount } from './walkMoves'
 
 /**
  * Opening a journey walks it (no separate Start): its map, and the code with its card at step 1,
- * or where it was left (the step being walked, else the resume point).
+ * or where it was left (the step being walked, else the resume point). `keepFocus`: where the click was (the
+ * Journeys list, the panel); see walkFromSidebar and walkFromPanel.
  */
 export async function walkJourney(lj: LoadedJourney, opts: { fromStart?: boolean; keepFocus?: 'sidebar' | 'panel' } = {}): Promise<void> {
-  // The journey you're in (its row, Open Journey… on it): its panel to the front, the walk and the podcast as they
-  // are. Never closed or reopened, the layout untouched (F51, F129).
+  if (opts.keepFocus === 'sidebar') return walkFromSidebar(lj, opts)
+  if (opts.keepFocus === 'panel') return walkFromPanel(lj, opts)
   if (!opts.fromStart && isHere(lj)) {
-    if (!mapPanel().visible || opts.keepFocus !== 'sidebar') walk().showMap(lj, opts.keepFocus === 'sidebar')
-    if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand(HiddenCmd.journeysFocus).then(undefined, () => undefined)
+    walk().showMap(lj)
     return
   }
+  await openAndWalk(lj, opts)
+}
+
+/** From a Journeys row: the focus goes back to the list, so arrows and Enter never type into the code. */
+async function walkFromSidebar(lj: LoadedJourney, opts: { fromStart?: boolean }): Promise<void> {
+  // The journey you're in (its row, Open Journey… on it): its panel to the front, the walk and the podcast as they
+  // are. Never closed or reopened, the layout untouched.
+  if (!opts.fromStart && isHere(lj)) {
+    if (!mapPanel().visible) walk().showMap(lj, true)
+    await focusJourneyList()
+    return
+  }
+  // The code is shown, but the focus is back where the click was.
+  await openAndWalk(lj, opts, focusJourneyList)
+}
+
+/** From the panel (its list, its buttons): the focus stays in the panel when it is shown. */
+async function walkFromPanel(lj: LoadedJourney, opts: { fromStart?: boolean }): Promise<void> {
+  if (!opts.fromStart && isHere(lj)) {
+    walk().showMap(lj)
+    return
+  }
+  await openAndWalk(lj, opts, (room) => { if (room) mapPanel().takeFocus() })
+}
+
+/** The journey's map (when there is room) and its walk at the step it opens on, `focus` put back where the click was;
+ *  then the code gets more room. */
+async function openAndWalk(lj: LoadedJourney, opts: { fromStart?: boolean }, focus?: (room: boolean) => unknown): Promise<void> {
   // A journey without steps: its map only.
-  if (!lj.j.steps.length) {
+  if (!stepCount(lj)) {
     await openMap(lj)
     return
   }
   const room = await openMapIfRoom(lj)
   await walk().goToStep(lj, opts.fromStart ? 1 : walk().startStep(lj))
-  // Back where the click was: the code is shown, but arrows and Enter never type into it.
-  if (opts.keepFocus === 'sidebar') await vscode.commands.executeCommand(HiddenCmd.journeysFocus).then(undefined, () => undefined)
-  else if (opts.keepFocus === 'panel' && room) mapPanel().takeFocus()
+  await focus?.(room)
   if (room) await codeGetsMoreRoom()
 }
+
+/** The Journeys list takes the focus (it may not be there: nothing then). */
+const focusJourneyList = () => vscode.commands.executeCommand(HiddenCmd.journeysFocus).then(undefined, () => undefined)
 
 /** `lj` is the journey on screen: its panel is open and its walk (or its podcast) is going on. */
 function isHere(lj: LoadedJourney): boolean {
@@ -67,71 +98,26 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   if (showIntro()) await stored().set(STATE.journeyOpened, true)
   // One journey on screen at a time: another journey's map ends the running walk quietly (its place is kept
   // for Resume); its status item and code marker go with it.
-  if (lj.key !== tourState().key && walk().touring()) await endJourney()
-  if (lj.key !== tourState().key) tourState().browse(lj.key)
+  if (lj.key !== tourState().key && walk().touring()) await walk().end()
+  if (lj.key !== tourState().key) walk().browse(lj)
   if (show) walk().showMap(lj)
   walk().updateTour()
-  tree.refresh()
 }
 
-/**
- * Finish on the last step: the walk ends and starts over next time; the step tab it opened closes, so the map
- * gets its width back. No message.
- */
-export async function finishTour(): Promise<void> {
-  const lj = walk().tourJourney()
-  const doc = tourState().doc
-  await endJourney()
-  if (!lj) return
-  await stored().set(STATE.journeyPos, Object.fromEntries(Object.entries(walk().positions()).filter(([k]) => k !== posKey(lj))))
-  await closeWalkTabs(lj, doc?.column)
-  tourState().finishedKey = lj.key
-  // The panel says Done when it is open or has the room; else the status bar says it.
-  if (mapPanel().journey || (await panelFits())) walk().showMap(lj)
-  else vscode.window.setStatusBarMessage('$(check) Journey finished', 3000)
-  walk().updateTour()
-  tree.refresh()
-}
+/** Finish on the last step (walk.finish). */
+export const finishTour = (): Promise<void> => walk().finish()
 
-/** The walk's own preview tab in `column` (the code group it used), not one you kept open or edited: closed. */
-export async function closeWalkTabs(lj: LoadedJourney, column: vscode.ViewColumn | undefined): Promise<void> {
-  const tabs = column ? walkPreviewTabs(lj, column) : []
-  if (tabs.length) await vscode.window.tabGroups.close(tabs, true)
-}
+export { closeWalkTabs } from './walkTabs'
 
-/** Preview tabs in `column` showing one of the journey's step files (or a file its animations show), not edited. */
-function walkPreviewTabs(lj: LoadedJourney, column: vscode.ViewColumn): vscode.Tab[] {
-  const renames = journeys().renames(lj)
-  const beatFiles = lj.j.steps.flatMap((s) => (s.scene?.beats ?? []).map((b) => b.code?.file).filter((f): f is string => typeof f === 'string'))
-  const stepFiles = new Set([
-    ...lj.j.steps.map((s) => vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).toString()),
-    ...beatFiles.map((f) => vscode.Uri.joinPath(lj.folder.uri, renames.get(f) ?? f).toString()),
-  ])
-  return vscode.window.tabGroups.all.filter((g) => g.viewColumn === column).flatMap((g) => g.tabs)
-    .filter((t) => t.isPreview && !t.isDirty && t.input instanceof vscode.TabInputText && stepFiles.has(t.input.uri.toString()))
-}
-
-/** Ends the tour: its place is kept (resume later), the card goes; the code stays open. */
-export async function endJourney(): Promise<void> {
-  const lj = walk().tourJourney()
-  if (lj && tourState().step) await walk().savePos(lj, tourState().step)
-  await stored().set(STATE.tour, undefined)
-  // The code you were reading stays open: you probably ended the tour to keep reading there.
-  codeLinks().clear()
-  valueHints().clear()
-  beats().clear()
-  tourState().stop()
-  card().clear()
-  walk().updateTour()
-  tree.refresh()
-}
+/** Ends the tour: its place is kept (resume later), the card goes; the code stays open (walk.end). */
+export const endJourney = (): Promise<void> => walk().end()
 
 /** After a reload: the tour where it was. The map comes back by itself when it was open (serializer). */
 export async function restoreTour(): Promise<void> {
   const lj = journeys().byPos(stored().get(STATE.tour))
   if (!lj) return
   const n = walk().resumeAt(lj) || 1
-  if (!mapPanel().journey) tourState().browse(lj.key)
+  if (!mapPanel().journey) walk().browse(lj)
   await walk().goToStep(lj, n, { focus: false })
   walk().wasRestored(lj)
 }
@@ -143,14 +129,21 @@ export async function restoreTour(): Promise<void> {
  * ("OverlayWebview has been disposed").
  */
 export function restoreMapPanel(context: vscode.ExtensionContext): () => void {
+  // The panel's layout is the tour's to keep (panelLayout.ts): the panel says when it changed or got the focus.
   mapPanel().layoutChanged = () => fireAndForget(noteLayout(), 'commands: noteLayout')
   mapPanel().activated = () => fireAndForget(keepWidthOnFocus(), 'commands: keepWidthOnFocus')
-  let journeysLoaded!: () => void
-  const journeysReady = new Promise<void>((r) => { journeysLoaded = r })
+  const journeysRead = new Signal()
   context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(MAP_VIEW, {
-    deserializeWebviewPanel: (panel, st) => restorePanel(panel, st as PanelState | undefined, journeysReady),
+    deserializeWebviewPanel: (panel, st) => restorePanel(panel, st as PanelState | undefined, journeysRead.done),
   }))
-  return journeysLoaded
+  return () => journeysRead.fire()
+}
+
+/** Something that happens once (the journeys read): `done` resolves then. */
+class Signal {
+  private resolve: () => void = () => undefined
+  readonly done = new Promise<void>((r) => { this.resolve = r })
+  fire(): void { this.resolve() }
 }
 
 /** What a map panel keeps over a reload (media/journey-map.js setState). */
@@ -177,7 +170,7 @@ export async function restorePanel(panel: vscode.WebviewPanel, st: PanelState | 
       afterRestore(() => panel.dispose())
       return
     }
-    if (!tourState().key) tourState().browse(lj.key)
+    if (!tourState().key) walk().browse(lj)
     mapPanel().adopt(panel, lj)
     walk().updateTour()
     afterRestore(() => fireAndForget(codeGetsMoreRoom(), 'commands: codeGetsMoreRoom'))
@@ -188,22 +181,21 @@ export async function restorePanel(panel: vscode.WebviewPanel, st: PanelState | 
   }
 }
 
-/** How long after VS Code restored a panel it is closed or resized (closed while VS Code still restored it, it left an
- *  empty editor group). */
-const AFTER_RESTORE_MS = 1500
-
-/** A check's tour is read with its check, a moment after the journeys: asked for this many times, this far apart. */
-const MAP_JOURNEY_TRIES = 20
-const MAP_JOURNEY_WAIT_MS = 250
-
-/** The journey last shown on the map, once it has been read (undefined: it is gone). */
-async function mapJourneyRead(): Promise<LoadedJourney | undefined> {
-  let lj = journeys().byPos(stored().get(STATE.mapJourney))
-  for (let i = 0; !lj && i < MAP_JOURNEY_TRIES; i++) {
-    await new Promise((r) => setTimeout(r, MAP_JOURNEY_WAIT_MS))
-    lj = journeys().byPos(stored().get(STATE.mapJourney))
-  }
-  return lj
+/** The journey last shown on the map, once it has been read (undefined: it is gone). A check's tour is read with its
+ *  check, a moment after the journeys: the journeys' next changes are waited for, up to CHECK_TOUR_READ_MS. */
+function mapJourneyRead(): Promise<LoadedJourney | undefined> {
+  const find = () => journeys().byPos(stored().get(STATE.mapJourney))
+  const now = find()
+  if (now) return Promise.resolve(now)
+  return new Promise((resolve) => {
+    const done = (lj: LoadedJourney | undefined) => {
+      clearTimeout(timer)
+      sub.dispose()
+      resolve(lj)
+    }
+    const sub = journeys().onDidChange(() => { const lj = find(); if (lj) done(lj) })
+    const timer = setTimeout(() => done(find()), CHECK_TOUR_READ_MS)
+  })
 }
 
 /**
@@ -221,7 +213,7 @@ export async function showMap(a?: unknown): Promise<void> {
   const lj = walk().tourJourney() ?? journeys().byPos(stored().get(STATE.mapJourney)) ?? (await pickJourney())
   if (lj) await openMap(lj)
   // "The map" means the map: an animation showing in its place goes, and a panel too narrow for the boxes gets the
-  // room for them (asked for, so the layout may change: F123).
+  // room for them (asked for, so the layout may change).
   mapPanel().send({ type: 'anim', action: 'off' })
   if (lj) await roomForMap()
 }
@@ -240,12 +232,11 @@ export async function openStepLink(id: string, stepId: string, n: number, folder
   const from = folder ?? activeFolder()
   const lj = journeyById(journeys().list.values(), id, from)
   if (!lj) {
-    vscode.window.setStatusBarMessage('$(info) That journey is gone', 3000)
+    say('$(info) That journey is gone', 'done')
     return
   }
-  const i = lj.j.steps.findIndex((x) => x.id === stepId)
   await openMapIfRoom(lj)
-  await walk().goToStep(lj, i >= 0 ? i + 1 : n)
+  await walk().goToStep(lj, numberOf(lj, stepId) || n)
 }
 
 /** The workspace folder of the active editor's file (its uri), if any. */
@@ -261,8 +252,4 @@ export async function backToStep(): Promise<void> {
 }
 
 /** More / Less on the step card (`open`: which; none: the other). */
-export const stepDetails = (open?: boolean) => {
-  tourState().detailsOpen = open ?? !tourState().detailsOpen
-  const lj = walk().tourJourney()
-  if (lj && tourState().step) card().show(lj, tourState().step)
-}
+export const stepDetails = (open?: boolean) => walk().showDetails(open)

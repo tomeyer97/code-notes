@@ -8,7 +8,6 @@ import { chordKey } from '../platform/chordKey'
 import { stored } from '../platform/host'
 import { STATE } from '../platform/state'
 import type { TourFeature } from './index'
-import { tutorialMark, tutorialSeen } from './tutorial'
 
 /** A map panel as VS Code hands one over after a reload; the tutorial as never seen. */
 export { restorePanel } from './commands'
@@ -18,7 +17,7 @@ export interface Around { mapPanel: MapPanel; beats: Beats; codeLinks: CodeLinks
 
 /** The tour, the map, the card and what lights the code, as the tests read them. */
 export function tourSnapshot({ parts }: TourFeature, { mapPanel, beats, codeLinks, valueHints }: Around) {
-  const { state, probe, card, walk, items, spot } = parts
+  const { state, probe, card, walk, items, spot, tutorial } = parts
   const lj = walk.tourJourney()
   const walking = walk.touring()
   const cardShot = card.snapshot()
@@ -38,7 +37,7 @@ export function tourSnapshot({ parts }: TourFeature, { mapPanel, beats, codeLink
     status: items.pos.text,
     // None while its journey is listened to (the podcast's item then).
     statusShown: !!items.pos.text && walking && !(lj && walk.listening(lj)),
-    tutorial: { ...tutorialSeen, seen: !!stored().get(STATE.tutorialSeen), spot: spot.shown, mark: tutorialMark },
+    tutorial: { ...tutorial.seen, seen: !!stored().get(STATE.tutorialSeen), spot: spot.shown, mark: tutorial.mark },
     key: chordKey(),
     lastLeft: probe.lastLeft,
     panelCard: walking && lj && card.inMap(lj, state.step) ? card.panelCard(lj, state.step) : undefined,

@@ -5,7 +5,8 @@
 // at beat 1 without marks (before) and with them (after), dark and light.
 import * as vscode from 'vscode'
 import assert from 'assert'
-import { test, windowShot } from '../helpers'
+import { test } from '../helpers'
+import { shotsInBothThemes } from './themeShots'
 import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { ctx, journeysDir, snap, tour, until, wsPath } from './context'
 
@@ -45,10 +46,7 @@ const beat = (i: number) => ctx.api.mapMessage({ type: 'beat', n: 1, i })
 async function shots(state: string) {
   // The code at its width: the chat side bar closed.
   await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
-  await windowShot(`journey-marks-${state}-dark`, { wait: 800 })
-  await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Light Modern', vscode.ConfigurationTarget.Global)
-  await windowShot(`journey-marks-${state}-light`, { wait: 1200 })
-  await vscode.workspace.getConfiguration('workbench').update('colorTheme', undefined, vscode.ConfigurationTarget.Global)
+  await shotsInBothThemes(`journey-marks-${state}`, { dark: 800, light: 1200 })
 }
 
 export const journeyMarksTests = [

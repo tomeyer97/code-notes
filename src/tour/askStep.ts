@@ -41,7 +41,7 @@ export async function askStep(text?: string): Promise<Note | undefined> {
   askBoxes().drafts.delete(draftKey)
   // The note's thread, open, with the live answer in it (the status bar is only a second cue).
   const shownIn = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri.toString())?.viewColumn
-  await reveal(note, shownIn ?? walk().codeColumn())
+  await reveal(note, shownIn ?? walk().claimCodeColumn())
   if (claudeMode() === 'button' && claudeCli()) fireAndForget(askClaude(note), 'askStep: askClaude')
   return note
 }

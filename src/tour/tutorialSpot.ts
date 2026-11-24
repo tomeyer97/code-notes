@@ -5,16 +5,20 @@ import { setDecorations } from '../platform/editorDecorations'
 // step's lines in the editor are boxed, so the eyes land on the card that sits right above them. An extension can't
 // draw on the card itself (a comment thread), only on code lines.
 
+/** The box's sides, as a line of it draws them (CSS border widths: top right bottom left): its first line, its middle
+ *  lines, its last line, and a box of one line. */
+const BOX_SIDES = { top: '1px 1px 0 1px', mid: '0 1px', bottom: '0 1px 1px 1px', one: '1px' } as const
+
+/** One line of the box: whole lines, in the focus border's colour (where VS Code shows what has the focus). */
+const boxLook = (borderWidth: string): vscode.DecorationRenderOptions =>
+  ({ isWholeLine: true, borderStyle: 'solid', borderColor: new vscode.ThemeColor('focusBorder'), borderWidth })
+
 export class TutorialSpot implements vscode.Disposable {
-  private readonly color = new vscode.ThemeColor('focusBorder')
-  private readonly box = (borderWidth: string) =>
-    vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderStyle: 'solid', borderColor: this.color, borderWidth })
-  /** The box's first line, its middle lines, its last line, and a box of one line. */
   private readonly kinds = {
-    top: this.box('1px 1px 0 1px'),
-    mid: this.box('0 1px'),
-    bottom: this.box('0 1px 1px 1px'),
-    one: this.box('1px'),
+    top: vscode.window.createTextEditorDecorationType(boxLook(BOX_SIDES.top)),
+    mid: vscode.window.createTextEditorDecorationType(boxLook(BOX_SIDES.mid)),
+    bottom: vscode.window.createTextEditorDecorationType(boxLook(BOX_SIDES.bottom)),
+    one: vscode.window.createTextEditorDecorationType(boxLook(BOX_SIDES.one)),
   }
   private at: { uri: string; start: number; end: number } | undefined
   private readonly sub = vscode.window.onDidChangeVisibleTextEditors(() => this.paint())

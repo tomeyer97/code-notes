@@ -3,10 +3,9 @@
 src/tour/card.ts -> src/sidebar/journeyRows.ts
 src/tour/checkTour.ts -> src/sidebar/listModel.ts
 src/tour/commands.ts -> src/sidebar/journeyRows.ts
-src/tour/commands.ts -> src/sidebar/notesTree.ts
 src/tour/mapMessages.ts -> src/sidebar/journeyRows.ts
 src/tour/mapMessages.ts -> src/sidebar/listModel.ts
 src/tour/pick.ts -> src/sidebar/nodes.ts
 src/tour/provenance.ts -> src/sidebar/listModel.ts
+src/tour/surfaces.ts -> src/sidebar/notesTree.ts
 src/tour/walk.ts -> src/sidebar/journeyRows.ts
-src/tour/walk.ts -> src/sidebar/notesTree.ts

@@ -23,10 +23,12 @@ import type { Narration } from './api'
 import { cardLine, stepUri } from './stepPlace'
 import { paintStepMarks, stepMarks } from './stepMarks'
 import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
-import { tutorialMark } from './tutorial'
 import { fireAndForget } from '../platform/run'
 import { Cmd, HiddenCmd } from '../platform/commands'
 import { folderFileKey } from '../platform/keys'
+
+/** What the map's tutorial points at on the card (tutorial.ts): nothing, its buttons, or its linked phrases. */
+export type TutorialMark = '' | 'card' | 'links'
 
 /** The tutorial's highlight: what its cards point at on the step card. */
 const TUTORIAL_HI = 'var(--vscode-editor-findMatchHighlightBackground)'
@@ -99,7 +101,10 @@ export class StepCard implements vscode.Disposable {
    * painter of the step's marks (a match that can't be found lights nothing). `narration`: what a podcast on the step
    * shows on it (none without one).
    */
-  static create(tour: TourState, probe: TourProbe, narration: (lj: LoadedJourney, n: number) => Narration | undefined, log: vscode.LogOutputChannel): StepCard {
+  static create(
+    tour: TourState, probe: TourProbe, narration: (lj: LoadedJourney, n: number) => Narration | undefined,
+    tutorialMark: () => TutorialMark, log: vscode.LogOutputChannel,
+  ): StepCard {
     const controller = vscode.comments.createCommentController('codeNotes.journey', 'Journey')
     controller.options = { prompt: '', placeHolder: '' }
     const deco = {
@@ -108,7 +113,7 @@ export class StepCard implements vscode.Disposable {
       stale: vscode.window.createTextEditorDecorationType(CARD_LOOKS.stale),
     }
     const refDeco = vscode.window.createTextEditorDecorationType(CARD_LOOKS.ref)
-    return new StepCard(tour, probe, narration, controller, deco, refDeco, new MarkPainter(log, 'drop'))
+    return new StepCard(tour, probe, narration, tutorialMark, controller, deco, refDeco, new MarkPainter(log, 'drop'))
   }
 
   private constructor(
@@ -116,6 +121,8 @@ export class StepCard implements vscode.Disposable {
     private readonly probe: TourProbe,
     /** The podcast on step n of `lj`, when one is in the panel for it. */
     private readonly narration: (lj: LoadedJourney, n: number) => Narration | undefined,
+    /** What the map's tutorial points at on the card now (tutorial.ts). */
+    private readonly tutorialMark: () => TutorialMark,
     readonly controller: vscode.CommentController,
     readonly deco: { at: vscode.TextEditorDecorationType; quiet: vscode.TextEditorDecorationType; stale: vscode.TextEditorDecorationType },
     readonly refDeco: vscode.TextEditorDecorationType,
@@ -255,7 +262,7 @@ export class StepCard implements vscode.Disposable {
    */
   markdown(lj: LoadedJourney, n: number): vscode.MarkdownString {
     const { tour } = this
-    const tutorial = tutorialMark
+    const tutorial = this.tutorialMark()
     const step = lj.j.steps[n - 1]
     // While the voice tells this step: the header line only (the voice and the code are enough).
     const nar = this.narration(lj, n)

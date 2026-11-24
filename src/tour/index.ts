@@ -23,9 +23,11 @@ import { pickJourney } from './pick'
 import { TourPorts, useTourPorts } from './ports'
 import { openRef, registerRefPages, STEP_SCHEME } from './refs'
 import { TourProbe, TourState } from './state'
-import { tutorial } from './tutorial'
+import { tutorial, Tutorial, useTutorial } from './tutorial'
 import { TutorialSpot } from './tutorialSpot'
 import { Walk } from './walk'
+import { followTheWalk, renderStatus } from './surfaces'
+import { TourStatusItem } from './status'
 
 export type { TourApi, TourPodcast } from './api'
 
@@ -42,7 +44,7 @@ export interface TourFeature {
   onMapMessage(lj: LoadedJourney, m: MapMessage): void
   mapState(lj: LoadedJourney): TourInfo
   /** What the integration tests read and drive of the tour (tour/testing.ts). */
-  parts: { state: TourState; probe: TourProbe; card: StepCard; walk: Walk; items: TourItems; spot: TutorialSpot; asks: AskBoxes }
+  parts: { state: TourState; probe: TourProbe; card: StepCard; walk: Walk; items: TourItems; spot: TutorialSpot; asks: AskBoxes; tutorial: Tutorial }
 }
 
 /** The walk's status bar items: ‹ step › ×. */
@@ -69,17 +71,22 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
   useTourPorts(ports)
   const state = new TourState()
   const probe = new TourProbe()
-  // The card asks the walk what a podcast shows on the step (the walk's controller): made right below.
-  const card = StepCard.create(state, probe, (lj, n) => walk.narration(lj, n), log())
+  // The card asks the walk what a podcast shows on the step (the walk's controller), and the tutorial what it points
+  // at: both made right below.
+  const card = StepCard.create(state, probe, (lj, n) => walk.narration(lj, n), () => tutorialNow.mark, log())
   const walk = new Walk(state, card, probe)
   const items = createTourItems()
+  const status = new TourStatusItem(items)
   const spot = new TutorialSpot()
+  const tutorialNow = new Tutorial({ state, card, walk, spot, journeys: ports.journeys, mapPanel: ports.mapPanel })
+  useTutorial(tutorialNow)
   let podcast: TourPodcast | undefined
   const asks: AskBoxes = { drafts: new Map(), open: undefined }
   useTourParts({ state, probe, card, walk, items, spot, asks, podcast: () => podcast })
 
   context.subscriptions.push(
-    card, walk, spot, ...Object.values(items),
+    card, walk, spot, tutorialNow, ...Object.values(items),
+    ...followTheWalk(walk, { state, card, status, ...ports }),
     vscode.languages.registerCodeLensProvider([{ scheme: 'file' }, { scheme: STEP_SCHEME }], {
       onDidChangeCodeLenses: card.lensChanged.event,
       provideCodeLenses: stepLenses,
@@ -115,7 +122,7 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
     tourJourney: () => walk.tourJourney(),
     positions: () => walk.positions(),
     resumeAt: (lj) => walk.resumeAt(lj),
-    codeColumn: walk.codeColumn,
+    codeColumn: walk.claimCodeColumn,
     columnFor: (uri) => walk.columnFor(uri),
     stepBy: (dir) => walk.stepBy(dir),
     goToStep: (lj, n, opts) => walk.goToStep(lj, n, opts),
@@ -129,7 +136,7 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
     codeGetsMoreRoom,
     openRef,
     updateTour: () => walk.updateTour(),
-    statusChanged: () => walk.statusChanged(),
+    statusChanged: () => renderStatus(walk, { state, status }),
     stepsFollowed: stepsFollowed(),
     inMap: (lj, n) => card.inMap(lj, n),
     narrates: (e) => card.narrates(e),
@@ -157,7 +164,7 @@ export function createTour(context: vscode.ExtensionContext, ports: TourPorts, s
   }
   context.subscriptions.push(steppers.register(STEP_PRIORITY.walk, { step: (dir) => walk.touring() && walk.stepBy(dir) }))
   return {
-    api, journeysLoaded, restore: restoreTour, parts: { state, probe, card, walk, items, spot, asks },
+    api, journeysLoaded, restore: restoreTour, parts: { state, probe, card, walk, items, spot, asks, tutorial: tutorialNow },
     follow: (model, events) => tourFollows(model, events),
     onMapMessage, mapState,
   }
