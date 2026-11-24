@@ -22,6 +22,7 @@ import { startMove } from './move'
 import { orphanPage } from './pages'
 import { resolve } from './status'
 import { notesFrom } from './which'
+import { fireAndForget } from '../platform/run'
 
 export async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false): Promise<void> {
   if (missing.has(n.data.id)) return revealGone(n)
@@ -42,7 +43,7 @@ export async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus 
   if (threads.has(n.data.id)) expandWhenMade.delete(n.data.id)
   focusThread(n)
   // Read: the threads and the list follow now; storing it is not waited for (a round trip to the window).
-  void markRead([n], n).then(undefined, (e) => log.error(`mark read: ${e}`))
+  fireAndForget(markRead([n], n), 'mark read')
   // Its row in the list, once the list has been redrawn for it (a row revealed while the list redraws can't be found).
   revealInList(n)
 }
@@ -134,7 +135,7 @@ export const openAt = async (folderUri: string, file: string, line: number, end?
   const lj = walk.tourJourney()
   if (step && lj && walk.touring() && lj.folder.uri.toString() === folderUri) return openRef(lj, file, line, end ?? line, step)
   const uri = vscode.Uri.joinPath(vscode.Uri.parse(folderUri), file)
-  try { await wfs.stat(uri) } catch { void showError(`Code Notes: ${file} doesn't exist in this folder.`); return }
+  try { await wfs.stat(uri) } catch { fireAndForget(showError(`${file} doesn't exist in this folder.`), 'reveal: showError'); return }
   const ed = await vscode.window.showTextDocument(uri, { preview: true })
   const pos = new vscode.Position(clampLines(ed.document, line, line).start, 0)
   ed.selection = new vscode.Selection(pos, pos)

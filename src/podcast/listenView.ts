@@ -13,6 +13,7 @@ import { webviewPage } from '../webview/page'
 import { journeysFolderName } from '../journeys/journeys'
 import { folderName } from '../notes/store'
 import { setCtx } from '../app'
+import { fireAndForget } from '../platform/run'
 
 export const LISTEN_VIEW = 'codeNotes.listen'
 /** The context key that brings the view in (package.json: the view's and the transport commands' `when`). */
@@ -81,7 +82,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   private receive(m: ListenMessage): void {
     if (m?.type === 'ready') {
       this.ready = true
-      for (const q of this.queue.splice(0)) void this.view?.webview.postMessage(q)
+      for (const q of this.queue.splice(0)) fireAndForget(this.view?.webview.postMessage(q), 'listenView: view?.webview.postMessage')
       for (const w of this.waiting.splice(0)) w()
     }
     if (m?.type === 'error') this.log.error(`listen view: ${m.message}`)
@@ -107,7 +108,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   send(m: unknown): void {
     if (!this.view) return
     if (this.ignorePauses && (m as { action?: string })?.action === 'pause') return
-    if (this.ready) void this.view.webview.postMessage(m)
+    if (this.ready) fireAndForget(this.view.webview.postMessage(m), 'listenView: view.webview.postMessage')
     else this.queue.push(m)
   }
 
@@ -127,7 +128,7 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
         return false
       }
       // The keyboard back in the editor area (the group last used: the code, or the journey panel).
-      void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')
+      fireAndForget(vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'), 'listenView: command workbench.action.focusActiveEditorGroup')
     }
     const timeout = new Promise<'late'>((r) => setTimeout(() => r('late'), 10000))
     return (await Promise.race([ready, timeout])) !== 'late'

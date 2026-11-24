@@ -1,12 +1,13 @@
 // Note sessions (a review's findings): hidden or shown in the editor, resolved or deleted as a whole.
 
 import * as vscode from 'vscode'
-import { notes, state } from '../app'
+import { notes, stored } from '../app'
 import { refreshAll } from '../refresh'
 import { Node, sessionOf } from '../sidebar/nodes'
-import { HIDDEN_KEY, hiddenSessions, setSessionHidden } from '../sidebar/notesFilter'
+import { hiddenSessions, setSessionHidden } from '../sidebar/notesFilter'
 import { folderName } from './store'
 import { resolve, trash } from './status'
+import { STATE } from '../platform/state'
 
 /** The session a command is about: its row's, the only one, or the one picked ('' is the notes without a session). */
 const sessionArg = async (node?: Node): Promise<string | undefined> => {
@@ -32,7 +33,7 @@ export const showSession = withSession((session) => setSessionHidden([session], 
 /** This session shown, every other hidden. */
 export const showOnlySession = withSession((session) => setSessionHidden([session], false, true))
 
-export const showAllSessions = async () => { await state.update(HIDDEN_KEY, []); refreshAll() }
+export const showAllSessions = async () => { await stored.set(STATE.hiddenSessions, []); refreshAll() }
 
 export const resolveSession = withSession(async (session) => {
   await resolve(notes().filter((n) => sessionOf(n) === session && n.data.status === 'open'), session ? ` in "${session}"` : '')
@@ -40,7 +41,7 @@ export const resolveSession = withSession(async (session) => {
   const h = hiddenSessions()
   const rest = new Set(notes().filter((n) => n.data.status === 'open').map(sessionOf))
   if (!rest.has(session) && rest.size && [...rest].every((s) => h.has(s))) {
-    await state.update(HIDDEN_KEY, [])
+    await stored.set(STATE.hiddenSessions, [])
     refreshAll()
     vscode.window.setStatusBarMessage('$(eye) Showing all sessions again', 3000)
   }

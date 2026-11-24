@@ -5,10 +5,8 @@
 // apart by a short window after each one.
 
 import * as vscode from 'vscode'
+import { OWN_MOVE_MS } from '../platform/timings'
 
-/** After a move of the extension's own, editor changes for this long are its own (a step opening settles, then its
- *  card is brought into view: see walk.ts keepCardInView). */
-const OWN_MOVE_MS = 1500
 /** A scroll by the reader moves the first visible line at least this far (a resize or a fold moves it less). */
 const SCROLL_LINES = 3
 

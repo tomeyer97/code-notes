@@ -3,10 +3,11 @@
 
 import * as vscode from 'vscode'
 import * as os from 'os'
-import { cfg, state } from '../app'
-import { git } from '../platform/checkout'
+import { cfg, stored } from '../app'
+import { gitIn } from '../platform/checkout'
 import { Message, NoteEvent } from '../core/format/noteModel'
 import { Note } from './store'
+import { STATE } from '../platform/state'
 
 let gitName: string | undefined
 
@@ -15,10 +16,7 @@ const osName = (() => { try { return os.userInfo().username } catch { return und
 
 export const me = () => cfg().get<string>('author') || gitName || 'You'
 
-/** Names this person wrote under before (the author setting changed): still theirs. */
-const PAST_KEY = 'codeNotes.pastNames'
-
-const pastNames = () => state.get<string[]>(PAST_KEY) ?? []
+const pastNames = () => stored.get(STATE.pastNames)
 
 /** The name in use when last looked at (an author setting changed from it is remembered as a past name). */
 let lastMe = ''
@@ -44,7 +42,7 @@ export function waitingForAgent(n: Note): boolean {
 
 /** The name to write notes under: git's user.name in the first folder, unless the author setting names one. */
 export async function initIdentity(folder: vscode.WorkspaceFolder | undefined): Promise<void> {
-  gitName = await git(folder, ['config', 'user.name'])
+  gitName = await gitIn(folder, ['config', 'user.name'])
 }
 
 /** Called once the notes are read: the name they are compared with from now on. */
@@ -52,6 +50,6 @@ export function rememberMe(): void { lastMe = me() }
 
 /** The author setting changed: messages under the old name stay yours. */
 export async function authorChanged(): Promise<void> {
-  if (lastMe && lastMe !== me() && !pastNames().includes(lastMe)) await state.update(PAST_KEY, [...pastNames(), lastMe])
+  if (lastMe && lastMe !== me() && !pastNames().includes(lastMe)) await stored.set(STATE.pastNames, [...pastNames(), lastMe])
   lastMe = me()
 }

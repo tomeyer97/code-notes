@@ -4,7 +4,7 @@
 // is the one coloured thing on the code (codeNotes.markBackground); the marks before it a lighter, grey tint.
 
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { docLines } from '../platform/documents'
 import { CodeMark, findMark, MarkSpot } from './model'
 

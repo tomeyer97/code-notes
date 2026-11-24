@@ -2,7 +2,7 @@
 // tour and the journeys), its commands, and the check's side of code links and D / A.
 
 import * as vscode from 'vscode'
-import { byId, cfg, log, mapPanel, notes, now, provide, state, store, understanding } from '../app'
+import { byId, cfg, log, mapPanel, notes, now, provide, store, stored, understanding } from '../app'
 import { askAbout } from '../ask/run'
 import { claudeCli } from '../ask/settings'
 import { claudeAllowed } from '../ask/trust'
@@ -22,11 +22,12 @@ import { card, walk } from '../tour/instances'
 import { journeySkill } from '../write/claudeRun'
 import { isConcernAction } from './concern'
 import { CheckController } from './controller'
+import { parseCheckLinkKey } from '../platform/keys'
 
 /** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
 export function createUnderstanding(context: vscode.ExtensionContext): void {
   provide({ understanding: new CheckController({
-    log, store, extUri: context.extensionUri, memento: state, me, now, newId,
+    log, store, extUri: context.extensionUri, stored, me, now, newId,
     revealed: () => revealed.id,
     focusReply,
     askAbout,
@@ -115,11 +116,11 @@ export async function backToQuestion(n: Note): Promise<void> {
   await focusReply(n)
 }
 
-/** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
+/** A code link key of a check thread (platform/keys.ts checkLinkKey): its note and that message's links. */
 export function checkLinkNote(key: string): { n: Note; links: ReturnType<CheckController['linksIn']> } | undefined {
-  const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
-  const n = m ? byId(m[1]) : undefined
-  return n && understanding ? { n, links: understanding.linksIn(n, Number(m![2])) } : undefined
+  const k = parseCheckLinkKey(key)
+  const n = k ? byId(k.noteId) : undefined
+  return n && k && understanding ? { n, links: understanding.linksIn(n, k.index) } : undefined
 }
 
 /**

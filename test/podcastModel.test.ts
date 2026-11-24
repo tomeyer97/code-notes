@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calmViews, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, LatestWins, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
+import { calmViews, MARK_LEAD_S, markTimes, marksAt, planMarks, chapterJump, clock, isPodcastFile, parsePodcast, podcastFileOf, resolveEpisode, sameView, segmentAt, timeOf, VIEW_HOLD_S, viewAt } from '../src/podcast/model'
 
 // The podcast's pure parts (src/podcast/model.ts): reading the file, where the journey is at a time, seeking.
 
@@ -139,29 +139,6 @@ test('previous / next part: by chapter; previous is always the part before (as t
   assert.equal(chapterJump(ep, 11, -1), 0, 'the chapter before')
   assert.equal(chapterJump(ep, 2, -1), 0)
   assert.equal(chapterJump(ep, 65, 1), 100, 'past the last: the end')
-})
-
-test('seeks coalesce: one move at a time, and only the newest one waiting runs next', async () => {
-  const ran: number[] = []
-  const stopped: number[] = []
-  let release!: () => void
-  const lw = new LatestWins<number>(async (v, current) => {
-    ran.push(v)
-    if (v === 1) await new Promise<void>((r) => { release = r })
-    if (!current()) stopped.push(v)
-  })
-  lw.push(1)
-  lw.push(2)
-  lw.push(3)
-  lw.push(4)
-  assert.ok(lw.busy)
-  release()
-  await lw.idle()
-  assert.deepEqual(ran, [1, 4], 'the drag\'s last position only')
-  assert.deepEqual(stopped, [1], 'the first job learns it was superseded')
-  lw.push(5)
-  await lw.idle()
-  assert.deepEqual(ran, [1, 4, 5])
 })
 
 test('clock', () => {

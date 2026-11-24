@@ -8,6 +8,7 @@ import type { Attempt, Cli, Question } from './types'
 import { sameQuestion } from './threadLink'
 import { costOf } from './log'
 import type { CheckController } from './controller'
+import { fireAndForget, showError } from '../platform/run'
 
 /** Why a grade failed: the error's words, and its kind when the extension knows it. */
 export interface GradeError { message: string; kind?: AskErrorKind }
@@ -56,13 +57,13 @@ export class Grader {
     try {
       check = ctl.cli.readCheck(abs)
     } catch {
-      void vscode.window.showWarningMessage(`Code Notes: ${link.file} can't be read.`)
+      fireAndForget(showError(`${link.file} can't be read.`), 'grading: showError')
       return false
     }
     const q = check.questions.find((x) => x.id === link.q)
     // Only an answer to the question as it was shown: the file may have been rewritten since.
     if (!q || !sameQuestion(n, q)) {
-      void vscode.window.showWarningMessage('This question changed: reopen it from the Check view.')
+      fireAndForget(vscode.window.showWarningMessage('This question changed: reopen it from the Check view.'), 'grading: window.showWarningMessage')
       await ctl.refresh()
       return false
     }
@@ -75,7 +76,7 @@ export class Grader {
     ctl.cli.addAttempt(check, q, body, ctl.who)
     ctl.save(abs, check)
     // Not awaited: the reply box clears once the answer is in (VS Code clears it when the command returns).
-    void this.grade(q.id)
+    fireAndForget(this.grade(q.id), 'grading: grade')
     return true
   }
 

@@ -6,6 +6,7 @@ import { extUri, log } from '../app'
 import { LoadedJourney } from '../journeys/steps'
 import { escapeHtml, pageBody, webviewPage } from '../webview/page'
 import { writeJourney } from './writeJourney'
+import { fireAndForget } from '../platform/run'
 
 /** Claude's question before it writes a journey: rendered, with a box whose answer resumes the same session. */
 export let clarify: { panel: vscode.WebviewPanel; question: string; session: string; text: string; model?: string } | undefined
@@ -29,7 +30,7 @@ export async function showClarify(question: string, session: string, text: strin
   clarify = c
   // The page's messages (media/clarify.js lists them).
   panel.webview.onDidReceiveMessage((m: { type?: string; text?: unknown }) => {
-    if (m?.type === 'reply' && typeof m.text === 'string' && m.text.trim()) void answerClarify(m.text)
+    if (m?.type === 'reply' && typeof m.text === 'string' && m.text.trim()) fireAndForget(answerClarify(m.text), 'clarify: answerClarify')
     else if (m?.type === 'error') log.error(`Claude asks (webview): ${String(m.text)}`)
   })
   panel.onDidDispose(() => { if (clarify === c) clarify = undefined })

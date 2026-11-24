@@ -8,6 +8,7 @@ import { fileOf } from '../journeys/steps'
 import { blocksOf } from '../platform/symbolBlocks'
 import { inNotesFolder, notesFor, relPath } from '../notes/location'
 import { card, tourState, walk } from './instances'
+import { Cmd, HiddenCmd } from '../platform/commands'
 
 /** A journey step whose lines are in a file (for the lenses). */
 interface LensStep { line: number; end: number; journey: string; title: string; step: string; n: number; stepTitle: string; folder: string }
@@ -37,7 +38,7 @@ function backToStepLens(doc: vscode.TextDocument): vscode.CodeLens[] {
   if (!ref || ref.uri !== doc.uri.toString()) return []
   const n = tourState.step
   const range = new vscode.Range(ref.start, 0, ref.start, 0)
-  return [new vscode.CodeLens(range, { title: `← Back to step ${n}`, command: 'codeNotes.backToStep', tooltip: lj.j.steps[n - 1].title })]
+  return [new vscode.CodeLens(range, { title: `← Back to step ${n}`, command: Cmd.backToStep, tooltip: lj.j.steps[n - 1].title })]
 }
 
 /** The steps of this folder's journeys whose code is found in file `rel`. */
@@ -86,11 +87,11 @@ function stepLens(line: number, steps: LensStep[]): vscode.CodeLens {
   if (journeyIds.length === 1) {
     const s = firstStep(steps)
     const title = `◇ Step ${s.n} of ${s.title}`
-    return new vscode.CodeLens(range, { title, command: 'codeNotes.openStepLink', arguments: [s.journey, s.step, s.n, s.folder], tooltip: s.stepTitle })
+    return new vscode.CodeLens(range, { title, command: HiddenCmd.openStepLink, arguments: [s.journey, s.step, s.n, s.folder], tooltip: s.stepTitle })
   }
   const titles = [...new Set(steps.map((x) => x.title))].join(' · ')
   const title = `◇ ${journeyIds.length} journeys`
-  return new vscode.CodeLens(range, { title, command: 'codeNotes.pickJourneyStep', arguments: [steps], tooltip: titles })
+  return new vscode.CodeLens(range, { title, command: Cmd.pickJourneyStep, arguments: [steps], tooltip: titles })
 }
 
 /** The lowest-numbered step. */
@@ -109,5 +110,5 @@ export async function pickJourneyStep(steps?: LensStep[]): Promise<void> {
     return { label: s.title, description: l.length > 1 ? `steps ${numbers}` : `step ${s.n}`, detail: s.stepTitle, s }
   })
   const pick = await vscode.window.showQuickPick(rows, { title: 'Journeys through this code', placeHolder: 'Walk to which step?' })
-  if (pick) await vscode.commands.executeCommand('codeNotes.openStepLink', pick.s.journey, pick.s.step, pick.s.n, pick.s.folder)
+  if (pick) await vscode.commands.executeCommand(HiddenCmd.openStepLink, pick.s.journey, pick.s.step, pick.s.n, pick.s.folder)
 }

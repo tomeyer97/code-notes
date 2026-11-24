@@ -10,6 +10,7 @@ import { fileNode, Node, noteNode, rowOrder, sessionNode, sessionOf } from './no
 import { checked, fileGroups, matchesFilter, ownRow, sameRow, scopeOf } from './notesFilter'
 import { itemOf } from './rowItems'
 import { ViewSync } from './viewSync'
+import { fireAndForget } from '../platform/run'
 
 export let tree: NotesTree
 
@@ -107,5 +108,5 @@ export function rowsSelected(e: vscode.TreeViewSelectionChangeEvent<Node>): void
   checked.clear()
   const sel = e.selection.filter((x) => x.kind === 'note')
   if (sel.length > 1) for (const x of sel) checked.add((x as { note: Note }).note.data.id)
-  setCtx('codeNotes.hasChecked', checked.size > 0)
+  fireAndForget(setCtx('codeNotes.hasChecked', checked.size > 0), 'notesTree: setCtx codeNotes.hasChecked')
 }

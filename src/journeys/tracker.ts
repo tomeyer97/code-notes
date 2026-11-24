@@ -7,23 +7,19 @@ import { lineEdits } from '../platform/followEdits'
 import { AnyAnchor, CompactAnchor, Found, compactOf, findCompact, toCompact } from '../core/anchors/compact'
 import { GitRenameCache } from '../platform/gitRenames'
 import { dirPath, pathIn } from '../core/paths'
-import { Kept } from '../platform/memento'
+import { STATE, StateStore, StoredRecord } from '../platform/state'
 import {
   LoadedJourney, StepAt, atOf, captureStepAnchor, fileOf, isEmptyAnchor, placeStep, sameStepAt, stepOf,
 } from './steps'
+import { fireAndForget } from '../platform/run'
+import { Debouncer } from '../platform/debounce'
+import { REFIND_STEPS_MS } from '../platform/timings'
+import { folderFileKey } from '../platform/keys'
 
 // Where the steps of the loaded journeys are as the code changes: found again in memory (anchor.ts, compact.ts) after
 // edits in an editor, changes on disk and renames; the journey file is never written. Loading the journeys is
 // journeys.ts (Journeys extends this).
 
-const RENAMED_KEY = 'codeNotes.journeyRenames'
-const FOLLOWED_KEY = 'codeNotes.journeyFollowed'
-/**
- * How long after the last keystroke an edited document's steps are found again. Not followEdits.ts REFIND_MS (150 ms,
- * for an EditFollower's few remembered lines): this runs the anchor search for every step in the file, with a timer
- * per journey and file (`onDocument`); the two delays are set separately.
- */
-const EDIT_SETTLE_MS = 250
 
 export class StepTracker implements vscode.Disposable {
   /** By journey file URI. */
@@ -37,16 +33,17 @@ export class StepTracker implements vscode.Disposable {
   private edited = new Map<string, Loc>()
   /** A step's code as the reader's own edits left it (by `stepKey`); the journey file is never written. Dropped once
    *  the journey's own anchor matches again (undo, a refreshed journey). */
-  private followed: Kept<CompactAnchor>
+  private followed: StoredRecord<CompactAnchor>
   /** Files steps followed through a rename (`renameKey` -> new path); the journey file is never written. */
-  private renamed: Kept<string>
+  private renamed: StoredRecord<string>
   private git = new GitRenameCache()
   /** Edited documents waiting for the typing to stop, by journey and file. */
-  private pending = new Map<string, ReturnType<typeof setTimeout>>()
+  private pending = new Debouncer('tracker: find the steps again')
 
-  constructor(protected log: vscode.LogOutputChannel, state?: vscode.Memento) {
-    this.followed = new Kept(state, FOLLOWED_KEY)
-    this.renamed = new Kept(state, RENAMED_KEY)
+  /** No `stored` (unit tests): nothing is kept across reloads. */
+  constructor(protected log: vscode.LogOutputChannel, stored: StateStore = new StateStore()) {
+    this.followed = stored.record(STATE.journeyFollowed)
+    this.renamed = stored.record(STATE.journeyRenames)
   }
 
   private stepKey(lj: LoadedJourney, n: number): string {
@@ -55,7 +52,7 @@ export class StepTracker implements vscode.Disposable {
   }
 
   /** Per file, not per journey or step: every journey with a step in that file follows the same rename. */
-  private renameKey(lj: LoadedJourney, n: number): string { return `${lj.folder.uri.toString()}|${stepOf(lj, n).file}` }
+  private renameKey(lj: LoadedJourney, n: number): string { return folderFileKey(lj.folder.uri, stepOf(lj, n).file) }
 
   gitRenames(folder: vscode.WorkspaceFolder, since?: string): Promise<Map<string, string>> { return this.git.get(folder, since) }
 
@@ -228,19 +225,17 @@ export class StepTracker implements vscode.Disposable {
       const inFile = (n: number) => fileOf(lj, n) === rel
       if (rel === undefined || !lj.j.steps.some((s) => inFile(s.n))) continue
       const k = `${lj.key}|${rel}`
-      clearTimeout(this.pending.get(k))
-      this.pending.set(k, setTimeout(() => {
-        this.pending.delete(k)
+      this.pending.later(k, REFIND_STEPS_MS, () => {
         if (this.list.get(lj.key) !== lj) return
         // Clean after the change: the file was reloaded from disk (a checkout, an agent), not edited here.
         if (!doc.isDirty) for (const st of lj.j.steps) if (inFile(st.n)) this.edited.delete(this.stepKey(lj, st.n))
-        void this.locate(lj, inFile, { file: rel, lines: docLines(doc) }).then((c) => { if (c) this.moved.fire(lj) })
-      }, EDIT_SETTLE_MS))
+        fireAndForget(this.locate(lj, inFile, { file: rel, lines: docLines(doc) }).then((c) => { if (c) this.moved.fire(lj) }), 'tracker: locate')
+      })
     }
   }
 
   dispose(): void {
-    for (const t of this.pending.values()) clearTimeout(t)
+    this.pending.dispose()
     this.moved.dispose()
   }
 }

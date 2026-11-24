@@ -9,6 +9,7 @@ import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'
 import { tourState, walk } from './instances'
 import { podcasts } from '../podcast/player'
+import { fireAndForget } from '../platform/run'
 
 /** The ▶ on a picker row whose journey has a podcast. */
 const LISTEN_BUTTON: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('play'), tooltip: 'Listen to Journey' }
@@ -31,11 +32,11 @@ export async function pickJourney(arg?: unknown): Promise<LoadedJourney | undefi
   const update = () => { qp.items = pickerItems(all, qp.value, multi) }
   qp.onDidChangeValue(update)
   // ▶ on a row with a podcast: that journey, listened to.
-  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); void podcasts.play(key) } })
+  qp.onDidTriggerItemButton((e) => { if (e.item.lj) { const key = e.item.lj.key; qp.hide(); fireAndForget(podcasts.play(key), 'pick: podcasts.play') } })
   update()
   const pick = await pickOne(qp)
   if (pick?.ask) {
-    void writeJourney(pick.ask)
+    fireAndForget(writeJourney(pick.ask), 'pick: writeJourney')
     return undefined
   }
   return pick?.lj

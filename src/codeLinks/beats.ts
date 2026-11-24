@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { JBeat } from '../core/format/journeyModel'
 import { findLine } from '../core/anchors/lineFollow'
 import { TrackedLine, TrackedLines } from '../platform/followEdits'

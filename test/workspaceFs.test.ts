@@ -7,8 +7,13 @@ import * as path from 'path'
 import { ESLint } from 'eslint'
 
 const ROOT = path.join(__dirname, '../..')
-// Type information is not needed for these rules (and the made-up files below are in no tsconfig).
-const eslint = new ESLint({ cwd: ROOT, overrideConfig: { languageOptions: { parserOptions: { projectService: false } } } })
+// Type information is not needed for these rules (and the made-up files below are in no tsconfig); the rule that needs
+// it is off here (npm run lint runs it).
+const NO_TYPES = {
+  languageOptions: { parserOptions: { projectService: false } },
+  rules: { '@typescript-eslint/no-floating-promises': 'off' as const },
+}
+const eslint = new ESLint({ cwd: ROOT, overrideConfig: NO_TYPES })
 
 /** The no-restricted-syntax messages ESLint reports for `code` as if it were the file `file` (relative to the root). */
 async function restricted(code: string, file: string): Promise<string[]> {
@@ -36,8 +41,7 @@ test('no vscode.workspace.openTextDocument just to read lines in the step paths 
 })
 
 test('the source as it is passes both rules', async () => {
-  const results = await new ESLint({ cwd: ROOT, overrideConfig: { languageOptions: { parserOptions: { projectService: false } } } })
-    .lintFiles(['src/**/*.ts'])
+  const results = await new ESLint({ cwd: ROOT, overrideConfig: NO_TYPES }).lintFiles(['src/**/*.ts'])
   const hits = results.flatMap((r) => r.messages.filter((m) => m.ruleId === 'no-restricted-syntax').map((m) => `${path.relative(ROOT, r.filePath)}:${m.line}`))
   assert.deepEqual(hits, [])
 })

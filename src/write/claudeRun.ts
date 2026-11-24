@@ -12,6 +12,7 @@ import { Ask, AskOptions, AskResult, modelProblem } from '../platform/agent/clau
 import { folderName } from '../notes/store'
 import { clock, phaseOf } from '../core/writing'
 import { Writing, writingChanged, writingNow } from './inProgress'
+import { fireAndForget } from '../platform/run'
 
 /** The model a journey is written with (a request's `model`, the settings), and how it is named. */
 export const journeyModel = (override?: string) => override || cfg().get<string>('journeys.model') || cfg().get<string>('claude.model') || undefined
@@ -88,7 +89,7 @@ export async function cliOrClipboard(prompt: string, notice: string): Promise<st
   const cli = claudeCli()
   if (cli) return cli
   await vscode.env.clipboard.writeText(prompt)
-  void vscode.window.showInformationMessage(notice)
+  fireAndForget(vscode.window.showInformationMessage(notice), 'claudeRun: window.showInformationMessage')
   return undefined
 }
 
@@ -99,13 +100,13 @@ export async function cliOrClipboard(prompt: string, notice: string): Promise<st
 export function skillAndModel(folder: vscode.WorkspaceFolder, noSkill: string, model?: string): { skill: string; model?: string } | undefined {
   const skill = journeySkill(folder)
   if (!skill) {
-    void showError(noSkill)
+    fireAndForget(showError(noSkill), 'claudeRun: showError')
     return undefined
   }
   const m = journeyModel(model)
   const bad = modelProblem(m)
   if (bad) {
-    void showError(`Code Notes: ${bad}`)
+    fireAndForget(showError(bad), 'claudeRun: showError')
     return undefined
   }
   return { skill, model: m }

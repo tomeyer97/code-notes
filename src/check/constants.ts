@@ -1,4 +1,5 @@
 // Names, stored keys and timings of the understanding check, in one place.
+import { STATE } from '../platform/state'
 
 export const SESSION = (branch: string) => `Check · ${branch}`
 /** The author of the question and grade messages in a check thread. */
@@ -10,19 +11,14 @@ export const REPO_FILES = ['.gitattributes', '.ignore']
 /** The setting (under codeNotes.) that turns background questions after a push on and off (background.ts). */
 export const BACKGROUND_SETTING = 'understanding.background'
 
-// ---------- per-workspace memory (vscode.Memento keys) ----------
+// ---------- per-workspace memory (declared in platform/state.ts; their key strings are named here too) ----------
 
-/** Commits whose background questions were written (never twice for the same commit). */
-export const BG_KEY = 'codeNotes.understanding.backgroundHeads'
-/** Per branch: files a TODO was added to from the check (offered, not committed, by Commit & push). */
-export const TODO_KEY = 'codeNotes.understanding.todoFiles'
-/** Per branch: per question, the file its suggested fix was applied to (offered, ticked, by Commit & push). */
-export const FIX_KEY = 'codeNotes.understanding.fixFiles'
-/** Unsent answers typed in the Check view's box: per check file, per question (this workspace only, never the file). */
-export const DRAFT_KEY = 'codeNotes.understanding.drafts'
-/** Questions being written (per workspace): a window reloaded meanwhile says so instead of offering Start again. */
-export const WRITING_KEY = 'codeNotes.understanding.writing'
-/** How many commits BG_KEY remembers. */
+export const BG_KEY = STATE.checkBackgroundHeads.key
+export const TODO_KEY = STATE.checkTodos.key
+export const FIX_KEY = STATE.checkFixes.key
+export const DRAFT_KEY = STATE.checkDrafts.key
+export const WRITING_KEY = STATE.checkWriting.key
+/** How many commits STATE.checkBackgroundHeads remembers. */
 export const BG_COMMITS_KEPT = 50
 
 // ---------- timings ----------

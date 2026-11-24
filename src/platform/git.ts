@@ -1,10 +1,10 @@
-// How the extension calls git, in one place: one runner (its timeout, its environment, its trimming) and the parsers
-// of `git status --porcelain=v2 -z` (the paths it lists, the branch it names). No vscode here: unit tests use it as is.
+// The extension host's git: one asynchronous runner (its environment, its limits, its trimming), the limits it runs
+// with by kind of call (DEFAULT_GIT, QUICK_GIT, HISTORY_GIT), and the parsers of `git status --porcelain=v2 -z`. No
+// vscode here: unit tests use it as is.
 //
-// The understanding CLI has two runners of its own (cli/understanding/git.mjs): `git` (synchronous, 64 MiB of output,
-// no timeout: a CLI in a terminal or CI may wait; the extension runs those calls on a worker thread, check/cliWorker.ts,
-// with READ_ONLY_GIT) and `gitRun` (commit and push: no credential prompt, 60 s). This one is for the extension host's
-// own calls: asynchronous, short (GIT_TIMEOUT_MS), never taking the optional index lock.
+// Not the only git runner yet: the understanding CLI has its own two (cli/understanding/git.mjs: `git`, synchronous,
+// 64 MiB, no timeout, run on a worker thread with READ_ONLY_GIT; `gitRun` for commit and push, 60 s). The CLI is plain
+// JavaScript today; once it is TypeScript it can use these limits too.
 import { execFile } from 'child_process'
 
 /**
@@ -12,18 +12,24 @@ import { execFile } from 'child_process'
  * another watcher, VS Code's Git view or ours, sees no change). A command that writes still takes the locks it needs.
  */
 export const READ_ONLY_GIT: NodeJS.ProcessEnv = { GIT_OPTIONAL_LOCKS: '0' }
-/** A git command that takes longer than this is given up (the caller sees undefined). */
-const GIT_TIMEOUT_MS = 5000
 
-/** How long a git command may take, and how much output it may print (execFile's default is 1 MiB). */
+/** How long a git command may take (then the caller sees undefined), and how much output it may print. */
 export interface GitLimits { timeoutMs?: number; maxBuffer?: number }
 
-/** git's output as printed, or undefined when it fails. With READ_ONLY_GIT. */
+/** Every call unless it says otherwise: reads, and the check's small local writes (add, commit, pull). Output: execFile's
+ *  default, 1 MiB. */
+export const DEFAULT_GIT = { timeoutMs: 5000 } as const satisfies GitLimits
+/** Identity and branch reads on the way to drawing a note: a git that hangs is given up sooner. */
+export const QUICK_GIT = { timeoutMs: 3000 } as const satisfies GitLimits
+/** A long history's log (the renames since a journey's commit): more output than 1 MiB. */
+export const HISTORY_GIT = { maxBuffer: 8 << 20 } as const satisfies GitLimits
+
+/** git's output as printed, or undefined when it fails. With READ_ONLY_GIT; `limits` over DEFAULT_GIT. */
 export function gitRaw(repo: string, args: string[], limits: GitLimits = {}): Promise<string | undefined> {
   return new Promise((resolve) => {
     const env = { ...process.env, ...READ_ONLY_GIT }
     const max = limits.maxBuffer ? { maxBuffer: limits.maxBuffer } : {} // an undefined maxBuffer would lift the limit
-    execFile('git', args, { cwd: repo, env, timeout: limits.timeoutMs ?? GIT_TIMEOUT_MS, ...max }, (err, out) => {
+    execFile('git', args, { cwd: repo, env, timeout: limits.timeoutMs ?? DEFAULT_GIT.timeoutMs, ...max }, (err, out) => {
       resolve(err ? undefined : out)
     })
   })

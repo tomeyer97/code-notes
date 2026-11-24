@@ -20,19 +20,19 @@ import { linksAt, gradeMessageAt, gradedAttempts } from './threadText'
 import { concernOf } from './concernState'
 import { CheckView, checkView, definedOnly, runAction, statusText } from './viewModel'
 import { gradeFailure } from './failures'
-import { Coalesced } from '../core/coalesced'
+import { Coalesced } from '../core/serial'
 import { plural } from '../core/text'
 import { BackgroundQuestions } from './background'
 import { CliThread } from './cliThread'
 import { Concerns, ConcernAction, VIEW_CONCERN_ACTIONS } from './concern'
-import { DRAFT_KEY, FIX_KEY, FIX_REFRESH_MS, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SKILL, TODO_KEY } from './constants'
+import { FIX_REFRESH_MS, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SKILL } from './constants'
 import { Grader } from './grading'
 import type { CheckHost } from './host'
 import { importCli } from './importCli'
 import { InvalidFile } from './invalidFile'
 import { isCheck, linkOf } from './threadLink'
 import { checkLog, type CheckLog } from './log'
-import { PerScope } from './memento'
+import { ScopedRecord, STATE } from '../platform/state'
 import { Parking } from './park'
 import { Pusher, unsavedDocument } from './push'
 import { CheckThreads } from './threads'
@@ -40,6 +40,9 @@ import { CheckViewProvider } from './view'
 import type { CheckViewMessage, CheckViewMessageOf, CheckViewRequest } from './viewMessages'
 import { Writer } from './writer'
 import { baseName } from '../core/paths'
+import { fireAndForget } from '../platform/run'
+import { Cmd, HiddenCmd } from '../platform/commands'
+import { checkLinkKey } from '../platform/keys'
 
 export type { CheckHost } from './host'
 export { SESSION } from './constants'
@@ -66,9 +69,9 @@ export class CheckController implements vscode.Disposable {
   /** One line about what was just done (a merge kept both answers): until the next push or branch. */
   said: string | undefined
   /** Unsent answers typed in the view's box (per check file), applied fixes and added TODOs (per branch): per question. */
-  readonly drafts: PerScope<string>
-  readonly fixes: PerScope<string>
-  readonly todos: PerScope<{ file: string; line: number }>
+  readonly drafts: ScopedRecord<string>
+  readonly fixes: ScopedRecord<string>
+  readonly todos: ScopedRecord<{ file: string; line: number }>
   readonly view: CheckViewProvider
   readonly writer = new Writer(this)
   readonly grader = new Grader(this)
@@ -108,12 +111,12 @@ export class CheckController implements vscode.Disposable {
   constructor(readonly host: CheckHost) {
     this.log = checkLog(host.log)
     this.cliPath = vscode.Uri.joinPath(host.extUri, 'cli', 'understanding.mjs').fsPath
-    this.drafts = new PerScope(host.memento, DRAFT_KEY)
-    this.fixes = new PerScope(host.memento, FIX_KEY)
-    this.todos = new PerScope(host.memento, TODO_KEY)
+    this.drafts = host.stored.scoped(STATE.checkDrafts)
+    this.fixes = host.stored.scoped(STATE.checkFixes)
+    this.todos = host.stored.scoped(STATE.checkTodos)
     this.item = vscode.window.createStatusBarItem('codeNotes.understanding', vscode.StatusBarAlignment.Left, 48)
     this.item.name = 'Understanding check'
-    this.item.command = 'codeNotes.checkUnderstanding'
+    this.item.command = Cmd.checkUnderstanding
     this.view = new CheckViewProvider(host.extUri, host.log, (m) => this.onView(m))
     this.subs.push(vscode.window.registerWebviewViewProvider('codeNotes.check', this.view, { webviewOptions: { retainContextWhenHidden: true } }))
   }
@@ -162,7 +165,7 @@ export class CheckController implements vscode.Disposable {
     this.timer = setTimeout(() => {
       const f = this.soonForce
       this.soonForce = false
-      void this.refresh(f)
+      fireAndForget(this.refresh(f), 'controller: refresh')
     }, ms)
   }
 
@@ -201,7 +204,7 @@ export class CheckController implements vscode.Disposable {
     const open = !!this.st?.check
     if (open !== this.checkOpen) {
       this.checkOpen = open
-      void vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', open)
+      fireAndForget(vscode.commands.executeCommand('setContext', 'codeNotes.checkOpen', open), 'controller: command setContext')
     }
     // A file that can't be read (a bad edit, a conflict) keeps the tour shown as it was until it reads again.
     if (this.st?.state.phase !== 'invalid') await this.host.tourChanged(this.st?.check, this.abs, this.st?.branch)
@@ -299,12 +302,12 @@ export class CheckController implements vscode.Disposable {
 
   /** Check my understanding: write the questions (or top them up), else show them. */
   async run(): Promise<void> {
-    if (!this.repo) { void vscode.window.showInformationMessage('Open a folder (a git repository) to check your understanding of a change.'); return }
+    if (!this.repo) { fireAndForget(vscode.window.showInformationMessage('Open a folder (a git repository) to check your understanding of a change.'), 'controller: window.showInformationMessage'); return }
     // Questions written in the background are being opened: the status bar no longer says they are ready.
     this.writer.ready = 0
     await this.refresh()
     const st = this.st
-    if (!st) { void vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'); return }
+    if (!st) { fireAndForget(vscode.window.showInformationMessage('Check my understanding needs a git repository with a branch to compare.'), 'controller: window.showInformationMessage'); return }
     // Questions written in the background: what they left out, now, as the person opens them.
     if (this.writer.ready) {
       this.writer.ready = 0
@@ -403,40 +406,40 @@ export class CheckController implements vscode.Disposable {
     const str = (v: unknown): v is string => typeof v === 'string'
     return {
       ready: () => this.post(),
-      open: (m) => { if (m.id) void this.openFromView(m.id) },
+      open: (m) => { if (m.id) fireAndForget(this.openFromView(m.id), 'controller: openFromView') },
       select: (m) => { if (m.id) { this.selected = m.id; this.post() } },
-      next: () => void this.step(1),
-      answer: (m) => { if (m.id && str(m.text)) void this.answerFromView(m.id, m.text) },
-      draft: (m) => { if (m.id && str(m.text)) void this.setDraft(m.id, m.text) },
-      link: (m) => { if (m.id && typeof m.i === 'number') void this.viewLink(m.id, m.i) },
-      regrade: (m) => { if (m.id) void this.grader.grade(m.id) },
+      next: () => fireAndForget(this.step(1), 'controller: step'),
+      answer: (m) => { if (m.id && str(m.text)) fireAndForget(this.answerFromView(m.id, m.text), 'controller: answerFromView') },
+      draft: (m) => { if (m.id && str(m.text)) fireAndForget(this.setDraft(m.id, m.text), 'controller: setDraft') },
+      link: (m) => { if (m.id && typeof m.i === 'number') fireAndForget(this.viewLink(m.id, m.i), 'controller: viewLink') },
+      regrade: (m) => { if (m.id) fireAndForget(this.grader.grade(m.id), 'controller: grader.grade') },
       concern: (m) => { if (m.id) this.concernFromView(m.id, m.action) },
-      escape: () => { this.view.cancelFocus(); void vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup') },
-      start: () => void this.writer.write(false),
-      topUp: () => void this.writer.write(true),
-      retry: () => { const topUp = !!this.writer.failed?.topUp; this.writer.failed = undefined; void this.writer.write(topUp) },
-      modelSetting: () => void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model'),
-      pathSetting: () => void vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.claude.path'),
-      install: () => void vscode.env.openExternal(vscode.Uri.parse('https://claude.com/claude-code')),
-      tour: () => void this.host.walkTour(),
-      writeTour: () => void this.writer.writeTour(false),
-      openFile: () => void this.invalid.open(),
-      merge: () => void this.invalid.keepBoth(),
+      escape: () => { this.view.cancelFocus(); fireAndForget(vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'), 'controller: command workbench.action.focusActiveEditorGroup') },
+      start: () => fireAndForget(this.writer.write(false), 'controller: writer.write'),
+      topUp: () => fireAndForget(this.writer.write(true), 'controller: writer.write'),
+      retry: () => { const topUp = !!this.writer.failed?.topUp; this.writer.failed = undefined; fireAndForget(this.writer.write(topUp), 'controller: writer.write') },
+      modelSetting: () => fireAndForget(vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.understanding.model'), 'controller: command workbench.action.openSettings'),
+      pathSetting: () => fireAndForget(vscode.commands.executeCommand('workbench.action.openSettings', 'codeNotes.claude.path'), 'controller: command workbench.action.openSettings'),
+      install: () => fireAndForget(vscode.env.openExternal(vscode.Uri.parse('https://claude.com/claude-code')), 'controller: env.openExternal'),
+      tour: () => fireAndForget(this.host.walkTour(), 'controller: host.walkTour'),
+      writeTour: () => fireAndForget(this.writer.writeTour(false), 'controller: writer.writeTour'),
+      openFile: () => fireAndForget(this.invalid.open(), 'controller: invalid.open'),
+      merge: () => fireAndForget(this.invalid.keepBoth(), 'controller: invalid.keepBoth'),
       include: (m) => { if (m.file) { this.push.tick(m.file, !!m.on); this.post() } },
-      scm: () => { if (this.uncommittedOnly && this.st) this.writer.startAfterCommit = this.st.branch; void openScm() },
-      commitPush: () => void this.push.commitPush(),
-      pull: () => void this.push.pull(),
-      openMr: () => { if (this.push.mr) void vscode.env.openExternal(vscode.Uri.parse(this.push.mr)) },
+      scm: () => { if (this.uncommittedOnly && this.st) this.writer.startAfterCommit = this.st.branch; fireAndForget(openScm(), 'controller: openScm') },
+      commitPush: () => fireAndForget(this.push.commitPush(), 'controller: push.commitPush'),
+      pull: () => fireAndForget(this.push.pull(), 'controller: push.pull'),
+      openMr: () => { if (this.push.mr) fireAndForget(vscode.env.openExternal(vscode.Uri.parse(this.push.mr)), 'controller: env.openExternal') },
     }
   }
   /** A row clicked: its step of the tour, then its thread (without a step: the question on its own). */
   private async openFromView(id: string): Promise<void> {
-    if (!(await this.host.openInTour(id))) void this.open(id)
+    if (!(await this.host.openInTour(id))) fireAndForget(this.open(id), 'controller: open')
   }
   private concernFromView(id: string, action: string | undefined): void {
     if (!VIEW_CONCERN_ACTIONS.includes(action as ConcernAction)) return
     const n = this.threads.noteOf(id)
-    if (n) void this.concerns.act(n, action as ConcernAction)
+    if (n) fireAndForget(this.concerns.act(n, action as ConcernAction), 'controller: concerns.act')
   }
   private async setDraft(id: string, text: string): Promise<void> {
     if (!this.st) return
@@ -448,8 +451,8 @@ export class CheckController implements vscode.Disposable {
     if (!n || !text.trim() || this.grader.busy(id)) return
     // The box empties and says "Checking…" at once (the draft is in memory before it is stored); a failed answer
     // puts its text back.
-    void this.setDraft(id, '')
-    if (!(await this.answer(n, text)) && !this.grader.grading.has(id)) void this.setDraft(id, text)
+    fireAndForget(this.setDraft(id, ''), 'controller: setDraft')
+    if (!(await this.answer(n, text)) && !this.grader.grading.has(id)) fireAndForget(this.setDraft(id, text), 'controller: setDraft')
     this.post()
   }
   /** A code link in the box's grade: the same link as in the thread (lit, the keyboard stays in the box). */
@@ -459,7 +462,7 @@ export class CheckController implements vscode.Disposable {
     if (!n || !q) return
     // The latest grade's message in the thread.
     const mi = gradeMessageAt(n.data.messages.map((m) => m.role ?? ''), gradedAttempts(q).length)
-    if (mi > 0) await vscode.commands.executeCommand('codeNotes.codeLink', `check|${n.data.id}|${mi}`, i)
+    if (mi > 0) await vscode.commands.executeCommand(HiddenCmd.codeLink, checkLinkKey(n.data.id, mi), i)
   }
 
   /** The files a TODO was added to from this branch's check. */

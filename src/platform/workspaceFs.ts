@@ -62,16 +62,24 @@ async function readDirectory(u: vscode.Uri): Promise<[string, vscode.FileType][]
   } catch (e) { throw wrap(e, u) }
 }
 
+/** Whether `p` is there (fs.existsSync, without blocking the extension host). */
+const exists = (p: string) => fs.promises.access(p).then(() => true, () => false)
+
+/**
+ * Without `overwrite`, an existing `to` is refused (FileExists), as workspace.fs does. Node has no rename that refuses
+ * to replace, so that is a check, then the rename: a file made at `to` in between is replaced.
+ */
 async function rename(from: vscode.Uri, to: vscode.Uri, o: { overwrite?: boolean } = {}): Promise<void> {
   if (!local(from) || !local(to)) return vscode.workspace.fs.rename(from, to, o)
   try {
-    if (!o.overwrite && fs.existsSync(to.fsPath)) throw vscode.FileSystemError.FileExists(to)
+    if (!o.overwrite && (await exists(to.fsPath))) throw vscode.FileSystemError.FileExists(to)
     await fs.promises.mkdir(path.dirname(to.fsPath), { recursive: true })
     await fs.promises.rename(from.fsPath, to.fsPath)
   } catch (e) { throw e instanceof vscode.FileSystemError ? e : wrap(e, from) }
 }
 
-async function del(u: vscode.Uri, o: { recursive?: boolean } = {}): Promise<void> {
+/** workspace.fs.delete (a folder: with `recursive`, everything in it). */
+async function remove(u: vscode.Uri, o: { recursive?: boolean } = {}): Promise<void> {
   if (!local(u)) return vscode.workspace.fs.delete(u, o)
   try {
     const st = await fs.promises.lstat(u.fsPath)
@@ -85,4 +93,4 @@ async function createDirectory(u: vscode.Uri): Promise<void> {
   try { await fs.promises.mkdir(u.fsPath, { recursive: true }) } catch (e) { throw wrap(e, u) }
 }
 
-export const wfs = { stat, readFile, writeFile, readDirectory, rename, delete: del, createDirectory }
+export const wfs = { stat, readFile, writeFile, readDirectory, rename, remove, createDirectory }

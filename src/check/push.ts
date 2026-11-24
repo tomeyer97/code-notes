@@ -9,6 +9,7 @@ import { CommitPlan } from './viewModel'
 import { gitOut } from '../platform/git'
 import { PUSHED_MESSAGE_MS, REPO_FILES } from './constants'
 import type { CheckController } from './controller'
+import { fireAndForget, showError } from '../platform/run'
 
 export class Pusher {
   /** Ahead of its upstream, or no upstream at all (undefined: not known; only read while the check is done). */
@@ -146,7 +147,7 @@ export class Pusher {
         await ctl.fixes.replace(st.branch, Object.fromEntries(left))
       }
       this.ctl.log.info(`commit & push: ${r.line}`)
-      if (!r.ok) void vscode.window.showWarningMessage(`Code Notes: ${r.line}`)
+      if (!r.ok) fireAndForget(showError(r.line), 'push: showError')
     } finally {
       this.pushing = false
       await ctl.refresh()

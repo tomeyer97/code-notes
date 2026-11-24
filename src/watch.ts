@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import { Loc } from './core/anchors/anchor'
 import { shift, swallows } from './core/anchors/lineFollow'
 import { journeys, mapPanel, notes, store } from './app'
-import { refreshBranch } from './platform/checkout'
+import { checkouts } from './platform/checkout'
 import { authorChanged } from './notes/identity'
 import { fileOf } from './journeys/steps'
 import { applyIgnoreInGit, changeFolder, rewriteReadmes } from './notes/folder'
@@ -20,6 +20,10 @@ import { keepOffMap } from './tour/panelLayout'
 import { card, tourState, walk } from './tour/instances'
 import { docLines } from './platform/documents'
 import { wfs } from './platform/workspaceFs'
+import { fireAndForget } from './platform/run'
+import { Debouncer } from './platform/debounce'
+import { REANCHOR_NOTES_MS } from './platform/timings'
+import { lineEdit } from './platform/followEdits'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
 async function followJourneyFiles(): Promise<void> {
@@ -58,20 +62,12 @@ export function watchJourneys(context: vscode.ExtensionContext): void {
   }), vscode.workspace.onDidChangeTextDocument((e) => { if (e.contentChanges.length) { journeys.onEdit(e); journeys.onDocument(e.document) } }))
 }
 
-/** A content change as anchor.ts's shift and swallows read it. */
-const editOf = (c: vscode.TextDocumentContentChangeEvent) => ({
-  startLine: c.range.start.line, startChar: c.range.start.character,
-  endLine: c.range.end.line, endChar: c.range.end.character,
-  newLines: (c.text.match(/\n/g) ?? []).length,
-})
-
-/** Notes re-anchor this long after typing stops. */
-const REANCHOR_AFTER_TYPING_MS = 400
 
 /** Notes follow edits live, and re-anchor (moved code, stale) shortly after typing stops. Saved to disk only with the
  *  file. */
 export function watchEdits(context: vscode.ExtensionContext): void {
-  const pending = new Map<string, NodeJS.Timeout>()
+  const pending = new Debouncer('notes: re-anchor after typing')
+  context.subscriptions.push(pending)
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => {
     const list = lineNotesFor(e.document.uri)
     if (!list.length || !e.contentChanges.length) return
@@ -82,7 +78,7 @@ export function watchEdits(context: vscode.ExtensionContext): void {
       before.set(n.data.id, loc)
       let swallowed = false
       for (const c of changes) {
-        const edit = editOf(c)
+        const edit = lineEdit(c)
         if (swallows(loc, edit)) swallowed = true
         loc = shift(loc, edit)
       }
@@ -93,14 +89,12 @@ export function watchEdits(context: vscode.ExtensionContext): void {
     for (const n of list) syncThread(n)
     refreshDecorations()
     const key = e.document.uri.toString()
-    clearTimeout(pending.get(key))
-    pending.set(key, setTimeout(async () => {
-      pending.delete(key)
+    pending.later(key, REANCHOR_NOTES_MS, async () => {
       const ls = docLines(e.document)
       for (const n of lineNotesFor(e.document.uri)) reanchor(n, ls, toLoc(n.data), before.get(n.data.id)?.start)
       refreshAll()
       if (!e.document.isDirty) for (const n of lineNotesFor(e.document.uri)) await store.save(n)
-    }, REANCHOR_AFTER_TYPING_MS))
+    })
   }))
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (doc) => {
     const list = lineNotesFor(doc.uri)
@@ -190,11 +184,11 @@ async function onRenamed(e: vscode.FileRenameEvent): Promise<void> {
 export function watchEditors(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.onDidChangeVisibleTextEditors(() => { noteVisibleEditors(); refreshDecorations(); card.restore() }),
-    vscode.window.tabGroups.onDidChangeTabs((e) => { for (const t of e.opened) void keepOffMap(t) }),
+    vscode.window.tabGroups.onDidChangeTabs((e) => { for (const t of e.opened) fireAndForget(keepOffMap(t), 'watch: keepOffMap') }),
     vscode.window.onDidChangeActiveTextEditor(updateCursorContext),
     vscode.window.onDidChangeTextEditorSelection(cursorMoved),
     vscode.workspace.onDidChangeConfiguration(settingsChanged),
-    vscode.workspace.onDidChangeWorkspaceFolders(() => { void store.load(); void journeys.load() }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => { fireAndForget(store.load(), 'watch: store.load'); fireAndForget(journeys.load(), 'watch: journeys.load') }),
   )
 }
 
@@ -205,7 +199,7 @@ function cursorMoved(e: vscode.TextEditorSelectionChangeEvent): void {
   const line = (e.selections[0]?.active.line ?? -2) + 1
   const here = notesAtLine(e.textEditor.document.uri, line)
   if (Date.now() < tourState.cursorUntil) return
-  if (here.length === 1 && unread(here[0]) && threads.has(here[0].data.id)) markRead(here, here[0])
+  if (here.length === 1 && unread(here[0]) && threads.has(here[0].data.id)) fireAndForget(markRead(here, here[0]), 'watch: markRead')
 }
 
 async function settingsChanged(e: vscode.ConfigurationChangeEvent): Promise<void> {
@@ -228,12 +222,8 @@ export const reloadAll = async () => { await store.load(); await journeys.load()
 
 /** The checked-out branch per folder; another branch: every step is found again in the code checked out now. */
 export async function watchBranches(context: vscode.ExtensionContext): Promise<void> {
-  for (const f of vscode.workspace.workspaceFolders ?? []) {
-    await refreshBranch(f)
-    const head = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, '.git/HEAD'))
-    const onHead = () => refreshBranch(f).then(() => journeys.relocateOnDisk()).then(refreshAll)
-    head.onDidChange(onHead)
-    head.onDidCreate(onHead)
-    context.subscriptions.push(head)
-  }
+  context.subscriptions.push(checkouts, checkouts.onDidChangeBranch(() => {
+    fireAndForget(journeys.relocateOnDisk().then(refreshAll), 'branch changed: find the steps again')
+  }))
+  await checkouts.watch(vscode.workspace.workspaceFolders ?? [])
 }

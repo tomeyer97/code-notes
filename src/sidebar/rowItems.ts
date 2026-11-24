@@ -15,6 +15,7 @@ import { listState } from './listModel'
 import { lastMessage, Node, sessionOf, SEV_ICON } from './nodes'
 import { hiddenSessions, ownRow } from './notesFilter'
 import { baseName } from '../core/paths'
+import { Cmd } from '../platform/commands'
 
 /** The row of each kind of node. */
 const ITEMS: { [K in Node['kind']]: (node: Extract<Node, { kind: K }>) => vscode.TreeItem } = {
@@ -77,7 +78,7 @@ const MANY_AREAS = 4
 function jmoreItem(node: Extract<Node, { kind: 'jmore' }>): vscode.TreeItem {
   const item = new vscode.TreeItem(`Show all (${node.n} more)`)
   item.id = `jmore:${node.g}`
-  item.command = { command: 'codeNotes.journeysHereAll', title: 'Show all' }
+  item.command = { command: Cmd.journeysHereAll, title: 'Show all' }
   return item
 }
 
@@ -107,7 +108,7 @@ function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
   item.tooltip = new vscode.MarkdownString(`**${name}**: ${node.why}${known ? `\n\nThe list shows its last good version (\`${known.data.file}\` ${rangeLabel(known)}).` : ''}`)
   item.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
   item.contextValue = known ? 'broken;known' : 'broken'
-  item.command = { command: 'codeNotes.openBroken', title: 'Open', arguments: [node] }
+  item.command = { command: Cmd.openBroken, title: 'Open', arguments: [node] }
   return item
 }
 
@@ -148,7 +149,7 @@ function noteItem(node: Extract<Node, { kind: 'note' }>): vscode.TreeItem {
   item.description = noteDescription(n, flags)
   item.iconPath = noteIcon(n, flags)
   item.tooltip = noteTooltip(n, flags)
-  item.command = { command: 'codeNotes.reveal', title: 'Go to Note', arguments: [node] }
+  item.command = { command: Cmd.reveal, title: 'Go to Note', arguments: [node] }
   item.contextValue = noteContext(n, flags)
   // No checkbox on every row: bulk actions use the list's own multi-select (Ctrl/Shift+click).
   return item

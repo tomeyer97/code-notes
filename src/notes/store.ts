@@ -55,7 +55,7 @@ export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> 
   await wfs.writeFile(tmp, encoder.encode(text))
   // Node's rename replaces the file in one step; VS Code's rename with overwrite deletes it first (a moment with no file).
   try { if (uri.scheme === 'file') await fs.promises.rename(tmp.fsPath, uri.fsPath); else await wfs.rename(tmp, uri, { overwrite: true }) }
-  catch (e) { try { await wfs.delete(tmp) } catch { /* gone */ } throw e }
+  catch (e) { try { await wfs.remove(tmp) } catch { /* gone */ } throw e }
 }
 
 /** Where a note file of `folder` goes when it is deleted (restore brings it back). */

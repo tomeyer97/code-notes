@@ -16,6 +16,7 @@ import { wfs } from '../platform/workspaceFs'
 import { shape, shapeOf } from './changedOnDisk'
 import { allowComments } from './commentRanges'
 import { reveal } from './reveal'
+import { fireAndForget } from '../platform/run'
 
 /** The note box's words. */
 export const NOTE_OPTIONS: vscode.CommentOptions = { prompt: 'Reply', placeHolder: 'Note or reply…' }
@@ -60,7 +61,7 @@ const SAY_MS = 3000
 /** A short "no" in the status bar. */
 const say = (text: string) => vscode.window.setStatusBarMessage(`$(info) ${text}`, SAY_MS)
 
-const SAVE_INSIDE = 'Code Notes: save the file inside the open folder to add notes to it.'
+const SAVE_INSIDE = 'save the file inside the open folder to add notes to it.'
 
 /** Code Notes' own files (the notes, their README) take no notes: says so. True when `refused`. */
 function ownFiles(refused: boolean): boolean {
@@ -70,7 +71,7 @@ function ownFiles(refused: boolean): boolean {
 
 export async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, selection?: NoteData['selection'], extra?: Record<string, unknown>): Promise<Note | undefined> {
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)
-  if (!folder) { void showError(SAVE_INSIDE); return undefined }
+  if (!folder) { fireAndForget(showError(SAVE_INSIDE), 'create: showError'); return undefined }
   if (ownFiles(inNotesFolder(doc.uri))) return undefined
   const n = await newNote(folder, body, async () => ({
     file: relPath(folder, doc.uri), range: { start: loc.start + 1, end: loc.end + 1 },
@@ -94,7 +95,7 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
  *  read back from memory at once. */
 async function save(n: Note): Promise<boolean> {
   if (!(await store.save(n))) return false
-  void setSeen([[n.data.id, 1]]).then(undefined, (e) => log.error(`seen: ${e}`))
+  fireAndForget(setSeen([[n.data.id, 1]]), 'seen')
   shape.set(n.data.id, shapeOf(n))
   refreshAll()
   return true
@@ -106,7 +107,7 @@ export async function addNote(): Promise<void> {
   if (!editor) return noEditor()
   if (ownFiles(inNotesFolder(editor.document.uri))) return
   if (!vscode.workspace.getWorkspaceFolder(editor.document.uri) || editor.document.isUntitled) {
-    void showError(SAVE_INSIDE)
+    fireAndForget(showError(SAVE_INSIDE), 'create: showError')
     return
   }
   await allowComments()

@@ -1,36 +1,31 @@
 // What the person has read: per note, how many of its messages and status changes they have seen; per journey, whether
 // it was there when they last looked. Kept in the workspace state, out of the shared note and journey files.
 
-import { journeys, notes, state } from '../app'
+import { journeys, stored } from '../app'
 import { evMine, mine } from './identity'
 import { LoadedJourney, posKey } from '../journeys/steps'
 import { refreshAll } from '../refresh'
 import { Note } from './store'
-
-const SEEN_KEY = 'codeNotes.seenCount' // note id -> how many of its messages the person has seen
-const SEEN_EV_KEY = 'codeNotes.seenEvents' // note id -> how many of its status changes the person has seen
-const OLD_SEEN_KEY = 'codeNotes.seen' // v0.1: note id -> ISO time (migrated)
-/** Journeys seen in the list (posKeys); one added since is "new" until opened (R1). Unset: everything there now is known. */
-const SEEN_J_KEY = 'codeNotes.journeysSeen'
+import { STATE, StateKey } from '../platform/state'
 
 /** A count per note id, kept in the workspace state under `key`. */
-function countStore(key: string) {
-  const all = (): Record<string, number> => state.get<Record<string, number>>(key) ?? {}
+function countStore(key: StateKey<Record<string, number>>) {
+  const all = (): Record<string, number> => stored.get(key)
   return {
     all,
     get: (n: Note): number => all()[n.data.id] ?? 0,
     /** These counts set; the others kept. */
     set: async (entries: [string, number][]): Promise<void> => {
       if (!entries.length) return
-      await state.update(key, { ...all(), ...Object.fromEntries(entries) })
+      await stored.set(key, { ...all(), ...Object.fromEntries(entries) })
     },
   }
 }
 
 /** How many of each note's messages the person has seen. */
-const seenMessages = countStore(SEEN_KEY)
+const seenMessages = countStore(STATE.seenCount)
 /** How many of each note's status changes the person has seen. */
-const seenEvents = countStore(SEEN_EV_KEY)
+const seenEvents = countStore(STATE.seenEvents)
 
 /** For the note being visited: messages from this index on keep their "new" label until the next note is opened. */
 export const visitFrom = new Map<string, number>()
@@ -69,27 +64,11 @@ export async function markRead(list: Note[], visit?: Note): Promise<void> {
 /** What has been seen now (messages and status changes), to put back with `restoreSeen` (an undo). */
 export const seenSnapshot = () => ({ messages: { ...seenMessages.all() }, events: { ...seenEvents.all() } })
 export const restoreSeen = async (before: ReturnType<typeof seenSnapshot>): Promise<void> => {
-  await Promise.all([state.update(SEEN_KEY, before.messages), state.update(SEEN_EV_KEY, before.events)])
-}
-
-/** v0.1 stored a time per note: now a count of messages seen. */
-export async function migrateSeen(): Promise<void> {
-  const old = state.get<Record<string, string>>(OLD_SEEN_KEY)
-  if (!old) return
-  const changes: [string, number][] = []
-  for (const n of notes()) {
-    const at = Date.parse(old[n.data.id] ?? '')
-    if (!at || seenMessages.all()[n.data.id] !== undefined) continue
-    let count = 0
-    for (const m of n.data.messages) { if ((Date.parse(m.at ?? '') || 0) <= at) count++; else break }
-    changes.push([n.data.id, count])
-  }
-  await setSeen(changes)
-  await state.update(OLD_SEEN_KEY, undefined)
+  await Promise.all([stored.set(STATE.seenCount, before.messages), stored.set(STATE.seenEvents, before.events)])
 }
 
 function seenJourneys(): Set<string> | undefined {
-  const v = state.get<string[]>(SEEN_J_KEY)
+  const v = stored.get(STATE.journeysSeen)
   return v ? new Set(v) : undefined
 }
 
@@ -102,10 +81,10 @@ export function isNewJourney(lj: LoadedJourney): boolean {
 export async function markJourneysSeen(only?: LoadedJourney): Promise<void> {
   const seen = seenJourneys()
   if (!seen) {
-    await state.update(SEEN_J_KEY, journeys.all().map(posKey))
+    await stored.set(STATE.journeysSeen, journeys.all().map(posKey))
     return
   }
   if (!only || seen.has(posKey(only))) return
   seen.add(posKey(only))
-  await state.update(SEEN_J_KEY, [...seen])
+  await stored.set(STATE.journeysSeen, [...seen])
 }

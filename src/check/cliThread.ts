@@ -4,6 +4,7 @@
 import { Worker } from 'worker_threads'
 import * as path from 'path'
 import { READ_ONLY_GIT } from '../platform/git'
+import { fireAndForget } from '../platform/run'
 
 /** A call that takes longer than this is given up (a git that hangs): the worker is stopped, the next call starts a new one. */
 const TIMEOUT_MS = 120_000
@@ -52,7 +53,7 @@ export class CliThread {
     this.worker = undefined
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(e) }
     this.pending.clear()
-    void w.terminate()
+    fireAndForget(w.terminate(), 'cliThread: w.terminate')
   }
 
   dispose(): void { if (this.worker) this.stop(this.worker, new Error('disposed')) }

@@ -14,6 +14,7 @@ import { noteOfThread, revealed, syncThread } from '../threads/sync'
 import { shape, shapeOf } from './changedOnDisk'
 import { addEvent, setStatus, statusEvent, undoResolveEvent } from './status'
 import { offerUndo } from './undo'
+import { fireAndForget } from '../platform/run'
 
 /** Replies being saved (note and text): a second Ctrl+Enter meanwhile (the box keeps its text until the command returns) is not a second reply. */
 const replying = new Set<string>()
@@ -40,7 +41,7 @@ export const addReply = async (n: Note, text: string, status?: 'open' | 'resolve
       return false
     }
     shape.set(n.data.id, shapeOf(n))
-    void markRead([n]).then(undefined, (e) => log.error(`mark read: ${e}`))
+    fireAndForget(markRead([n]), 'mark read')
     return true
   } finally { replying.delete(k) }
 }

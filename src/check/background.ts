@@ -6,6 +6,8 @@ import * as path from 'path'
 import { BACKGROUND_SETTING, BG_COMMITS_KEPT, BG_KEY, REFRESH_SOON_MS } from './constants'
 import type { CheckController } from './controller'
 import type { GitApi, GitRepo } from './host'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
 
 export class BackgroundQuestions implements vscode.Disposable {
   /** What the push watcher saw last (integration test). */
@@ -47,7 +49,7 @@ export class BackgroundQuestions implements vscode.Disposable {
     was.set(h.name, pushed)
     const seen = `${h.name} ${pushed ? 'pushed' : 'unpushed'}${before === undefined ? ' (new)' : ''}`
     this.trace = [...this.trace.slice(-9), seen]
-    if (pushed && before === false) void this.pushed(h.name, h.commit)
+    if (pushed && before === false) fireAndForget(this.pushed(h.name, h.commit), 'background: pushed')
   }
 
   /** `branch` was just pushed at `commit`: its questions, if it needs some (see the top of this file). */
@@ -55,14 +57,14 @@ export class BackgroundQuestions implements vscode.Disposable {
     const ctl = this.ctl
     const on = vscode.workspace.getConfiguration('codeNotes').get<boolean>(BACKGROUND_SETTING, true)
     if (!on || ctl.writer.writing || !commit) return
-    const done = ctl.host.memento.get<string[]>(BG_KEY) ?? []
+    const done = ctl.host.stored.get(STATE.checkBackgroundHeads)
     if (done.includes(commit)) return
     await ctl.refresh()
     const st = ctl.st
     if (!st || st.branch !== branch || st.state.phase !== 'none') return
     // A default branch (the CLI's isDefaultBranch: origin's HEAD, else main or master; or the branch compared with).
     if (st.onBase) return
-    await ctl.host.memento.update(BG_KEY, [...done.slice(-BG_COMMITS_KEPT), commit])
+    await ctl.host.stored.set(STATE.checkBackgroundHeads, [...done.slice(-BG_COMMITS_KEPT), commit])
     await ctl.writer.write(false, { background: true })
   }
 

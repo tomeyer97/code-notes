@@ -1,13 +1,15 @@
 // The notes folder setting (moving the notes there) and keeping them out of git.
 
 import * as vscode from 'vscode'
-import { cfg, gstate, journeys, notes, showError, store } from '../app'
+import { cfg, journeys, notes, showError, store, stored } from '../app'
 import { refreshAll } from '../refresh'
 import { treeView } from '../sidebar/notesTree'
 import { folderProblem } from '../core/format/noteModel'
 import { DEFAULT_FOLDER, folderName } from './store'
 import { plural } from '../core/text'
 import { wfs } from '../platform/workspaceFs'
+import { fireAndForget } from '../platform/run'
+import { STATE_FAMILIES } from '../platform/state'
 
 /** The notes folder as last set (a change offers to move the notes). */
 let currentFolder = DEFAULT_FOLDER
@@ -17,7 +19,7 @@ export function rememberFolder(): void { currentFolder = folderName() }
 export async function changeFolder(): Promise<void> {
   const raw = cfg().get<string>('folder') || DEFAULT_FOLDER
   const problem = folderProblem(raw)
-  if (problem) void showError(`Code Notes: the folder "${raw}" can't be used: ${problem}. Using ${DEFAULT_FOLDER}.`)
+  if (problem) fireAndForget(showError(`the folder "${raw}" can't be used: ${problem}. Using ${DEFAULT_FOLDER}.`), 'folder: showError')
   const from = currentFolder, to = folderName()
   currentFolder = to
   if (from === to) return
@@ -59,10 +61,10 @@ async function moveNotesFolder(f: vscode.WorkspaceFolder, files: string[], from:
     await wfs.rename(vscode.Uri.joinPath(oldDir, '.trash'), vscode.Uri.joinPath(newDir, '.trash'), { overwrite: false })
   } catch { /* no trash */ }
   for (const name of ['README.md', '.gitignore']) {
-    try { await wfs.delete(vscode.Uri.joinPath(oldDir, name)) } catch { /* none */ }
+    try { await wfs.remove(vscode.Uri.joinPath(oldDir, name)) } catch { /* none */ }
   }
   try {
-    if (!(await wfs.readDirectory(oldDir)).length) await wfs.delete(oldDir)
+    if (!(await wfs.readDirectory(oldDir)).length) await wfs.remove(oldDir)
   } catch { /* keep it */ }
 }
 
@@ -79,9 +81,9 @@ export async function applyIgnoreInGit(): Promise<void> {
     await store.writeGitignore(f) // shared through git: still not the trash
   }
   // Said once (no lasting status-bar item); after that it is in the notes item's tooltip.
-  const k = `codeNotes.gitSaid.${on}`
-  if (!gstate.get<boolean>(k)) {
-    await gstate.update(k, true)
+  const said = STATE_FAMILIES.gitSaid(on)
+  if (!stored.get(said)) {
+    await stored.set(said, true)
     vscode.window.setStatusBarMessage(on ? `$(eye-closed) Notes in ${folderName()}/ are kept out of git` : `$(git-commit) Notes in ${folderName()}/ can now be committed`, 4000)
   }
   refreshAll()

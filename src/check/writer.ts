@@ -15,6 +15,8 @@ import { costOf } from './log'
 import { checkPhase, checkPrompt, tourPrompt } from './prompts'
 import type { Status } from './types'
 import { busyLabel } from './viewModel'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
 
 /** A run of Claude writing (the questions or the tour): when it started, what it does now, for which branch. */
 interface Run { started: number; phase: string; branch: string; ask?: Ask }
@@ -62,7 +64,7 @@ export class Writer {
       res = bg ? await this.askQuietly(run) : await this.askWithProgress(run, topUp ? 'Adding questions' : 'Writing questions')
     } finally {
       this.writing = undefined
-      void this.host.memento.update(WRITING_KEY, undefined)
+      fireAndForget(this.host.stored.set(STATE.checkWriting, undefined), 'writer: store checkWriting')
     }
     const before = st.check?.questions.length ?? 0
     if (await this.branchSwitched(w, bg)) return false
@@ -108,7 +110,7 @@ export class Writer {
     if (!now || now === w.branch) return false
     await ctl.parking.park(w.branch)
     const kept = fs.existsSync(path.join(repo, ctl.cli.cachedFor(w.branch)))
-    if (kept && !bg) void vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`)
+    if (kept && !bg) fireAndForget(vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`), 'writer: window.showInformationMessage')
     ctl.log.info(`the branch changed to ${now} while writing for ${w.branch}${kept ? '; kept for it' : ''}`)
     await ctl.refresh()
     return true
@@ -135,7 +137,7 @@ export class Writer {
     ctl.log.info(`${after - before} questions written${took(w, res)}`)
     // Then the tour, in the same session (the change is read already); the questions can be answered meanwhile. It
     // starts once question 1 is open (its thread has the keyboard before anything else is drawn).
-    const tour = () => void this.writeTour(topUp, { session: res.sessionId, background: bg })
+    const tour = () => fireAndForget(this.writeTour(topUp, { session: res.sessionId, background: bg }), 'writer: writeTour')
     // In the background: the status bar says so; nothing opens until the person clicks.
     if (bg) {
       this.ready = after - before
@@ -211,7 +213,7 @@ export class Writer {
     ctl.log.info(`tour written (${after - before} steps)${took(t, res)}`)
     if (!o.background && ctl.st?.state.phase !== 'done') {
       const offer = vscode.window.showInformationMessage('The tour of your change is ready.', 'Walk it')
-      void offer.then((b) => { if (b) void this.host.walkTour() })
+      fireAndForget(offer.then((b) => { if (b) fireAndForget(this.host.walkTour(), 'writer: host.walkTour') }), 'writer: offer.then')
     }
     return true
   }
@@ -259,11 +261,11 @@ export class Writer {
     }))
   }
   /** The writer, for a window reloaded before it is done (see orphan). */
-  private remember(w: Run): void { void this.host.memento.update(WRITING_KEY, { branch: w.branch, started: w.started, pid: w.ask?.pid }) }
+  private remember(w: Run): void { fireAndForget(this.host.stored.set(STATE.checkWriting, { branch: w.branch, started: w.started, pid: w.ask?.pid }), 'writer: store checkWriting') }
 
   /** Questions for this branch still being written by a Claude Code started before the window was reloaded. */
   orphan(): { started: number } | undefined {
-    const o = this.host.memento.get<{ branch: string; started: number; pid?: number }>(WRITING_KEY)
+    const o = this.host.stored.get(STATE.checkWriting)
     const st = this.ctl.st
     if (!o || !st || o.branch !== st.branch || !o.pid || Date.now() - o.started > ORPHAN_MAX_MS) return undefined
     try {
@@ -319,7 +321,7 @@ export class Writer {
     if (p && !this.touring && st?.branch === p.branch && st.check) {
       this.tourPaused = undefined
       this.ctl.log.info(`back on ${p.branch}: the tour goes on`)
-      setTimeout(() => void this.writeTour(p.topUp, { session: p.session }), 0)
+      setTimeout(() => fireAndForget(this.writeTour(p.topUp, { session: p.session }), 'writer: writeTour'), 0)
     }
   }
   /** Commit… was asked for before the start: once the change is committed (no check yet), the questions are written. */
@@ -327,7 +329,7 @@ export class Writer {
     const st = this.ctl.st
     if (this.startAfterCommit && this.startAfterCommit === st?.branch && st.state.phase === 'none' && !this.ctl.uncommittedOnly && !this.writing) {
       this.startAfterCommit = undefined
-      setTimeout(() => void this.write(false), 0)
+      setTimeout(() => fireAndForget(this.write(false), 'writer: write'), 0)
     }
   }
 

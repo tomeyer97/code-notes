@@ -18,6 +18,7 @@ import { clock, journeyPrompt, journeyRules, minutes } from '../core/writing'
 import { showClarify } from './clarify'
 import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
 import { startWriting, Writing } from './inProgress'
+import { fireAndForget } from '../platform/run'
 
 interface WriteOptions { model?: string; resume?: { session: string; reply: string } }
 
@@ -64,7 +65,7 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
   const files = stagedJourneys(staging.dir)
   if (res.error) {
     staging.cleanup()
-    void showError(`Code Notes: Claude couldn't write the journey: ${res.error}`)
+    fireAndForget(showError(`Claude couldn't write the journey: ${res.error}`), 'writeJourney: showError')
     return undefined
   }
   if (!files.length) {
@@ -78,12 +79,12 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
   const title = made?.j.title ?? written.title ?? name
   log.info(`journey: written: "${title}" (${jf}/${name}.json) in ${clock(took)} by ${w.model}`)
   // One notice; the map opens by itself unless you are walking another journey.
-  void vscode.window.showInformationMessage(`Journey written: ${title} · ${minutes(took)}`, 'Open').then((b) => { if (b && made) void walkJourney(made) })
+  fireAndForget(vscode.window.showInformationMessage(`Journey written: ${title} · ${minutes(took)}`, 'Open').then((b) => { if (b && made) fireAndForget(walkJourney(made), 'writeJourney: walkJourney') }), 'writeJourney: window.showInformationMessage')
   if (made && !walk.touring()) await walkJourney(made)
   return made
 }
 
-const NO_SKILL = 'Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills, so Claude can\'t write a journey here.'
+const NO_SKILL = 'the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills, so Claude can\'t write a journey here.'
 
 /** The journey files Claude wrote into the staging folder, newest first. */
 function stagedJourneys(dir: string): string[] {
@@ -103,7 +104,7 @@ async function noJourneyWritten(question: string, res: AskResult, o: WriteOption
     .find((x): x is LoadedJourney => !!x)
   if (named) {
     log.info(`journey: Claude says "${named.j.title}" (${relPath(named.folder, named.uri)}) already answers "${question}": opening it`)
-    void vscode.window.showInformationMessage(`A journey already answers this: ${named.j.title}`)
+    fireAndForget(vscode.window.showInformationMessage(`A journey already answers this: ${named.j.title}`), 'writeJourney: window.showInformationMessage')
     await walkJourney(named)
     return named
   }
@@ -112,7 +113,7 @@ async function noJourneyWritten(question: string, res: AskResult, o: WriteOption
     await showClarify(question, res.sessionId, res.text.trim(), o.model)
     return undefined
   }
-  void showError('Code Notes: Claude finished without writing a journey.')
+  fireAndForget(showError('Claude finished without writing a journey.'), 'writeJourney: showError')
   return undefined
 }
 
@@ -130,7 +131,7 @@ async function checkStaged(skill: string, repo: string, staging: Staging, file: 
   const chk = await journeyPy(skill, repo, staging.stage, ['check', repo, slug, 'quiet'])
   if (chk.code === 0 && j) return j
   log.error(`journey: "${slug}" didn't pass journey.py check; left in ${staging.stage}/:\n${chk.out}`)
-  void showError('Code Notes: the journey Claude wrote didn\'t pass its check, so it wasn\'t added.', 'Show Output').then((b) => { if (b) log.show(true) })
+  fireAndForget(showError('the journey Claude wrote didn\'t pass its check, so it wasn\'t added.', 'Show Output').then((b) => { if (b) log.show(true) }), 'writeJourney: showError')
   return undefined
 }
 

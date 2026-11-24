@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { cfg } from '../app'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { unread } from './seen'
 import { hiddenInEditor } from '../sidebar/notesFilter'
 import { Note } from './store'

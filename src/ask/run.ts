@@ -2,7 +2,7 @@
 // trusted folder. Failures are shown in the thread and kept until retried or dismissed.
 
 import * as vscode from 'vscode'
-import { byId, cfg, firstFolder, log, now, state, store, understanding } from '../app'
+import { byId, cfg, firstFolder, log, now, store, stored, understanding } from '../app'
 import { Ask, AskResult, modelProblem } from '../platform/agent/claude'
 import { shape, shapeOf } from '../notes/changedOnDisk'
 import { createNote } from '../notes/create'
@@ -17,6 +17,9 @@ import { walk } from '../tour/instances'
 import { checkHint, claudePrompt, stepAskHint } from './prompts'
 import { claudeCli } from './settings'
 import { claudeAllowed, skillAccess, trusted } from './trust'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
+import { HiddenCmd } from '../platform/commands'
 
 /** A note Claude is answering (or that waits its turn): the answer so far and what Claude is doing. */
 interface Asking { ask?: Ask; text: string; activity?: string; started: number; cancelled?: boolean }
@@ -38,12 +41,10 @@ export async function askAbout(file: string, start: number, end: number, questio
   await askClaude(n)
 }
 
-/** Failures survive a reload: kept per workspace until retried or dismissed. */
-const ASK_ERR_KEY = 'codeNotes.askErrors'
-const saveAskErrors = () => state.update(ASK_ERR_KEY, Object.fromEntries(askErrors))
+const saveAskErrors = () => stored.set(STATE.askErrors, Object.fromEntries(askErrors))
 /** The failures stored before the reload. */
 export function loadAskErrors(): void {
-  for (const [k, v] of Object.entries(state.get<Record<string, string>>(ASK_ERR_KEY) ?? {})) askErrors.set(k, v)
+  for (const [k, v] of Object.entries(stored.get(STATE.askErrors))) askErrors.set(k, v)
 }
 
 /** Claude asked to answer the note: now, or queued behind MAX_ASKS runs. A check question asks what to explain. */
@@ -51,7 +52,7 @@ export async function askClaude(n: Note, text?: string): Promise<void> {
   if (understanding?.isCheck(n)) return askAboutCheckQuestion(n, text)
   if (asking.has(n.data.id) || askQueue.includes(n.data.id)) return
   if (!claudeAllowed('answer notes')) return
-  if (askErrors.delete(n.data.id)) void saveAskErrors()
+  if (askErrors.delete(n.data.id)) fireAndForget(saveAskErrors(), 'run: saveAskErrors')
   if (asking.size >= MAX_ASKS) {
     askQueue.push(n.data.id)
     asking.set(n.data.id, { text: '', activity: 'Queued…', started: Date.now() })
@@ -82,7 +83,7 @@ function cantRun(id: string, error: string, logLine: string): void {
   asking.delete(id)
   askErrors.set(id, error)
   log.error(`note ${id}: ${logLine}`)
-  void saveAskErrors()
+  fireAndForget(saveAskErrors(), 'run: saveAskErrors')
   refreshAll()
 }
 
@@ -153,7 +154,7 @@ async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<
   else if (res.error || !res.text.trim()) {
     askErrors.set(id, res.error ?? 'Claude returned no answer.')
     log.error(`note ${id}: Ask Claude failed: ${res.error ?? 'no answer'}`)
-    void saveAskErrors()
+    fireAndForget(saveAskErrors(), 'run: saveAskErrors')
   } else if (answered) {
     answered.data.messages.push({ author: 'Claude', role: 'agent', body: res.text.trim(), at: now() })
     if (res.sessionId) answered.data.claudeSession = res.sessionId
@@ -169,7 +170,7 @@ async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<
 /** Cancel: stops Claude on the note, takes it out of the queue, or dismisses its failure. */
 export function cancelAsk(id: string): void {
   if (!asking.has(id) && askErrors.delete(id)) {
-    void saveAskErrors()
+    fireAndForget(saveAskErrors(), 'run: saveAskErrors')
     refreshAll()
     return
   }
@@ -199,6 +200,6 @@ export function refreshAskStatus(): void {
   if (!asking.size) { askStatusItem.hide(); return }
   askStatusItem.text = `$(sync~spin) Claude · ${asking.size}`
   askStatusItem.tooltip = `Claude is answering ${plural(asking.size, 'note')}`
-  askStatusItem.command = 'codeNotes.notes.focus'
+  askStatusItem.command = HiddenCmd.notesFocus
   askStatusItem.show()
 }

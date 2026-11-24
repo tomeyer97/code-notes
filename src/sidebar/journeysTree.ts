@@ -2,15 +2,17 @@
 // Its rows are drawn by rowItems.ts (a journey's: journeyRows.ts); its model is listModel.ts.
 
 import * as vscode from 'vscode'
-import { journeys, mapPanel, state } from '../app'
+import { journeys, mapPanel, stored } from '../app'
 import { Group, SORTS } from '../core/list/journeyList'
 import { pickOne } from '../platform/quickPick'
 import { walkJourney } from '../tour/commands'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
-import { followCursor, listModel, listSort, listState, SORT_KEY } from './listModel'
+import { followCursor, listModel, listSort, listState } from './listModel'
 import { itemOf } from './rowItems'
 import { ViewSync } from './viewSync'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
 
 /** Where a row's parent is kept (set while the rows are made, read back by getParent): the same strings both ways. */
 const parentKey = {
@@ -122,10 +124,10 @@ export async function searchJourneys(): Promise<void> {
   qp.onDidChangeValue(fill)
   fill()
   // Not awaited: the command returns while the pick is open.
-  void pickOne(qp).then((it) => {
+  fireAndForget(pickOne(qp).then((it) => {
     const lj = it && journeys.list.get(it.key)
-    if (lj) void walkJourney(lj)
-  })
+    if (lj) fireAndForget(walkJourney(lj), 'journeysTree: walkJourney')
+  }), 'journeysTree: pickOne')
 }
 
 export async function sortJourneys(): Promise<void> {
@@ -133,7 +135,7 @@ export async function sortJourneys(): Promise<void> {
   const items = SORTS.map((x) => ({ label: x.label, id: x.id, description: x.id === cur ? 'current' : undefined }))
   const pick = await vscode.window.showQuickPick(items, { title: 'Sort journeys' })
   if (!pick) return
-  await state.update(SORT_KEY, pick.id)
+  await stored.set(STATE.journeySort, pick.id)
   journeysTree.refresh()
   mapPanel.update()
 }

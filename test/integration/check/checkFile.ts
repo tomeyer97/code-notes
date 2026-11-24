@@ -58,7 +58,7 @@ export const checkFileTests = [
     const ada = readCheck(); ada.questions[2].concern.dismissed.reason = 'Counts are per hour: a restart is harmless.'
     fs.writeFileSync(checkFile, JSON.stringify(ada, null, 2) + '\n'); git('commit', '-qam', 'ada dismisses q3')
     try { git('merge', '-q', '--no-edit', 'feat/limits-bob') } catch { /* the conflict */ }
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('the real conflict said', () => view()?.action?.id === 'merge')
     api.checkPanelSend({ type: 'test', click: 'footer button.primary' })
     await until('kept both, the flag kept and said', () => readCheckOr()?.questions[2].concern?.flagged === true && /Question 3: its concern stays flagged/.test(view()?.said ?? '') && view().action?.id === 'commitPush')

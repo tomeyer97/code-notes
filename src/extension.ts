@@ -3,7 +3,7 @@
 // module that does it). activate reads as the boot order; each step runs in the order its parts need each other.
 
 import * as vscode from 'vscode'
-import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, gstate, journeys, KEY, log, mapPanel, PREFIX_KEY, provide, setCtx, setKey, state, store, tourItems, tutorialSpot, understanding, valueHints } from './app'
+import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, journeys, KEY, log, mapPanel, notes, provide, setCtx, setKey, store, stored, tourItems, tutorialSpot, understanding, valueHints } from './app'
 import { askClaudeCommand, cancelClaudeCommand } from './ask/commands'
 import { askStatusItem, createAskStatusItem, loadAskErrors } from './ask/run'
 import { watchClaudeCli } from './ask/settings'
@@ -36,7 +36,7 @@ import { undo } from './notes/undo'
 import { markAllRead, markUnread, stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
 import { refreshAll } from './refresh'
-import { markJourneysSeen, migrateSeen } from './notes/seen'
+import { markJourneysSeen } from './notes/seen'
 import { createJourneysView, searchJourneys, journeysHereAll, sortJourneys } from './sidebar/journeysTree'
 import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilter, showResolvedNotes } from './sidebar/notesFilter'
 import { createNotesView, rowsSelected, treeView } from './sidebar/notesTree'
@@ -57,6 +57,9 @@ import { reloadAll, watchBranches, watchEditors, watchEdits, watchFiles, watchJo
 import { refreshJourney } from './write/refreshJourney'
 import { askQuestion, watchRequests } from './write/requests'
 import { writingChanged } from './write/inProgress'
+import { fireAndForget, useWindow } from './platform/run'
+import { runMigrations, STATE, StateStore } from './platform/state'
+import { Cmd, HiddenCmd } from './platform/commands'
 
 const CONTROLLER_ID = 'codeNotes'
 
@@ -77,7 +80,7 @@ export function deactivate(): void { /* disposables clean up */ }
 
 /** The stored state, the log, who you are, the notes and their comment controller (app.ts's services, in this order). */
 async function startNotes(context: vscode.ExtensionContext): Promise<void> {
-  provide({ state: context.workspaceState })
+  provide({ stored: new StateStore(context.workspaceState, context.globalState) })
   loadAskErrors()
   provide({ extVersion: String(context.extension.packageJSON?.version ?? extVersion) })
   // No claude CLI: no Ask Claude anywhere; the setting's description says how to get it.
@@ -86,6 +89,7 @@ async function startNotes(context: vscode.ExtensionContext): Promise<void> {
   provide({ extUri: context.extensionUri })
   loadGroupMode()
   provide({ log: vscode.window.createOutputChannel('Code Notes', { log: true }) })
+  useWindow({ log, showErrorMessage: (text, ...items) => vscode.window.showErrorMessage(text, ...items) })
   await initIdentity(vscode.workspace.workspaceFolders?.[0])
   provide({ store: new Store(log, me) })
   provide({ controller: vscode.comments.createCommentController(CONTROLLER_ID, 'Code Notes') })
@@ -107,15 +111,14 @@ function createNotesUi(context: vscode.ExtensionContext): void {
 /** The journeys, what lights code (beats, the tutorial's spot, code links, Claude's links, value hints), the chord
  *  prefix and the map panel. */
 function startJourneys(context: vscode.ExtensionContext): void {
-  provide({ journeys: new Journeys(log, context.workspaceState) })
+  provide({ journeys: new Journeys(log, stored) })
   devReload(context, log)
   provide({ beats: new Beats(log), tutorialSpot: new TutorialSpot(), codeLinks: new CodeLinks(log) })
   provide({ claudeLinks: new ClaudeLinks(log, () => cfg().get<boolean>('claudeLinks', true)) })
   provide({ valueHints: new ValueHints(log, () => codeLinks.backAt, codeLinks.onDidChange) })
   context.subscriptions.push(tutorialSpot, claudeLinks, beats, codeLinks, valueHints)
-  provide({ gstate: context.globalState })
-  setKey(gstate.get<string>(PREFIX_KEY) ?? KEY)
-  provide({ mapPanel: new MapPanel(context.extensionUri, log, onMapMessage, mapState, state) })
+  setKey(stored.get(STATE.chordPrefix) ?? KEY)
+  provide({ mapPanel: new MapPanel(context.extensionUri, log, onMapMessage, mapState, stored) })
 }
 
 /** The step card, the step pages, the map panel restored after a reload (it waits for the journeys: call the function
@@ -125,7 +128,7 @@ function createTourUi(context: vscode.ExtensionContext): () => void {
   registerRefPages(context)
   const journeysLoaded = restoreMapPanel(context)
   createDecorations()
-  setCtx('codeNotes.showResolved', false)
+  fireAndForget(setCtx('codeNotes.showResolved', false), 'extension: setCtx codeNotes.showResolved')
   rememberMe()
   context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
   podcasts.init(context)
@@ -150,7 +153,10 @@ async function loadAndShow(context: vscode.ExtensionContext, journeysLoaded: () 
   await journeys.load()
   await markJourneysSeen()
   journeysLoaded()
-  await migrateSeen()
+  await runMigrations(stored, { notes: () => notes().map((n) => n.data) }).then(
+    (ran) => { for (const m of ran) log.info(`migrated: ${m}`) },
+    (e) => log.error(`migrating the stored state: ${e}`), // tried again at the next start
+  )
   followNotesOnDisk()
   refreshAll()
   await restoreTour()
@@ -170,117 +176,117 @@ function registerCommands(context: vscode.ExtensionContext): void {
     // Notes: adding, replying, Claude.
     {
       // A note being written pauses a podcast playing (its code stays put under the draft: F52).
-      'codeNotes.add': chord(() => { podcasts.hold('note'); return addNote() }),
-      'codeNotes.addQuick': addQuickNote,
-      'codeNotes.addPathNote': (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
-      'codeNotes.askFromThread': askFromThread,
-      'codeNotes.createFromThread': async (...a: Parameters<typeof createFromThread>) => {
+      [Cmd.add]: chord(() => { podcasts.hold('note'); return addNote() }),
+      [Cmd.addQuick]: addQuickNote,
+      [Cmd.addPathNote]: (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
+      [Cmd.askFromThread]: askFromThread,
+      [Cmd.createFromThread]: async (...a: Parameters<typeof createFromThread>) => {
         try { return await createFromThread(...a) } finally { podcasts.released('note') }
       },
-      'codeNotes.askClaude': askClaudeCommand,
-      'codeNotes.cancelClaude': cancelClaudeCommand,
-      'codeNotes.reply': replyTo,
-      'codeNotes.replyReopen': replyTo, // the same, labelled for resolved threads
-      'codeNotes.replyResolve': replyAndResolve,
-      'codeNotes.applySuggestion': (id: string, mi: number, k: number) => applySuggestion(id, mi, k),
+      [Cmd.askClaude]: askClaudeCommand,
+      [Cmd.cancelClaude]: cancelClaudeCommand,
+      [Cmd.reply]: replyTo,
+      [Cmd.replyReopen]: replyTo, // the same, labelled for resolved threads
+      [Cmd.replyResolve]: replyAndResolve,
+      [Cmd.applySuggestion]: (id: string, mi: number, k: number) => applySuggestion(id, mi, k),
     },
     // Notes: resolving, deleting, moving, reading.
     {
-      'codeNotes.resolve': async (arg?: any, many?: any[]) => resolve(await pickNotes(arg, many)),
-      'codeNotes.reopen': reopenNotes,
-      'codeNotes.delete': deleteNotes,
-      'codeNotes.resolveChecked': resolveChecked,
-      'codeNotes.resolveAll': resolveAll,
-      'codeNotes.deleteResolved': deleteResolved,
-      'codeNotes.undo': undo,
-      'codeNotes.acceptCode': acceptCode,
-      'codeNotes.moveToSelection': moveToSelection,
-      'codeNotes.completeMove': completeMove,
-      'codeNotes.cancelMove': cancelMove,
-      'codeNotes.markUnread': markUnread,
-      'codeNotes.markAllRead': markAllRead,
-      'codeNotes.nextUnread': () => stepUnread(1),
-      'codeNotes.previousUnread': () => stepUnread(-1),
+      [Cmd.resolve]: async (arg?: any, many?: any[]) => resolve(await pickNotes(arg, many)),
+      [Cmd.reopen]: reopenNotes,
+      [Cmd.delete]: deleteNotes,
+      [Cmd.resolveChecked]: resolveChecked,
+      [Cmd.resolveAll]: resolveAll,
+      [Cmd.deleteResolved]: deleteResolved,
+      [Cmd.undo]: undo,
+      [Cmd.acceptCode]: acceptCode,
+      [Cmd.moveToSelection]: moveToSelection,
+      [Cmd.completeMove]: completeMove,
+      [Cmd.cancelMove]: cancelMove,
+      [Cmd.markUnread]: markUnread,
+      [Cmd.markAllRead]: markAllRead,
+      [Cmd.nextUnread]: () => stepUnread(1),
+      [Cmd.previousUnread]: () => stepUnread(-1),
     },
     // Notes: opening, threads, the list.
     {
-      'codeNotes.reveal': revealCommand,
-      'codeNotes.openAt': openAt,
-      'codeNotes.openNoteFile': openNoteFile,
-      'codeNotes.openNoteId': openNoteId,
-      'codeNotes.openBroken': openBroken,
-      'codeNotes.restoreBroken': restoreBroken,
-      'codeNotes.expandThread': expandThread,
-      'codeNotes.collapseThread': collapseThread,
-      'codeNotes.find': findNote,
-      'codeNotes.refresh': reloadAll,
-      'codeNotes.copyAgentPrompt': copyAgentPrompt,
-      'codeNotes.copyNotePrompt': copyNotePrompt,
+      [Cmd.reveal]: revealCommand,
+      [Cmd.openAt]: openAt,
+      [Cmd.openNoteFile]: openNoteFile,
+      [HiddenCmd.openNoteId]: openNoteId,
+      [Cmd.openBroken]: openBroken,
+      [Cmd.restoreBroken]: restoreBroken,
+      [Cmd.expandThread]: expandThread,
+      [Cmd.collapseThread]: collapseThread,
+      [Cmd.find]: findNote,
+      [Cmd.refresh]: reloadAll,
+      [Cmd.copyAgentPrompt]: copyAgentPrompt,
+      [Cmd.copyNotePrompt]: copyNotePrompt,
     },
     // The Code Notes view: sessions, filter, grouping (sidebar/).
     {
-      'codeNotes.hideSession': hideSession,
-      'codeNotes.showSession': showSession,
-      'codeNotes.showOnlySession': showOnlySession,
-      'codeNotes.showAllSessions': showAllSessions,
-      'codeNotes.resolveSession': resolveSession,
-      'codeNotes.deleteSession': deleteSession,
-      'codeNotes.showResolved': showResolvedNotes,
-      'codeNotes.hideResolved': hideResolvedNotes,
-      'codeNotes.filter': pickFilter,
-      'codeNotes.filterActive': () => vscode.commands.executeCommand('codeNotes.filter'),
-      'codeNotes.groupByFile': groupByFile,
-      'codeNotes.groupBySession': groupBySession,
+      [Cmd.hideSession]: hideSession,
+      [Cmd.showSession]: showSession,
+      [Cmd.showOnlySession]: showOnlySession,
+      [Cmd.showAllSessions]: showAllSessions,
+      [Cmd.resolveSession]: resolveSession,
+      [Cmd.deleteSession]: deleteSession,
+      [Cmd.showResolved]: showResolvedNotes,
+      [Cmd.hideResolved]: hideResolvedNotes,
+      [Cmd.filter]: pickFilter,
+      [Cmd.filterActive]: () => vscode.commands.executeCommand(Cmd.filter),
+      [Cmd.groupByFile]: groupByFile,
+      [Cmd.groupBySession]: groupBySession,
     },
     // Chord keys: Ctrl+' then a letter (chords.ts).
     {
-      'codeNotes.next': next,
-      'codeNotes.previous': previous,
-      'codeNotes.resolveNext': resolveNext,
+      [Cmd.next]: next,
+      [Cmd.previous]: previous,
+      [Cmd.resolveNext]: resolveNext,
     },
     // Journeys and their tour (tour/, sidebar/journeysTree.ts, write/).
     {
-      'codeNotes.codeLink': openCodeLink,
-      'codeNotes.codeLinkBack': codeLinkBack,
-      'codeNotes.openJourney': openJourney,
-      'codeNotes.showMap': showMap,
-      'codeNotes.startJourney': startJourney,
-      'codeNotes.nextStep': () => walk.stepBy(1),
-      'codeNotes.previousStep': () => walk.stepBy(-1),
-      'codeNotes.endJourney': endJourney,
-      'codeNotes.openStepLink': openStepLink,
-      'codeNotes.toggleAuthorMode': toggleAuthorMode,
-      'codeNotes.toggleAnimation': chord(toggleAnimation),
-      'codeNotes.playPodcast': (arg?: unknown) => podcasts.play(arg),
+      [HiddenCmd.codeLink]: openCodeLink,
+      [HiddenCmd.codeLinkBack]: codeLinkBack,
+      [Cmd.openJourney]: openJourney,
+      [Cmd.showMap]: showMap,
+      [Cmd.startJourney]: startJourney,
+      [Cmd.nextStep]: () => walk.stepBy(1),
+      [Cmd.previousStep]: () => walk.stepBy(-1),
+      [Cmd.endJourney]: endJourney,
+      [HiddenCmd.openStepLink]: openStepLink,
+      [Cmd.toggleAuthorMode]: toggleAuthorMode,
+      [Cmd.toggleAnimation]: chord(toggleAnimation),
+      [Cmd.playPodcast]: (arg?: unknown) => podcasts.play(arg),
       // The greyed ▶ of a podcast that can't be played (disabled in the menu): why, if it is ever run.
-      'codeNotes.podcastToggle': chord(() => podcasts.toggle()),
-      'codeNotes.podcastBack': chord(() => podcasts.back()),
-      'codeNotes.podcastForward': chord(() => podcasts.forward()),
-      'codeNotes.podcastPrevStep': chord(() => podcasts.part(-1)),
-      'codeNotes.podcastNextStep': chord(() => podcasts.part(1)),
-      'codeNotes.podcastOpen': () => podcasts.openSessionMap(),
+      [Cmd.podcastToggle]: chord(() => podcasts.toggle()),
+      [Cmd.podcastBack]: chord(() => podcasts.back()),
+      [Cmd.podcastForward]: chord(() => podcasts.forward()),
+      [Cmd.podcastPrevStep]: chord(() => podcasts.part(-1)),
+      [Cmd.podcastNextStep]: chord(() => podcasts.part(1)),
+      [Cmd.podcastOpen]: () => podcasts.openSessionMap(),
       // The row's ⏸ (listening) and ▶ Resume (paused there).
       // "Follow along" on the step card: the editor follows the voice again (podcast/follow.ts).
-      'codeNotes.podcastFollow': () => podcasts.followAlong(),
-      'codeNotes.askQuestion': askQuestion,
-      'codeNotes.backToStep': backToStep,
-      'codeNotes.askStep': (text?: string) => askStep(text),
-      'codeNotes.askStepUpdate': () => askUpdate(),
-      'codeNotes.tutorial': tutorial,
-      'codeNotes.stepDetails': stepDetails,
-      'codeNotes.searchJourneys': chord(searchJourneys),
-      'codeNotes.refreshJourney': refreshJourney,
-      'codeNotes.journeysHereAll': journeysHereAll,
-      'codeNotes.sortJourneys': sortJourneys,
-      'codeNotes.pickJourneyStep': pickJourneyStep,
+      [HiddenCmd.podcastFollow]: () => podcasts.followAlong(),
+      [Cmd.askQuestion]: askQuestion,
+      [Cmd.backToStep]: backToStep,
+      [Cmd.askStep]: (text?: string) => askStep(text),
+      [HiddenCmd.askStepUpdate]: () => askUpdate(),
+      [Cmd.tutorial]: tutorial,
+      [Cmd.stepDetails]: stepDetails,
+      [Cmd.searchJourneys]: chord(searchJourneys),
+      [Cmd.refreshJourney]: refreshJourney,
+      [Cmd.journeysHereAll]: journeysHereAll,
+      [Cmd.sortJourneys]: sortJourneys,
+      [Cmd.pickJourneyStep]: pickJourneyStep,
     },
     // The understanding check (check/wiring.ts).
     {
-      'codeNotes.checkUnderstanding': () => understanding!.run(),
-      'codeNotes.nextCheckQuestion': () => understanding?.step(1),
-      'codeNotes.answerCheck': answerCheck,
-      'codeNotes.checkConcern': checkConcern,
-      'codeNotes.gradeCheck': gradeCheck,
+      [Cmd.checkUnderstanding]: () => understanding!.run(),
+      [HiddenCmd.nextCheckQuestion]: () => understanding?.step(1),
+      [Cmd.answerCheck]: answerCheck,
+      [Cmd.checkConcern]: checkConcern,
+      [Cmd.gradeCheck]: gradeCheck,
     },
   ]
   for (const group of groups) {

@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { cfg, log } from '../app'
 import { SKILLS_HINT } from './prompts'
+import { fireAndForget } from '../platform/run'
 
 /**
  * Claude runs (answering a note, a step's question, writing a journey) run tools in the repository, the skill's
@@ -17,9 +18,9 @@ export const trusted = () => vscode.workspace.isTrusted
 export function claudeAllowed(what: string): boolean {
   if (trusted()) return true
   log.info(`${what}: not run: this folder is in Restricted Mode (not trusted)`)
-  void vscode.window.showInformationMessage(`Trust this folder to let Claude ${what}.`, 'Manage Trust').then((b) => {
-    if (b) void vscode.commands.executeCommand('workbench.trust.manage')
-  })
+  fireAndForget(vscode.window.showInformationMessage(`Trust this folder to let Claude ${what}.`, 'Manage Trust').then((b) => {
+    if (b) fireAndForget(vscode.commands.executeCommand('workbench.trust.manage'), 'trust: command workbench.trust.manage')
+  }), 'trust: window.showInformationMessage')
   return false
 }
 

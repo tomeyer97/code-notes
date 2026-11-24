@@ -1,18 +1,19 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import { claudeLinks, extVersion, journeys, log, mapPanel, showError, state } from '../app'
+import { claudeLinks, extVersion, journeys, log, mapPanel, showError, stored } from '../app'
 import { claudeAllowed, trusted } from '../ask/trust'
 import { modelProblem } from '../platform/agent/claude'
 import { linkTarget } from '../core/linkUri'
 import { posKey } from '../journeys/steps'
 import { walkJourney } from '../tour/commands'
 import { walk } from '../tour/instances'
-import { MAP_KEY } from '../tour/state'
 import { wfs } from '../platform/workspaceFs'
 import { chooseJourney, confirmWrite, matchJourneys } from './rank'
 import { writeJourney } from './writeJourney'
 import { journeyModel, modelLabel } from './claudeRun'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
 
 // Requests from scripts: a request file or a link (docs/journey-format.md).
 // The script writes .code-notes/.request.json in the repo ({action, question, model, at, id, needs}); the window that
@@ -134,7 +135,7 @@ async function answerQuestion(q: string, model: string | undefined, via: Via, ou
   const bad = modelProblem(journeyModel(model))
   if (bad) {
     outcome('error', { outcome: 'error', message: bad })
-    void showError(`Code Notes: ${bad}`)
+    fireAndForget(showError(bad), 'requests: showError')
     return true
   }
   await confirmAndWrite(q, model, outcome)
@@ -148,7 +149,7 @@ async function confirmAndWrite(q: string, model: string | undefined, outcome: Ou
   const c = await confirmWrite(q, model)
   if (c === 'write') {
     outcome('writing', { outcome: 'writing', model: label })
-    void writeJourney(q, { model }).catch((e) => log.error(`journey: ${e}`))
+    fireAndForget(writeJourney(q, { model }), 'journey')
   } else if (c) {
     outcome(`opened:${c.j.id}`, { outcome: 'opened', title: c.j.title })
     await walkJourney(c, { fromStart: true })
@@ -158,12 +159,12 @@ async function confirmAndWrite(q: string, model: string | undefined, outcome: Ou
 /** The journey panel with its Journeys list in front: over the journey being walked or last shown, else the first one. */
 async function showJourneysHome(): Promise<void> {
   const all = journeys.all()
-  const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? all.find((x) => x.j.start) ?? all[0]
-  if (!lj) { void vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'); return }
+  const lj = walk.tourJourney() ?? journeys.byPos(stored.get(STATE.mapJourney)) ?? all.find((x) => x.j.start) ?? all[0]
+  if (!lj) { fireAndForget(vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'), 'requests: window.showInformationMessage'); return }
   // The walk is not ended here (a new card right after an ended walk's made VS Code's comment widgets loop on their
   // collapsed state: "Maximum call stack size exceeded"); choosing a journey switches as usual.
   mapPanel.showHome(lj)
-  void state.update(MAP_KEY, posKey(lj))
+  fireAndForget(stored.set(STATE.mapJourney, posKey(lj)), 'requests: store mapJourney')
 }
 
 /** A request as the script writes it; undefined (logged) when it can't be used. `model` only from the file. */
@@ -212,7 +213,7 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
     requestLog.push({ action: String(v.action), question: String(v.question ?? ''), via: 'file', outcome: 'too-new' })
     return
   }
-  try { await wfs.delete(uri) } catch { /* gone already */ }
+  try { await wfs.remove(uri) } catch { /* gone already */ }
   if (!v) { log.warn(`explain: ${REQUEST_FILE} is not JSON: ignored`); return }
   const at = Date.parse(typeof v?.at === 'string' ? v.at : '')
   if (!at || Date.now() - at > REQUEST_MAX_AGE) { log.info(`explain: ${REQUEST_FILE} is ${at ? 'older than 2 minutes' : 'undated'}: ignored`); return }
@@ -234,10 +235,10 @@ export const askQuestion = async () => {
 
 /** Requests from scripts: the link, and the request file (one that came before this window did is handled now). */
 export function watchRequests(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.window.registerUriHandler({ handleUri: (u) => void onUri(u).catch((e) => log.error(`explain link: ${e}`)) }))
+  context.subscriptions.push(vscode.window.registerUriHandler({ handleUri: (u) => fireAndForget(onUri(u), 'explain link') }))
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, REQUEST_FILE))
-    const take = () => void consumeRequest(f).catch((e) => log.error(`explain request: ${e}`))
+    const take = () => fireAndForget(consumeRequest(f), 'explain request')
     w.onDidCreate(take); w.onDidChange(take)
     context.subscriptions.push(w)
     take()

@@ -2,7 +2,7 @@
 // what a person would (answer a pick, type into a box, send the map a message).
 
 import * as vscode from 'vscode'
-import { beats, claudeLinks, codeLinks, gstate, journeys, KEY, mapPanel, notes, state, store, tourItems, tutorialSpot, understanding, valueHints } from './app'
+import { beats, claudeLinks, codeLinks, journeys, KEY, mapPanel, notes, store, stored, tourItems, tutorialSpot, understanding, valueHints } from './app'
 import { askErrors, asking } from './ask/run'
 import { me } from './notes/identity'
 import { Note } from './notes/store'
@@ -19,7 +19,7 @@ import { threads } from './threads/sync'
 import { askDrafts, stepAskBox } from './tour/askStep'
 import { restorePanel, restoreTour } from './tour/commands'
 import { card, tourState, walk } from './tour/instances'
-import { resetTutorial, TUTORIAL_KEY, tutorialMark, tutorialSeen } from './tour/tutorial'
+import { resetTutorial, tutorialMark, tutorialSeen } from './tour/tutorial'
 import { answerClarify, clarify } from './write/clarify'
 import { choosing, confirming } from './write/rank'
 import { requestLog } from './write/requests'
@@ -28,6 +28,8 @@ import { writingRows } from './write/inProgress'
 import { podcasts } from './podcast/player'
 import { onMapMessage } from './tour/mapMessages'
 import type { MapMessage } from './journeys/mapPanel'
+import { STATE } from './platform/state'
+import { stepDraftKey } from './platform/keys'
 
 /** What `activate` returns (src/extension.ts): the integration tests import this type, not `any`. */
 export type TestApi = ReturnType<typeof testApi>
@@ -109,7 +111,7 @@ function tourSnapshot() {
     status: tourItems.pos.text,
     // None while its journey is listened to (the podcast's item then).
     statusShown: !!tourItems.pos.text && walk.touring() && !(lj && walk.podcastOn?.(lj)),
-    tutorial: { ...tutorialSeen, seen: !!gstate.get(TUTORIAL_KEY), spot: tutorialSpot.shown, mark: tutorialMark },
+    tutorial: { ...tutorialSeen, seen: !!stored.get(STATE.tutorialSeen), spot: tutorialSpot.shown, mark: tutorialMark },
     key: KEY,
     lastLeft: tourState.lastLeft,
     fileGone: tourState.fileGone,
@@ -154,7 +156,7 @@ export function testApi() {
     /** Opens a check question as the Check view's row does. */
     checkOpenQuestion: (id: string) => understanding?.open(id),
     /** The stored state (workspace, global): the round-trip test counts its writes. */
-    mementos: () => [state, gstate],
+    mementos: () => stored.mementos(),
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: unknown) => mapPanel.send(m),
     /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
@@ -204,7 +206,7 @@ export function testApi() {
       if (!b) return false
       b.box.value = text
       const lj = walk.tourJourney()
-      askDrafts.set(`${lj?.j.id}|${lj?.j.steps[tourState.step - 1]?.id}`, text)
+      askDrafts.set(stepDraftKey(lj?.j.id, lj?.j.steps[tourState.step - 1]?.id), text)
       b.accept()
       return true
     },

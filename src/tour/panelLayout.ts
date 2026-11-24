@@ -2,13 +2,13 @@
 // files kept out of the panel's group.
 
 import * as vscode from 'vscode'
-import { gstate, KEY, log, mapPanel } from '../app'
+import { KEY, log, mapPanel, stored } from '../app'
 import { MAP_VIEW } from '../journeys/mapPanel'
 import { listeningShare, panelShare } from '../core/panelWidth'
 import { walk } from './instances'
-
-/** The panel's width as the reader left it (a share of the editor area), every journey. */
-const PANEL_SHARE_KEY = 'codeNotes.panelShare'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
+import { OWN_MOVE_MS } from '../platform/timings'
 
 /** When the extension last set the layout (a resize right after is ours, not the reader's). */
 let layoutSetAt = 0
@@ -44,7 +44,7 @@ function shareFor(total: number): number {
   const ed = vscode.workspace.getConfiguration('editor')
   const fontSize = ed.get<number>('fontSize') ?? 14
   const minimap = ed.get<boolean>('minimap.enabled') ?? true
-  return panelShare(total, { fontSize, minimap, remembered: gstate.get<number>(PANEL_SHARE_KEY) })
+  return panelShare(total, { fontSize, minimap, remembered: stored.get(STATE.panelShare) })
 }
 
 /** The editor area's width (px), from the layout as it is now; undefined when it can't be told (groups above each other). */
@@ -112,7 +112,7 @@ export async function keepWidthOnFocus(): Promise<void> {
   const now = await flatWidths()
   if (mapCol === undefined || !now) return
   // The extension set the layout just now (Ctrl+' V's room, a walk's width): that is the one to keep.
-  if (Date.now() - layoutSetAt < 1500) { known = now.sizes; return }
+  if (Date.now() - layoutSetAt < OWN_MOVE_MS) { known = now.sizes; return }
   const i = mapCol - 1
   const expanded = !!before && before.length === now.sizes.length && before[i] <= GROUP_MIN_PX + 0.5 && now.sizes[i] > before[i] + EXPANDED_PX
   if (!expanded) { known = now.sizes; return }
@@ -127,12 +127,12 @@ export async function keepWidthOnFocus(): Promise<void> {
 /** The panel was resized: by the reader (not just after we set it), so that width is kept for next time. */
 export async function rememberPanelWidth(): Promise<void> {
   // Dragged, or set by the extension: the width to keep (an expansion by VS Code on focus is undone first).
-  if (Date.now() - layoutSetAt < 1500) { await noteLayout(); return }
+  if (Date.now() - layoutSetAt < OWN_MOVE_MS) { await noteLayout(); return }
   await keepWidthOnFocus()
   const s = await sideBySide()
   if (!s) return
   const share = (s.layout.groups[s.panel].size ?? 0) / s.total
-  void gstate.update(PANEL_SHARE_KEY, Math.round(share * 1000) / 1000)
+  fireAndForget(stored.set(STATE.panelShare, Math.round(share * 1000) / 1000), 'panelLayout: store panelShare')
 }
 
 /**

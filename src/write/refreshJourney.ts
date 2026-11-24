@@ -16,6 +16,7 @@ import { walk } from '../tour/instances'
 import { clock } from '../core/writing'
 import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
 import { startWriting, Writing } from './inProgress'
+import { fireAndForget } from '../platform/run'
 
 /** Journeys being refreshed (key): their Refresh says so. */
 export const refreshing = new Set<string>()
@@ -69,7 +70,7 @@ export async function refreshJourney(arg?: unknown): Promise<LoadedJourney | und
   return applyRefresh(lj, { skill, repo, slug, staging, before, was, res, started: w.started })
 }
 
-const NO_SKILL = 'Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills.'
+const NO_SKILL = 'the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills.'
 
 /** The journey a command argument names: a key, a sidebar row ({ lj }), or a journey itself. */
 function journeyKeyOf(arg: unknown): string | undefined {
@@ -145,7 +146,7 @@ async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<LoadedJou
   }
   if (res.error) {
     staging.cleanup()
-    void showError(`Code Notes: Claude couldn't refresh the journey: ${res.error}`)
+    fireAndForget(showError(`Claude couldn't refresh the journey: ${res.error}`), 'refreshJourney: showError')
     journeysTree.refresh()
     return undefined
   }
@@ -153,19 +154,19 @@ async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<LoadedJou
   const added = [...problemsIn(chk.out)].filter((p) => !r.was.has(p))
   if (added.length || !after) {
     log.error(`journey ${slug}: the refreshed copy has new problems (journey.py check); left in ${staging.stage}/:\n${chk.out}`)
-    void showError('Code Notes: the refreshed journey broke a rule of its check, so nothing changed.', 'Show Output').then((b) => { if (b) log.show(true) })
+    fireAndForget(showError('the refreshed journey broke a rule of its check, so nothing changed.', 'Show Output').then((b) => { if (b) log.show(true) }), 'refreshJourney: showError')
     lists()
     return undefined
   }
   if (after === before) {
     staging.cleanup()
-    void vscode.window.showInformationMessage(`“${title}”: Claude changed nothing. ${res.text.trim().split('\n')[0] ?? ''}`.trim())
+    fireAndForget(vscode.window.showInformationMessage(`“${title}”: Claude changed nothing. ${res.text.trim().split('\n')[0] ?? ''}`.trim()), 'refreshJourney: window.showInformationMessage')
     journeysTree.refresh()
     return lj
   }
   // The journey file was edited meanwhile: keep that, the refresh stays in the staging folder.
   if (fs.readFileSync(lj.uri.fsPath, 'utf8') !== before) {
-    void showError(`Code Notes: “${title}” changed while it was refreshed; the refreshed copy is in ${staging.stage}/.`)
+    fireAndForget(showError(`“${title}” changed while it was refreshed; the refreshed copy is in ${staging.stage}/.`), 'refreshJourney: showError')
     return undefined
   }
   const old = path.join(os.tmpdir(), `code-notes-${staging.id}-${slug}.before.json`)
@@ -176,9 +177,9 @@ async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<LoadedJou
   const left = done ? staleCount(done) : 0
   log.info(`journey ${slug}: refreshed in ${clock(Date.now() - r.started)}${left ? `; ${left} step(s) still out of date` : ''}`)
   const stillStale = left ? ` · ${plural(left, 'step')} still out of date` : ''
-  void vscode.window.showInformationMessage(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
-    if (b) void vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(old), lj.uri, `${title}: before ↔ refreshed`)
-  })
+  fireAndForget(vscode.window.showInformationMessage(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
+    if (b) fireAndForget(vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(old), lj.uri, `${title}: before ↔ refreshed`), 'refreshJourney: command vscode.diff')
+  }), 'refreshJourney: window.showInformationMessage')
   lists()
   return done ?? lj
 }

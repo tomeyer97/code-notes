@@ -1,13 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Coalesced } from '../src/core/coalesced'
+import { Coalesced, LatestWins } from '../src/core/serial'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 test('coalesced: one run at a time; calls meanwhile share one more run, forced if any asked', async () => {
   const runs: boolean[] = []
   let release!: () => void
-  const c = new Coalesced(async (force) => { runs.push(force); if (runs.length === 1) await new Promise<void>((r) => { release = r }) })
+  const c = new Coalesced(async (force) => {
+    runs.push(force)
+    if (runs.length === 1) await new Promise<void>((r) => { release = r })
+  })
   const first = c.run(false)
   await sleep(5)
   const more = Array.from({ length: 10 }, (_, i) => c.run(i === 5))
@@ -34,4 +37,28 @@ test('coalesced: busy while a run is going, idle after', async () => {
   release()
   await p
   assert.equal(c.busy, false)
+})
+
+// The other policy: the waiting calls don't share a run, the newest replaces them (podcast seeks).
+test('latest wins: one move at a time, and only the newest one waiting runs next (podcast seeks)', async () => {
+  const ran: number[] = []
+  const stopped: number[] = []
+  let release!: () => void
+  const lw = new LatestWins<number>(async (v, current) => {
+    ran.push(v)
+    if (v === 1) await new Promise<void>((r) => { release = r })
+    if (!current()) stopped.push(v)
+  })
+  lw.push(1)
+  lw.push(2)
+  lw.push(3)
+  lw.push(4)
+  assert.ok(lw.busy)
+  release()
+  await lw.idle()
+  assert.deepEqual(ran, [1, 4], 'the drag\'s last position only')
+  assert.deepEqual(stopped, [1], 'the first job learns it was superseded')
+  lw.push(5)
+  await lw.idle()
+  assert.deepEqual(ran, [1, 4, 5])
 })

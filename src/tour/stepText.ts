@@ -9,6 +9,7 @@ import type { JStep } from '../core/format/journeyModel'
 import { readLinks } from '../core/format/journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeys/textFormat'
 import { baseName } from '../core/paths'
+import { folderFileKey } from '../platform/keys'
 
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }
@@ -103,7 +104,7 @@ export function relocate(ref: Ref, here: Here): Placed {
   const at = ref.line || 1
   const line = same ? Math.max(1, at + here.delta) : at
   const end = Math.max(line, (ref.end ?? at) + (same ? here.delta : 0))
-  const k = `${here.folder}|${file}`
+  const k = folderFileKey(here.folder, file)
   const gone = here.refGone.has(k) ? 'file' : (here.refLines.get(k) ?? Infinity) < line ? 'line' : undefined
   return { file, line, end, same, ...(gone ? { gone } : {}) }
 }

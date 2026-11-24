@@ -13,6 +13,7 @@ import { stepLenses } from './lenses'
 import { STEP_SCHEME } from './refs'
 import { TourState } from './state'
 import { Walk } from './walk'
+import { Cmd } from '../platform/commands'
 
 /** The running tour: journey, step, the step card's state (tour/state.ts). */
 export const tourState = new TourState()
@@ -32,12 +33,12 @@ export function createTourItems(): void {
     end: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.0),
   } })
   tourItems.end.text = '$(close)'
-  tourItems.end.command = 'codeNotes.endJourney'
+  tourItems.end.command = Cmd.endJourney
   tourItems.prev.text = '$(chevron-left)'
-  tourItems.prev.command = 'codeNotes.previousStep'
-  tourItems.pos.command = 'codeNotes.showMap'
+  tourItems.prev.command = Cmd.previousStep
+  tourItems.pos.command = Cmd.showMap
   tourItems.next.text = '$(chevron-right)'
-  tourItems.next.command = 'codeNotes.nextStep'
+  tourItems.next.command = Cmd.nextStep
 }
 
 /** The step card's comment controller, its decorations, and the lenses above the code journeys walk. */

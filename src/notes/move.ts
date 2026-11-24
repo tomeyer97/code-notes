@@ -10,6 +10,8 @@ import { docLines } from '../platform/documents'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './undo'
 import { notesFrom } from './which'
+import { fireAndForget } from '../platform/run'
+import { Cmd } from '../platform/commands'
 
 export let moveItem: vscode.StatusBarItem
 
@@ -17,7 +19,7 @@ let pendingMove: string | undefined
 
 export async function startMove(n: Note): Promise<void> {
   pendingMove = n.data.id
-  setCtx('codeNotes.moving', true)
+  fireAndForget(setCtx('codeNotes.moving', true), 'move: setCtx codeNotes.moving')
   moveItem.text = `$(move) Move "${noteTitle(n, 30)}" to the selection`
   moveItem.tooltip = 'Select the code, then click here. Esc cancels.'
   moveItem.show()
@@ -28,7 +30,7 @@ export async function startMove(n: Note): Promise<void> {
 
 export function cancelMove(): void {
   pendingMove = undefined
-  setCtx('codeNotes.moving', false)
+  fireAndForget(setCtx('codeNotes.moving', false), 'move: setCtx codeNotes.moving')
   moveItem.hide()
 }
 
@@ -60,7 +62,7 @@ export async function completeMove(): Promise<void> {
 /** The status bar item of a move in progress (click: Move Here). */
 export function createMoveItem(): void {
   moveItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 51)
-  moveItem.command = 'codeNotes.completeMove'
+  moveItem.command = Cmd.completeMove
   moveItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
 }
 

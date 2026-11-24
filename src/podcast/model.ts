@@ -324,45 +324,6 @@ export function calmViews(ep: Episode, fileOf: (v: View) => string, hold = VIEW_
   return out
 }
 
-/**
- * Runs `job` on the newest value only: one job at a time; values pushed while one runs replace each other, and only
- * the last of them runs next (a drag across the timeline, keys held down: the journey moves once, to where it ended).
- * `current(v)` tells a running job whether it is still the newest one (a superseded job stops early).
- */
-export class LatestWins<T> {
-  private running = false
-  private pending: { v: T } | undefined
-  private gen = 0
-  constructor(private job: (v: T, current: () => boolean) => Promise<void>) {}
-
-  push(v: T): void {
-    this.gen++
-    if (this.running) { this.pending = { v }; return }
-    void this.run(v)
-  }
-
-  get busy(): boolean { return this.running }
-
-  /** Settles once nothing runs or waits (tests). */
-  async idle(): Promise<void> {
-    while (this.running) await new Promise((r) => setTimeout(r, 5))
-  }
-
-  private async run(v: T): Promise<void> {
-    this.running = true
-    let next: { v: T } | undefined = { v }
-    while (next) {
-      const mine = this.gen
-      const now = next.v
-      next = undefined
-      try { await this.job(now, () => mine === this.gen) } catch { /* the job logs its own errors */ }
-      next = this.pending
-      this.pending = undefined
-    }
-    this.running = false
-  }
-}
-
 // ---------- marks: word-timed highlights within a segment (docs/podcast-format.md, "Marks") ----------
 
 /** A highlight that lights while the voice says `phrase`: a code mark (marks/model.ts) whose `file` defaults to the

@@ -6,6 +6,7 @@ import { TrackedLine, TrackedLines } from '../platform/followEdits'
 import { stepFileUri } from '../journeys/codeGroup'
 import type { ValueHint } from '../core/format/journeyModel'
 import { baseName } from '../core/paths'
+import { fireAndForget } from '../platform/run'
 
 // Value hints: while a step is open, a faint line right above the code where a value is declared or used
 // says what it holds in the example run: `objs = [Secret run-…, Pod run-…]`. Like a debugger's inline values, but
@@ -52,7 +53,7 @@ export class ValueHints implements vscode.Disposable {
     const k = `${key}|${JSON.stringify(values)}`
     if (k === this.key) return
     this.key = k
-    void this.place(++this.seq, folder, values, renames)
+    fireAndForget(this.place(++this.seq, folder, values, renames), 'valueHints: place')
   }
 
   /** Finds each value's line and shows the hints, unless a newer step was presented meanwhile (`mine`). */

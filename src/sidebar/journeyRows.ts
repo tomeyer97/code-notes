@@ -2,7 +2,7 @@
 // be read, and revealing rows in the Journeys view.
 
 import * as vscode from 'vscode'
-import { gstate, journeys, notes } from '../app'
+import { journeys, notes, stored } from '../app'
 import { mine } from '../notes/identity'
 import { ListModel } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
@@ -20,14 +20,13 @@ import { matchesFilter } from './notesFilter'
 import { fileName } from '../platform/jsonFolder'
 import { podcasts } from '../podcast/player'
 import { clock } from '../podcast/model'
+import { STATE } from '../platform/state'
+import { Cmd } from '../platform/commands'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ...badJourneyNodes()]
 
-/** The quiet line under the group, until a journey has been opened once. */
-export const INTRO_KEY = 'codeNotes.journeyOpened'
-
-export const showIntro = () => !gstate.get<boolean>(INTRO_KEY)
+export const showIntro = () => !stored.get(STATE.journeyOpened)
 
 /** The step a note was asked from: `extra.journey` = { id, step, n }. */
 export function stepLinkOf(n: Note): { id: string; step?: string; n: number } | undefined {
@@ -118,7 +117,7 @@ export function journeyItem(lj: LoadedJourney, group?: string): vscode.TreeItem 
   // A podcast: ▶ Listen on the row unless it plays (paused, ▶ goes on where it was); one that can't be played: no ▶
   // (the tooltip says why).
   item.contextValue = (staleCount(lj) ? 'journey;stale' : 'journey') + podcastContext(lj)
-  item.command = { command: 'codeNotes.openJourney', title: 'Walk Journey', arguments: [lj.key] }
+  item.command = { command: Cmd.openJourney, title: 'Walk Journey', arguments: [lj.key] }
   return item
 }
 

@@ -12,12 +12,13 @@ import { tree, treeView } from './sidebar/notesTree'
 import { plural } from './core/text'
 import { syncThreads } from './threads/sync'
 import { walk } from './tour/instances'
+import { fireAndForget } from './platform/run'
 
 /** codeNotes.cursorOnNote: the caret is on a note's lines. */
 export function updateCursorContext(): void {
   const e = vscode.window.activeTextEditor
   const line = e ? e.selection.active.line + 1 : -1
-  setCtx('codeNotes.cursorOnNote', !!e && notesAtLine(e.document.uri, line).length > 0)
+  fireAndForget(setCtx('codeNotes.cursorOnNote', !!e && notesAtLine(e.document.uri, line).length > 0), 'refresh: setCtx codeNotes.cursorOnNote')
 }
 
 /** Everything that shows notes, in this order. */
@@ -50,12 +51,12 @@ function refreshNotesView(): void {
 
 /** The context keys menus and views depend on; `shown`: how many notes are shown. */
 function refreshContextKeys(shown: number): void {
-  setCtx('codeNotes.hasNotes', shown > 0 || store.broken.size > 0)
+  fireAndForget(setCtx('codeNotes.hasNotes', shown > 0 || store.broken.size > 0), 'refresh: setCtx codeNotes.hasNotes')
   // Notes the Code Notes view lists (a check's questions are in the Check view): without any, it steps aside while a check is open.
-  setCtx('codeNotes.listsNotes', notes().some((n) => !understanding?.isCheck(n)) || store.broken.size > 0)
-  setCtx('codeNotes.hasChecked', checked.size > 0)
-  setCtx('codeNotes.filtered', filter !== 'all')
-  setCtx('codeNotes.groupBy', groupMode)
-  setCtx('codeNotes.hasSessions', notes().some((n) => n.data.session))
-  setCtx('codeNotes.hasHiddenSessions', notes().some((n) => hiddenSessions().has(sessionOf(n))))
+  fireAndForget(setCtx('codeNotes.listsNotes', notes().some((n) => !understanding?.isCheck(n)) || store.broken.size > 0), 'refresh: setCtx codeNotes.listsNotes')
+  fireAndForget(setCtx('codeNotes.hasChecked', checked.size > 0), 'refresh: setCtx codeNotes.hasChecked')
+  fireAndForget(setCtx('codeNotes.filtered', filter !== 'all'), 'refresh: setCtx codeNotes.filtered')
+  fireAndForget(setCtx('codeNotes.groupBy', groupMode), 'refresh: setCtx codeNotes.groupBy')
+  fireAndForget(setCtx('codeNotes.hasSessions', notes().some((n) => n.data.session)), 'refresh: setCtx codeNotes.hasSessions')
+  fireAndForget(setCtx('codeNotes.hasHiddenSessions', notes().some((n) => hiddenSessions().has(sessionOf(n)))), 'refresh: setCtx codeNotes.hasHiddenSessions')
 }

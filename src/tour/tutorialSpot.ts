@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 
 // The tutorial's card about the step card (the tutorial shows things in the editor too): while it is up, the
 // step's lines in the editor are boxed, so the eyes land on the card that sits right above them. An extension can't

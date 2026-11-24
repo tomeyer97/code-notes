@@ -7,6 +7,8 @@ import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
 import { pathIn, settingFolder } from '../core/paths'
 import { StepTracker } from './tracker'
 import { isPodcastFile } from '../podcast/model'
+import { fireAndForget } from '../platform/run'
+import { StateStore } from '../platform/state'
 
 // Journeys (format v2, docs/journey-format.md): <repo>/journeys/<slug>.json (codeNotes.journeys.folder: committed,
 // shared) and, as before, <notes folder>/journeys/<slug>.json (personal); steps embedded. A step is not a note. This
@@ -36,7 +38,7 @@ export class Journeys extends StepTracker {
   private tours = new Map<string, LoadedJourney>()
   private tourText = new Map<string, string>()
 
-  constructor(log: vscode.LogOutputChannel, state?: vscode.Memento) { super(log, state) }
+  constructor(log: vscode.LogOutputChannel, stored?: StateStore) { super(log, stored) }
 
   /** The journeys of the lists, lenses and search: never a check's tour (it is reached from the Check view).
    *  By title: an order that never jumps while journeys change. */
@@ -102,7 +104,7 @@ export class Journeys extends StepTracker {
     const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
     const glob = parent ? `{${parent},${rel}}` : rel
     const dir = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, glob), true, true, false)
-    dir.onDidDelete(() => void this.prune())
+    dir.onDidDelete(() => fireAndForget(this.prune(), 'journeys: prune'))
     this.watchers.push(files, dir)
   }
 

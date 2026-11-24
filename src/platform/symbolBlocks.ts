@@ -4,10 +4,7 @@
 import * as vscode from 'vscode'
 import { Block, blocksFromSymbols, blocksFromText, Sym } from '../core/codeBlocks'
 import { docLines } from './documents'
-
-/** The blocks per document. Symbols not ready yet (a language server still starting) are not kept for long: the
- *  text's blocks stand in, and the symbols are asked for again after SYMBOLS_RETRY_MS. */
-const blockCache = new Map<string, { version: number; blocks: Block[]; fromText?: boolean; at: number }>()
+import { LruMap } from '../core/lruMap'
 
 const SYM_KIND: Partial<Record<vscode.SymbolKind, Sym['kind']>> = {
   [vscode.SymbolKind.Function]: 'fn', [vscode.SymbolKind.Method]: 'fn', [vscode.SymbolKind.Constructor]: 'fn',
@@ -19,8 +16,9 @@ const SYM_KIND: Partial<Record<vscode.SymbolKind, Sym['kind']>> = {
  *  every caret move (each ask goes to the window and back). */
 const SYMBOLS_RETRY_MS = 10_000
 
-/** Documents whose blocks are kept. */
-const CACHED_DOCS = 30
+/** The blocks of the last 30 documents. Symbols not ready yet (a language server still starting) are not kept for
+ *  long: the text's blocks stand in, and the symbols are asked for again after SYMBOLS_RETRY_MS. */
+const blockCache = new LruMap<string, { version: number; blocks: Block[]; fromText?: boolean; at: number }>(30)
 
 type AnySymbol = vscode.DocumentSymbol | vscode.SymbolInformation
 
@@ -28,7 +26,8 @@ type AnySymbol = vscode.DocumentSymbol | vscode.SymbolInformation
 function symsOf(list: AnySymbol[]): Sym[] {
   return list.map((x) => {
     const r = 'range' in x ? x.range : x.location.range
-    return { kind: SYM_KIND[x.kind] ?? 'other', start: r.start.line, end: r.end.line, children: 'children' in x ? symsOf(x.children) : [] }
+    const children = 'children' in x ? symsOf(x.children) : []
+    return { kind: SYM_KIND[x.kind] ?? 'other', start: r.start.line, end: r.end.line, children }
   })
 }
 
@@ -38,6 +37,7 @@ export async function blocksOf(doc: vscode.TextDocument): Promise<{ blocks: Bloc
   const c = blockCache.get(k)
   const fresh = c && c.version === doc.version && (!c.fromText || Date.now() - c.at < SYMBOLS_RETRY_MS)
   if (fresh) return { blocks: c.blocks, fromText: !!c.fromText }
+  // No symbol provider for the language (or it failed): no symbols, the text's blocks stand in.
   const got = await vscode.commands.executeCommand<AnySymbol[]>('vscode.executeDocumentSymbolProvider', doc.uri).then((x) => x ?? [], () => [])
   const syms = Array.isArray(got) ? symsOf(got) : []
   if (!syms.length) {
@@ -47,6 +47,5 @@ export async function blocksOf(doc: vscode.TextDocument): Promise<{ blocks: Bloc
   }
   const blocks = blocksFromSymbols(syms)
   blockCache.set(k, { version: doc.version, blocks, at: Date.now() })
-  if (blockCache.size > CACHED_DOCS) blockCache.delete(blockCache.keys().next().value!)
   return { blocks, fromText: false }
 }

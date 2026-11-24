@@ -6,6 +6,7 @@ import * as path from 'path'
 import { gitOut } from '../platform/git'
 import { RESTORED_OPEN_MS } from './constants'
 import type { CheckController } from './controller'
+import { fireAndForget } from '../platform/run'
 
 export class Parking {
   /** Branches whose check was moved out only because another branch was checked out: put back quietly. */
@@ -54,8 +55,8 @@ export class Parking {
     }
     // Moved out only because another branch was checked out: back where it was, nothing said.
     if (this.quiet.delete(st.branch)) return true
-    void vscode.window.showInformationMessage(`Your questions for ${st.branch} are here.`)
-    setTimeout(() => void ctl.openNext(), RESTORED_OPEN_MS)
+    fireAndForget(vscode.window.showInformationMessage(`Your questions for ${st.branch} are here.`), 'park: window.showInformationMessage')
+    setTimeout(() => fireAndForget(ctl.openNext(), 'park: ctl.openNext'), RESTORED_OPEN_MS)
     return true
   }
 }

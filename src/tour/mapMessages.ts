@@ -2,15 +2,15 @@
 // does, and mapState, what the panel is told besides the journey.
 
 import * as vscode from 'vscode'
-import { beats, byId, cfg, gstate, journeys, KEY, log, mapPanel, state, understanding } from '../app'
-import { git } from '../platform/checkout'
+import { beats, byId, cfg, journeys, KEY, log, mapPanel, stored, understanding } from '../app'
+import { gitIn } from '../platform/checkout'
 import { ageOf } from '../core/list/journeyList'
-import { LEGEND_HIDDEN_KEY, MapMessage, TourInfo } from '../journeys/mapPanel'
+import { MapMessage, TourInfo } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { reveal } from '../notes/reveal'
 import { askedOf } from '../sidebar/journeyRows'
 import { journeysTree } from '../sidebar/journeysTree'
-import { listModel, listState, SORT_KEY } from '../sidebar/listModel'
+import { listModel, listState } from '../sidebar/listModel'
 import { relPath } from '../notes/location'
 import { wfs } from '../platform/workspaceFs'
 import { refreshJourney } from '../write/refreshJourney'
@@ -21,28 +21,29 @@ import { endJourney, finishTour, walkJourney } from './commands'
 import { provenance } from './provenance'
 import { openRef } from './refs'
 import { card, tourState, walk } from './instances'
-import { onTutorial, TUTORIAL_KEY } from './tutorial'
+import { onTutorial } from './tutorial'
 import { podcasts } from '../podcast/player'
-
-/** The map column's width in wide panels, as last dragged (0.21.1): every panel, every journey. */
-const MAP_WIDTH_KEY = 'codeNotes.mapWidth'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
+import { Cmd } from '../platform/commands'
+import { OWN_MOVE_MS } from '../platform/timings'
 
 type Handler<K extends MapMessage['type']> = (lj: LoadedJourney, m: Extract<MapMessage, { type: K }>) => void
 
 /** What each message from the journey panel does (the panel's own state messages have none). */
 const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
-  step: (lj, m) => void walk.goToStep(lj, m.n, { focus: false }),
-  end: () => void endJourney(),
-  finish: () => void finishTour(),
+  step: (lj, m) => fireAndForget(walk.goToStep(lj, m.n, { focus: false }), 'mapMessages: walk.goToStep'),
+  end: () => fireAndForget(endJourney(), 'mapMessages: endJourney'),
+  finish: () => fireAndForget(finishTour(), 'mapMessages: finishTour'),
   question: (_lj, m) => revealNoteById(m.id),
-  checkpoint: (lj, m) => void openCheckpoint(lj, m.id),
-  nextStop: () => void walk.stepBy(1),
+  checkpoint: (lj, m) => fireAndForget(openCheckpoint(lj, m.id), 'mapMessages: openCheckpoint'),
+  nextStop: () => fireAndForget(walk.stepBy(1), 'mapMessages: walk.stepBy'),
   ref: (lj, m) => openPanelRef(lj, m.i),
-  ask: (_lj, m) => void (m.update ? askUpdate() : askStep()),
-  openPath: (lj, m) => void openBoxPath(lj, m.path),
+  ask: (_lj, m) => fireAndForget(m.update ? askUpdate() : askStep(), 'mapMessages: ask'),
+  openPath: (lj, m) => fireAndForget(openBoxPath(lj, m.path), 'mapMessages: openBoxPath'),
   // The list over the walk: the walk keeps its place, card and status item.
   home: () => undefined,
-  beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); void showBeat(lj, m.n, m.i) },
+  beat: (lj, m) => { if (m.user) podcasts.onBeat(lj, m.n, m.i); fireAndForget(showBeat(lj, m.n, m.i), 'mapMessages: showBeat') },
   closed: () => { beats.clear(); card.refreshDecorations(); podcasts.onClosed() },
   // The panel's player as the audio's host, or unlocked (src/podcast/player.ts).
   podcastTime: (_lj, m) => podcasts.fromPanel(m),
@@ -50,20 +51,20 @@ const MAP_MESSAGES: { [K in MapMessage['type']]?: Handler<K> } = {
   podcastError: (_lj, m) => podcasts.fromPanel(m),
   podcastMeta: (_lj, m) => podcasts.fromPanel(m),
   podcastUnlocked: (_lj, m) => podcasts.fromPanel(m),
-  podcastWhy: (lj) => void podcasts.showWhy(lj),
-  podcastAsk: (lj, m) => void podcasts.onAsk(lj, m),
-  podcastEnd: (lj, m) => void podcasts.endAction(lj, m.action, m.of),
-  panelWidth: () => void rememberPanelWidth(),
-  mapWidth: (_lj, m) => void gstate.update(MAP_WIDTH_KEY, m.w > 0 ? Math.round(m.w) : undefined),
+  podcastWhy: (lj) => fireAndForget(podcasts.showWhy(lj), 'mapMessages: podcasts.showWhy'),
+  podcastAsk: (lj, m) => fireAndForget(podcasts.onAsk(lj, m), 'mapMessages: podcasts.onAsk'),
+  podcastEnd: (lj, m) => fireAndForget(podcasts.endAction(lj, m.action, m.of), 'mapMessages: podcasts.endAction'),
+  panelWidth: () => fireAndForget(rememberPanelWidth(), 'mapMessages: rememberPanelWidth'),
+  mapWidth: (_lj, m) => fireAndForget(stored.set(STATE.mapWidth, m.w > 0 ? Math.round(m.w) : undefined), 'mapMessages: store mapWidth'),
   list: (_lj, m) => homeQueryChanged(m),
-  preview: (_lj, m) => withJourney(m.key, (x) => void sendPreview(x)),
-  refresh: (_lj, m) => withJourney(m.key, (x) => void refreshJourney(x)),
+  preview: (_lj, m) => withJourney(m.key, (x) => fireAndForget(sendPreview(x), 'mapMessages: sendPreview')),
+  refresh: (_lj, m) => withJourney(m.key, (x) => fireAndForget(refreshJourney(x), 'mapMessages: refreshJourney')),
   hereAll: () => { listState.hereAll = true; mapPanel.update() },
-  walk: (_lj, m) => withJourney(m.key, (x) => void walkJourney(x, { keepFocus: 'panel' })),
+  walk: (_lj, m) => withJourney(m.key, (x) => fireAndForget(walkJourney(x, { keepFocus: 'panel' }), 'mapMessages: walkJourney')),
   details: (_lj, m) => { tourState.detailsOpen = m.open; mapPanel.update() },
-  openFile: (lj) => void vscode.window.showTextDocument(lj.uri, { viewColumn: walk.codeColumn() }),
+  openFile: (lj) => fireAndForget(vscode.window.showTextDocument(lj.uri, { viewColumn: walk.codeColumn() }), 'mapMessages: window.showTextDocument'),
   close: () => mapPanel.close(),
-  pick: () => void vscode.commands.executeCommand('codeNotes.openJourney'),
+  pick: () => fireAndForget(vscode.commands.executeCommand(Cmd.openJourney), 'mapMessages: command codeNotes.openJourney'),
   restore: (lj) => restoreLastGood(lj),
   authors: (lj) => showRuleBreaks(lj),
   tutorial: (lj, m) => onTutorial(lj, m),
@@ -82,13 +83,13 @@ function withJourney(key: string, f: (lj: LoadedJourney) => void): void {
 /** A question row of the map: its note. */
 function revealNoteById(id: string): void {
   const note = byId(id)
-  if (note) void reveal(note)
+  if (note) fireAndForget(reveal(note), 'mapMessages: reveal')
 }
 
 /** A link of the panel's step card (its index in tourState.panelRefs): opened as from the inline card. */
 function openPanelRef(lj: LoadedJourney, i: number): void {
   const r = tourState.panelRefs[i]
-  if (r) void openRef(lj, r.file, r.line, r.end, tourState.step)
+  if (r) fireAndForget(openRef(lj, r.file, r.line, r.end, tourState.step), 'mapMessages: openRef')
 }
 
 /** A journey's preview in the panel's list: the journey, and which steps are stale since when. */
@@ -100,7 +101,7 @@ async function sendPreview(lj: LoadedJourney): Promise<void> {
 /** The panel home's search, chips or sort changed. */
 function homeQueryChanged(m: Extract<MapMessage, { type: 'list' }>): void {
   listState.homeQuery = { query: String(m.query ?? ''), kind: m.kind ?? 'all', area: String(m.area ?? ''), searchSort: m.searchSort }
-  if (m.sort) void state.update(SORT_KEY, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() })
+  if (m.sort) fireAndForget(stored.set(STATE.journeySort, m.sort).then(() => { journeysTree.refresh(); mapPanel.update() }), 'mapMessages: store journeySort')
   else mapPanel.update()
 }
 
@@ -109,7 +110,7 @@ function restoreLastGood(lj: LoadedJourney): void {
   const raw = journeys.lastGood.get(lj.key)
   if (!raw) return
   const restored = () => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000)
-  void wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(restored)
+  fireAndForget(wfs.writeFile(lj.uri, new TextEncoder().encode(raw)).then(restored), 'mapMessages: wfs.writeFile')
 }
 
 /** Author mode: the journey's rule breaks, in the Output channel. */
@@ -128,7 +129,7 @@ export async function showBeat(lj: LoadedJourney, n: number, i: number): Promise
   if (i >= 0 && (lj.key !== tourState.key || n !== tourState.step)) return
   const was = beats.lit
   // The caret goes to the lit line: arriving is not reading a note there.
-  tourState.cursorUntil = Date.now() + 1500
+  tourState.cursorUntil = Date.now() + OWN_MOVE_MS
   beats.index = i >= 0 ? i : undefined
   const shown = await beats.show(lj.folder.uri, i >= 0 ? lj.j.steps[n - 1]?.scene?.beats[i] : undefined, journeys.renames(lj), walk.codeColumn)
   // The beat's marks, and the step's dimmed (stepMarks.ts).
@@ -184,8 +185,8 @@ async function staleInfo(lj: LoadedJourney): Promise<{ n: number; when: string }
 
 /** "uncommitted", or the last commit to `file` since the journey's (else ever): "a1b2c3d · 3 days ago"; '' unknown. */
 async function lastChange(lj: LoadedJourney, file: string): Promise<string> {
-  if (await git(lj.folder, ['status', '--porcelain', '--', file])) return 'uncommitted'
-  const lastCommit = (range: string[]) => git(lj.folder, ['log', '-1', '--format=%h %ct', ...range, '--', file])
+  if (await gitIn(lj.folder, ['status', '--porcelain', '--', file])) return 'uncommitted'
+  const lastCommit = (range: string[]) => gitIn(lj.folder, ['log', '-1', '--format=%h %ct', ...range, '--', file])
   const l = (lj.j.commit ? await lastCommit([`${lj.j.commit}..HEAD`]) : undefined) ?? await lastCommit([])
   if (!l) return ''
   const [hash, time] = l.split(' ')
@@ -196,16 +197,16 @@ async function lastChange(lj: LoadedJourney, file: string): Promise<string> {
 /** What the journey panel shows of a journey besides the journey itself: the walk, the tutorial, the list, its home. */
 export function mapState(lj: LoadedJourney): TourInfo {
   const walking = lj.key === tourState.key
-  const mapWidth = gstate.get<number>(MAP_WIDTH_KEY)
+  const mapWidth = stored.get(STATE.mapWidth)
   const cardInMap = walking && tourState.step && card.inMap(lj, tourState.step) ? card.panelCard(lj, tourState.step) : undefined
   const done = tourState.finishedKey === lj.key && !(walking && tourState.step)
   return {
     key: KEY,
-    tutorial: !gstate.get<boolean>(TUTORIAL_KEY),
+    tutorial: !stored.get(STATE.tutorialSeen),
     current: walking ? tourState.step : 0,
     marks: walk.stepMarks(lj),
     resume: walk.resumeAt(lj),
-    legendHidden: state.get<boolean>(LEGEND_HIDDEN_KEY) ?? true, // on demand (M99)
+    legendHidden: stored.get(STATE.legendHidden), // on demand (M99)
     ...(mapWidth ? { mapWidth } : {}),
     problems: lj.readError ? [lj.readError] : [],
     authors: cfg().get<boolean>('journeys.authorMode') ? lj.j.problems.length : 0,

@@ -1,13 +1,15 @@
 // The chord keys: Ctrl+' (or Ctrl+<) then C/R/D/A/V. D/A walk the steps while a tour runs, a check's open questions
 // while it has some, else unread replies.
 
-import { gstate, KEY, mapPanel, notes, PREFIX_KEY, setKey, understanding } from './app'
+import { KEY, mapPanel, notes, setKey, stored, understanding } from './app'
 import { resolve } from './notes/status'
 import { stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
 import { unread } from './notes/seen'
 import { checkStepping } from './check/wiring'
 import { walk } from './tour/instances'
+import { fireAndForget } from './platform/run'
+import { STATE } from './platform/state'
 
 /** A chord key passes which prefix was pressed: hints then show that one. */
 export const prefixUsed = (a: unknown) => {
@@ -16,7 +18,7 @@ export const prefixUsed = (a: unknown) => {
   const k = `Ctrl+${p}`
   if (k === KEY) return
   setKey(k)
-  void gstate.update(PREFIX_KEY, k)
+  fireAndForget(stored.set(STATE.chordPrefix, k), 'chords: store chordPrefix')
   walk.updateTour()
   mapPanel.update()
 }

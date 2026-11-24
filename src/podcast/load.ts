@@ -7,7 +7,7 @@
 import * as vscode from 'vscode'
 import { journeys, log } from '../app'
 import { stepFileUri } from '../journeys/codeGroup'
-import { git } from '../platform/checkout'
+import { gitIn } from '../platform/checkout'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { readText } from '../platform/jsonFolder'
 import { wfs } from '../platform/workspaceFs'
@@ -71,7 +71,7 @@ async function changedSince(lj: LoadedJourney, commit: string): Promise<number[]
   const key = `${lj.key}|${commit}`
   const hit = changedCache.get(key)
   if (hit && Date.now() - hit.at < CHANGED_CACHE_MS) return hit.steps
-  const out = /^[0-9a-f]{4,40}$/i.test(commit) ? await git(lj.folder, ['diff', '--name-only', '--relative', commit, '--']) : undefined
+  const out = /^[0-9a-f]{4,40}$/i.test(commit) ? await gitIn(lj.folder, ['diff', '--name-only', '--relative', commit, '--']) : undefined
   const files = out === undefined ? undefined : new Set(out.split('\n').map((l) => l.trim()).filter(Boolean))
   const steps = files && lj.j.steps.map((s, k) => (files.has(fileOf(lj, k + 1)) || files.has(s.file) ? k + 1 : 0)).filter((n) => n > 0)
   changedCache.set(key, { at: Date.now(), steps })

@@ -16,7 +16,7 @@ export const tourTests = [
     git('checkout', '-q', '-b', 'feat/third')
     fs.writeFileSync(path.join(ws, 'api', 'third.js'), 'export const third = 3\n')
     git('add', '-A', 'api/third.js'); git('commit', '-qm', 'third')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('no check yet on feat/third', () => view()?.title === 'No check yet for feat/third')
     const where = vscode.window.activeTextEditor?.document.uri.fsPath
     // As in real use, VS Code's git has seen the branch before it is pushed.
@@ -29,7 +29,7 @@ export const tourTests = [
     await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
     await until('a click opens q1', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
     git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
   }),
 
@@ -41,7 +41,7 @@ export const tourTests = [
     git('checkout', '-q', '-b', 'feat/tour', 'main')
     git('checkout', 'feat/limits', '--', 'api/limits.js')
     git('commit', '-qm', 'limits for the tour')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('no check yet on feat/tour', () => view()?.title === 'No check yet for feat/tour')
     // The branch is switched while the tour is written: it stops (nothing written to the other branch) and goes on
     // once the branch is back.
@@ -50,12 +50,12 @@ export const tourTests = [
     await until('q1 opens before the tour is there', () => tourNote('q1')?.threadExpanded)
     await until('the tour is being written', () => fs.existsSync(path.join(ws, '.git', 'fake-tour-wait-waiting')) && view()?.tour?.label?.startsWith('Writing the tour'), 20000)
     git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('switched away: the tour stops, said nowhere on feat/limits', () => !chk().tourBusy && chk().item === '$(pass) Understanding' && !view()?.tour?.label?.startsWith('Writing'))
     fs.rmSync(path.join(ws, '.git', 'fake-tour-wait')); fs.rmSync(path.join(ws, '.git', 'fake-tour-wait-waiting'), { force: true })
     assert.equal(fs.readFileSync(checkFile, 'utf8').includes('"journey"'), false, 'no tour written into feat/limits\'s check')
     git('checkout', '-q', 'feat/tour')
-    api.checkRefresh()
+    void api.checkRefresh()
     const t0 = Date.now()
     await until('back: the tour goes on', () => chk().tourBusy || (fs.existsSync(tourFile) && readTour().journey), 20000)
     await until('the tour, right after the questions', () => fs.existsSync(tourFile) && readTour().journey?.steps.length === 6, 30000)
@@ -179,7 +179,7 @@ export const tourTests = [
     // Nothing of feat/limits' .gitattributes may be left untracked here before the checkout (force: usually none).
     for (const f of ['.gitattributes', '.ignore']) fs.rmSync(path.join(ws, f), { force: true })
     git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('feat/limits: no tour of feat/tour shown', () => chk().item === '$(pass) Understanding' && !(api.snapshot().tour.journey ?? '').startsWith('check-feat-tour'))
   }),
 ]

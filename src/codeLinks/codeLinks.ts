@@ -1,10 +1,12 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { fileLines } from '../platform/documents'
 import type { StepLink } from '../core/format/journeyModel'
 import { findLine } from '../core/anchors/lineFollow'
 import { TrackedLine, TrackedLines } from '../platform/followEdits'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
+import { fireAndForget } from '../platform/run'
+import { HiddenCmd } from '../platform/commands'
 
 // Code links: a click on a linked phrase of the step's card lights that phrase's lines and brings them
 // into view. Nothing is marked before a click (VS Code tells an extension nothing about hovering a link in a comment,
@@ -89,7 +91,7 @@ export class CodeLinks implements vscode.Disposable {
     const b = this.backAt
     if (!b || !this.backRow || b.uri !== doc.uri.toString() || b.line >= doc.lineCount) return []
     const { title, tip } = this.backRow
-    const command = { title, command: 'codeNotes.codeLinkBack', ...(tip ? { tooltip: tip } : {}) }
+    const command = { title, command: HiddenCmd.codeLinkBack, ...(tip ? { tooltip: tip } : {}) }
     return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), command)]
   }
 
@@ -162,14 +164,14 @@ export class CodeLinks implements vscode.Disposable {
     this.found.set([])
     this.unlit()
     this.paint()
-    void Promise.all(links.map((_l, i) => this.locate(i))).then((found) => {
+    fireAndForget(Promise.all(links.map((_l, i) => this.locate(i))).then((found) => {
       if (mine !== this.seq) return
       found.forEach((a, i) => {
         if (a) this.setFound(i, a, links[i].text)
         else this.log.info(`code link "${links[i].phrase}": its lines at ${links[i].file}:${links[i].start} changed; not marked`)
       })
       this.paint()
-    })
+    }), 'codeLinks: Promise.all')
   }
 
   /** Phrase `i` is the one lit now (a second click turns it off:). */

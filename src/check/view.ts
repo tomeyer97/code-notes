@@ -4,6 +4,8 @@ import * as vscode from 'vscode'
 import type { CheckViewMessage } from './viewMessages'
 import type { CheckView } from './viewModel'
 import { webviewPage } from '../webview/page'
+import { fireAndForget } from '../platform/run'
+import { HiddenCmd } from '../platform/commands'
 
 export class CheckViewProvider implements vscode.WebviewViewProvider {
   private wv: vscode.WebviewView | undefined
@@ -35,7 +37,7 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
           this.ready = true
           this.sent = undefined
           this.post()
-          for (const q of this.queue.splice(0)) void view.webview.postMessage(q)
+          for (const q of this.queue.splice(0)) fireAndForget(view.webview.postMessage(q), 'view: view.webview.postMessage')
           break
         case 'rendered':
           this.reported = { ...this.reported, rows: m.rows, overflow: m.overflow, height: m.height }
@@ -56,7 +58,7 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
   /** Shows the view (opening the sidebar on it), keeping the keyboard where it is. */
   reveal(): void {
     if (this.wv) this.wv.show(true)
-    else void vscode.commands.executeCommand('codeNotes.check.focus').then(() => vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup'))
+    else fireAndForget(vscode.commands.executeCommand(HiddenCmd.checkFocus).then(() => vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup')), 'view: command codeNotes.check.focus')
   }
   update(v: CheckView | undefined): void { this.last = v; this.post() }
 
@@ -64,7 +66,7 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
   async focus(id: string): Promise<void> {
     this.focusTries = { id, left: 1, caret: caretSig(vscode.window.activeTextEditor) }
     if (this.wv) this.wv.show(false)
-    else await vscode.commands.executeCommand('codeNotes.check.focus')
+    else await vscode.commands.executeCommand(HiddenCmd.checkFocus)
     this.send({ type: 'focus', id })
   }
   /** Esc, or anything else that moves on: no second try. */
@@ -89,10 +91,10 @@ export class CheckViewProvider implements vscode.WebviewViewProvider {
     const text = JSON.stringify(msg, (_k, v) => (v instanceof Set ? [...v] : v))
     if (text === this.sent) return
     this.sent = text
-    void this.wv.webview.postMessage(msg)
+    fireAndForget(this.wv.webview.postMessage(msg), 'view: wv.webview.postMessage')
   }
   send(m: unknown): void {
-    if (this.wv && this.ready) void this.wv.webview.postMessage(m)
+    if (this.wv && this.ready) fireAndForget(this.wv.webview.postMessage(m), 'view: wv.webview.postMessage')
     else this.queue.push(m)
   }
   state() { return { open: !!this.wv, visible: !!this.wv?.visible, ...this.reported } }

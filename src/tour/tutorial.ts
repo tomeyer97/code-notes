@@ -1,15 +1,14 @@
 // The map's tutorial: which card it shows, and the step card it points at in the editor.
 
 import * as vscode from 'vscode'
-import { gstate, journeys, mapPanel, state, tutorialSpot } from '../app'
+import { journeys, mapPanel, stored, tutorialSpot } from '../app'
 import { MapMessage } from '../journeys/mapPanel'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { openMap } from './commands'
 import { pickJourney } from './pick'
 import { card, tourState, walk } from './instances'
-import { MAP_KEY } from './state'
-
-export const TUTORIAL_KEY = 'codeNotes.tutorialSeen'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
 
 /** What the map's tutorial shows (for the integration test). */
 const NOT_SEEN = { bar: 0, card: 0, done: 0, skip: 0, inside: 0 }
@@ -43,7 +42,7 @@ function tutorialOutOfEditor(): void {
 
 /** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. */
 export async function tutorial(): Promise<void> {
-  const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? (await pickJourney())
+  const lj = walk.tourJourney() ?? journeys.byPos(stored.get(STATE.mapJourney)) ?? (await pickJourney())
   if (!lj) return
   await openMap(lj)
   mapPanel.send({ type: 'tutorial' })
@@ -55,21 +54,21 @@ export function onTutorial(lj: LoadedJourney, m: Extract<MapMessage, { type: 'tu
   if (m.action === 'card') {
     tutorialSeen.card = m.card ?? 0
     tutorialSeen.inside = m.inside ? 1 : 0
-    if (m.editor) void tutorialInEditor(lj, m.editor === 'links' ? 'links' : 'card')
+    if (m.editor) fireAndForget(tutorialInEditor(lj, m.editor === 'links' ? 'links' : 'card'), 'tutorial: tutorialInEditor')
     else tutorialOutOfEditor()
   }
   if (m.action === 'skip' || m.action === 'done') {
     tutorialSeen.card = 0
     tutorialSeen[m.action]++
     tutorialOutOfEditor()
-    void gstate.update(TUTORIAL_KEY, true).then(() => mapPanel.update())
+    fireAndForget(stored.set(STATE.tutorialSeen, true).then(() => mapPanel.update()), 'tutorial: store tutorialSeen')
   }
   // Finish walks the steps: from where the tour is, else where the map's button would start.
-  if (m.action === 'done') void walk.goToStep(lj, walk.startStep(lj), { focus: false })
+  if (m.action === 'done') fireAndForget(walk.goToStep(lj, walk.startStep(lj), { focus: false }), 'tutorial: walk.goToStep')
 }
 
 /** The tutorial as never seen (for the integration test). */
 export async function resetTutorial(): Promise<void> {
-  await gstate.update(TUTORIAL_KEY, undefined)
+  await stored.set(STATE.tutorialSeen, undefined)
   Object.assign(tutorialSeen, NOT_SEEN)
 }

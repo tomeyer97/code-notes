@@ -6,6 +6,8 @@ import { fileName } from '../platform/jsonFolder'
 import { LoadedJourney } from './steps'
 import { journeysFolderName } from './journeys'
 import { folderName } from '../notes/store'
+import { fireAndForget } from '../platform/run'
+import { STATE, StateStore } from '../platform/state'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
 // messages between it and media/journey-map.js.
@@ -107,9 +109,6 @@ export interface TourInfo {
 }
 
 export const MAP_VIEW = 'codeNotes.journey'
-/** Workspace state: the group the map was last in, and whether the legend is hidden. */
-const MAP_COLUMN_KEY = 'codeNotes.mapColumn'
-export const LEGEND_HIDDEN_KEY = 'codeNotes.legendHidden'
 
 /**
  * The group a new map opens in: the whole group when there is nothing to read beside it (`alone`); else the one it
@@ -149,7 +148,7 @@ export class MapPanel implements vscode.Disposable {
   viewChanged: (() => void) | undefined
 
   constructor(private extensionUri: vscode.Uri, private log: vscode.LogOutputChannel, private onMessage: (lj: LoadedJourney, m: MapMessage) => void,
-    private tourOf: (lj: LoadedJourney) => TourInfo, private state: vscode.Memento) {}
+    private tourOf: (lj: LoadedJourney) => TourInfo, private stored: StateStore) {}
 
   get journey(): LoadedJourney | undefined { return this.panel ? this.shown : undefined }
   /** The tab's title (for the integration test). */
@@ -182,7 +181,7 @@ export class MapPanel implements vscode.Disposable {
     if (!this.panel) {
       // The map keeps its side: the group it was last in, else beside the editor; never among the tour's code
       // (closing it merged the groups, so that group now holds the code).
-      const last = this.state.get<number>(MAP_COLUMN_KEY)
+      const last = this.stored.get(STATE.mapColumn)
       // Nothing to read beside it (the Welcome page, no editor): the map takes the group, not a 480px split.
       const alone = !vscode.window.visibleTextEditors.length && codeCol === undefined
       const col = mapColumn(alone, last, codeCol)
@@ -227,7 +226,7 @@ export class MapPanel implements vscode.Disposable {
     this.paged.add(panel)
     this.ready = false
     this.panel = panel
-    const remember = () => { if (panel.viewColumn) void this.state.update(MAP_COLUMN_KEY, panel.viewColumn) }
+    const remember = () => { if (panel.viewColumn) fireAndForget(this.stored.set(STATE.mapColumn, panel.viewColumn), 'mapPanel: store mapColumn') }
     remember()
     this.subs.push(
       panel.webview.onDidReceiveMessage((m: MapMessage) => this.receive(panel, m)),
@@ -236,7 +235,7 @@ export class MapPanel implements vscode.Disposable {
       vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutChanged?.() }),
     )
     // A page set before we listened (a restored panel): its 'ready' may have gone already; it answers this with another.
-    if (paged) void panel.webview.postMessage({ type: 'hello' })
+    if (paged) fireAndForget(panel.webview.postMessage({ type: 'hello' }), 'mapPanel: panel.webview.postMessage')
   }
 
   /** A message from the webview: what the panel keeps itself here; the rest goes to the extension (`onMessage`). */
@@ -261,7 +260,7 @@ export class MapPanel implements vscode.Disposable {
         this.log.error(`journey map: ${m.text ?? m.message}`)
         return true
       case 'legend':
-        void this.state.update(LEGEND_HIDDEN_KEY, m.hidden)
+        fireAndForget(this.stored.set(STATE.legendHidden, m.hidden), 'mapPanel: store legendHidden')
         return true
       case 'view':
         this.focus = m.node
@@ -280,7 +279,7 @@ export class MapPanel implements vscode.Disposable {
     this.layoutChanged?.()
     this.lastTour = ''
     this.post(true)
-    for (const q of this.queue.splice(0)) void panel.webview.postMessage(q)
+    for (const q of this.queue.splice(0)) fireAndForget(panel.webview.postMessage(q), 'mapPanel: panel.webview.postMessage')
   }
 
   /** The list shown or left. Only the reader's own click on "‹ Journeys" ends the walk (the list the extension opens does not). */
@@ -310,7 +309,7 @@ export class MapPanel implements vscode.Disposable {
   /** A message for the webview itself (tutorial, tests): sent once it is ready. */
   send(m: unknown): void {
     if (!this.panel) return
-    if (this.ready) void this.panel.webview.postMessage(m)
+    if (this.ready) fireAndForget(this.panel.webview.postMessage(m), 'mapPanel: panel.webview.postMessage')
     else this.queue.push(m)
   }
 
@@ -343,7 +342,7 @@ export class MapPanel implements vscode.Disposable {
     const sig = JSON.stringify(t)
     if (!all && sig === this.lastTour) return
     this.lastTour = sig
-    void this.panel.webview.postMessage(all ? { type: 'journey', journey: this.shown.j, ...t } : { type: 'tour', ...t })
+    fireAndForget(this.panel.webview.postMessage(all ? { type: 'journey', journey: this.shown.j, ...t } : { type: 'tour', ...t }), 'mapPanel: panel.webview.postMessage')
     if (all) this.sendPodcast()
   }
 
@@ -352,9 +351,9 @@ export class MapPanel implements vscode.Disposable {
     const panel = this.panel
     if (!panel || !this.shown || !this.ready) return
     const episode = this.podcastFor?.(this.shown, (u) => panel.webview.asWebviewUri(u).toString())
-    void panel.webview.postMessage({ type: 'podcast', episode })
+    fireAndForget(panel.webview.postMessage({ type: 'podcast', episode }), 'mapPanel: panel.webview.postMessage')
     const st = episode ? this.podcastStateFor?.(this.shown) : undefined
-    if (st) void panel.webview.postMessage({ type: 'podcastState', ...st })
+    if (st) fireAndForget(panel.webview.postMessage({ type: 'podcastState', ...st }), 'mapPanel: panel.webview.postMessage')
   }
 
   private html(w: vscode.Webview, loading?: string): string {

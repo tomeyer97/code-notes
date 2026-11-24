@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { wfs } from './workspaceFs'
-import { baseName } from '../core/paths'
+import { baseName, parentDirsGlob } from '../core/paths'
+import { fireAndForget } from './run'
 
 // Folders of JSON files the extension reads one file per item from (notes, journeys): watched for changes, read once
 // at load, and what a file's name says.
@@ -17,24 +18,27 @@ export async function readText(uri: vscode.Uri): Promise<string | undefined> {
   try { return decoder.decode(await wfs.readFile(uri)) } catch { return undefined }
 }
 
+/** What a watched folder's file events go to (a promise's failure is logged). */
+export type OnJsonFile = (u: vscode.Uri) => void | PromiseLike<unknown>
+
 /**
  * Watches `<folder>/<rel>/*.json`: a file created or changed goes to `onFile`, a deleted one to `onDelete`. When `rel`
  * (or a folder above it) is created, the files already in it go to `onFile` too: the file watcher starts watching a new
  * folder only after it sees it, so files written right after the folder (`mkdir -p` then a write, a checkout) can come
- * with no event of their own.
+ * with no event of their own. Hence two watchers: the files, and the folders on the way to them.
  */
-export function watchJsonFiles(folder: vscode.WorkspaceFolder, rel: string, onFile: (u: vscode.Uri) => unknown, onDelete: (u: vscode.Uri) => unknown): vscode.Disposable {
+export function watchJsonFiles(folder: vscode.WorkspaceFolder, rel: string, onFile: OnJsonFile, onDelete: OnJsonFile): vscode.Disposable {
+  const file = (u: vscode.Uri) => fireAndForget(() => onFile(u), `${rel}: read ${fileName(u)}`)
   const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, `${rel}/*.json`))
-  w.onDidCreate(onFile)
-  w.onDidChange(onFile)
-  w.onDidDelete(onDelete)
-  const parts = rel.split('/').filter(Boolean)
-  const dirs = parts.map((_, i) => parts.slice(0, i + 1).join('/'))
-  if (!dirs.length) return w
-  const made = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, dirs.length > 1 ? `{${dirs.join(',')}}` : dirs[0]), false, true, true)
-  made.onDidCreate(async () => {
+  w.onDidCreate(file)
+  w.onDidChange(file)
+  w.onDidDelete((u) => fireAndForget(() => onDelete(u), `${rel}: ${fileName(u)} deleted`))
+  const dirs = parentDirsGlob(rel)
+  if (!dirs) return w
+  const made = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, dirs), false, true, true)
+  made.onDidCreate(() => fireAndForget(async () => {
     for (const u of (await jsonFilesIn(vscode.Uri.joinPath(folder.uri, rel)))?.files ?? []) await onFile(u)
-  })
+  }, `${rel}: read a new folder`))
   return vscode.Disposable.from(w, made)
 }
 

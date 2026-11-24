@@ -11,6 +11,8 @@ import { refreshAll } from '../refresh'
 import { Note } from '../notes/store'
 import { card, tourState, walk } from './instances'
 import { podcasts } from '../podcast/player'
+import { fireAndForget } from '../platform/run'
+import { stepDraftKey } from '../platform/keys'
 
 export const UPDATE_ASK = 'This step is out of date: its code changed or was deleted. Please update the step.'
 
@@ -27,7 +29,7 @@ export async function askStep(text?: string): Promise<Note | undefined> {
   if (typeof text === 'string' && text.trim()) return noteOnStep(lj, tourState.step, text.trim())
   const n = tourState.step
   const s = lj.j.steps[n - 1]
-  const draftKey = `${lj.j.id}|${s.id}`
+  const draftKey = stepDraftKey(lj.j.id, s.id)
   const uri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))
   // A podcast playing pauses while the question is written: the step stays under the box (F126).
   podcasts.hold('question')
@@ -45,7 +47,7 @@ export async function askStep(text?: string): Promise<Note | undefined> {
   // The note's thread, open, with the live answer in it (the status bar is only a second cue).
   const shownIn = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri.toString())?.viewColumn
   await reveal(note, shownIn ?? walk.codeColumn())
-  if (claudeMode() === 'button' && claudeCli()) void askClaude(note)
+  if (claudeMode() === 'button' && claudeCli()) fireAndForget(askClaude(note), 'askStep: askClaude')
   return note
 }
 

@@ -3,12 +3,13 @@
 
 import * as vscode from 'vscode'
 import { showError } from '../app'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { clampLines } from '../notes/location'
 import { wfs } from '../platform/workspaceFs'
 import { cardLine } from './stepPlace'
 import { card, tourState, walk } from './instances'
+import { fireAndForget } from '../platform/run'
 
 /** A read-only copy of a file (its text now, unsaved edits included), peeked for a ref into the step's own file. */
 const REF_SCHEME = 'code-notes-ref'
@@ -42,7 +43,7 @@ export async function openRef(lj: LoadedJourney, file: string, line: number, end
   tourState.lastPeek = undefined
   const uri = vscode.Uri.joinPath(lj.folder.uri, file)
   try { await wfs.stat(uri) } catch {
-    void showError(`Code Notes: ${file} doesn't exist in this folder.`)
+    fireAndForget(showError(`${file} doesn't exist in this folder.`), 'refs: showError')
     return
   }
   const stepUri = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n))

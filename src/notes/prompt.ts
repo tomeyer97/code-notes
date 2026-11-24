@@ -9,6 +9,7 @@ import { folderName, Note } from './store'
 import { plural, rangeLabel } from '../core/text'
 import { notesFrom } from './which'
 import { fileName } from '../platform/jsonFolder'
+import { fireAndForget } from '../platform/run'
 
 /** The prompt's words; `dir`: the notes folder. No frozen timestamp: a prompt pasted an hour later must not date replies in the past. */
 const PROMPT = {
@@ -38,18 +39,18 @@ export const copyAgentPrompt = async () => {
   const waiting = notes().filter(waitingForAgent).length
   const ticked = [...checked].map(byId).filter((n): n is Note => !!n)
   if (!ticked.length && !waiting) {
-    vscode.window.showInformationMessage('No notes are waiting for an agent. Select notes (Ctrl+click) to ask about them.')
+    fireAndForget(vscode.window.showInformationMessage('No notes are waiting for an agent. Select notes (Ctrl+click) to ask about them.'), 'prompt: window.showInformationMessage')
     return
   }
   await vscode.env.clipboard.writeText(agentPrompt(ticked.length ? ticked : undefined))
   log.info(`copied a prompt for ${ticked.length ? ticked.map((n) => n.data.id).join(', ') : `the ${waiting} waiting notes`}`)
   const k = ticked.length || waiting
-  vscode.window.showInformationMessage(`Copied a prompt for ${plural(k, `${ticked.length ? 'selected' : 'waiting'} note`)}.`)
+  fireAndForget(vscode.window.showInformationMessage(`Copied a prompt for ${plural(k, `${ticked.length ? 'selected' : 'waiting'} note`)}.`), 'prompt: window.showInformationMessage')
 }
 
 export const copyNotePrompt = async (arg?: any) => {
   const [n] = notesFrom(arg)
   if (!n) return
   await vscode.env.clipboard.writeText(agentPrompt([n]))
-  vscode.window.showInformationMessage('Copied a prompt for this note.')
+  fireAndForget(vscode.window.showInformationMessage('Copied a prompt for this note.'), 'prompt: window.showInformationMessage')
 }

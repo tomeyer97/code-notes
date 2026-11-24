@@ -6,9 +6,8 @@ import { docUri } from '../notes/location'
 import { cardLine, stepUri } from '../tour/stepPlace'
 import { card, tourState, walk } from '../tour/instances'
 import { backToQuestion, checkLinkNote } from '../check/wiring'
+import { OWN_MOVE_MS } from '../platform/timings'
 
-/** After a click on a step's link, the cursor moving there for this long is the link's doing, not the person reading. */
-const LINK_CURSOR_MS = 1500
 
 /** A second click on the lit phrase turns it off; if the way back was shown, `goBack` goes there. */
 async function unlightAndReturn(goBack: () => Promise<void> | undefined): Promise<void> {
@@ -36,7 +35,7 @@ export async function openCodeLink(key: string, i: number): Promise<void> {
   const lj = walk.tourJourney()
   // A second click on the lit phrase turns it off; the step comes back if its card was out of sight.
   if (codeLinks.isLit(key, i)) return unlightAndReturn(() => (lj && tourState.step ? walk.goToStep(lj, tourState.step) : undefined))
-  tourState.cursorUntil = Date.now() + LINK_CURSOR_MS
+  tourState.cursorUntil = Date.now() + OWN_MOVE_MS // the link's doing, not the person reading
   const cardAt = lj && tourState.step && !card.inMap(lj, tourState.step) ? { uri: stepUri(lj, tourState.step).toString(), line: cardLine(lj, tourState.step) } : undefined
   // An icon and words, so it reads as a control and not as one more value. Only lit, as in a question's thread: the
   // caret and the keyboard stay where the click was, so typing next never lands in the code.

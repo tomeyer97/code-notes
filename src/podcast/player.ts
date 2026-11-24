@@ -17,7 +17,7 @@
 // (marks.ts) light parts of the code as the words are said.
 
 import * as vscode from 'vscode'
-import { beats, gstate, journeys, KEY, log, mapPanel, state } from '../app'
+import { beats, journeys, KEY, log, mapPanel, stored } from '../app'
 import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
 import { closeWalkTabs, endJourney, openMap } from '../tour/commands'
 import { card, tourState, walk } from '../tour/instances'
@@ -27,7 +27,7 @@ import { FollowLock } from './follow'
 import type { Narration } from '../tour/card'
 import { pickJourney } from '../tour/pick'
 import { journeysTree } from '../sidebar/journeysTree'
-import { calmViews, clock, Episode, LatestWins, markTimes, planMarks, podcastFileOf, PodcastProblem, sameView, segmentAt, timeOf, View, viewAt } from './model'
+import { calmViews, clock, Episode, markTimes, planMarks, podcastFileOf, PodcastProblem, sameView, segmentAt, timeOf, View, viewAt } from './model'
 import { MarkLights, PlannedMark } from './marks'
 import { Camera, CUE_LEAD_S, cueText } from './camera'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
@@ -37,11 +37,11 @@ import { afterStep, remapTime, resumeTime } from './resume'
 import { brokenLinks, playNotice } from './validate'
 import { LISTENING_CTX, ListenMessage, ListenView } from './listenView'
 import { setCtx } from '../app'
+import { fireAndForget } from '../platform/run'
+import { LatestWins } from '../core/serial'
+import { STATE } from '../platform/state'
+import { Cmd } from '../platform/commands'
 
-/** Workspace state: where each podcast was left (posKey -> seconds); global: the speed. */
-const POS_KEY = 'codeNotes.podcastPos'
-const RATE_KEY = 'codeNotes.podcastRate'
-const MUTE_KEY = 'codeNotes.podcastMuted'
 /** While playing, where it is is stored this often (ms). */
 const SAVE_EVERY_MS = 5000
 const SKIP_S = 15
@@ -53,8 +53,6 @@ export const SEEK_SETTLE_MS = 250
 const NO_WAIT_AFTER_SEEK_S = 1.5
 /** The Listen view goes this long (ms) after the last journey stopped being listened to (another may start). */
 const LISTENING_OFF_MS = 3000
-/** Global state: the one-line hint on the first play was shown. */
-const HINT_KEY = 'codeNotes.listenHintShown'
 
 /** A journey's podcast, read and checked against the journey. `notice`: one line about what is wrong with it (the
  *  panel and the row's tooltip say it); `lastGood`: the file has errors now, this is the version read before. */
@@ -157,11 +155,11 @@ class Podcasts {
   init(context: vscode.ExtensionContext): void {
     this.item = vscode.window.createStatusBarItem('codeNotes.listen', vscode.StatusBarAlignment.Left, 49.25)
     this.item.name = 'Listen'
-    this.item.command = 'codeNotes.podcastOpen'
+    this.item.command = Cmd.podcastOpen
     this.listen = new ListenView(context.extensionUri, log, (m) => this.onHost(m))
     this.listen.onGone = () => this.hostGone()
-    context.subscriptions.push(this.item, this.listen, this.listen.register(), journeys.onDidChange(() => void this.scan()))
-    podcastReports.init(context, () => void this.scan())
+    context.subscriptions.push(this.item, this.listen, this.listen.register(), journeys.onDidChange(() => fireAndForget(this.scan(), 'player: scan')))
+    podcastReports.init(context, () => fireAndForget(this.scan(), 'player: scan'))
     mapPanel.podcastFor = (lj, toUri) => { this.panelShows(lj); this.listen.send({ type: 'panel', key: lj.key }); return this.episodeFor(lj, toUri) }
     // An episode on: the panel beside the code at the listening width (Q15), from its start (the panel opened for it).
     panelLayout.episodeOn = () => !!this.sessionJourney() || this.starting
@@ -262,7 +260,7 @@ class Podcasts {
       else broken.set(lj.key, { file: r.file, reason })
     }
     podcastReports.report(reads)
-    void this.strays()
+    fireAndForget(this.strays(), 'player: strays')
     const sig = (m: Map<string, Loaded>, b: Map<string, Broken>) => [...m].map(([k, l]) => `${k}=${l.sig}|${l.notice ?? ''}`).concat([...b].map(([k, x]) => `${k}!${x.reason}`)).join('\n')
     const changed = sig(next, broken) !== sig(this.eps, this.broken)
     const before = this.eps
@@ -337,8 +335,8 @@ class Podcasts {
       duration: ep.duration,
       at: this.posOf(lj),
       ...(play ? { play: true } : {}),
-      rate: gstate.get<number>(RATE_KEY) ?? 1,
-      muted: !!gstate.get<boolean>(MUTE_KEY),
+      rate: stored.get(STATE.podcastRate),
+      muted: !!stored.get(STATE.podcastMuted),
       keyPrefix: KEY,
       chapters: ep.chapters,
       segments: ep.segments.map((s) => ({ start: s.start, end: s.end, text: s.text, step: s.step, speaker: s.speaker, ...(s.sentences ? { sentences: s.sentences } : {}) })),
@@ -368,7 +366,7 @@ class Podcasts {
     if (this.hostKey === lj.key && this.hostState?.of === lj.key) return this.hostState
     // Not in the host yet: loaded there now (its length is checked, ▶ starts at once), unless another journey's
     // episode is in it.
-    if (!this.sessionJourney() && this.listen.alive && this.hostIn === 'listen') void this.loadHost(lj)
+    if (!this.sessionJourney() && this.listen.alive && this.hostIn === 'listen') fireAndForget(this.loadHost(lj), 'player: loadHost')
     // The panel newly showing a journey whose place was kept, nothing listened to: the session again, paused there
     // (a podcast file read again sends this too: that is no reopening).
     if (this.panelKey !== lj.key) this.reopened(lj, this.eps.get(lj.key)!.ep)
@@ -421,12 +419,12 @@ class Podcasts {
       case 'podcastUnlocked': this.unlocked.listen = true; break
       case 'podcastAsk': {
         const lj = (m.of && journeys.list.get(m.of)) || (this.hostKey ? journeys.list.get(this.hostKey) : undefined)
-        if (lj) void this.onAsk(lj, m)
+        if (lj) fireAndForget(this.onAsk(lj, m), 'player: onAsk')
         break
       }
-      case 'podcastWhy': void this.showWhy(shown ?? (this.hostKey ? journeys.list.get(this.hostKey) : undefined)); break
-      case 'podcastOpen': void this.openSessionMap(); break
-      case 'podcastEnd': { const lj = (m.of && journeys.list.get(m.of)) || this.sessionJourney(); if (lj) void this.onEnd(lj, m.action) } break
+      case 'podcastWhy': fireAndForget(this.showWhy(shown ?? (this.hostKey ? journeys.list.get(this.hostKey) : undefined)), 'player: showWhy'); break
+      case 'podcastOpen': fireAndForget(this.openSessionMap(), 'player: openSessionMap'); break
+      case 'podcastEnd': { const lj = (m.of && journeys.list.get(m.of)) || this.sessionJourney(); if (lj) fireAndForget(this.onEnd(lj, m.action), 'player: onEnd') } break
       case 'ready':
         // A new page (the view was made again): its audio locked, no episode until it is sent one. While the panel
         // plays the audio, it is the panel's remote. The journey the panel shows (it has the player then).
@@ -441,7 +439,7 @@ class Podcasts {
         this.hostKey = undefined
         this.hostState = undefined
         // The view made again while a journey is listened to (paused), not for an episode on its way: that episode.
-        if (this.sessionJourney() && !this.hostLoading) void this.loadHost(this.sessionJourney()!)
+        if (this.sessionJourney() && !this.hostLoading) fireAndForget(this.loadHost(this.sessionJourney()!), 'player: loadHost')
         break
     }
   }
@@ -591,7 +589,7 @@ class Podcasts {
   private onState(m: HostState): void {
     if (!m || m.of !== this.hostKey) return
     this.hostState = m
-    if (typeof m.muted === 'boolean' && m.muted !== !!gstate.get<boolean>(MUTE_KEY)) void gstate.update(MUTE_KEY, m.muted)
+    if (typeof m.muted === 'boolean' && m.muted !== !!stored.get(STATE.podcastMuted)) fireAndForget(stored.set(STATE.podcastMuted, m.muted), 'player: store podcastMuted')
     // To the remote: the panel (when it shows that journey), or the Listen view.
     if (this.hostIn === 'panel') this.listen.send({ type: 'podcastState', ...m })
     else if (mapPanel.journey?.key === m.of) mapPanel.send({ type: 'podcastState', ...m })
@@ -697,7 +695,7 @@ class Podcasts {
     const key = `${l.audio.path}:${l.audioSize}`
     if (this.audioLen.get(key) === duration) return
     this.audioLen.set(key, duration)
-    void this.scan()
+    fireAndForget(this.scan(), 'player: scan')
   }
 
   /** "Show why" in the panel (or on a podcast that can't be played): the Problems view, on the podcast file. */
@@ -709,7 +707,7 @@ class Podcasts {
     if (file && !podcastReports.of(file).length) log.show(true)
   }
 
-  private positions(): Record<string, number> { return state.get<Record<string, number>>(POS_KEY) ?? {} }
+  private positions(): Record<string, number> { return stored.get(STATE.podcastPos) }
   /** Where `lj`'s podcast is: as last reported, else as stored, else the start. */
   posOf(lj: LoadedJourney): number { return this.pos.get(lj.key) ?? this.positions()[posKey(lj)] ?? 0 }
   /** Kept in memory at once; stored when `store` (a pause, a seek, leaving) or every SAVE_EVERY_MS. */
@@ -717,7 +715,7 @@ class Podcasts {
     this.pos.set(lj.key, t)
     if (!store && Date.now() - this.lastSave < SAVE_EVERY_MS) return
     this.lastSave = Date.now()
-    void state.update(POS_KEY, { ...this.positions(), [posKey(lj)]: Math.round(t * 10) / 10 })
+    fireAndForget(stored.set(STATE.podcastPos, { ...this.positions(), [posKey(lj)]: Math.round(t * 10) / 10 }), 'player: store podcastPos')
   }
   /** The session's time (the status bar's). */
   private get t(): number {
@@ -750,7 +748,7 @@ class Podcasts {
     if (m.seek) { this.lastSeekT = m.t; this.camera.cancel(); this.camera.reset() }
     else if (!on) this.camera.cancel()
     else if (m.playing && !wasAudible) this.camera.played()
-    if (m.rate && m.rate !== gstate.get<number>(RATE_KEY)) void gstate.update(RATE_KEY, m.rate)
+    if (m.rate && m.rate !== stored.get(STATE.podcastRate)) fireAndForget(stored.set(STATE.podcastRate, m.rate), 'player: store podcastRate')
     this.savePos(lj, m.t, (wasPlaying && !on) || !!m.seek)
     if (on) this.session = lj.key
     if (this.session !== lj.key) return
@@ -810,7 +808,7 @@ class Podcasts {
     const plan = seg?.marks && t >= seg.start ? this.planOf(lj, l, k, this.markMode) : []
     if (playing) this.headsUp(lj, l, k, plan, t, rate)
     if (!seg?.marks || t < seg.start) { this.lights.clear(); return }
-    void this.lights.show(`${lj.key}|${l.sig}|${k}|${this.markMode}`, plan, t, (p, r, doc) => this.bringMark(p, r, doc))
+    fireAndForget(this.lights.show(`${lj.key}|${l.sig}|${k}|${this.markMode}`, plan, t, (p, r, doc) => this.bringMark(p, r, doc)), 'player: lights.show')
     const next = plan.find((p) => !p.skip && p.time > t)
     if (!playing || !next || next.time >= seg.end) return
     const ms = ((next.time - t) / (rate || 1)) * 1000
@@ -1098,7 +1096,7 @@ class Podcasts {
   private stepRemoved(lj: LoadedJourney): boolean {
     if (this.session !== lj.key || !this.eps.has(lj.key)) return false
     log.info(`podcast ${lj.j.id}: the step on screen was removed from the journey; showing what the podcast is at now`)
-    void this.scan().then(() => {
+    fireAndForget(this.scan().then(() => {
       const l = this.eps.get(lj.key)
       const now = journeys.list.get(lj.key)
       if (!l || !now) return
@@ -1109,7 +1107,7 @@ class Podcasts {
       // The walk's number may name another step now: it is opened whatever it is on.
       tourState.stepId = undefined
       this.mover.push({ lj: now, view, still: true })
-    })
+    }), 'player: scan')
     return true
   }
 
@@ -1122,7 +1120,7 @@ class Podcasts {
     if (v.step !== tourState.step || v.beat === undefined) return
     this.beatShown = v.beat
     mapPanel.send({ type: 'podcastBeat', n: v.step, i: v.beat, still: true })
-    void showBeat(lj, v.step, v.beat)
+    fireAndForget(showBeat(lj, v.step, v.beat), 'player: showBeat')
   }
 
   /** Next / Previous while it plays (the card, Ctrl+' D / A), or on the map's parts (Intro, Recap) where the walk has no
@@ -1186,9 +1184,9 @@ class Podcasts {
 
   /** The first time any podcast plays: one line on what will happen to the editor (F8). */
   private hintOnce(): void {
-    if (gstate.get<boolean>(HINT_KEY)) return
-    void gstate.update(HINT_KEY, true)
-    void vscode.window.showInformationMessage('The walk follows the voice: code opens beside the map.', 'Got it')
+    if (stored.get(STATE.listenHintShown)) return
+    fireAndForget(stored.set(STATE.listenHintShown, true), 'player: store listenHintShown')
+    fireAndForget(vscode.window.showInformationMessage('The walk follows the voice: code opens beside the map.', 'Got it'), 'player: window.showInformationMessage')
   }
 
   /** What the step card shows of the podcast on step n (card.ts Narration): only on the podcast's journey. */
@@ -1304,7 +1302,7 @@ class Podcasts {
     }
     if (this.hostKey !== lj.key || !this.hostAlive()) {
       if (!(await this.loadHost(lj, { play: o.until === undefined, at: at ?? this.posOf(lj), until: o.until }))) {
-        void vscode.window.showWarningMessage('The Listen view could not be opened, so the audio has nowhere to play.')
+        fireAndForget(vscode.window.showWarningMessage('The Listen view could not be opened, so the audio has nowhere to play.'), 'player: window.showWarningMessage')
       }
       return
     }
@@ -1339,7 +1337,7 @@ class Podcasts {
   private cantPlay(lj: LoadedJourney): void {
     const b = this.broken.get(lj.key)
     if (!b) { vscode.window.setStatusBarMessage(`$(info) ${lj.j.title} has no podcast`, 3000); return }
-    void vscode.window.showWarningMessage(`The podcast of “${lj.j.title}” can't be played: ${b.reason}`, 'Show Why').then((a) => { if (a) void this.showWhy(lj) })
+    fireAndForget(vscode.window.showWarningMessage(`The podcast of “${lj.j.title}” can't be played: ${b.reason}`, 'Show Why').then((a) => { if (a) fireAndForget(this.showWhy(lj), 'player: showWhy') }), 'player: window.showWarningMessage')
   }
 
   /** Space for listening: pause, or play (the journey in the Listen view; else as Listen to Journey). In a journey
@@ -1409,13 +1407,13 @@ class Podcasts {
     if (on) {
       clearTimeout(this.listeningOff)
       this.listeningOff = undefined
-      void setCtx(LISTENING_CTX, true)
+      fireAndForget(setCtx(LISTENING_CTX, true), 'player: setCtx LISTENING_CTX')
       return
     }
     if (this.listeningOff) return
     this.listeningOff = setTimeout(() => {
       this.listeningOff = undefined
-      if (!this.sessionJourney() && !this.hostLoading && !this.starting) void setCtx(LISTENING_CTX, false)
+      if (!this.sessionJourney() && !this.hostLoading && !this.starting) fireAndForget(setCtx(LISTENING_CTX, false), 'player: setCtx LISTENING_CTX')
     }, LISTENING_OFF_MS)
   }
   private listeningOff: NodeJS.Timeout | undefined

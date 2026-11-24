@@ -1,2 +1,1 @@
 # Imports from src/platform/ that break the layer rule today; remove a line when you fix it.
-src/platform/checkout.ts -> src/notes/store.ts

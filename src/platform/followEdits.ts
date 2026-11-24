@@ -1,25 +1,25 @@
 import * as vscode from 'vscode'
 import { LineEdit, followLine, shiftLine } from '../core/anchors/lineFollow'
 import { docLines } from './documents'
+import { REFIND_LINES_MS } from './timings'
 
 // Lines remembered by text (a beat's line, a code link's lines, value hints) follow edits to their file in two moves:
 // at once by the lines added or removed above them (`onShift`), and once the typing pauses by their text (`onRefind`).
 // TrackedLines holds such lines and does both moves; EditFollower is the watching underneath.
 
-/** VS Code's changes as LineEdits (lineFollow.ts), in the order given. */
-export function lineEdits(changes: readonly vscode.TextDocumentContentChangeEvent[]): LineEdit[] {
-  return changes.map((c) => ({
+/** A VS Code change as a LineEdit (lineFollow.ts): the one converter (notes, steps and remembered lines use it). */
+export function lineEdit(c: vscode.TextDocumentContentChangeEvent): LineEdit {
+  return {
     startLine: c.range.start.line,
     startChar: c.range.start.character,
     endLine: c.range.end.line,
     endChar: c.range.end.character,
     newLines: (c.text.match(/\n/g) ?? []).length,
-  }))
+  }
 }
 
-/** How long the typing must pause before the remembered lines are looked for by their text. (A journey's steps wait
- *  longer: tracker.ts EDIT_SETTLE_MS.) */
-export const REFIND_MS = 150
+/** VS Code's changes as LineEdits, in the order given. */
+export const lineEdits = (changes: readonly vscode.TextDocumentContentChangeEvent[]): LineEdit[] => changes.map(lineEdit)
 
 export class EditFollower implements vscode.Disposable {
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -36,7 +36,7 @@ export class EditFollower implements vscode.Disposable {
       if (!e.contentChanges.length || !watches(uri)) return
       onShift(lineEdits(e.contentChanges), uri)
       this.cancel()
-      this.timer = setTimeout(() => onRefind(e.document, docLines(e.document)), REFIND_MS)
+      this.timer = setTimeout(() => onRefind(e.document, docLines(e.document)), REFIND_LINES_MS)
     })
   }
 

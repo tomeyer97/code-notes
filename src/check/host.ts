@@ -3,6 +3,7 @@
 import * as vscode from 'vscode'
 import type { Note, Store } from '../notes/store'
 import type { Check } from './types'
+import type { StateStore } from '../platform/state'
 
 /**
  * What the check needs from the rest of the extension, by role. One object has them all: src/check/wiring.ts
@@ -15,8 +16,8 @@ export interface NotesHost {
   log: vscode.LogOutputChannel
   store: Store
   extUri: vscode.Uri
-  /** Per-workspace memory (drafts, applied fixes, TODOs, background runs). */
-  memento: vscode.Memento
+  /** Per-workspace memory (drafts, applied fixes, TODOs, background runs): platform/state.ts's keys. */
+  stored: StateStore
   /** Who writes, as a note's author. */
   me(): string
   now(): string

@@ -1,14 +1,8 @@
 // The running tour's state: which journey and step, the step card's state, what the editor shows for it, and what
 // the integration tests read. One object (instances.ts makes it), passed to the walk and the card; the other tour modules
-// import it. The keys it is stored under in the workspace are here too.
+// import it. What is stored across reloads is in platform/state.ts.
 import type * as vscode from 'vscode'
 import type { StepRef } from './stepText'
-
-/** Stored in the workspace: the running tour's posKey (restored after a reload), where each journey was left
- *  (posKey -> { step, id, at }), and the journey last shown on the map. */
-export const TOUR_KEY = 'codeNotes.tour'
-export const POS_KEY = 'codeNotes.journeyPos'
-export const MAP_KEY = 'codeNotes.mapJourney'
 
 /** Where a step was shown: its journey, id, file and lines, and where the journey file put it then (`wrote`). */
 export interface ShownAt { key: string; id: string; file: string; start: number; end: number; removed: boolean; wrote: string }

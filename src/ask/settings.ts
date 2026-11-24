@@ -4,6 +4,7 @@
 import * as vscode from 'vscode'
 import { cfg, setCtx } from '../app'
 import { findCli, findCliAsync } from '../platform/agent/claudeCli'
+import { fireAndForget } from '../platform/run'
 
 export const claudeMode = () => cfg().get<string>('claude.mode', 'button')
 
@@ -25,9 +26,9 @@ export function watchClaudeCli(context: vscode.ExtensionContext): void {
   let probes = 0
   const probeClaude = () => {
     const n = ++probes
-    void findCliAsync(cfg().get<string>('claude.path') || undefined).then((c) => {
-      if (n === probes) void setCtx('codeNotes.claudeFound', !!c)
-    })
+    fireAndForget(findCliAsync(cfg().get<string>('claude.path') || undefined).then((c) => {
+      if (n === probes) fireAndForget(setCtx('codeNotes.claudeFound', !!c), 'settings: setCtx codeNotes.claudeFound')
+    }), 'settings: findCliAsync')
   }
   probeClaude()
   context.subscriptions.push(

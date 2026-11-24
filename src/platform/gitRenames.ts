@@ -1,52 +1,61 @@
-// Renames git knows, the way `journey.py check` finds them, and a short-lived cache of them per folder (the step
-// tracker asks once per step). No vscode API at run time (only its types): unit-tested.
+// Renames git knows, and a short-lived cache of them per folder (the step tracker asks once per step). The sources are
+// the ones `journey.py check` reads (the skill's script keeps the same rules in Python; test/fixtures/git-renames.json
+// holds the parsing cases both should pass). No vscode API at run time (only its types): unit-tested.
 import type * as vscode from 'vscode'
-import { gitRaw } from './git'
+import { gitRaw, HISTORY_GIT } from './git'
 
-type Git = (args: string[]) => Promise<string>
+/** A commit id as a journey stores it (`since`): anything else is not asked about. */
+const COMMIT_ID = /^[0-9a-f]{4,40}$/i
+/** Without a known commit to start from: renames in this many recent commits. */
+const RECENT_COMMITS = ['-n', '500']
 
-/** Renames committed since `since` (a commit; unknown or missing: the last 500 commits), plus those staged or not. */
-async function committedRenames(git: Git, since: string | undefined): Promise<string> {
-  const known = since && /^[0-9a-f]{4,40}$/i.test(since) && (await git(['rev-parse', '--verify', '--quiet', `${since}^{commit}`])).trim()
-  const range = known ? [`${since}..HEAD`] : ['-n', '500']
-  const log = await git(['log', '-M', '--diff-filter=R', '--name-status', '--format=', '--reverse', ...range])
-  return log + (await git(['diff', '-M', '--name-status', 'HEAD']))
+/** The sources of renames, in the order they are applied (a later one wins). */
+const RENAME_SOURCES = {
+  /** Committed in `range`, oldest first: `R<score>\tfrom\tto` lines. */
+  committed: (range: string[]) => ['log', '-M', '--diff-filter=R', '--name-status', '--format=', '--reverse', ...range],
+  /** Staged or not, against HEAD: the same lines. */
+  uncommitted: ['diff', '-M', '--name-status', 'HEAD'],
+  /** Staged renames as `status` names them (`R  a -> b`): a `git mv` not yet seen as a rename by `diff`. */
+  status: ['status', '--porcelain=v1'],
 }
 
 /** `--name-status` lines `R<score>\tfrom\tto` as from -> to. */
-function parseNameStatus(text: string, out: Map<string, string>): void {
+export function parseNameStatus(text: string, out: Map<string, string> = new Map()): Map<string, string> {
   for (const l of text.split('\n')) {
     const f = l.split('\t')
     if (f.length === 3 && f[0].startsWith('R')) out.set(f[1], f[2])
   }
+  return out
 }
 
 /** `status --porcelain=v1` lines `R  "a" -> "b"` (quotes only around odd names) as a -> b. */
-function parseStatus(text: string, out: Map<string, string>): void {
+export function parseStatus(text: string, out: Map<string, string> = new Map()): Map<string, string> {
   const unquote = (s: string) => s.replace(/^"|"$/g, '')
   for (const l of text.split('\n')) {
     if (l[0] !== 'R' || !l.includes(' -> ')) continue
     const [a, b] = l.slice(3).split(' -> ')
     out.set(unquote(a), unquote(b))
   }
+  return out
 }
 
-/** A long history's rename log can pass execFile's 1 MiB default. */
-const RENAMES_MAX_OUTPUT = 8 << 20
-
-/** old path -> new path, from git (the same sources as `journey.py check`); empty when git or the repo is missing. */
+/** old path -> new path, from git; empty when git or the repo is missing. `since`: a commit (unknown or missing: the
+ *  recent history). */
 export async function gitRenames(cwd: string, since?: string): Promise<Map<string, string>> {
-  const git: Git = async (args) => (await gitRaw(cwd, args, { maxBuffer: RENAMES_MAX_OUTPUT })) ?? ''
+  const git = async (args: string[]) => (await gitRaw(cwd, args, HISTORY_GIT)) ?? ''
+  const known = since && COMMIT_ID.test(since) && (await git(['rev-parse', '--verify', '--quiet', `${since}^{commit}`])).trim()
+  const range = known ? [`${since}..HEAD`] : RECENT_COMMITS
   const out = new Map<string, string>()
-  parseNameStatus(await committedRenames(git, since), out)
-  parseStatus(await git(['status', '--porcelain=v1']), out)
+  parseNameStatus(await git(RENAME_SOURCES.committed(range)), out)
+  parseNameStatus(await git(RENAME_SOURCES.uncommitted), out)
+  parseStatus(await git(RENAME_SOURCES.status), out)
   return out
 }
 
 /** How long git's renames are reused (one locate asks once per step). */
 const GIT_CACHE_MS = 3000
 
-/** Renames git knows (as `journey.py check` finds them: committed since a commit, staged, uncommitted), cached briefly. */
+/** Renames git knows (gitRenames), cached briefly. */
 export class GitRenameCache {
   private cache = new Map<string, { at: number; map: Promise<Map<string, string>> }>()
 

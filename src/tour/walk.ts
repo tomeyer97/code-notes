@@ -1,7 +1,7 @@
 // The walk through a journey: which step is open, opening a step (its file, its card, the map beside), moving on,
 // the status bar item, and where each journey was left.
 import * as vscode from 'vscode'
-import { beats, codeLinks, journeys, log, mapPanel, now, setCtx, state, tourItems } from '../app'
+import { beats, codeLinks, journeys, log, mapPanel, now, setCtx, stored, tourItems } from '../app'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { fileOf, LoadedJourney, posKey } from '../journeys/steps'
 import { checkLinkNote } from '../check/wiring'
@@ -15,13 +15,15 @@ import { openCheckpoint, stopBy } from './checkTour'
 import { panelFits } from './panelLayout'
 import { endJourney, finishTour } from './commands'
 import { pickJourney } from './pick'
-import { MAP_KEY, POS_KEY, ShownAt, TOUR_KEY, TourState } from './state'
+import { ShownAt, TourState } from './state'
 import { foldNotesOverlapping, syncStepNotes } from './stepNotes'
 import { cardLine, stepUri, wroteAt } from './stepPlace'
 import { baseName } from '../core/paths'
 import { stepFileUri } from '../journeys/codeGroup'
+import { fireAndForget } from '../platform/run'
+import { JourneyPos, STATE } from '../platform/state'
+import { OWN_MOVE_MS } from '../platform/timings'
 
-type Pos = { step: number; id?: string; at: string }
 export type TourItems = { prev: vscode.StatusBarItem; pos: vscode.StatusBarItem; next: vscode.StatusBarItem; end: vscode.StatusBarItem }
 
 /** A group with the reader's own work in it: an unsaved file, or an untitled one (a scratch or notes draft). */
@@ -51,7 +53,7 @@ export class Walk {
   /** A tour is running (not just a map open): only then the status bar, the step card and D/A belong to it. */
   touring(): boolean { return !!this.tourJourney() && this.tour.step > 0 }
 
-  positions(): Record<string, Pos> { return state.get<Record<string, Pos>>(POS_KEY) ?? {} }
+  positions(): Record<string, JourneyPos> { return stored.get(STATE.journeyPos) }
   /** Where this journey was left (0: never started): the same step by id when it still exists, else the same number. */
   resumeAt(lj: LoadedJourney): number {
     const p = this.positions()[posKey(lj)]
@@ -60,7 +62,7 @@ export class Walk {
     return i >= 0 ? i + 1 : Math.min(p.step, lj.j.steps.length)
   }
   async savePos(lj: LoadedJourney, step: number): Promise<void> {
-    await state.update(POS_KEY, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: now() } })
+    await stored.set(STATE.journeyPos, { ...this.positions(), [posKey(lj)]: { step, id: lj.j.steps[step - 1]?.id, at: now() } })
   }
 
   /** The step a journey opens on: the one being walked, else where it was left, else step 1. */
@@ -86,11 +88,11 @@ export class Walk {
     const n = i + 1
     if (tour.step !== n) this.say(`$(info) Journey updated: this step is now ${n}/${lj.j.steps.length}`, 5000)
     tour.step = n
-    void this.savePos(lj, n)
+    fireAndForget(this.savePos(lj, n), 'walk: savePos')
     const was = tour.shownAt
     if (was && was.key === lj.key && was.id === lj.j.steps[i].id) {
       // Maybe re-anchored by the agent (other file or lines): found again, then the editor follows the card.
-      void journeys.locate(lj, (k) => k === n).then(() => this.onRelocated(lj, n, was))
+      fireAndForget(journeys.locate(lj, (k) => k === n).then(() => this.onRelocated(lj, n, was)), 'walk: journeys.locate')
     } else this.redrawStep(lj)
     tree.refresh()
   }
@@ -108,7 +110,7 @@ export class Walk {
     if (this.onStepRemoved?.(lj)) return
     const total = lj.j.steps.length
     if (!total) {
-      void endJourney()
+      fireAndForget(endJourney(), 'walk: endJourney')
       return
     }
     tour.step = Math.min(tour.step, total)
@@ -117,9 +119,9 @@ export class Walk {
     const text = `The step you were on was removed from the journey. This is the next one (${tour.step}/${total}).`
     tour.cardNotice = { id: tour.stepId, text }
     this.say(`$(info) The step you were on was removed from the journey: now at ${tour.step}/${total}`, 5000)
-    void this.savePos(lj, tour.step)
+    fireAndForget(this.savePos(lj, tour.step), 'walk: savePos')
     // Map, card AND editor on the new step.
-    void this.goToStep(lj, tour.step, { focus: false })
+    fireAndForget(this.goToStep(lj, tour.step, { focus: false }), 'walk: goToStep')
   }
 
   /**
@@ -139,7 +141,7 @@ export class Walk {
       return
     }
     if (rewritten) tour.cardNotice = { id: was.id, text: `This step was updated: its code is now at ${baseName(file)}:${at.start}.` }
-    void this.goToStep(lj, n, { focus: false })
+    fireAndForget(this.goToStep(lj, n, { focus: false }), 'walk: goToStep')
   }
 
   /** The card and the status item again, for the step the tour is on. */
@@ -167,9 +169,9 @@ export class Walk {
     if (lj && tour.step > lj.j.steps.length) tour.step = lj.j.steps.length
     // A step question's back-link says less while you walk its journey.
     syncStepNotes()
-    setCtx('codeNotes.journeyActive', this.touring())
+    fireAndForget(setCtx('codeNotes.journeyActive', this.touring()), 'walk: setCtx codeNotes.journeyActive')
     this.card.lensChanged.fire() // the step lenses show only outside a walk
-    setCtx('codeNotes.hasJourneys', journeys.all().length > 0)
+    fireAndForget(setCtx('codeNotes.hasJourneys', journeys.all().length > 0), 'walk: setCtx codeNotes.hasJourneys')
     mapPanel.update()
     this.renderStatusItem(lj)
     this.onMoved?.()
@@ -190,7 +192,7 @@ export class Walk {
     if (tour.step) vscode.window.setStatusBarMessage('$(info) The journey was deleted; it ended', 5000)
     mapPanel.markDeleted(key)
     this.forgetTour()
-    void state.update(TOUR_KEY, undefined)
+    fireAndForget(stored.set(STATE.tour, undefined), 'walk: store tour')
   }
 
   /** No tour in memory any more (no journey, step, document or card); what was saved stays. */
@@ -262,7 +264,7 @@ export class Walk {
 
   showMap(lj: LoadedJourney, preserveFocus = false): void {
     mapPanel.show(lj, preserveFocus, this.tour.doc?.column)
-    void state.update(MAP_KEY, posKey(lj))
+    fireAndForget(stored.set(STATE.mapJourney, posKey(lj)), 'walk: store mapJourney')
   }
 
   /**
@@ -317,8 +319,8 @@ export class Walk {
     // The map shows the journey being walked: another journey's map (a look) gives way when a step moves.
     if (mapPanel.journey && mapPanel.journey.key !== lj.key) this.showMap(lj, true)
     // Stored, not waited for (each a round trip to the window; what is read back is in memory already).
-    void state.update(TOUR_KEY, posKey(lj)).then(undefined, (e) => log.error(`tour: ${e}`))
-    void this.savePos(lj, n).then(undefined, (e) => log.error(`tour: ${e}`))
+    fireAndForget(stored.set(STATE.tour, posKey(lj)), 'tour')
+    fireAndForget(this.savePos(lj, n), 'tour')
     await journeys.locate(lj, (k) => k === n)
     if (superseded()) return false
     this.updateTour()
@@ -350,7 +352,7 @@ export class Walk {
       return undefined
     }
     const column = this.columnFor(uri)
-    ownSelection(1500) // the file's caret and the step's: not a chat link
+    ownSelection(OWN_MOVE_MS) // the file's caret and the step's: not a chat link
     const shown = { preview: true, preserveFocus: opts.focus === false, ...(column ? { viewColumn: column } : {}) }
     const editor = await vscode.window.showTextDocument(uri, shown)
     if (superseded()) return undefined
@@ -430,7 +432,7 @@ export class Walk {
       if (beats.lit) {
         if (here && !beatBroughtBack) {
           beatBroughtBack = true
-          void beats.again(this.codeColumn)
+          fireAndForget(beats.again(this.codeColumn), 'walk: beats.again')
         }
         return
       }

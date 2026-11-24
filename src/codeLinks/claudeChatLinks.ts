@@ -1,5 +1,7 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
+import { fireAndForget } from '../platform/run'
+import { HiddenCmd } from '../platform/commands'
 
 // Links from a chat with Claude Code to code ("[names what it commits](src/check.ts#L812-L830)"): the lines they open
 // are lit the way a journey's code links are, with "← Back" above them to where the reader was.
@@ -77,10 +79,10 @@ export class ClaudeLinks implements vscode.Disposable {
         provideCodeLenses: (doc) => {
           const l = this.lit
           if (!l || l.uri !== doc.uri.toString() || l.start >= doc.lineCount) return []
-          return [new vscode.CodeLens(new vscode.Range(l.start, 0, l.start, 0), { title: this.back ? '$(arrow-left) Back' : '$(close) Clear', command: 'codeNotes.claudeLinkBack' })]
+          return [new vscode.CodeLens(new vscode.Range(l.start, 0, l.start, 0), { title: this.back ? '$(arrow-left) Back' : '$(close) Clear', command: HiddenCmd.claudeLinkBack })]
         },
       }),
-      vscode.commands.registerCommand('codeNotes.claudeLinkBack', () => this.goBack()),
+      vscode.commands.registerCommand(HiddenCmd.claudeLinkBack, () => this.goBack()),
     ]
   }
 
@@ -100,7 +102,7 @@ export class ClaudeLinks implements vscode.Disposable {
     const linkLike = this.enabled() && shape && notOurs && (oldVsCode || newVsCode)
     if (linkLike) {
       // Claude Code selects up to column 0 of the end line: the end line is the link's last line.
-      void this.light(doc.uri, s.start.line, s.end.line, true)
+      fireAndForget(this.light(doc.uri, s.start.line, s.end.line, true), 'claudeChatLinks: light')
       return
     }
     // The reader moved: out of the lit lines ends them; anywhere, it is where Back returns to next time.

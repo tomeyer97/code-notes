@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { beats, cmdLink, codeLinks, journeys, KEY, mapPanel, titledCmdLink, valueHints } from '../app'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../core/codeLinkText'
-import { setDecorations } from '../platform/decorations'
+import { setDecorations } from '../platform/editorDecorations'
 import { readLinks, readValues } from '../core/format/journeyModel'
 import { escapeTags } from '../journeys/textFormat'
 import { fileOf, LoadedJourney } from '../journeys/steps'
@@ -21,15 +21,18 @@ import { paintStepMarks, stepMarks } from './stepMarks'
 import { refFiles, StepRef, StepText, StepTextInput, staleText, stepText } from './stepText'
 import { walk } from './instances'
 import { tutorialMark } from './tutorial'
+import { fireAndForget } from '../platform/run'
+import { Cmd, HiddenCmd } from '../platform/commands'
+import { folderFileKey } from '../platform/keys'
 
 /** The tutorial's highlight: what its cards point at on the step card. */
 const TUTORIAL_HI = 'var(--vscode-editor-findMatchHighlightBackground)'
 
 /** The commands the card's links run: its Markdown may run these and no other. */
 const CARD_COMMANDS = [
-  'codeNotes.codeLink', 'codeNotes.openAt', 'codeNotes.nextStep', 'codeNotes.previousStep', 'codeNotes.endJourney',
-  'codeNotes.askStep', 'codeNotes.askStepUpdate', 'codeNotes.openNoteId', 'codeNotes.stepDetails', 'codeNotes.openStepLink',
-  'codeNotes.podcastToggle', 'codeNotes.podcastFollow',
+  HiddenCmd.codeLink, Cmd.openAt, Cmd.nextStep, Cmd.previousStep, Cmd.endJourney,
+  Cmd.askStep, HiddenCmd.askStepUpdate, HiddenCmd.openNoteId, Cmd.stepDetails, HiddenCmd.openStepLink,
+  Cmd.podcastToggle, HiddenCmd.podcastFollow,
 ]
 
 /** What the card shows of a podcast on its journey (src/podcast/player.ts): playing or paused, following the voice or
@@ -112,7 +115,7 @@ export class StepCard {
     const moved = journeys.renames(lj)
     for (const written of refFiles(lj.j.steps[n - 1])) {
       const f = moved.get(written) ?? written
-      const k = `${lj.folder.uri}|${f}`
+      const k = folderFileKey(lj.folder.uri, f)
       const lines = await linesOfUri(vscode.Uri.joinPath(lj.folder.uri, f))
       if (lines) {
         refGone.delete(k)
@@ -194,11 +197,11 @@ export class StepCard {
     const asked = askedOf(lj)[n]
     // Its code can't be found: say what happened first, and the one thing to do (ask: the note box opens
     // prefilled; once asked, the way to that note); nothing else is highlighted.
-    const askUpdate = asked?.update ? cmdLink('Asked ›', 'codeNotes.openNoteId', asked.id) : cmdLink('Ask', 'codeNotes.askStepUpdate')
+    const askUpdate = asked?.update ? cmdLink('Asked ›', HiddenCmd.openNoteId, asked.id) : cmdLink('Ask', HiddenCmd.askStepUpdate)
     const st = this.staleText(lj, n, askUpdate)
     const nav = this.navLinks(lj, n, t, asked, !!st)
     // Paused: the full card, and the way to play on.
-    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${KEY} Space)`, 'codeNotes.podcastToggle'))
+    if (nar) nav.unshift(titledCmdLink('▶ Play', `Play the narration on (${KEY} Space)`, Cmd.podcastToggle))
     // Code links: a phrase that is a link to the lines doing what it says. Placeholders here; the markup goes in
     // after escapeTags.
     const links = readLinks(step.links)
@@ -237,7 +240,7 @@ export class StepCard {
   private narratingMarkdown(nar: Narration): vscode.MarkdownString {
     valueHints.clear()
     codeLinks.clear()
-    const md = new vscode.MarkdownString(nar.following ? '' : titledCmdLink('Follow along', 'Back to what the voice is showing', 'codeNotes.podcastFollow'))
+    const md = new vscode.MarkdownString(nar.following ? '' : titledCmdLink('Follow along', 'Back to what the voice is showing', HiddenCmd.podcastFollow))
     md.isTrusted = { enabledCommands: CARD_COMMANDS }
     return md
   }
@@ -248,15 +251,15 @@ export class StepCard {
    */
   private navLinks(lj: LoadedJourney, n: number, t: StepText, asked: Asked | undefined, stale: boolean): string[] {
     // Words beside the glyphs: a bare ‹ › is too small a target.
-    const previous = n > 1 ? cmdLink('‹ Previous', 'codeNotes.previousStep') : ''
+    const previous = n > 1 ? cmdLink('‹ Previous', Cmd.previousStep) : ''
     // A check's tour: Next goes to the question placed after this step, when one is open.
     const nextLabel = lj.check && nextStop(lj)?.q ? 'Question ›' : n < lj.j.steps.length ? 'Next ›' : 'Finish'
-    const next = cmdLink(nextLabel, 'codeNotes.nextStep')
-    const questions = asked ? cmdLink(`${askedText(asked)} ›`, 'codeNotes.openNoteId', asked.id) : ''
+    const next = cmdLink(nextLabel, Cmd.nextStep)
+    const questions = asked ? cmdLink(`${askedText(asked)} ›`, HiddenCmd.openNoteId, asked.id) : ''
     // One Ask: a stale step's is the banner's, which opens the request prefilled.
-    const ask = stale ? '' : cmdLink('Ask', 'codeNotes.askStep')
+    const ask = stale ? '' : cmdLink('Ask', Cmd.askStep)
     const open = this.tour.detailsOpen
-    const more = !(t.details || t.refs) ? '' : open ? cmdLink('Less', 'codeNotes.stepDetails', false) : cmdLink('More', 'codeNotes.stepDetails', true)
+    const more = !(t.details || t.refs) ? '' : open ? cmdLink('Less', Cmd.stepDetails, false) : cmdLink('More', Cmd.stepDetails, true)
     return [previous, next, questions, ask, more].filter(Boolean)
   }
 
@@ -339,7 +342,7 @@ export class StepCard {
     const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString())
     const known = this.fnLines.get(fnKey(uri, doc, at.start))
     if (known !== undefined) return known
-    void this.findFnLine(lj, n, uri)
+    fireAndForget(this.findFnLine(lj, n, uri), 'card: findFnLine')
     return undefined
   }
 

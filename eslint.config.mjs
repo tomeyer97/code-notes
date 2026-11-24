@@ -9,6 +9,9 @@ const NODE = Object.fromEntries(['process', 'console', 'Buffer', 'URL', 'URLSear
   'AbortSignal', 'TextEncoder', 'TextDecoder', 'require', 'module', 'exports', '__dirname', '__filename', 'performance',
 ].map((g) => [g, 'readonly']))
 
+/** node:test's test(), describe() …: the runner awaits what they return. */
+const NODE_TEST = [{ from: 'package', name: ['test', 'it', 'describe', 'suite'], package: 'node:test' }]
+
 // From a remote extension host every vscode.workspace.fs call is a round trip through the window: the extension's own
 // files go through platform/workspaceFs.ts (Node's fs for file: URIs) instead.
 const WORKSPACE_FS = {
@@ -39,15 +42,25 @@ export default tseslint.config(
       'no-control-regex': 'off', // the answer linkifier marks kept spans with NUL characters on purpose
       'no-irregular-whitespace': 'off', // text.ts's right-to-left character range holds U+FEFF literally
       'no-regex-spaces': 'off', // one regex in a CLI test matches aligned output
+      // An empty catch says why it is empty (a one-line comment), or the failure goes through platform/run.ts.
+      'no-empty': ['error', { allowEmptyCatch: false }],
     },
   },
   {
     files: ['**/*.ts'],
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
     rules: {
-      // Off until the ~186 un-awaited promises are handled (each awaited, or marked `void` with a reason): the
-      // platform slice turns it on.
-      '@typescript-eslint/no-floating-promises': 'off',
+      // Every promise is awaited or handled. Tests may still start one with `void` (a command whose prompt the test
+      // then answers); node:test's test() and describe() return promises the runner awaits.
+      '@typescript-eslint/no-floating-promises': ['error', { checkThenables: true, allowForKnownSafeCalls: NODE_TEST }],
+    },
+  },
+  {
+    // The extension: no `void` either. Work nobody awaits goes through platform/run.ts's fireAndForget, which logs a
+    // failure with what was being done.
+    files: ['src/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: false, checkThenables: true, allowForKnownSafeCalls: NODE_TEST }],
     },
   },
   {

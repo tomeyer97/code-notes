@@ -2,7 +2,7 @@
 // function under the cursor, the sort and the panel home's query.
 
 import * as vscode from 'vscode'
-import { journeys, state } from '../app'
+import { journeys, stored } from '../app'
 import { blockAt } from '../core/codeBlocks'
 import { blocksOf } from '../platform/symbolBlocks'
 import { buildList, ListItem, ListKind, ListModel, Sort } from '../core/list/journeyList'
@@ -11,10 +11,9 @@ import { isNewJourney } from '../notes/seen'
 import { relPath } from '../notes/location'
 import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
+import { STATE } from '../platform/state'
 
-export const SORT_KEY = 'codeNotes.journeySort'
-
-export const listSort = (): Sort => state.get<Sort>(SORT_KEY) ?? 'area'
+export const listSort = (): Sort => stored.get(STATE.journeySort)
 
 /** The active editor's file, relative to its folder. */
 export function activeRel(): string | undefined {

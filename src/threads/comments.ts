@@ -23,6 +23,8 @@ import { tourState, walk } from '../tour/instances'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
 import { syncThread } from './sync'
 import { docLines } from '../platform/documents'
+import { Cmd, HiddenCmd } from '../platform/commands'
+import { checkLinkKey } from '../platform/keys'
 
 export function threadRange(n: Note): vscode.Range {
   return new vscode.Range(n.data.range.start - 1, 0, n.data.range.end - 1, 0)
@@ -60,7 +62,7 @@ function withStepLink(n: Note, md: string): string {
   const i = lj && sl.step ? lj.j.steps.findIndex((x) => x.id === sl.step) : -1
   const back = (title: string) => titledCmdLink(
     `↩ Step ${i >= 0 ? i + 1 : sl.n}${walking ? '' : ` · ${title}`}`, "Open this step on the journey's map",
-    'codeNotes.openStepLink', sl.id, sl.step ?? '', sl.n, n.folder.uri.toString(),
+    HiddenCmd.openStepLink, sl.id, sl.step ?? '', sl.n, n.folder.uri.toString(),
   )
   return md.replace(ABOUT_STEP_BY_NUMBER, (_m, _n: string, title: string) => back(title)).replace(ABOUT_STEP_BY_ID, (_m, title: string) => back(title))
 }
@@ -80,12 +82,12 @@ function verbatim(body: string): vscode.MarkdownString {
 
 /** A link that opens `file` at `line` of the note's folder. */
 function fileLink(n: Note, text: string, file: string, line?: string): string {
-  return cmdLink(text.replace(/[[\]]/g, '\\$&'), 'codeNotes.openAt', n.folder.uri.toString(), file, Number(line) || 1)
+  return cmdLink(text.replace(/[[\]]/g, '\\$&'), Cmd.openAt, n.folder.uri.toString(), file, Number(line) || 1)
 }
 
 /** Apply under the `k`-th suggestion of message `mi`. */
 function applyLink(n: Note, mi: number, k: number): string {
-  return titledCmdLink('Apply suggestion', `Replace ${rangeLabel(n)} with this · Ctrl+Z undoes`, 'codeNotes.applySuggestion', n.data.id, mi, k)
+  return titledCmdLink('Apply suggestion', `Replace ${rangeLabel(n)} with this · Ctrl+Z undoes`, Cmd.applySuggestion, n.data.id, mi, k)
 }
 
 /** A message's text outside code blocks with its links; its ```suggestion blocks (an agent's: `mi`) with Apply. */
@@ -115,7 +117,7 @@ function messageMarkdown(n: Note, body: string, mi?: number, index = mi): vscode
   const out = withLinksAndApply(n, body, mi)
   // Asked from a journey step: the line saying so links back to that step on the map.
   const linked = index === 0 ? withStepLink(n, out) : out
-  const key = `check|${n.data.id}|${index}`
+  const key = checkLinkKey(n.data.id, index)
   const codeLink = (i: string, phrase: string) => codeLinkMarkup(key, Number(i), clinks[Number(i)], phrase, undefined, 'show this code')
   const text = clinks.length ? escapeTags(linked).replace(PH_RE, (_m, i: string, phrase: string) => codeLink(i, phrase)) : linked
   const md = trustedMarkdown(text, MESSAGE_COMMANDS)
@@ -158,7 +160,7 @@ function wasText(n: Note): string {
 /** The banner's words: the file is gone, it is shorter than the note's lines, or the code changed. */
 function staleText(n: Note): string {
   const id = n.data.id
-  const move = cmdLink('Move', 'codeNotes.moveToSelection', id)
+  const move = cmdLink('Move', Cmd.moveToSelection, id)
   const gone = `**\`${n.data.file}\` no longer exists.**`
   if (missing.has(id) && n.data.target) return gone
   const was = wasText(n)
@@ -168,7 +170,7 @@ function staleText(n: Note): string {
   if (end !== undefined) return `**The code changed since this note** (the file has ${end} lines now).\n\n${move}`
   // One wording; the branch only as a fact. Two buttons, one wording: Keep here · Move.
   const branch = otherBranch(n)
-  return `**The code changed since this note**${branch ? ` (written on \`${branch}\`)` : ''}.${wasPart}\n\n${cmdLink('Keep here', 'codeNotes.acceptCode', id)} · ${move}`
+  return `**The code changed since this note**${branch ? ` (written on \`${branch}\`)` : ''}.${wasPart}\n\n${cmdLink('Keep here', Cmd.acceptCode, id)} · ${move}`
 }
 
 function staleBanner(n: Note): vscode.Comment[] {
@@ -225,8 +227,8 @@ function messageRow(n: Note, i: number, thread: vscode.CommentThread, skewed: bo
   const t = m.at ? Date.parse(m.at) : NaN
   const md = messageMarkdown(n, m.body, isAgent(m) ? i : undefined, i)
   if (next) {
-    md.appendMarkdown(`\n\n${cmdLink('Next question ›', 'codeNotes.nextCheckQuestion')}`)
-    alsoAllow(md, 'codeNotes.nextCheckQuestion')
+    md.appendMarkdown(`\n\n${cmdLink('Next question ›', HiddenCmd.nextCheckQuestion)}`)
+    alsoAllow(md, HiddenCmd.nextCheckQuestion)
   }
   const isNew = i >= seenCount(n) && !mine(m)
   return {
@@ -255,10 +257,10 @@ function messageComments(n: Note, thread: vscode.CommentThread): vscode.Comment[
     if (!Number.isNaN(t)) out.push(...eventRows(events, t))
     if (i >= hideFrom && i < hideTo) {
       const label = `Show ${plural(hideTo - hideFrom, 'earlier reply', 'earlier replies')}`
-      if (i === hideFrom) out.push(toggleRow(n, label, 'codeNotes.expandThread'))
+      if (i === hideFrom) out.push(toggleRow(n, label, Cmd.expandThread))
       return
     }
-    if (i === 1 && expanded.has(n.data.id) && total > COLLAPSE_OVER) out.push(toggleRow(n, 'Show fewer', 'codeNotes.collapseThread'))
+    if (i === 1 && expanded.has(n.data.id) && total > COLLAPSE_OVER) out.push(toggleRow(n, 'Show fewer', Cmd.collapseThread))
     // A clock that is off (future, or before the message above): no misleading "now", the stored date instead.
     const skewed = !Number.isNaN(t) && (t > Date.now() + SKEW_MS || t < prevAt - SKEW_MS)
     if (!Number.isNaN(t) && !skewed) prevAt = Math.max(prevAt, t)
@@ -273,7 +275,7 @@ function askingRow(id: string, a: NonNullable<ReturnType<typeof asking.get>>): v
   const secs = Math.round((Date.now() - a.started) / 1000)
   const activity = a.activity ? `${a.text ? '\n\n' : ''}_${a.activity}_` : ''
   const thinking = !a.text && !a.activity ? '_Thinking…_' : ''
-  const text = `${a.text || ''}${activity}${thinking}\n\n${cmdLink('Cancel', 'codeNotes.cancelClaude', id)}`
+  const text = `${a.text || ''}${activity}${thinking}\n\n${cmdLink('Cancel', Cmd.cancelClaude, id)}`
   return systemRow(systemMarkdown(text), 'Claude', secs > 2 ? `answering… ${secs}s` : 'answering…')
 }
 
@@ -295,12 +297,12 @@ function statusRows(n: Note): vscode.Comment[] {
     if (also) out.push(systemRow(systemMarkdown(also), 'See also'))
   }
   if (chk?.error) {
-    const text = `⚠ ${chk.error} ${cmdLink('Try again', 'codeNotes.gradeCheck', id)}`
+    const text = `⚠ ${chk.error} ${cmdLink('Try again', Cmd.gradeCheck, id)}`
     out.push(systemRow(systemMarkdown(text), 'Code Notes'))
   }
   const err = askErrors.get(id)
   if (err) {
-    const actions = `${cmdLink('Try again', 'codeNotes.askClaude', id)} · ${cmdLink('Dismiss', 'codeNotes.cancelClaude', id)}`
+    const actions = `${cmdLink('Try again', Cmd.askClaude, id)} · ${cmdLink('Dismiss', Cmd.cancelClaude, id)}`
     out.push(systemRow(systemMarkdown(`⚠ Claude couldn't answer: ${err}\n\n${actions}`), 'Code Notes'))
   }
   return out
@@ -311,7 +313,7 @@ type Concern = NonNullable<ThreadStatus['concern']>
 /** A concern the grader found: Suggest a fix, Add TODO, Flag for reviewer; quiet: Mark fixed once it is flagged (it
  *  leaves the merge request), Dismiss with a reason when it is wrong. */
 function concernRow(id: string, c: Concern): vscode.Comment {
-  const act = (label: string, action: string) => cmdLink(label, 'codeNotes.checkConcern', id, action)
+  const act = (label: string, action: string) => cmdLink(label, Cmd.checkConcern, id, action)
   const acts = [
     act('Suggest a fix', 'fix'),
     c.todo ? `TODO added at ${c.todo}` : act('Add TODO', 'todo'),

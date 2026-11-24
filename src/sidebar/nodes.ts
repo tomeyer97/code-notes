@@ -8,6 +8,7 @@ import { LoadedJourney } from '../journeys/steps'
 import { Severity } from '../core/format/noteModel'
 import { Note } from '../notes/store'
 import { matchesFilter } from './notesFilter'
+import { sessionFileKey } from '../platform/keys'
 
 export type Node =
   | { kind: 'session'; name: string; notes: Note[] }
@@ -40,7 +41,7 @@ export const sessionNode = (name: string, list?: Note[]) =>
 
 /** The notes of one file (or folder) under a session (`session`) or at the top. */
 export function fileNode(n: Note, session: string | undefined, list: Note[]): Node & { kind: 'file' } {
-  const key = `${session ?? ''}|${n.folder.uri}|${n.data.file}`
+  const key = sessionFileKey(session, n.folder.uri, n.data.file)
   return cached(`file:${key}`, {
     kind: 'file', key, folder: n.folder, file: n.data.file, notes: list,
     ...(session !== undefined ? { session } : {}),

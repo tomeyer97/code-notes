@@ -9,14 +9,15 @@ import { CodeLinks } from './codeLinks/codeLinks'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
 import { Store } from './notes/store'
+import { StateStore } from './platform/state'
+import { SYSTEM_COMMANDS } from './platform/commands'
 import { TourItems } from './tour/walk'
 import { TutorialSpot } from './tour/tutorialSpot'
 import { ValueHints } from './codeLinks/valueHints'
 
-/** The notes, and the stored state of this workspace (`state`) and of every workspace (`gstate`). */
+/** The notes, and the stored state (this workspace's and every workspace's: platform/state.ts's keys). */
 export let store: Store
-export let state: vscode.Memento
-export let gstate: vscode.Memento
+export let stored: StateStore
 export let log: vscode.LogOutputChannel
 /** The notes' comment threads. */
 export let controller: vscode.CommentController
@@ -40,8 +41,7 @@ export let tourItems: TourItems
  */
 interface Services {
   store: Store
-  state: vscode.Memento
-  gstate: vscode.Memento
+  stored: StateStore
   log: vscode.LogOutputChannel
   controller: vscode.CommentController
   extUri: vscode.Uri
@@ -60,8 +60,7 @@ interface Services {
 /** Hands over services as activate (extension.ts) makes them: the only place they are set. */
 export function provide(s: Partial<Services>): void {
   if (s.store) store = s.store
-  if (s.state) state = s.state
-  if (s.gstate) gstate = s.gstate
+  if (s.stored) stored = s.stored
   if (s.log) log = s.log
   if (s.controller) controller = s.controller
   if (s.extUri) extUri = s.extUri
@@ -82,7 +81,6 @@ export function provide(s: Partial<Services>): void {
  * Ctrl+<) run the same commands; hints show the one last used, Ctrl+' until then (it exists on every layout).
  */
 export let KEY = "Ctrl+'"
-export const PREFIX_KEY = 'codeNotes.chordPrefix'
 export function setKey(k: string): void { KEY = k }
 
 export const cfg = () => vscode.workspace.getConfiguration('codeNotes')
@@ -102,27 +100,14 @@ export const byId = (id: string) => store.get(id)
 /** The first workspace folder. */
 export const firstFolder = () => vscode.workspace.workspaceFolders![0]
 
-/** an error the person is shown also goes to the Output channel as [error]. */
-export function showError(text: string, ...items: string[]): Thenable<string | undefined> {
-  if (log) log.error(text.replace(/^Code Notes: /, ''))
-  return vscode.window.showWarningMessage(text, ...items)
-}
+/** An error the person is shown (as an error, after `Code Notes: `), also in the Output channel: platform/run.ts. */
+export { showError } from './platform/run'
 
-/**
- * The commands Markdown may run, by who wrote it. Rows the extension writes in a thread (Claude answering, a failure,
- * the check's grading):
- */
-export const SYSTEM_COMMANDS = [
-  'codeNotes.askClaude', 'codeNotes.cancelClaude', 'codeNotes.expandThread', 'codeNotes.openAt', 'codeNotes.gradeCheck',
-  'codeNotes.checkConcern', 'codeNotes.openStepLink',
-]
-/** A note's messages (anyone's words): links to code and steps, Apply on a suggestion, show the whole thread. */
-export const MESSAGE_COMMANDS = ['codeNotes.openAt', 'codeNotes.expandThread', 'codeNotes.applySuggestion', 'codeNotes.openStepLink', 'codeNotes.codeLink']
-/** A stale note's banner: Keep here, Move. */
-export const BANNER_COMMANDS = ['codeNotes.acceptCode', 'codeNotes.moveToSelection']
+/** The commands Markdown may run, and command links: platform/commands.ts. */
+export { BANNER_COMMANDS, cmdLink, commandUri, MESSAGE_COMMANDS, SYSTEM_COMMANDS, titledCmdLink } from './platform/commands'
 
 /** Markdown allowed to run `commands`. */
-export function trustedMarkdown(text: string, commands: string[]): vscode.MarkdownString {
+export function trustedMarkdown(text: string, commands: readonly string[]): vscode.MarkdownString {
   const md = new vscode.MarkdownString(text)
   md.isTrusted = { enabledCommands: [...commands] }
   return md
@@ -135,14 +120,3 @@ export const systemMarkdown = (text: string) => trustedMarkdown(text, SYSTEM_COM
 export function alsoAllow(md: vscode.MarkdownString, command: string): void {
   md.isTrusted = { enabledCommands: [...(typeof md.isTrusted === 'object' ? md.isTrusted.enabledCommands : []), command] }
 }
-
-/** A command: link target, its arguments in the query. */
-export const commandUri = (command: string, ...args: unknown[]) =>
-  `command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''}`
-
-/** A Markdown link that runs `command` with `args`. */
-export const cmdLink = (label: string, command: string, ...args: unknown[]) => `[${label}](${commandUri(command, ...args)})`
-
-/** The same with a tooltip (`title`). */
-export const titledCmdLink = (label: string, title: string, command: string, ...args: unknown[]) =>
-  `[${label}](${commandUri(command, ...args)} "${title}")`

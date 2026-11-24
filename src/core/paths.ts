@@ -38,3 +38,11 @@ export function pathIn(folder: { path: string }, uri: { path: string }): string 
   const base = dirPath(folder)
   return uri.path.startsWith(base) ? uri.path.slice(base.length) : undefined
 }
+
+/** A glob of `rel` and each folder above it (`a/b` → `{a,a/b}`, `a` → `a`); undefined for none (`''`, `/`). */
+export function parentDirsGlob(rel: string): string | undefined {
+  const parts = rel.split('/').filter(Boolean)
+  const dirs = parts.map((_, i) => parts.slice(0, i + 1).join('/'))
+  if (!dirs.length) return undefined
+  return dirs.length > 1 ? `{${dirs.join(',')}}` : dirs[0]
+}

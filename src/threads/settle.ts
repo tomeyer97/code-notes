@@ -1,6 +1,8 @@
 // When comment threads may be made and changed: too soon, and VS Code loops (see SETTLE_MS).
 
 import * as vscode from 'vscode'
+import { Debouncer } from '../platform/debounce'
+import { THREAD_SETTLE_MS } from '../platform/timings'
 
 /**
  * A new comment thread's first state reaches the workbench ~100 ms after it was made (the extension host debounces
@@ -10,7 +12,7 @@ import * as vscode from 'vscode'
  * collapsed). So a thread gets all its properties in the tick it is made, then nothing for SETTLE_MS; and a property is
  * only ever set when its value changes (setting an equal one still counts as a change and restarts the wait).
  */
-const SETTLE_MS = 160
+const SETTLE_MS = THREAD_SETTLE_MS
 
 const bornAt = new WeakMap<vscode.CommentThread, number>()
 
@@ -49,13 +51,8 @@ export function settling(t: vscode.CommentThread): number {
 }
 
 /** Calls waiting for a thread or an editor to settle, by key: the last call per key wins. */
-const settleLater = new Map<string, NodeJS.Timeout>()
-
-/** `fn` runs in `ms` (this key's earlier call, if still waiting, is dropped). */
-function later(key: string, ms: number, fn: () => void): void {
-  clearTimeout(settleLater.get(key))
-  settleLater.set(key, setTimeout(() => { settleLater.delete(key); fn() }, ms))
-}
+const settleLater = new Debouncer('threads: after settling')
+const later = (key: string, ms: number, fn: () => void) => settleLater.later(key, ms, fn)
 
 /** While the file's editor is settling (editorSettling), `fn` runs once it has: true. Settled: false, nothing runs. */
 export function afterEditorSettles(uri: vscode.Uri, key: string, fn: () => void): boolean {
@@ -67,8 +64,7 @@ export function afterEditorSettles(uri: vscode.Uri, key: string, fn: () => void)
 /** Runs `fn` now, or once the thread has settled (the last call per key wins). */
 export function whenSettled(t: vscode.CommentThread, key: string, fn: () => void): void {
   const wait = settling(t)
-  clearTimeout(settleLater.get(key))
-  settleLater.delete(key)
+  settleLater.cancel(key)
   if (wait) later(key, wait, fn)
   else fn()
 }
