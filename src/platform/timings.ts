@@ -20,5 +20,5 @@ export const THREAD_SETTLE_MS = 160
 export const REFIND_LINES_MS = 150
 /** Every step of every journey in the edited file: the anchor search per step (journeys/tracker.ts). */
 export const REFIND_STEPS_MS = 250
-/** Notes: re-anchored (moved code, stale) and saved when the file is not dirty, so later (watch.ts). */
+/** Notes: re-anchored (moved code, stale) and saved when the file is not dirty, so later (notes/followEdits.ts). */
 export const REANCHOR_NOTES_MS = 400

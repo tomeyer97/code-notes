@@ -18,3 +18,22 @@ export async function fileLines(uri: vscode.Uri): Promise<string[] | undefined> 
 export async function diskLines(uri: vscode.Uri): Promise<string[] | undefined> {
   try { return new TextDecoder().decode(await wfs.readFile(uri)).split(/\r?\n/) } catch { return undefined }
 }
+
+/** The open document of `uri`, if any (VS Code keeps closed or deleted files' documents around too). */
+export function openDoc(uri: vscode.Uri): vscode.TextDocument | undefined {
+  return vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString())
+}
+
+/** A file's lines: an editor's with unsaved changes (they are the truth), else the disk's (a closed or deleted file's
+ *  document may still be around: not used). */
+export async function linesOfUri(uri: vscode.Uri): Promise<string[] | undefined> {
+  const open = openDoc(uri)
+  if (open && !open.isClosed && open.isDirty) return docLines(open)
+  return diskLines(uri)
+}
+
+/** `uri`'s path relative to workspace folder `folder` (outside it: as VS Code shows it). */
+export function relPath(folder: vscode.WorkspaceFolder, uri: vscode.Uri): string {
+  const base = folder.uri.path.endsWith('/') ? folder.uri.path : folder.uri.path + '/'
+  return uri.path.startsWith(base) ? uri.path.slice(base.length) : vscode.workspace.asRelativePath(uri, false)
+}

@@ -1,6 +1,5 @@
 # Imports from src/tour/ that break the layer rule today; remove a line when you fix it.
 src/tour/askStep.ts -> src/app.ts
-src/tour/askStep.ts -> src/refresh.ts
 src/tour/card.ts -> src/app.ts
 src/tour/card.ts -> src/sidebar/journeyRows.ts
 src/tour/checkTour.ts -> src/app.ts
@@ -22,7 +21,6 @@ src/tour/provenance.ts -> src/sidebar/listModel.ts
 src/tour/refs.ts -> src/app.ts
 src/tour/stepMarks.ts -> src/app.ts
 src/tour/stepNotes.ts -> src/app.ts
-src/tour/stepNotes.ts -> src/sidebar/journeyRows.ts
 src/tour/tutorial.ts -> src/app.ts
 src/tour/walk.ts -> src/app.ts
 src/tour/walk.ts -> src/sidebar/journeyRows.ts

@@ -83,16 +83,10 @@ export function provide(s: Partial<Services>): void {
 export let KEY = "Ctrl+'"
 export function setKey(k: string): void { KEY = k }
 
-export const cfg = () => vscode.workspace.getConfiguration('codeNotes')
+/** The settings: platform/settings.ts; context keys: platform/context.ts. */
+export { cfg } from './platform/settings'
+export { setCtx } from './platform/context'
 export const now = () => new Date().toISOString()
-
-/** Context keys as last sent: the same value again is not sent (each is a message to the window; some follow the caret). */
-const ctxSent = new Map<string, unknown>()
-export const setCtx = (k: string, v: unknown): Thenable<unknown> => {
-  if (ctxSent.has(k) && ctxSent.get(k) === v) return Promise.resolve(undefined)
-  ctxSent.set(k, v)
-  return vscode.commands.executeCommand('setContext', k, v)
-}
 
 /** The notes shown: all, except check threads of another branch's check (their lines belong to that branch). */
 export const notes = () => store.all().filter((n) => !understanding?.offBranch(n))

@@ -5,7 +5,7 @@ import { escapeHtml, webviewPage } from '../webview/page'
 import { fileName } from '../platform/jsonFolder'
 import { LoadedJourney } from './steps'
 import { journeysFolderName } from './journeys'
-import { folderName } from '../notes/store'
+import { folderName } from '../notes/notesFolder'
 import { fireAndForget } from '../platform/run'
 import { STATE, StateStore } from '../platform/state'
 

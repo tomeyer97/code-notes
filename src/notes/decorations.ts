@@ -5,7 +5,8 @@ import * as vscode from 'vscode'
 import { cfg } from '../app'
 import { setDecorations } from '../platform/editorDecorations'
 import { unread } from './seen'
-import { hiddenInEditor } from '../sidebar/notesFilter'
+import { hiddenInEditor, NotesApi } from './model'
+import { WorkspaceEvents } from '../platform/events'
 import { Note } from './store'
 import { card } from '../tour/instances'
 import { lineNotesFor } from './location'
@@ -69,4 +70,9 @@ export function refreshDecorations(): void {
     setDecorations(editor, deco.exact, list.map((n) => exactRange(editor.document, n)).filter((r): r is vscode.Range => !!r))
   }
   card.refreshDecorations()
+}
+
+/** The marks follow the notes (an edit being typed too) and the editors on screen. */
+export function followNotes(model: NotesApi, events: WorkspaceEvents): vscode.Disposable {
+  return vscode.Disposable.from(model.onDidChange(() => refreshDecorations()), events.onDidChangeVisibleEditors(() => refreshDecorations()))
 }

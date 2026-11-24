@@ -1,6 +1,3 @@
 # Imports from src/threads/ that break the layer rule today; remove a line when you fix it.
 src/threads/comments.ts -> src/app.ts
-src/threads/comments.ts -> src/sidebar/journeyRows.ts
 src/threads/sync.ts -> src/app.ts
-src/threads/sync.ts -> src/sidebar/journeyRows.ts
-src/threads/sync.ts -> src/sidebar/notesFilter.ts

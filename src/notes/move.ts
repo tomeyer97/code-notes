@@ -2,11 +2,13 @@
 
 import * as vscode from 'vscode'
 import { byId, setCtx, store } from '../app'
-import { refreshAll } from '../refresh'
 import { Note } from './store'
 import { noteTitle, rangeLabel } from '../core/text'
-import { anchorAt, docUri, markPlaced, missing, pastEnd, reanchorAll, relPath, saveIfClean, selectedLines, toLoc, withinLines } from './location'
-import { docLines } from '../platform/documents'
+import { anchorAt, docUri, markPlaced, placement, saveIfClean, selectedLines } from './location'
+import { reanchorAll } from './reanchor'
+import { locOf, range1Of, withinLines } from './model/lines'
+import { notesChanged, notesModel } from './model'
+import { docLines, relPath } from '../platform/documents'
 import { partialSelection } from './create'
 import { offerUndo, snapshot } from './undo'
 import { notesFrom } from './which'
@@ -47,7 +49,7 @@ export async function completeMove(): Promise<void> {
   const loc = selectedLines(editor)
   n.folder = folder
   n.data.file = relPath(folder, editor.document.uri)
-  n.data.range = { start: loc.start + 1, end: loc.end + 1 }
+  n.data.range = range1Of(loc)
   // The new code, its branch, and the exact text if only part of a line is selected.
   n.data.anchor = await anchorAt(docLines(editor.document), loc.start, loc.end, folder)
   const sel = partialSelection(editor.document, editor.selection)
@@ -55,8 +57,13 @@ export async function completeMove(): Promise<void> {
   markPlaced(n)
   cancelMove()
   await store.save(n)
-  refreshAll()
-  offerUndo(`Note moved to ${n.data.file} ${rangeLabel(n)}`, async () => { n.data = before; await store.save(n); await reanchorAll(); refreshAll() })
+  notesChanged({ kind: 'placed', ids: [n.data.id] })
+  offerUndo(`Note moved to ${n.data.file} ${rangeLabel(n)}`, () => notesModel().batch(async () => {
+    n.data = before
+    await store.save(n)
+    await reanchorAll()
+    notesChanged({ kind: 'placed', ids: [n.data.id] })
+  }))
 }
 
 /** The status bar item of a move in progress (click: Move Here). */
@@ -69,17 +76,17 @@ export function createMoveItem(): void {
 /** codeNotes.acceptCode ("Keep here" on a stale note): the note takes the code at its lines now as its anchor. */
 export const acceptCode = async (arg?: any) => {
   const [n] = notesFrom(arg)
-  if (!n || missing.has(n.data.id)) return
+  if (!n || placement.missing(n.data.id)) return
   const doc = await vscode.workspace.openTextDocument(docUri(n))
-  const { start, end } = withinLines(toLoc(n.data), doc.lineCount)
+  const { start, end } = withinLines(locOf(n.data.range), doc.lineCount)
   // Kept here on this branch; an exact text that is gone is dropped.
   n.data.anchor = await anchorAt(docLines(doc), start, end, n.folder)
   if (n.data.selection && !n.data.anchor.text.includes(n.data.selection.text)) delete n.data.selection
   // Not missing: checked above.
   n.data.stale = false
-  pastEnd.delete(n.data.id)
+  placement.found(n.data.id)
   await saveIfClean(n)
-  refreshAll()
+  notesChanged({ kind: 'placed', ids: [n.data.id] })
 }
 
 export const moveToSelection = (arg?: any) => {

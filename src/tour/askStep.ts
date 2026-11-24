@@ -7,7 +7,6 @@ import { askAlways, claudeCli, claudeMode } from '../ask/settings'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { createNote } from '../notes/create'
 import { reveal } from '../notes/reveal'
-import { refreshAll } from '../refresh'
 import { Note } from '../notes/store'
 import { card, tourState, walk } from './instances'
 import { podcasts } from '../podcast/player'
@@ -68,7 +67,6 @@ async function noteOnStep(lj: LoadedJourney, n: number, text: string): Promise<N
     note.data.anchor = { ...note.data.anchor, ...was }
     note.data.stale = true
     await store.save(note)
-    refreshAll()
   }
   if (note && askAlways()) await askClaude(note)
   return note

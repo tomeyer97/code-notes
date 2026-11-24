@@ -2,18 +2,20 @@
 // journey's row and its questions' are in journeyRows.ts.
 
 import * as vscode from 'vscode'
-import { notes, store } from '../app'
+import { journeys, notes, store } from '../app'
 import { askErrors, asking } from '../ask/run'
 import { mine } from '../notes/identity'
 import { unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { ago, isolate, plain, plural, rangeLabel } from '../core/text'
-import { missing } from '../notes/location'
+import { placement } from '../notes/location'
 import { tourState, walk } from '../tour/instances'
-import { badJourneyItem, journeyItem, journeyOfNote, questionsItem, showIntro, stepLinkOf } from './journeyRows'
+import { badJourneyItem, journeyItem, questionsItem, showIntro } from './journeyRows'
+import { journeyOfNote, stepLinkOf } from '../notes/model/journeyLink'
 import { listState } from './listModel'
-import { lastMessage, Node, sessionOf, SEV_ICON } from './nodes'
-import { hiddenSessions, ownRow } from './notesFilter'
+import { Node, SEV_ICON } from './nodes'
+import { ownRow } from './notesFilter'
+import { hiddenSessions, lastMessage, sessionOf } from '../notes/model'
 import { baseName } from '../core/paths'
 import { Cmd } from '../platform/commands'
 
@@ -99,9 +101,9 @@ function sessionItem(node: Extract<Node, { kind: 'session' }>): vscode.TreeItem 
 
 /** A note file that can't be used. */
 function brokenItem(node: Extract<Node, { kind: 'broken' }>): vscode.TreeItem {
-  const known = store.notes.get(node.uri)
+  const known = store.atUri(node.uri)
   const name = baseName(vscode.Uri.parse(node.uri).path)
-  const title = store.brokenTitle.get(node.uri) ?? known?.data.messages[0]?.body
+  const title = store.brokenAt(node.uri)?.title ?? known?.data.messages[0]?.body
   const item = new vscode.TreeItem(title ? plain(title, 50) : name)
   item.id = `broken:${node.uri}`
   item.description = `⚠ ${node.why}`
@@ -143,7 +145,7 @@ interface NoteFlags {
 function noteItem(node: Extract<Node, { kind: 'note' }>): vscode.TreeItem {
   const n = node.note
   const d = n.data
-  const flags: NoteFlags = { unread: unread(n), gone: missing.has(d.id) }
+  const flags: NoteFlags = { unread: unread(n), gone: placement.missing(d.id) }
   const item = new vscode.TreeItem({ label: noteLabel(n, flags) })
   item.id = `note:${d.id}`
   item.description = noteDescription(n, flags)
@@ -159,7 +161,7 @@ function noteItem(node: Extract<Node, { kind: 'note' }>): vscode.TreeItem {
 function noteLabel(n: Note, f: NoteFlags): string {
   const link = stepLinkOf(n)
   const stale = f.unread && n.data.stale ? '⚠ ' : ''
-  const step = link && journeyOfNote(n) ? `Step ${link.n} · ` : ''
+  const step = link && journeyOfNote(n, journeys.list.values()) ? `Step ${link.n} · ` : ''
   return `${stale}${step}${isolate(plain(n.data.messages[0]?.body ?? '(empty note)', 60))}`
 }
 

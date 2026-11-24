@@ -2,10 +2,10 @@
 
 import * as vscode from 'vscode'
 import { cfg, journeys, notes, showError, store, stored } from '../app'
-import { refreshAll } from '../refresh'
-import { treeView } from '../sidebar/notesTree'
+import { notesChanged } from './model'
+import { me } from './identity'
 import { folderProblem } from '../core/format/noteModel'
-import { DEFAULT_FOLDER, folderName } from './store'
+import { DEFAULT_FOLDER, folderName, writeGitignore, writeReadme } from './notesFolder'
 import { plural } from '../core/text'
 import { wfs } from '../platform/workspaceFs'
 import { fireAndForget } from '../platform/run'
@@ -27,7 +27,7 @@ export async function changeFolder(): Promise<void> {
   await store.load()
   await journeys.load()
   await rewriteReadmes()
-  if (!notes().length) treeView.message = `Reading notes from ${to}/`
+  if (!notes().length) notesChanged({ kind: 'view', notice: `Reading notes from ${to}/` })
 }
 
 /** The note files of workspace folder `f` in its notes folder `dir` (none: not there). */
@@ -46,7 +46,7 @@ async function offerMove(f: vscode.WorkspaceFolder, from: string, to: string): P
   const pick = await vscode.window.showWarningMessage(`Move ${plural(files.length, 'note')} from ${from}/ to ${to}/?`, { modal: true, detail }, 'Move Notes')
   if (pick !== 'Move Notes') return
   await moveNotesFolder(f, files, from, to)
-  await store.writeGitignore(f)
+  await writeGitignore(f)
   vscode.window.setStatusBarMessage(`$(check) Moved ${files.length} notes to ${to}/`, 4000)
 }
 
@@ -70,7 +70,7 @@ async function moveNotesFolder(f: vscode.WorkspaceFolder, files: string[], from:
 
 /** Each workspace folder with notes gets its notes folder's README (for agents) written again. */
 export async function rewriteReadmes(): Promise<void> {
-  for (const f of vscode.workspace.workspaceFolders ?? []) if (notes().some((n) => n.folder === f)) await store.writeReadme(f)
+  for (const f of vscode.workspace.workspaceFolders ?? []) if (notes().some((n) => n.folder === f)) await writeReadme(f, me())
 }
 
 /** The "keep notes out of git" setting changed: add or remove the notes folder's .gitignore now. */
@@ -78,7 +78,7 @@ export async function applyIgnoreInGit(): Promise<void> {
   const on = cfg().get<boolean>('ignoreInGit', true)
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     try { await wfs.stat(vscode.Uri.joinPath(f.uri, folderName())) } catch { continue }
-    await store.writeGitignore(f) // shared through git: still not the trash
+    await writeGitignore(f) // shared through git: still not the trash
   }
   // Said once (no lasting status-bar item); after that it is in the notes item's tooltip.
   const said = STATE_FAMILIES.gitSaid(on)
@@ -86,5 +86,5 @@ export async function applyIgnoreInGit(): Promise<void> {
     await stored.set(said, true)
     vscode.window.setStatusBarMessage(on ? `$(eye-closed) Notes in ${folderName()}/ are kept out of git` : `$(git-commit) Notes in ${folderName()}/ can now be committed`, 4000)
   }
-  refreshAll()
+  notesChanged({ kind: 'settings' })
 }

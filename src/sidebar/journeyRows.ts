@@ -15,8 +15,9 @@ import { tourState, walk } from '../tour/instances'
 import { refreshing } from '../write/refreshJourney'
 import { journeysTree, journeysView } from './journeysTree'
 import { activeRel, listModel, listState, staleCount, staleLine } from './listModel'
-import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode, order } from './nodes'
-import { matchesFilter } from './notesFilter'
+import { badJourneyNodes, cached, jgroupNode, journeyNode, journeyRowNode, Node, noteNode } from './nodes'
+import { matchesFilter, order } from '../notes/model'
+import { journeyOfNote as journeyOf, stepLinkOf } from '../notes/model/journeyLink'
 import { fileName } from '../platform/jsonFolder'
 import { podcasts } from '../podcast/player'
 import { clock } from '../core/format/podcast/model'
@@ -28,17 +29,8 @@ export const journeyRows = (): Node[] => [...journeys.all().map(journeyNode), ..
 
 export const showIntro = () => !stored.get(STATE.journeyOpened)
 
-/** The step a note was asked from: `extra.journey` = { id, step, n }. */
-export function stepLinkOf(n: Note): { id: string; step?: string; n: number } | undefined {
-  const v = n.data.extra?.journey as any
-  return v && typeof v.id === 'string' && Number.isInteger(v.n) ? v : undefined
-}
-
-export function journeyOfNote(n: Note): LoadedJourney | undefined {
-  const l = stepLinkOf(n)
-  if (!l) return undefined
-  return [...journeys.list.values()].find((x) => x.j.id === l.id && x.folder.uri.toString() === n.folder.uri.toString())
-}
+/** The journey a note was asked from (notes/model/journeyLink.ts), among the journeys read. */
+export const journeyOfNote = (n: Note): LoadedJourney | undefined => journeyOf(n, journeys.list.values())
 
 /**
  * Step n -> its questions: the note to open (the first unread, else the newest), whether any was answered

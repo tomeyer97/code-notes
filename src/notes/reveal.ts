@@ -5,19 +5,17 @@ import * as vscode from 'vscode'
 import { byId, log, mapPanel, showError } from '../app'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { markRead, visitFrom } from './seen'
-import { journeyOfNote } from '../sidebar/journeyRows'
-import { Node, noteNode } from '../sidebar/nodes'
-import { matchesFilter } from '../sidebar/notesFilter'
-import { tree, treeView } from '../sidebar/notesTree'
+import { notesModel, selection } from './model'
 import { Note } from './store'
 import { threadRange } from '../threads/comments'
 import { editorSettling, editorShownAt, setCollapse, settling } from '../threads/settle'
-import { expandWhenMade, revealed, syncThread, threads } from '../threads/sync'
+import { expandWhenMade, syncThread, threads } from '../threads/sync'
 import { openRef } from '../tour/refs'
 import { walk } from '../tour/instances'
 import { wfs } from '../platform/workspaceFs'
 import { rangesAskedAt, waitUntil } from './commentRanges'
-import { clampLines, docUri, missing, notesFor } from './location'
+import { docUri, notesFor, placement } from './location'
+import { clampLines } from './model/lines'
 import { startMove } from './move'
 import { orphanPage } from './pages'
 import { resolve } from './status'
@@ -25,17 +23,17 @@ import { notesFrom } from './which'
 import { fireAndForget } from '../platform/run'
 
 export async function reveal(n: Note, column?: vscode.ViewColumn, preserveFocus = false): Promise<void> {
-  if (missing.has(n.data.id)) return revealGone(n)
-  const prev = revealed.id
-  revealed.id = n.data.id
+  if (placement.missing(n.data.id)) return revealGone(n)
+  const prev = selection().revealed
+  selection().revealed = n.data.id
   for (const id of [...visitFrom.keys()]) if (id !== n.data.id) visitFrom.delete(id)
   if (prev && prev !== n.data.id) { const p = byId(prev); if (p) syncThread(p) }
   const col = column ?? targetColumn(n)
   const r = threadRange(n)
   ownSelection()
   // The caret goes with the show: one call into the window.
-  const selection = new vscode.Selection(r.start, r.start)
-  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, selection, ...(col ? { viewColumn: col } : {}) })
+  const caret = new vscode.Selection(r.start, r.start)
+  const editor = await vscode.window.showTextDocument(docUri(n), { preview: true, preserveFocus, selection: caret, ...(col ? { viewColumn: col } : {}) })
   revealLines(editor, r)
   // Its thread not made yet (its editor is still opening: made once it has settled): it is made expanded.
   if (!threads.has(n.data.id)) expandWhenMade.add(n.data.id)
@@ -123,12 +121,8 @@ export async function focusReply(n: Note): Promise<boolean> {
   return vscode.commands.executeCommand('workbench.action.focusCommentOnCurrentLine').then(() => true, () => false)
 }
 
-/** Selects the note's row in the sidebar, when the sidebar is open. */
-function revealInList(n: Note): void {
-  // A step's question is listed under its journey in the Journeys view, not in this one.
-  if (!treeView.visible || !matchesFilter(n) || journeyOfNote(n)) return
-  tree.revealRow(noteNode(n))
-}
+/** Selects the note's row in the lists that show it. */
+const revealInList = (n: Note) => notesModel().revealed(n)
 
 /** codeNotes.openAt (a link in a thread): the file at a line; a step's reference while its journey is walked. */
 export const openAt = async (folderUri: string, file: string, line: number, end?: number, step?: number) => {
@@ -143,7 +137,7 @@ export const openAt = async (folderUri: string, file: string, line: number, end?
 }
 
 /** codeNotes.reveal: a row's note, or the one at the cursor. */
-export const revealCommand = (node?: Node) => {
+export const revealCommand = (node?: unknown) => {
   const [n] = notesFrom(node)
   if (n) return reveal(n)
 }

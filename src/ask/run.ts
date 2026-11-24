@@ -4,15 +4,15 @@
 import * as vscode from 'vscode'
 import { byId, cfg, firstFolder, log, now, store, stored, understanding } from '../app'
 import { Ask, AskResult, modelProblem } from '../platform/agent/claude'
-import { shape, shapeOf } from '../notes/changedOnDisk'
 import { createNote } from '../notes/create'
-import { docUri, linesOfUri } from '../notes/location'
+import { docUri } from '../notes/location'
+import { linesOfUri } from '../platform/documents'
 import { reveal } from '../notes/reveal'
-import { refreshAll } from '../refresh'
+import { NotesApi, notesChanged, selection, whileTyping } from '../notes/model'
 import { markRead } from '../notes/seen'
 import { Note } from '../notes/store'
 import { plural } from '../core/text'
-import { revealed, syncThread } from '../threads/sync'
+import { syncThread } from '../threads/sync'
 import { walk } from '../tour/instances'
 import { checkHint, claudePrompt, stepAskHint } from './prompts'
 import { claudeCli } from './settings'
@@ -56,7 +56,7 @@ export async function askClaude(n: Note, text?: string): Promise<void> {
   if (asking.size >= MAX_ASKS) {
     askQueue.push(n.data.id)
     asking.set(n.data.id, { text: '', activity: 'Queued…', started: Date.now() })
-    refreshAll()
+    notesChanged({ kind: 'activity', ids: [n.data.id] })
     return
   }
   await runAsk(n.data.id)
@@ -84,7 +84,7 @@ function cantRun(id: string, error: string, logLine: string): void {
   askErrors.set(id, error)
   log.error(`note ${id}: ${logLine}`)
   fireAndForget(saveAskErrors(), 'run: saveAskErrors')
-  refreshAll()
+  notesChanged({ kind: 'activity', ids: [id] })
 }
 
 const NO_CLI = 'Claude Code (the `claude` CLI) was not found. Install it, or set **Code Notes › Claude: Path**.'
@@ -96,7 +96,7 @@ async function runAsk(id: string): Promise<void> {
   // Trust was taken back while it waited in the queue: the queue empties.
   if (!trusted()) {
     asking.delete(id)
-    refreshAll()
+    notesChanged({ kind: 'activity', ids: [id] })
     await runNext()
     return
   }
@@ -114,13 +114,13 @@ async function runAsk(id: string): Promise<void> {
   }
   const entry: Asking = { text: '', activity: 'Starting Claude…', started: Date.now() }
   asking.set(id, entry)
-  refreshAll()
+  notesChanged({ kind: 'activity', ids: [id] })
   const ask = await startAsk(n, cli, entry)
   log.info(`note ${id}: asking Claude${n.data.claudeSession ? ' (follow-up)' : ''}`)
   const res = await ask.done
   asking.delete(id)
   await recordAnswer(id, entry, res)
-  refreshAll()
+  notesChanged({ kind: 'activity', ids: [id] })
   await runNext()
 }
 
@@ -158,12 +158,11 @@ async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<
   } else if (answered) {
     answered.data.messages.push({ author: 'Claude', role: 'agent', body: res.text.trim(), at: now() })
     if (res.sessionId) answered.data.claudeSession = res.sessionId
-    shape.set(id, shapeOf(answered))
     await store.save(answered)
     const secs = Math.round((Date.now() - entry.started) / 1000)
     log.info(`note ${id}: Claude answered in ${secs}s${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
     // The person is looking at this note: the answer counts as read, with its "new" label for the visit.
-    if (revealed.id === id) await markRead([answered], answered)
+    if (selection().revealed === id) await markRead([answered], answered)
   }
 }
 
@@ -171,14 +170,14 @@ async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<
 export function cancelAsk(id: string): void {
   if (!asking.has(id) && askErrors.delete(id)) {
     fireAndForget(saveAskErrors(), 'run: saveAskErrors')
-    refreshAll()
+    notesChanged({ kind: 'activity', ids: [id] })
     return
   }
   const queued = askQueue.indexOf(id)
   if (queued >= 0) {
     askQueue.splice(queued, 1)
     asking.delete(id)
-    refreshAll()
+    notesChanged({ kind: 'activity', ids: [id] })
     return
   }
   const a = asking.get(id)
@@ -196,6 +195,9 @@ export function createAskStatusItem(): void {
 }
 
 /** Shown while Claude answers (how many notes); no note counter otherwise: the activity bar badge is the one unread count. */
+/** The status bar item follows Claude's work on notes. */
+export const followNotes = (model: NotesApi) => model.onDidChange((c) => { if (!whileTyping(c)) refreshAskStatus() })
+
 export function refreshAskStatus(): void {
   if (!asking.size) { askStatusItem.hide(); return }
   askStatusItem.text = `$(sync~spin) Claude · ${asking.size}`

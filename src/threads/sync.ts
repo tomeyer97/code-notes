@@ -4,21 +4,20 @@ import * as vscode from 'vscode'
 import { byId, cfg, controller, notes, understanding } from '../app'
 import { askErrors, asking } from '../ask/run'
 import { otherBranch } from '../platform/checkout'
-import { docUri, missing, openDoc, pastEnd } from '../notes/location'
+import { docUri, placement } from '../notes/location'
+import { openDoc } from '../platform/documents'
 import { seenCount, unread, visitFrom } from '../notes/seen'
-import { stepLinkOf } from '../sidebar/journeyRows'
-import { hiddenInEditor } from '../sidebar/notesFilter'
+import { hiddenInEditor, NotesApi, onlyThese, selection } from '../notes/model'
+import { stepLinkOf } from '../notes/model/journeyLink'
 import { Note } from '../notes/store'
 import { labelSafe, shortQ } from '../core/text'
 import { tourState, walk } from '../tour/instances'
 import { commentsOf, expanded, threadRange } from './comments'
-import { afterEditorSettles, newThread, setThread, settling, whenSettled } from './settle'
+import { afterEditorSettles, newThread, noteVisibleEditors, setThread, settling, whenSettled } from './settle'
+import { WorkspaceEvents } from '../platform/events'
 
 /** note id -> its thread */
 export const threads = new Map<string, vscode.CommentThread>()
-
-/** The note the person just opened (`id`): its thread shows even when resolved. */
-export const revealed: { id?: string } = {}
 
 /** Notes opened (a row clicked) before their thread was made (its editor was still opening): made expanded. */
 export const expandWhenMade = new Set<string>()
@@ -71,7 +70,7 @@ export function syncThread(n: Note): void {
 function isWanted(n: Note): boolean {
   const id = n.data.id
   const showResolved = cfg().get<boolean>('showResolvedInEditor', false)
-  const listed = n.data.status === 'open' || showResolved || unread(n) > 0 || revealed.id === id || !!understanding?.pinned(n)
+  const listed = n.data.status === 'open' || showResolved || unread(n) > 0 || selection().revealed === id || !!understanding?.pinned(n)
   if (listed && !hiddenInEditor(n)) return true
   if (asking.has(id) || askErrors.has(id)) return true
   const check = understanding?.threadStatus(n)
@@ -85,7 +84,7 @@ function renderKey(n: Note): string {
   return JSON.stringify([
     stepLinkOf(n) ? `${tourState.key}|${walk.touring()}|${tourState.stepId}` : '',
     d.messages.length, d.messages[d.messages.length - 1]?.body.length, d.status, d.stale, d.events?.length, d.target,
-    missing.has(d.id), pastEnd.get(d.id), d.stale && openDoc(docUri(n))?.version,
+    placement.missing(d.id), placement.pastEnd(d.id), d.stale && openDoc(docUri(n))?.version,
     seenCount(n), visitFrom.get(d.id), expanded.has(d.id), otherBranch(n) ?? '', d.anchor.text.length,
     run?.text.length, run?.activity, JSON.stringify(understanding?.threadStatus(n) ?? null),
     // Claude's elapsed seconds are shown in 5 s steps.
@@ -110,7 +109,7 @@ function threadLabel(n: Note): string {
   const firstLine = (n.data.messages[0]?.body ?? '').split('\n').find((l) => l.trim()) ?? ''
   const label = [
     target === 'folder' ? `Folder ${file}/` : target ? 'File note' : '',
-    missing.has(n.data.id) ? `⚠ ${target === 'folder' ? 'folder' : 'file'} not found` : '',
+    placement.missing(n.data.id) ? `⚠ ${target === 'folder' ? 'folder' : 'file'} not found` : '',
     shortQ(firstLine.replace(/\*\*|`/g, ''), 80),
   ].filter(Boolean).join(' · ')
   return labelSafe(label)
@@ -131,4 +130,17 @@ export function syncThreads(): Set<string> {
     threads.delete(id)
   }
   return ids
+}
+
+/** The threads follow the notes (only the notes that changed, when that is all a change is about), and when editors
+ *  come on screen (a thread on a file just shown waits for its editor to settle). */
+export function followNotes(model: NotesApi, events: WorkspaceEvents): vscode.Disposable {
+  return vscode.Disposable.from(
+    model.onDidChange((c) => {
+      const ids = onlyThese(c)
+      if (!ids) { syncThreads(); return }
+      for (const id of ids) { const n = byId(id); if (n) syncThread(n) }
+    }),
+    events.onDidChangeVisibleEditors(() => noteVisibleEditors()),
+  )
 }

@@ -11,10 +11,10 @@ import { unread } from './notes/seen'
 import { journeysTree } from './sidebar/journeysTree'
 import { journeyItem } from './sidebar/journeyRows'
 import { listModel } from './sidebar/listModel'
-import { cached, Node, order, sessionOf } from './sidebar/nodes'
-import { groupMode, matchesFilter } from './sidebar/notesFilter'
+import { cached, Node } from './sidebar/nodes'
+import { matchesFilter, notesModel, order, sessionOf } from './notes/model'
 import { tree, treeView } from './sidebar/notesTree'
-import { missing } from './notes/location'
+import { placement } from './notes/location'
 import { threads } from './threads/sync'
 import { askDrafts, stepAskBox } from './tour/askStep'
 import { restorePanel, restoreTour } from './tour/commands'
@@ -61,7 +61,7 @@ function noteSnapshot(n: Note) {
     ...n.data,
     path: n.uri.path,
     unread: unread(n),
-    missing: missing.has(id),
+    missing: placement.missing(id),
     threadLabel: thread?.label,
     hasThread: threads.has(id),
     threadExpanded: thread?.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded,
@@ -128,14 +128,14 @@ export function testApi() {
     snapshot: () => ({
       claudeLinks: claudeLinks.state,
       notes: notes().sort(order).map(noteSnapshot),
-      broken: store.broken.size,
+      broken: store.brokenCount(),
       badge: treeView.badge?.value ?? 0,
       me: me(),
       journeys: journeys.all().map((x) => ({ id: x.j.id, steps: x.j.steps.length, at: x.at, resume: walk.resumeAt(x) })),
       tour: tourSnapshot(),
       /** The sidebar as text: one line per row, indented by depth (label · description · icon). */
       tree: () => treeAsText(tree, true),
-      groupBy: groupMode,
+      groupBy: notesModel().query.groupMode,
       /** The sidebar's children of a session, as note ids. */
       sessionOrder: (name: string) => {
         const node = cached(`session:${name}`, { kind: 'session', name, notes: notes().filter((x) => sessionOf(x) === name && matchesFilter(x)) })

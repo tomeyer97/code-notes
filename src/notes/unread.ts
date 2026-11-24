@@ -4,13 +4,11 @@ import * as vscode from 'vscode'
 import { firstFolder, mapPanel, notes } from '../app'
 import { mine } from './identity'
 import { markRead, restoreSeen, seenSnapshot, setSeen, unread, visitFrom } from './seen'
-import { order, sessionOf } from '../sidebar/nodes'
-import { hiddenSessions } from '../sidebar/notesFilter'
+import { hiddenSessions, order, selection, sessionOf } from './model'
 import { Note } from './store'
 import { plural } from '../core/text'
-import { revealed } from '../threads/sync'
-import { refreshAll } from '../refresh'
-import { notesFor, relPath } from './location'
+import { notesFor } from './location'
+import { relPath } from '../platform/documents'
 import { reveal } from './reveal'
 import { offerUndo } from './undo'
 import { notesFrom } from './which'
@@ -52,9 +50,8 @@ export const markUnread = async (arg?: any) => {
   while (i >= 0 && mine(n.data.messages[i])) i--
   if (i < 0) { vscode.window.setStatusBarMessage('$(info) Nothing to mark unread: every message is yours', 2500); return }
   visitFrom.delete(n.data.id)
-  if (revealed.id === n.data.id) revealed.id = undefined
+  if (selection().revealed === n.data.id) selection().revealed = undefined
   await setSeen([[n.data.id, i]])
-  refreshAll()
 }
 
 /** codeNotes.markAllRead, with Undo. */
@@ -63,5 +60,5 @@ export const markAllRead = async () => {
   if (!list.length) return
   const before = seenSnapshot()
   await markRead(list)
-  offerUndo(`Marked ${plural(list.length, 'note')} read`, async () => { await restoreSeen(before); refreshAll() })
+  offerUndo(`Marked ${plural(list.length, 'note')} read`, () => restoreSeen(before))
 }

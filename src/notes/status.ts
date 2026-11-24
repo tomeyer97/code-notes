@@ -3,15 +3,12 @@
 import * as vscode from 'vscode'
 import { byId, notes, now, store } from '../app'
 import { evMine, me } from './identity'
-import { refreshAll } from '../refresh'
 import { markRead, seenCount, setSeen, unread } from './seen'
-import { checked, matchesFilter } from '../sidebar/notesFilter'
-import { treeView } from '../sidebar/notesTree'
+import { matchesFilter, notesModel, notesChanged, selection } from './model'
 import { NoteEvent } from '../core/format/noteModel'
-import { folderName, Note } from './store'
+import { Note } from './store'
+import { folderName } from './notesFolder'
 import { describeNotes, noteTitle, plural } from '../core/text'
-import { revealed } from '../threads/sync'
-import { shape, shapeOf } from './changedOnDisk'
 import { offerUndo, snapshot } from './undo'
 import { pickNotes } from './which'
 
@@ -25,16 +22,17 @@ export const statusEvent = (status: string): NoteEvent['type'] => (status === 'r
 
 /** The notes in `list` set to `status`; `record`: the change goes in their history. Saved, else as they were. */
 export async function setStatus(list: Note[], status: 'open' | 'resolved', record = true): Promise<void> {
-  for (const n of list) {
-    const before = snapshot(n)
-    if (record && n.data.status !== status) addEvent(n, statusEvent(status))
-    n.data.status = status
-    checked.delete(n.data.id)
-    // Not saved (a file another user wrote): the note stays as the file says; the error says why.
-    if (!(await store.save(n))) n.data = before
-    shape.set(n.data.id, shapeOf(n))
-  }
-  refreshAll()
+  await notesModel().batch(async () => {
+    for (const n of list) {
+      const before = snapshot(n)
+      if (record && n.data.status !== status) addEvent(n, statusEvent(status))
+      n.data.status = status
+      selection().checked.delete(n.data.id)
+      // Not saved (a file another user wrote): the note stays as the file says; the error says why.
+      if (!(await store.save(n))) n.data = before
+    }
+    notesChanged({ kind: 'saved', ids: list.map((n) => n.data.id) })
+  })
 }
 
 export async function resolve(list: Note[], scope = ''): Promise<void> {
@@ -48,7 +46,7 @@ export async function resolve(list: Note[], scope = ''): Promise<void> {
     const ok = await vscode.window.showWarningMessage(question, { modal: true, detail: titles + more }, 'Resolve')
     if (ok !== 'Resolve') return
   }
-  if (revealed.id && list.some((n) => n.data.id === revealed.id)) revealed.id = undefined
+  if (selection().revealed && list.some((n) => n.data.id === selection().revealed)) selection().revealed = undefined
   const seenBefore = Object.fromEntries(list.map((n) => [n.data.id, seenCount(n)]))
   await markRead(list)
   await setStatus(list, 'resolved')
@@ -67,14 +65,13 @@ export function undoResolveEvent(n: Note): Note {
 
 /** Notes to the trash, with Undo; `what` names them in the toast. */
 export async function trash(list: Note[], what: string): Promise<void> {
-  for (const n of list) { checked.delete(n.data.id); await store.trash(n) }
-  refreshAll()
-  offerUndo(`Deleted ${what}`, async () => { for (const n of list) await store.restore(n); refreshAll() })
+  await notesModel().batch(async () => { for (const n of list) { selection().checked.delete(n.data.id); await store.trash(n) } })
+  offerUndo(`Deleted ${what}`, () => notesModel().batch(async () => { for (const n of list) await store.restore(n) }))
 }
 
 /** An agent deleted a note file (rm): its last version is restorable from .trash ("Code Notes: Undo"), without a toast. */
 export function offerRestore(n: Note): void {
-  offerUndo(`Note deleted on disk: "${noteTitle(n)}"`, async () => { await store.restore(n); refreshAll() }, true)
+  offerUndo(`Note deleted on disk: "${noteTitle(n)}"`, () => store.restore(n), true)
 }
 
 /** codeNotes.reopen */
@@ -93,7 +90,8 @@ export const deleteNotes = async (arg?: any, many?: any[]) => {
 
 /** codeNotes.resolveChecked: the ticked notes (the filter's), else the rows selected. */
 export const resolveChecked = () => {
-  const sel = treeView.selection.filter((x) => x.kind === 'note').map((x) => (x as { note: Note }).note)
+  const { checked, selected } = selection()
+  const sel = selected.map(byId).filter((n): n is Note => !!n)
   const list = checked.size ? [...checked].map(byId).filter((n): n is Note => !!n && matchesFilter(n)) : sel
   if (!list.length) { vscode.window.setStatusBarMessage('$(info) Select the notes to resolve (Ctrl+click for several)', 2500); return }
   return resolve(list)

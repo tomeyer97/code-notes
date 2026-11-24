@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { controller } from '../app'
-import { inNotesFolder } from './location'
+import { inNotesFolder } from './notesFolder'
 
 /** Commenting ranges: none, except until this time (a note box being opened). */
 let addingUntil = 0

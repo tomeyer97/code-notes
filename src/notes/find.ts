@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { notes } from '../app'
 import { unread } from './seen'
-import { lastMessage, order } from '../sidebar/nodes'
+import { lastMessage, order } from './model'
 import { Note } from './store'
 import { noteTitle, plain } from '../core/text'
 import { reveal } from './reveal'

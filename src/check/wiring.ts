@@ -7,15 +7,14 @@ import { askAbout } from '../ask/run'
 import { claudeCli } from '../ask/settings'
 import { claudeAllowed } from '../ask/trust'
 import { me } from '../notes/identity'
-import { shape, shapeOf } from '../notes/changedOnDisk'
 import { newId } from '../notes/create'
 import { addReply } from '../notes/reply'
 import { focusReply, reveal } from '../notes/reveal'
-import { refreshAll } from '../refresh'
+import { notesChanged, selection } from '../notes/model'
 import { markRead, setSeen, unread } from '../notes/seen'
 import { journeysTree } from '../sidebar/journeysTree'
 import { Note } from '../notes/store'
-import { noteOfThread, revealed } from '../threads/sync'
+import { noteOfThread } from '../threads/sync'
 import { currentTour, openCheckpoint, tourChanged } from '../tour/checkTour'
 import { walkJourney } from '../tour/commands'
 import { card, walk } from '../tour/instances'
@@ -28,7 +27,7 @@ import { parseCheckLinkKey } from '../platform/keys'
 export function createUnderstanding(context: vscode.ExtensionContext): void {
   provide({ understanding: new CheckController({
     log, store, extUri: context.extensionUri, stored, me, now, newId,
-    revealed: () => revealed.id,
+    revealed: () => selection().revealed,
     focusReply,
     askAbout,
     cli: claudeCli,
@@ -37,7 +36,7 @@ export function createUnderstanding(context: vscode.ExtensionContext): void {
     changed: noteChanged,
     addReply: (n, text) => addReply(n, text),
     reveal: (n, col, keep) => reveal(n, col ?? walk.codeColumn(), keep),
-    refresh: () => refreshAll(),
+    refresh: () => notesChanged({ kind: 'activity' }),
     codeColumn: walk.codeColumn,
     listChanged,
     journeySkill: firstFolderSkill,
@@ -54,9 +53,8 @@ const checkModel = () => cfg().get<string>('understanding.model') || cfg().get<s
 /** A note the check created or changed: read if just made (its question is the check's, not news) or shown now. */
 async function noteChanged(n: Note, created: boolean): Promise<void> {
   if (created) await setSeen([[n.data.id, n.data.messages.length]])
-  shape.set(n.data.id, shapeOf(n))
-  if (revealed.id === n.data.id) await markRead([n], n)
-  refreshAll()
+  if (selection().revealed === n.data.id) await markRead([n], n)
+  notesChanged({ kind: 'activity', ids: [n.data.id] })
 }
 
 /** The check's row in the journeys list changed: the list, the map, the lenses. */
@@ -130,6 +128,7 @@ export function checkLinkNote(key: string): { n: Note; links: ReturnType<CheckCo
 export function checkStepping(): boolean {
   if (!understanding?.hasOpen()) return false
   const nothingUnread = !notes().some((n) => unread(n) > 0)
-  const shown = revealed.id ? byId(revealed.id) : undefined
+  const revealed = selection().revealed
+  const shown = revealed ? byId(revealed) : undefined
   return nothingUnread || (!!shown && understanding.isCheck(shown))
 }

@@ -6,6 +6,7 @@ import { journeys, mapPanel, stored } from '../app'
 import { Group, SORTS } from '../core/list/journeyList'
 import { pickOne } from '../platform/quickPick'
 import { walkJourney } from '../tour/commands'
+import type { Journeys } from '../journeys/journeys'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
 import { followCursor, listModel, listSort, listState } from './listModel'
@@ -162,3 +163,6 @@ function cursorMoved(editorChanged: boolean): void {
 }
 
 export const journeysHereAll = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel.update() }
+
+/** The rows follow where the journeys' steps are (stale counts). */
+export const followJourneyMoves = (j: Journeys) => j.onDidMoveSteps(() => journeysTree.refresh())

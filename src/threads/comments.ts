@@ -5,7 +5,7 @@ import * as vscode from 'vscode'
 import * as os from 'os'
 import { lineDiff } from '../core/anchors/staleDiff'
 import { linkify } from '../core/linkifyAnswer'
-import { alsoAllow, BANNER_COMMANDS, byId, cmdLink, MESSAGE_COMMANDS, systemMarkdown, titledCmdLink, trustedMarkdown, understanding } from '../app'
+import { alsoAllow, BANNER_COMMANDS, byId, cmdLink, journeys, MESSAGE_COMMANDS, systemMarkdown, titledCmdLink, trustedMarkdown, understanding } from '../app'
 import { askErrors, asking } from '../ask/run'
 import type { ThreadStatus } from '../check/controller'
 import { codeLinkMarkup, linkPhrases, PH, PH_RE } from '../core/codeLinkText'
@@ -13,16 +13,16 @@ import { otherBranch } from '../platform/checkout'
 import { isAgent, mine } from '../notes/identity'
 import { escapeTags } from '../journeys/textFormat'
 import { seenCount, visitFrom } from '../notes/seen'
-import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
+import { journeyOfNote, stepLinkOf } from '../notes/model/journeyLink'
 import { NoteEvent } from '../core/format/noteModel'
 import { Note } from '../notes/store'
 import { plural, rangeLabel } from '../core/text'
 import { isDone } from '../check/types'
 import { seeAlsoLink } from '../tour/checkTour'
 import { tourState, walk } from '../tour/instances'
-import { docUri, missing, openDoc, pastEnd } from '../notes/location'
+import { docUri, placement } from '../notes/location'
 import { syncThread } from './sync'
-import { docLines } from '../platform/documents'
+import { docLines, openDoc } from '../platform/documents'
 import { Cmd, HiddenCmd } from '../platform/commands'
 import { checkLinkKey } from '../platform/keys'
 
@@ -55,7 +55,7 @@ const ABOUT_STEP_LINE = new RegExp(`\\n*(?:${ABOUT_STEP_BY_NUMBER.source}|${ABOU
 function withStepLink(n: Note, md: string): string {
   const sl = stepLinkOf(n)
   if (!sl) return md
-  const lj = journeyOfNote(n)
+  const lj = journeyOfNote(n, journeys.list.values())
   const walking = !!lj && walk.touring() && tourState.key === lj.key
   if (walking && (sl.step ? tourState.stepId === sl.step : tourState.step === sl.n)) return md.replace(ABOUT_STEP_LINE, '')
   // The step's number now (found by id), else the one it had.
@@ -150,7 +150,7 @@ function wasText(n: Note): string {
   if (!a.trim()) return ''
   const short = (l: string[]) => (l.length > SHOWN_LINES ? [...l.slice(0, SHOWN_LINES), `… ${l.length - SHOWN_LINES} more`] : l)
   const doc = openDoc(docUri(n))
-  if (!doc || pastEnd.has(n.data.id)) return `\`\`\`\n${short(a.split('\n')).join('\n')}\n\`\`\``
+  if (!doc || placement.pastEnd(n.data.id) !== undefined) return `\`\`\`\n${short(a.split('\n')).join('\n')}\n\`\`\``
   const cur = docLines(doc).slice(n.data.range.start - 1, n.data.range.end)
   const ch = lineDiff(a.split('\n'), cur)
   if (!ch.del.length && !ch.ins.length) return ''
@@ -162,11 +162,11 @@ function staleText(n: Note): string {
   const id = n.data.id
   const move = cmdLink('Move', Cmd.moveToSelection, id)
   const gone = `**\`${n.data.file}\` no longer exists.**`
-  if (missing.has(id) && n.data.target) return gone
+  if (placement.missing(id) && n.data.target) return gone
   const was = wasText(n)
   const wasPart = was ? `\n\n${was}` : '' // a code block starts on its own line
-  if (missing.has(id)) return `${gone}${wasPart}\n\n${move}`
-  const end = pastEnd.get(id)
+  if (placement.missing(id)) return `${gone}${wasPart}\n\n${move}`
+  const end = placement.pastEnd(id)
   if (end !== undefined) return `**The code changed since this note** (the file has ${end} lines now).\n\n${move}`
   // One wording; the branch only as a fact. Two buttons, one wording: Keep here · Move.
   const branch = otherBranch(n)

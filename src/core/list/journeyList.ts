@@ -4,6 +4,7 @@
 // word matching is match.ts.
 import { matchScore, queryWords } from './match'
 import { baseName } from '../paths'
+import { ageOf, stamp } from '../time'
 
 /** Only journeys are listed ('review': nothing makes one yet). 'check' is not listed: a check lives in the Check view. */
 export type ListKind = 'journey' | 'check' | 'review'
@@ -98,16 +99,8 @@ export function areaOf(files: string[]): string {
   return files.map(top).find((a) => n.get(a) === best)!
 }
 
-export function ageOf(at: string | undefined, now: number): string {
-  const t = at ? Date.parse(at) : NaN
-  if (Number.isNaN(t)) return ''
-  const d = Math.max(0, Math.floor((now - t) / 86_400_000))
-  if (d < 1) return 'today'
-  if (d < 14) return `${d} d`
-  if (d < 60) return `${Math.floor(d / 7)} wk`
-  if (d < 365) return `${Math.floor(d / 30)} mo`
-  return `${Math.floor(d / 365)} y`
-}
+/** Ages and stamps: core/time.ts (with the other "how long ago"). */
+export { ageOf, stamp } from '../time'
 
 export interface ListOptions {
   activeFile?: string
@@ -118,13 +111,6 @@ export interface ListOptions {
   query?: string; sort?: Sort; kind?: ListKind | 'all'; area?: string; now?: number
   /** With a search: best match first (the default), or one of the sorts. */
   searchSort?: Sort | 'best'
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-/** "3 Nov 14:05" (local time). */
-export function stamp(t: number): string {
-  const d = new Date(t), p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /** 1-based lines, inclusive. */

@@ -1,5 +1,5 @@
 // What a row of the two views is (Node), one object per row (cached: TreeView.reveal finds rows by identity), the
-// constructors of each kind, and the order of notes in a group.
+// constructors of each kind, and the order of rows in a group (the notes' own order: notes/model/query.ts).
 
 import * as vscode from 'vscode'
 import { journeys, notes } from '../app'
@@ -7,7 +7,7 @@ import { Group } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { Severity } from '../core/format/noteModel'
 import { Note } from '../notes/store'
-import { matchesFilter } from './notesFilter'
+import { matchesFilter, order, sessionOf } from '../notes/model'
 import { sessionFileKey } from '../platform/keys'
 
 export type Node =
@@ -63,12 +63,6 @@ export const jmoreNode = (g: Group) => cached(`jmore:${g.id}`, { kind: 'jmore' a
 export const badJourneyNodes = () => [...journeys.invalid.values()]
   .sort((a, b) => a.uri.path.localeCompare(b.uri.path))
   .map((x) => cached(`badJourney:${x.uri}`, { kind: 'badJourney' as const, uri: x.uri, why: x.why }))
-
-export const lastMessage = (n: Note) => n.data.messages[n.data.messages.length - 1]
-
-export const sessionOf = (n: Note) => n.data.session ?? ''
-
-export const order = (a: Note, b: Note) => a.data.range.start - b.data.range.start || (a.data.createdAt ?? a.data.id).localeCompare(b.data.createdAt ?? b.data.id)
 
 /** Most severe first; a note without a severity counts as medium. */
 const SEV_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2, nit: 3 }

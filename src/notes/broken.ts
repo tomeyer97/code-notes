@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { store } from '../app'
 import { serialize } from '../core/format/noteModel'
-import { Node } from '../sidebar/nodes'
+import { BrokenRow, isRow } from './model/rows'
 import { wfs } from '../platform/workspaceFs'
 
 /** Where in the file the problem `why` (store.ts's words) is: a field's name, the end (bad JSON), or the top. */
@@ -16,8 +16,8 @@ function problemAt(doc: vscode.TextDocument, why: string): vscode.Position {
 }
 
 /** codeNotes.openBroken: the file, at the field that is wrong. */
-export const openBroken = async (node?: Node) => {
-  if (node?.kind !== 'broken') return
+export const openBroken = async (node?: unknown) => {
+  if (!isRow<BrokenRow>(node, 'broken')) return
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(node.uri))
   const pos = problemAt(doc, node.why)
   await vscode.window.showTextDocument(doc, { selection: new vscode.Range(pos, pos) })
@@ -25,9 +25,9 @@ export const openBroken = async (node?: Node) => {
 }
 
 /** codeNotes.restoreBroken: the last version read that was good, written back. */
-export const restoreBroken = async (node?: Node) => {
-  if (node?.kind !== 'broken') return
-  const known = store.notes.get(node.uri)
+export const restoreBroken = async (node?: unknown) => {
+  if (!isRow<BrokenRow>(node, 'broken')) return
+  const known = store.atUri(node.uri)
   if (!known) return
   await wfs.writeFile(known.uri, new TextEncoder().encode(serialize(known.data)))
   vscode.window.setStatusBarMessage('$(check) Restored the last good version', 3000)

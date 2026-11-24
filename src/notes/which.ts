@@ -2,18 +2,19 @@
 
 import * as vscode from 'vscode'
 import { byId } from '../app'
-import { Node, order } from '../sidebar/nodes'
+import { order, selection } from './model'
+import { noteOfRow } from './model/rows'
 import { Note } from './store'
 import { noteTitle, rangeLabel } from '../core/text'
 import { notesAtLine } from './location'
-import { noteOfThread, revealed } from '../threads/sync'
+import { noteOfThread } from '../threads/sync'
 
 /**
  * What a command is given, by who calls it: a row of the Code Notes view (its node, and with several selected, all of
  * them as `many`), a link in a thread (the note's id), a thread's reply box (a CommentReply), a thread's title menu (the
  * CommentThread), or nothing (the palette, a key: the note at the cursor).
  */
-export type CommandArg = Node | string | vscode.CommentReply | vscode.CommentThread | undefined
+export type CommandArg = { kind: string } | string | vscode.CommentReply | vscode.CommentThread | undefined
 
 /** A thread's reply box (Ctrl+Enter, its buttons): the thread and the text typed. */
 export const isReply = (arg: unknown): arg is vscode.CommentReply =>
@@ -21,14 +22,14 @@ export const isReply = (arg: unknown): arg is vscode.CommentReply =>
 
 /** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor. */
 export function notesFrom(arg: CommandArg | any, many?: any[]): Note[] {
-  const fromNode = (x: any): Note | undefined => (x?.kind === 'note' ? x.note : undefined)
   const one = (n: Note | undefined) => (n ? [n] : [])
   // A link in a thread (it never comes with a selection).
   if (typeof arg === 'string') return one(byId(arg))
   // Rows: several selected.
-  if (Array.isArray(many) && many.length > 1) return many.map(fromNode).filter((n): n is Note => !!n)
+  if (Array.isArray(many) && many.length > 1) return many.map(noteOfRow).filter((n): n is Note => !!n)
   // A row.
-  if (arg?.kind === 'note') return [arg.note]
+  const row = noteOfRow(arg)
+  if (row) return [row]
   // A reply box.
   if (arg?.thread) return one(noteOfThread(arg.thread))
   // A thread's title menu.
@@ -37,7 +38,8 @@ export function notesFrom(arg: CommandArg | any, many?: any[]): Note[] {
   const editor = vscode.window.activeTextEditor
   if (!editor) return []
   const here = notesAtCursor(editor)
-  if (revealed.id) { const r = here.find((n) => n.data.id === revealed.id); if (r) return [r] }
+  const revealed = selection().revealed
+  if (revealed) { const r = here.find((n) => n.data.id === revealed); if (r) return [r] }
   return here.slice(0, 1)
 }
 

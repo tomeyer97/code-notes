@@ -3,9 +3,9 @@
 // module that does it). activate reads as the boot order; each step runs in the order its parts need each other.
 
 import * as vscode from 'vscode'
-import { beats, cfg, claudeLinks, codeLinks, controller, extVersion, journeys, KEY, log, mapPanel, notes, provide, setCtx, setKey, store, stored, tourItems, tutorialSpot, understanding, valueHints } from './app'
+import { beats, byId, cfg, claudeLinks, codeLinks, controller, extVersion, journeys, KEY, log, mapPanel, notes, provide, setCtx, setKey, store, stored, tourItems, tutorialSpot, understanding, valueHints } from './app'
 import { askClaudeCommand, cancelClaudeCommand } from './ask/commands'
-import { askStatusItem, createAskStatusItem, loadAskErrors } from './ask/run'
+import { askStatusItem, createAskStatusItem, followNotes as askStatusFollows, loadAskErrors } from './ask/run'
 import { watchClaudeCli } from './ask/settings'
 import { Beats } from './codeLinks/beats'
 import { answerCheck, checkConcern, createUnderstanding, gradeCheck } from './check/wiring'
@@ -14,16 +14,16 @@ import { ClaudeLinks } from './codeLinks/claudeChatLinks'
 import { codeLinkBack, openCodeLink } from './codeLinks/codeLinkClick'
 import { CodeLinks } from './codeLinks/codeLinks'
 import { devReload } from './platform/devReload'
-import { initIdentity, me, rememberMe } from './notes/identity'
+import { authorChanged, initIdentity, me, rememberMe } from './notes/identity'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
 import { openBroken, restoreBroken } from './notes/broken'
-import { followNotesOnDisk, notesChangedOnDisk } from './notes/changedOnDisk'
+import { followNotesOnDisk } from './notes/changedOnDisk'
 import { rangeProvider } from './notes/commentRanges'
 import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS } from './notes/create'
-import { createDecorations, deco } from './notes/decorations'
+import { createDecorations, deco, followNotes as decorationsFollow } from './notes/decorations'
 import { findNote } from './notes/find'
-import { rememberFolder } from './notes/folder'
+import { applyIgnoreInGit, changeFolder, rememberFolder, rewriteReadmes } from './notes/folder'
 import { acceptCode, cancelMove, completeMove, createMoveItem, moveItem, moveToSelection } from './notes/move'
 import { registerPages } from './notes/pages'
 import { copyAgentPrompt, copyNotePrompt } from './notes/prompt'
@@ -35,30 +35,40 @@ import { applySuggestion } from './notes/suggestion'
 import { undo } from './notes/undo'
 import { markAllRead, markUnread, stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
-import { refreshAll } from './refresh'
-import { markJourneysSeen } from './notes/seen'
-import { createJourneysView, searchJourneys, journeysHereAll, sortJourneys } from './sidebar/journeysTree'
+import { markJourneysSeen, reloadSeen, unread } from './notes/seen'
+import { createJourneysView, followJourneyMoves, searchJourneys, journeysHereAll, sortJourneys } from './sidebar/journeysTree'
 import { groupByFile, groupBySession, hideResolvedNotes, loadGroupMode, pickFilter, showResolvedNotes } from './sidebar/notesFilter'
-import { createNotesView, rowsSelected, treeView } from './sidebar/notesTree'
+import { createNotesView, followNotes as notesViewFollows, rowsSelected, treeView } from './sidebar/notesTree'
 import { Store } from './notes/store'
 import { testApi } from './testApi'
 import { collapseThread, expandThread } from './threads/comments'
+import { followNotes as threadsFollow, threads } from './threads/sync'
 import { askStep, askUpdate } from './tour/askStep'
 import { toggleAuthorMode, mapState, onMapMessage, toggleAnimation } from './tour/mapMessages'
 import { backToStep, endJourney, openJourney, openStepLink, restoreMapPanel, restoreTour, showMap, startJourney } from './tour/commands'
 import { pickJourneyStep } from './tour/lenses'
 import { registerRefPages } from './tour/refs'
-import { createCard, createTourItems, stepDetails, walk } from './tour/instances'
+import { card, createCard, createTourItems, stepDetails, tourState, walk } from './tour/instances'
+import { stepsFollowed, tourFollows } from './tour/follow'
 import { podcasts } from './podcast/player'
 import { tutorial } from './tour/tutorial'
 import { TutorialSpot } from './tour/tutorialSpot'
 import { ValueHints } from './codeLinks/valueHints'
-import { reloadAll, watchBranches, watchEditors, watchEdits, watchFiles, watchJourneys } from './watch'
 import { refreshJourney } from './write/refreshJourney'
 import { askQuestion, watchRequests } from './write/requests'
 import { writingChanged } from './write/inProgress'
 import { fireAndForget, useWindow } from './platform/run'
 import { runMigrations, STATE, StateStore } from './platform/state'
+import { checkouts } from './platform/checkout'
+import { WorkspaceEvents } from './platform/events'
+import { notesChanged, notesModel, startNotesModel } from './notes/model'
+import { NOTES_CTX } from './notes/model/contextKeys'
+import { followContextKeys } from './notes/contextKeys'
+import { followCursor } from './notes/cursor'
+import { followEdits } from './notes/followEdits'
+import { followNoteFiles } from './notes/moves'
+import { inNotesFolder } from './notes/notesFolder'
+import { followJourneys } from './journeys/follow'
 import { Cmd, HiddenCmd } from './platform/commands'
 
 const CONTROLLER_ID = 'codeNotes'
@@ -68,10 +78,10 @@ export async function activate(context: vscode.ExtensionContext) {
   createNotesUi(context)
   startJourneys(context)
   const journeysLoaded = createTourUi(context)
-  startWatching(context)
+  const events = startWatching(context)
   createUnderstanding(context)
   registerCommands(context)
-  await watchBranches(context)
+  await events.watchBranches(vscode.workspace.workspaceFolders ?? [])
   await loadAndShow(context, journeysLoaded)
   return testApi()
 }
@@ -87,11 +97,18 @@ async function startNotes(context: vscode.ExtensionContext): Promise<void> {
   watchClaudeCli(context)
   context.subscriptions.push(writingChanged)
   provide({ extUri: context.extensionUri })
-  loadGroupMode()
   provide({ log: vscode.window.createOutputChannel('Code Notes', { log: true }) })
   useWindow({ log, showErrorMessage: (text, ...items) => vscode.window.showErrorMessage(text, ...items) })
   await initIdentity(vscode.workspace.workspaceFolders?.[0])
   provide({ store: new Store(log, me) })
+  startNotesModel({
+    byId, notes, unread,
+    isCheck: (n) => !!understanding?.isCheck(n),
+    storeChanges: store.onDidChange,
+    readHidden: () => stored.get(STATE.hiddenSessions),
+    writeHidden: (names) => stored.set(STATE.hiddenSessions, names),
+  })
+  loadGroupMode()
   provide({ controller: vscode.comments.createCommentController(CONTROLLER_ID, 'Code Notes') })
 }
 
@@ -128,22 +145,62 @@ function createTourUi(context: vscode.ExtensionContext): () => void {
   registerRefPages(context)
   const journeysLoaded = restoreMapPanel(context)
   createDecorations()
-  fireAndForget(setCtx('codeNotes.showResolved', false), 'extension: setCtx codeNotes.showResolved')
+  fireAndForget(setCtx(NOTES_CTX.showResolved, false), 'extension: setCtx codeNotes.showResolved')
   rememberMe()
-  context.subscriptions.push(log, store, controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
+  context.subscriptions.push(log, store, notesModel(), controller, treeView, askStatusItem, moveItem, ...Object.values(deco), journeys, mapPanel, ...Object.values(tourItems))
   podcasts.init(context)
   return journeysLoaded
 }
 
-/** What each part follows (watch.ts and the parts' own). */
-function startWatching(context: vscode.ExtensionContext): void {
-  watchJourneys(context)
+/** What each part follows: the notes' changes and the workspace's events (platform/events.ts), each part in its own
+ *  code. Returned: the workspace's events (the branches are watched once the commands are there). */
+function startWatching(context: vscode.ExtensionContext): WorkspaceEvents {
+  // Git's own files, and the notes folder (the store watches it), are no file the notes or steps are on.
+  const events = new WorkspaceEvents(checkouts, (u) => inNotesFolder(u) || u.path.includes('/.git/'))
+  const model = notesModel()
   registerPages(context)
-  context.subscriptions.push(store.onDidDeleteOnDisk(offerRestore), store.onDidChange(notesChangedOnDisk))
-  watchEdits(context)
-  watchFiles(context)
-  watchEditors(context)
-  context.subscriptions.push(treeView.onDidChangeSelection(rowsSelected))
+  context.subscriptions.push(
+    events, checkouts,
+    // What shows notes follows them, in this order: the threads first (the list and the marks read them).
+    threadsFollow(model, events),
+    notesViewFollows(model),
+    followContextKeys(model, { notes, brokenCount: () => store.brokenCount(), isCheck: (n) => !!understanding?.isCheck(n) }),
+    askStatusFollows(model),
+    decorationsFollow(model, events),
+    followCursor(events, model, { hasThread: (id) => threads.has(id), arrived: () => Date.now() < tourState.cursorUntil }),
+    // Questions asked from a step are listed and linked through their journey.
+    journeys.onDidChange(() => notesChanged({ kind: 'journeys' })),
+    tourFollows(model, events, { journeys, mapPanel }),
+    followJourneyMoves(journeys),
+    store.onDidDeleteOnDisk(offerRestore),
+    followNotesOnDisk(),
+    followJourneys(events, journeys, { stepsFollowed: stepsFollowed(mapPanel), relocated: () => notesChanged({ kind: 'branch' }) }),
+    followEdits(events, (n) => store.save(n)),
+    followNoteFiles(events),
+    events.onDidChangeSettings((e) => fireAndForget(settingsChanged(e), 'settings changed')),
+    events.onDidChangeFolders(() => fireAndForget(store.load(), 'notes: read again for the folders')),
+    treeView.onDidChangeSelection(rowsSelected),
+  )
+  return events
+}
+
+/** What a settings change does, in this order. `alone`: nothing below runs after it (the notes folder or the author
+ *  changed: everything is read or written again). */
+const SETTINGS: { key: string; run: () => unknown; alone?: boolean }[] = [
+  { key: 'codeNotes.folder', run: changeFolder, alone: true },
+  // The journeys read again from their folder; then (it is a codeNotes setting too) the lenses, below.
+  { key: 'codeNotes.journeys.folder', run: async () => { await journeys.load(); notesChanged({ kind: 'settings' }) } },
+  { key: 'codeNotes.ignoreInGit', run: applyIgnoreInGit, alone: true },
+  { key: 'codeNotes.author', run: async () => { await authorChanged(); await rewriteReadmes(); notesChanged({ kind: 'settings' }) }, alone: true },
+  { key: 'codeNotes', run: () => { card.lensChanged.fire(); notesChanged({ kind: 'settings' }) } },
+]
+
+async function settingsChanged(e: vscode.ConfigurationChangeEvent): Promise<void> {
+  for (const s of SETTINGS) {
+    if (!e.affectsConfiguration(s.key)) continue
+    await s.run()
+    if (s.alone) return
+  }
 }
 
 /** Everything read, then shown; the walk and the check where they were. */
@@ -157,8 +214,9 @@ async function loadAndShow(context: vscode.ExtensionContext, journeysLoaded: () 
     (ran) => { for (const m of ran) log.info(`migrated: ${m}`) },
     (e) => log.error(`migrating the stored state: ${e}`), // tried again at the next start
   )
-  followNotesOnDisk()
-  refreshAll()
+  // The seen counts were migrated: read again; then everything shown as read now.
+  reloadSeen()
+  notesChanged({ kind: 'loaded' })
   await restoreTour()
   await understanding!.init().catch((e) => log.error(`understanding check: ${e}`))
   watchRequests(context)
@@ -219,7 +277,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       [Cmd.expandThread]: expandThread,
       [Cmd.collapseThread]: collapseThread,
       [Cmd.find]: findNote,
-      [Cmd.refresh]: reloadAll,
+      [Cmd.refresh]: async () => { await store.load(); await journeys.load() },
       [Cmd.copyAgentPrompt]: copyAgentPrompt,
       [Cmd.copyNotePrompt]: copyNotePrompt,
     },

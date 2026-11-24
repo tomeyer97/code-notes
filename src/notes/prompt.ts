@@ -4,8 +4,9 @@
 import * as vscode from 'vscode'
 import { byId, log, notes } from '../app'
 import { me, waitingForAgent } from './identity'
-import { checked } from '../sidebar/notesFilter'
-import { folderName, Note } from './store'
+import { selection } from './model'
+import { Note } from './store'
+import { folderName } from './notesFolder'
 import { plural, rangeLabel } from '../core/text'
 import { notesFrom } from './which'
 import { fileName } from '../platform/jsonFolder'
@@ -37,7 +38,7 @@ export function agentPrompt(list?: Note[]): string {
 /** The toast says what is in the clipboard: the ticked notes, or the waiting ones. */
 export const copyAgentPrompt = async () => {
   const waiting = notes().filter(waitingForAgent).length
-  const ticked = [...checked].map(byId).filter((n): n is Note => !!n)
+  const ticked = [...selection().checked].map(byId).filter((n): n is Note => !!n)
   if (!ticked.length && !waiting) {
     fireAndForget(vscode.window.showInformationMessage('No notes are waiting for an agent. Select notes (Ctrl+click) to ask about them.'), 'prompt: window.showInformationMessage')
     return

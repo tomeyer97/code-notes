@@ -4,6 +4,5 @@ src/sidebar/journeysTree.ts -> src/app.ts
 src/sidebar/listModel.ts -> src/app.ts
 src/sidebar/nodes.ts -> src/app.ts
 src/sidebar/notesFilter.ts -> src/app.ts
-src/sidebar/notesFilter.ts -> src/refresh.ts
 src/sidebar/notesTree.ts -> src/app.ts
 src/sidebar/rowItems.ts -> src/app.ts

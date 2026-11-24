@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { notes, store } from '../app'
-import { stepLinkOf } from '../sidebar/journeyRows'
+import { stepLinkOf } from '../notes/model/journeyLink'
 import { notesFor } from '../notes/location'
 import { setCollapse } from '../threads/settle'
 import { syncThread, threads } from '../threads/sync'

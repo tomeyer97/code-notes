@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { wfs } from '../platform/workspaceFs'
 import { isOldFormat, parseJourney } from '../core/format/journeyModel'
-import { folderName, folderSetting } from '../notes/store'
+import { folderName, folderSetting } from '../notes/notesFolder'
 import { jsonFilesIn, jsonName, readText, watchJsonFiles } from '../platform/jsonFolder'
 import { LoadedJourney, carryPositions, posKey, writtenAt } from './steps'
 import { pathIn, settingFolder } from '../core/paths'

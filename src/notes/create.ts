@@ -6,14 +6,16 @@ import { KEY, log, now, showError, store } from '../app'
 import { askClaude } from '../ask/run'
 import { askAlways, askOnQuestion } from '../ask/settings'
 import { me } from './identity'
-import { refreshAll } from '../refresh'
 import { setSeen } from './seen'
 import { captureAnchor, NoteData } from '../core/format/noteModel'
-import { folderName, Note } from './store'
-import { anchorAt, inNotesFolder, otherAnchor, rangeLines, relPath, selectedLines } from './location'
+import { Note } from './store'
+import { folderName, inNotesFolder } from './notesFolder'
+import { anchorAt, rangeLines, selectedLines } from './location'
+import { otherAnchor } from './suggestion'
+import { range1Of } from './model/lines'
+import { relPath } from '../platform/documents'
 import { diskLines, docLines } from '../platform/documents'
 import { wfs } from '../platform/workspaceFs'
-import { shape, shapeOf } from './changedOnDisk'
 import { allowComments } from './commentRanges'
 import { reveal } from './reveal'
 import { fireAndForget } from '../platform/run'
@@ -74,7 +76,7 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
   if (!folder) { fireAndForget(showError(SAVE_INSIDE), 'create: showError'); return undefined }
   if (ownFiles(inNotesFolder(doc.uri))) return undefined
   const n = await newNote(folder, body, async () => ({
-    file: relPath(folder, doc.uri), range: { start: loc.start + 1, end: loc.end + 1 },
+    file: relPath(folder, doc.uri), range: range1Of(loc),
     anchor: await anchorAt(docLines(doc), loc.start, loc.end, folder),
     ...(selection ? { selection } : {}),
   }), extra)
@@ -96,8 +98,6 @@ export async function createNote(doc: vscode.TextDocument, loc: Loc, body: strin
 async function save(n: Note): Promise<boolean> {
   if (!(await store.save(n))) return false
   fireAndForget(setSeen([[n.data.id, 1]]), 'seen')
-  shape.set(n.data.id, shapeOf(n))
-  refreshAll()
   return true
 }
 
