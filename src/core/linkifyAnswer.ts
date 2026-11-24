@@ -25,6 +25,9 @@ const REF_LINE = String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))`
  */
 const BARE_REF = new RegExp(`${REF_START}\`?(${PATH})${REF_LINE}\`?`, 'g')
 
+/** The patterns, for test/answerLinks.test.ts's table (what each one matches, and the bare reference assembled). */
+export const ANSWER_LINK_PATTERNS = { IMAGE, MD_LINK, NOT_A_FILE, TARGET, BARE_REF } as const
+
 /**
  * One piece of answer text (outside ``` fences) with its file references as links. `link(text, file, line)` makes
  * one link; `root`: the repository's absolute path (its prefix is dropped everywhere); `home`: shown as "~".
