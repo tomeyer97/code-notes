@@ -1,14 +1,14 @@
 // The check's names, limits and links: what every other module (and the extension) shares.
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import type { Config, Kind, Verdict } from './types'
 
 export const DIR = 'understanding'
-export const KINDS = ['how', 'why', 'failure', 'edge', 'change']
+export const KINDS: Kind[] = ['how', 'why', 'failure', 'edge', 'change']
 /** `restated`: after an explanation, the author said the point back in their own words, rightly (counts as passed). */
-export const VERDICTS = ['pass', 'retry', 'explained', 'restated']
+export const VERDICTS: Verdict[] = ['pass', 'retry', 'explained', 'restated']
 export const MARKER = '<!-- understanding-check -->'
-export const DEFAULTS = {
+export const DEFAULTS: Config = {
   questions: { min: 1, max: 5 }, passRatio: 0.6, maxDrift: 40, exempt: [], mode: 'required',
   skipLabel: 'skip-understanding', model: null, backend: null, mrComment: true,
 }
@@ -28,22 +28,25 @@ export const SKILL_URL = 'https://github.com/tomeyer97/code-notes/tree/main/skil
  * The way without VS Code, the same in `status` and CI: /understanding-check in Claude Code (the skill, committed in
  * the repository by `init`, asks the questions one at a time in the chat). `installed`: the repository has the skill.
  */
-export const withoutVsCode = (installed) => installed ? 'Without VS Code: type /understanding-check in Claude Code.' : `Without VS Code: add the understanding-check skill to .claude/skills (${SKILL_URL}), then type /understanding-check in Claude Code.`
+export const withoutVsCode = (installed: boolean): string => installed ? 'Without VS Code: type /understanding-check in Claude Code.' : `Without VS Code: add the understanding-check skill to .claude/skills (${SKILL_URL}), then type /understanding-check in Claude Code.`
 /** The repository has the skill (`init` put it there). */
-export const hasSkill = (repo) => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
+export const hasSkill = (repo: string): boolean => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
 
 /** Where `init` puts the skill, so anyone running Claude Code in the repository can type /understanding-check. */
 export const SKILL_DIR = '.claude/skills/understanding-check'
 
 /**
  * This file's path: the built cli/understanding.mjs, or a copy of it (tools/understanding.mjs, the skill's
- * scripts/understanding.mjs). `init` copies it; run as a command, it runs main.
+ * scripts/understanding.mjs). `init` copies it; run as a command, it runs main. Set by the entry (index.ts), the one
+ * module that knows its own URL: the extension compiles these modules on their own, where it stays ''.
  */
-const SELF = fileURLToPath(import.meta.url)
+let SELF = ''
+/** Sets SELF (index.ts, from import.meta.url). */
+const setSelf = (file: string): void => { SELF = file }
 /** This file's path for a command line: relative to the repository when it is inside it, else "understanding.mjs". */
-const cliName = (repo) => {
+const cliName = (repo: string): string => {
   const me = path.relative(repo, SELF)
   return me && !me.startsWith('..') && !path.isAbsolute(me) ? me : 'understanding.mjs'
 }
 
-export { cliName, SELF }
+export { cliName, SELF, setSelf }

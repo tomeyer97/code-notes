@@ -15,7 +15,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Note } from '../notes/store'
-import { Check, Cli, Link, notDone, QState, Question, RefreshResult, Status, Who, Words } from './types'
+import { BranchStatus, Check, Link, notDone, QState, Question, RefreshResult, Who, Words } from './types'
 import { linksAt, gradeMessageAt, gradedAttempts } from './threadText'
 import { concernOf } from './concernState'
 import { CheckView, checkView, definedOnly, runAction, statusText } from './viewModel'
@@ -28,7 +28,7 @@ import { Concerns, ConcernAction, VIEW_CONCERN_ACTIONS } from './concern'
 import { FIX_REFRESH_MS, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SKILL } from './constants'
 import { Grader } from './grading'
 import type { CheckHost } from './host'
-import { importCli } from './importCli'
+import { hostCli, type HostCli } from './cliApi'
 import { InvalidFile } from './invalidFile'
 import { isCheck, linkOf } from './threadLink'
 import { checkLog, type CheckLog } from './log'
@@ -51,14 +51,14 @@ export class CheckController implements vscode.Disposable {
   // ---------- shared with the parts in this folder (check/wiring.ts and the rest of the extension use the methods further down) ----------
 
   /** The understanding CLI (cli/understanding.mjs), loaded by init(). Not Claude Code (host.cli()). */
-  cli!: Cli
+  cli!: HostCli
   /** cli/understanding.mjs's path (the skills' scripts get it as UNDERSTANDING_CLI). */
   readonly cliPath: string
   /** The CLI's git work (status, diffs, identity), on a worker thread: never waited for by the extension host. */
   worker!: CliThread
   /** The workspace folder (its repository) the check is about: the first one. */
   readonly folder = vscode.workspace.workspaceFolders?.[0]
-  st: Status | undefined
+  st: BranchStatus | undefined
   words: Words | undefined
   /** Who answers (git's user.name and user.email), as the last refresh read it. */
   who: Who | undefined
@@ -122,8 +122,8 @@ export class CheckController implements vscode.Disposable {
   }
 
   async init(): Promise<void> {
-    this.cli = await importCli<Cli>(this.cliPath)
-    this.worker = new CliThread(this.cliPath)
+    this.cli = hostCli
+    this.worker = new CliThread()
     // Claude runs the skill's script by its path: it must be executable (an unzip may have dropped the bit).
     const script = vscode.Uri.joinPath(this.host.extUri, 'skills', SKILL, 'scripts', 'questions.mjs').fsPath
     try { fs.accessSync(script, fs.constants.X_OK) } catch { try { fs.chmodSync(script, 0o755) } catch { /* read-only install */ } }
@@ -219,7 +219,7 @@ export class CheckController implements vscode.Disposable {
     const edited = fixFiles.filter((f) => !!unsavedDocument(repo, f))
     const files = [...REPO_FILES, ...this.todoFiles(), ...fixFiles]
     const o = { prev: force ? undefined : this.key, files, untracked: !!this.writer.notice, extra: edited.join('\0') }
-    return this.worker.call<RefreshResult>('refreshState', repo, o)
+    return this.worker.api.refreshState(repo, o)
       .catch((e: Error): RefreshResult => ({ error: e.message }))
   }
   /** Another branch is checked out (`before`: the one left, if any). */
@@ -235,7 +235,7 @@ export class CheckController implements vscode.Disposable {
     const st = this.st
     if (!(st?.state.phase === 'none' && !!st.base && !!st.head && st.changed > 0)) return false
     const exempt = this.cli.loadConfig(repo).exempt
-    const stat = this.worker.call<{ added: number; removed: number }>('codeStat', repo, st.base, st.head, exempt)
+    const stat = this.worker.api.codeStat(repo, st.base, st.head, exempt)
     return stat.then((s) => this.cli.linesOf(s) === 0, () => false)
   }
   /** The status bar item, from the CLI's words (only what changed is sent to the window: each change is a message). */

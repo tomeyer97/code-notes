@@ -2,7 +2,7 @@
 
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'
-import { Check, questionDone } from '../check/types'
+import { Check, isDone } from '../check/types'
 import { seeAlso } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'
@@ -23,7 +23,7 @@ export function stopsOf(lj: LoadedJourney): Stop[] {
   const walkIsAt = (q: { id: string; step: number }) => q.id === tourState.checkpointId && tourState.isAt(lj, q.step)
   for (const s of lj.j.steps) {
     out.push({ step: s.n })
-    for (const q of qs) if (q.step === s.n && (!questionDone(q.state) || walkIsAt(q))) out.push({ step: s.n, q: q.id })
+    for (const q of qs) if (q.step === s.n && (!isDone(q.state) || walkIsAt(q))) out.push({ step: s.n, q: q.id })
   }
   return out
 }

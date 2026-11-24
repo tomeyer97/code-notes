@@ -2,7 +2,7 @@
 // with by kind of call (DEFAULT_GIT, QUICK_GIT, HISTORY_GIT), and the parsers of `git status --porcelain=v2 -z`. No
 // vscode here: unit tests use it as is.
 //
-// Not the only git runner yet: the understanding CLI has its own two (cli/understanding/git.mjs: `git`, synchronous,
+// Not the only git runner yet: the understanding CLI has its own two (cli/understanding/git.ts: `git`, synchronous,
 // 64 MiB, no timeout, run on a worker thread with READ_ONLY_GIT; `gitRun` for commit and push, 60 s). The CLI is plain
 // JavaScript today; once it is TypeScript it can use these limits too.
 import { execFile } from 'child_process'

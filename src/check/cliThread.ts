@@ -2,9 +2,10 @@
 // waits for git: a big repository's `git diff` takes a second or more, and every extension sharing the host (over
 // Remote-SSH: the editor too) would wait with it. No vscode here: unit tests use it as is.
 import { Worker } from 'worker_threads'
-import * as path from 'path'
 import { READ_ONLY_GIT } from '../platform/git'
 import { fireAndForget } from '../platform/run'
+import type { Remote, WorkerReply, WorkerRequest } from './cliProxy'
+import { WORKER_FILE, type WorkerApi } from './cliWorker'
 
 /** A call that takes longer than this is given up (a git that hangs): the worker is stopped, the next call starts a new one. */
 const TIMEOUT_MS = 120_000
@@ -15,27 +16,35 @@ export class CliThread {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
 
   /**
-   * `cli`: the CLI file's path. `env`: the worker's environment (its git commands'), with READ_ONLY_GIT: reading the
-   * status writes nothing another watcher sees.
+   * The worker's functions (cliWorker.ts `workerApi`), typed: `await thread.api.diffText(repo, base)`. Not a thenable
+   * (no `then`), so it can be returned from an async function.
    */
-  constructor(private cli: string, private env: NodeJS.ProcessEnv = process.env) {}
+  readonly api: Remote<WorkerApi> = new Proxy({} as Remote<WorkerApi>, {
+    get: (_t, fn) => (typeof fn === 'string' && fn !== 'then' ? (...args: unknown[]) => this.call(fn, args) : undefined),
+  })
 
-  /** `fn(...args)` of the CLI (or of the worker's own functions), on the worker; its value, or its error. */
-  call<T>(fn: string, ...args: unknown[]): Promise<T> {
+  /**
+   * `env`: the worker's environment (its git commands'), with READ_ONLY_GIT: reading the status writes nothing
+   * another watcher sees.
+   */
+  constructor(private env: NodeJS.ProcessEnv = process.env) {}
+
+  /** `fn(...args)` on the worker; its value, or its error. */
+  private call(fn: string, args: unknown[]): Promise<unknown> {
     const w = (this.worker ??= this.start())
     const id = ++this.seq
-    return new Promise<T>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.stop(w, new Error(`${fn}: no answer in ${TIMEOUT_MS / 1000} s`)), TIMEOUT_MS)
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
-      w.postMessage({ id, fn, args })
+      this.pending.set(id, { resolve, reject, timer })
+      w.postMessage({ id, fn, args } satisfies WorkerRequest)
     })
   }
 
   private start(): Worker {
-    const w = new Worker(path.join(__dirname, 'cliWorker.js'), { workerData: { cli: this.cli }, env: { ...this.env, ...READ_ONLY_GIT } })
+    const w = new Worker(WORKER_FILE, { env: { ...this.env, ...READ_ONLY_GIT } })
     // Never what keeps a process alive (the unit tests, a host shutting down).
     w.unref()
-    w.on('message', (m: { id: number; ok: boolean; v?: unknown; err?: string }) => {
+    w.on('message', (m: WorkerReply) => {
       const p = this.pending.get(m.id)
       if (!p) return
       this.pending.delete(m.id)

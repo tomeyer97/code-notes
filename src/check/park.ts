@@ -1,5 +1,5 @@
 // A branch's check, not committed yet, moved out of the working tree while another branch is checked out, and put
-// back once it is checked out again. It waits in the CLI's cache folder (Cli CACHE: git-ignored).
+// back once it is checked out again. It waits in the CLI's cache folder (CACHE: git-ignored).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'

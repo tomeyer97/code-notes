@@ -1,20 +1,36 @@
 // Review items (flagged concerns, "may be a bug", "Worth discussing") as threads on the merge request's diff.
-import { git } from './git.mjs'
-import { nearestChanged } from './diff.mjs'
-import { api, glMr } from './platform.mjs'
-import { changedText, concernLink, inline, isConcernItem, reviewItems } from './mrComment.mjs'
+import { git } from './git'
+import { nearestChanged } from './diff'
+import { api, glMr } from './platform'
+import { changedText, concernLink, inline, isConcernItem, reviewItems } from './mrComment'
+import type { Check, Question } from './types'
 
-const concernMarker = (id) => `<!-- understanding-concern:${id} -->`
-const closedMarker = (id) => `<!-- understanding-concern-closed:${id} -->`
-const concernIdOf = (body) => /<!-- understanding-concern:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
-const closedIdOf = (body) => /<!-- understanding-concern-closed:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
+/** A review item (mrComment's reviewItems). */
+type ReviewItem = ReturnType<typeof reviewItems>[number]
+/** The forge context (platform's api). */
+type Ctx = Parameters<typeof api>[0]
+/** A line of a file; `moved`: not the line it is about. */
+interface Place { file: string; line: number; moved?: boolean }
+/** The file's lines at a commit, or undefined. */
+type LinesAt = (file: string) => string[] | undefined
+/** A link to lines of a file (mrComment's refLink). */
+type LinkOf = (q: { file: string; start?: number; end?: number }) => string | undefined
+/** What syncConcerns logs through (syncLog). */
+interface SyncLog { lines: string[]; say: (s: string) => boolean; safe: <T>(what: string, fn: () => Promise<T>) => Promise<T | undefined> }
+/** Where each item's thread goes and what it says (threadTexts). */
+interface ThreadTexts { placeOf: (it: ReviewItem) => Place | undefined; bodyOf: (it: ReviewItem, onLine: boolean) => string; what: (it: ReviewItem) => string }
+
+const concernMarker = (id: string): string => `<!-- understanding-concern:${id} -->`
+const closedMarker = (id: string): string => `<!-- understanding-concern-closed:${id} -->`
+const concernIdOf = (body: unknown): string | undefined => /<!-- understanding-concern:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
+const closedIdOf = (body: unknown): string | undefined => /<!-- understanding-concern-closed:([\w-]+) -->/.exec(String(body ?? ''))?.[1]
 
 /**
  * Where a flagged concern goes: the code the concern names (its grade's link, found again by its line's text when it
  * moved: `lines(file)` gives the file at the commit), else the last line of its question's range, else the first code
  * link of the attempt that raised it (or of the question). `{ file, line }`, or undefined (then a plain note).
  */
-export function concernPlace(q, lines) {
+export function concernPlace(q: Question, lines?: LinesAt): Place | undefined {
   const own = concernLink(q)
   if (own) {
     const ls = lines?.(own.file)
@@ -25,7 +41,7 @@ export function concernPlace(q, lines) {
     }
     return { file: own.file, line }
   }
-  if (q.target !== 'file' && Number.isInteger(q.end)) return { file: q.file, line: q.end }
+  if (q.target !== 'file' && Number.isInteger(q.end)) return { file: q.file, line: q.end! }
   const as = [...(q.attempts ?? [])].reverse()
   const l = (as.find((x) => x.concern && x.links?.length) ?? as.find((x) => x.links?.length))?.links?.[0] ?? q.links?.[0]
   return l && typeof l.file === 'string' && Number.isInteger(l.start) ? { file: l.file, line: l.start } : undefined
@@ -39,7 +55,7 @@ export function concernPlace(q, lines) {
  * (and the grader's concern on it, if any). `where`: a link to the line the concern names, when the thread is not on it.
  * `changed`: the commit that changed the concern's line since (see concernChangedIn).
  */
-export function threadBody(check, it, where, { changed } = {}) {
+export function threadBody(check: Check, it: ReviewItem, where: string | undefined, { changed }: { changed?: string } = {}): string {
   const tail = where ? ` · ${where}` : ''
   const out = [concernMarker(it.id)]
   if (isConcernItem(it)) {
@@ -49,13 +65,13 @@ export function threadBody(check, it, where, { changed } = {}) {
     if (it.d) out.push('', `💬 Worth discussing: ${inline(it.d.topic)}${it.d.point ? ` · ${it.d.point}` : ''}`)
     if (changed !== undefined) out.push('', `_${changedText(changed).replace(/^l/, 'L')}_ In VS Code: Mark fixed.`)
   } else {
-    out.push(`💬 **Worth discussing** (understanding check): ${inline(it.d.topic)}`, `${it.d.point || ''}${where ? `${it.d.point ? ' · ' : ''}${where}` : ''}`)
+    out.push(`💬 **Worth discussing** (understanding check): ${inline(it.d!.topic)}`, `${it.d!.point || ''}${where ? `${it.d!.point ? ' · ' : ''}${where}` : ''}`)
     if (it.concern) out.push('', `⚠ ${inline(it.concern)}`)
   }
   return out.join('\n')
 }
 /** A flagged concern's thread text (threadBody for one question). */
-export const concernBody = (check, q, where, o = {}) => threadBody(check, { id: q.id, q, concern: q.concern.text, flagged: true }, where, o.changed ? { changed: typeof o.changed === 'string' ? o.changed : '' } : {})
+export const concernBody = (check: Check, q: Question, where: string | undefined, o: { changed?: string | boolean } = {}): string => threadBody(check, { id: q.id, q, concern: q.concern!.text, flagged: true }, where, o.changed ? { changed: typeof o.changed === 'string' ? o.changed : '' } : {})
 
 /**
  * Puts each review item (reviewItems: flagged concerns, "may be a bug", "Worth discussing"; one per question) on the
@@ -68,9 +84,9 @@ export const concernBody = (check, q, where, o = {}) => threadBody(check, { id: 
  * it, GitHub gets one "No longer flagged." reply (resolving a review thread needs GraphQL); flagged again, the bot
  * reopens only what it resolved itself. "Worth discussing" threads are left to the reviewer. Returns log lines; never throws.
  */
-export async function syncConcerns(ctx, check, { head, link = () => undefined, urls = new Map(), repo, items = reviewItems(check), diff, changed = new Map() } = {}) {
+export async function syncConcerns(ctx: Ctx, check: Check, { head, link = () => undefined, urls = new Map(), repo, items = reviewItems(check), diff, changed = new Map() }: { head?: string; link?: LinkOf; urls?: Map<string, string>; repo?: string; items?: ReviewItem[]; diff?: string; changed?: Map<string, string> } = {}): Promise<string[]> {
   const log = syncLog()
-  const want = new Map(items.map((it) => [it.id, it]))
+  const want = new Map(items.map((it): [string, ReviewItem] => [it.id, it]))
   const text = threadTexts(check, { head, link, repo, diff, changed })
   if (ctx.platform === 'gitlab') await syncGitlab(ctx, want, { urls, text, log })
   else if (ctx.platform === 'github') await syncGithub(ctx, want, { urls, text, log, head })
@@ -78,16 +94,16 @@ export async function syncConcerns(ctx, check, { head, link = () => undefined, u
 }
 
 /** What syncConcerns says: `say(line)` (true, for chains of `&&`), `safe(what, fn)` (a failed API call said, undefined). */
-function syncLog() {
-  const lines = []
+function syncLog(): SyncLog {
+  const lines: string[] = []
   return {
     lines,
-    say: (s) => { lines.push(`  ${s}`); return true },
-    safe: async (what, fn) => {
+    say: (s: string) => { lines.push(`  ${s}`); return true },
+    safe: async <T>(what: string, fn: () => Promise<T>): Promise<T | undefined> => {
       try {
         return await fn()
       } catch (e) {
-        lines.push(`  (couldn't ${what}: ${String(e.message).slice(0, 160)})`)
+        lines.push(`  (couldn't ${what}: ${String((e as Error).message).slice(0, 160)})`)
         return undefined
       }
     },
@@ -98,61 +114,61 @@ function syncLog() {
  * Where each item's thread goes and what it says, the same on both platforms: `placeOf(it)` (the line it is about, moved
  * to the nearest line of the diff), `bodyOf(it, onLine)` (onLine: the thread is on a line of the diff), `what(it)`.
  */
-function threadTexts(check, { head, link, repo, diff, changed }) {
+function threadTexts(check: Check, { head, link, repo, diff, changed }: { head?: string; link: LinkOf; repo?: string; diff?: string; changed: Map<string, string> }): ThreadTexts {
   // The file at the head commit, for a concern's line that moved since it was graded.
-  const fileAt = (f) => {
+  const fileAt = (f: string): string[] | undefined => {
     try { return repo && head ? git(repo, ['show', `${head}:${f}`]).split(/\r?\n/) : undefined } catch { return undefined }
   }
   // The line it is about: a concern's own line, else the question's first line.
-  const aboutOf = (it) => {
+  const aboutOf = (it: ReviewItem): Place | undefined => {
     if (isConcernItem(it)) return concernPlace(it.q, fileAt)
-    return it.q.target === 'file' || !Number.isInteger(it.q.start) ? undefined : { file: it.q.file, line: it.q.start }
+    return it.q.target === 'file' || !Number.isInteger(it.q.start) ? undefined : { file: it.q.file, line: it.q.start! }
   }
   // Then the nearest line of the diff (`moved`: not the line it is about).
-  const placeOf = (it) => {
+  const placeOf = (it: ReviewItem): Place | undefined => {
     const p = aboutOf(it)
     if (!p || diff === undefined) return p
     const line = nearestChanged(diff, p.file, p.line)
     return line === undefined ? p : { ...p, line, ...(line !== p.line ? { moved: true } : {}) }
   }
-  const whereAt = (p) => {
+  const whereAt = (p: Place | undefined): string | undefined => {
     if (!p) return undefined
     const u = link({ file: p.file, start: p.line, end: p.line })
     return u ? `[\`${p.file}:${p.line}\`](${u})` : `\`${p.file}:${p.line}\``
   }
   // On a line of the diff: the text says where it is about only when that is another line.
-  const bodyOf = (it, onLine) => {
+  const bodyOf = (it: ReviewItem, onLine: boolean): string => {
     const where = onLine ? (placeOf(it)?.moved ? whereAt(aboutOf(it)) : undefined) : whereAt(aboutOf(it))
     return threadBody(check, it, where, isConcernItem(it) && changed.has(it.id) ? { changed: changed.get(it.id) } : {})
   }
-  const what = (it) => (isConcernItem(it) ? 'Concern' : 'Worth discussing')
+  const what = (it: ReviewItem): string => (isConcernItem(it) ? 'Concern' : 'Worth discussing')
   return { placeOf, bodyOf, what }
 }
 
 /** A thread of a question: its id, or the id an earlier version gave a "Worth discussing" thread. */
-const idOf = (raw) => raw.replace(/^discuss-/, '')
+const idOf = (raw: string): string => raw.replace(/^discuss-/, '')
 /** Keeps one thread per question in `mine`: the one with its own id rather than an earlier version's. */
-function keepThread(mine, id, x) {
+function keepThread<X extends { raw: string }>(mine: Map<string, X>, id: string, x: X): void {
   const had = mine.get(id)
   if (!had || (had.raw !== id && x.raw === id)) mine.set(id, x)
 }
 
 /** GitLab: discussions with a diff position; the bot resolves what is no longer flagged and reopens what it resolved. */
-async function syncGitlab(ctx, want, { urls, text, log }) {
+async function syncGitlab(ctx: Ctx, want: Map<string, ReviewItem>, { urls, text, log }: { urls: Map<string, string>; text: ThreadTexts; log: SyncLog }): Promise<void> {
   const { say, safe } = log
   const mr = glMr(ctx)
-  const discussions = await safe('read the merge request threads', () => api(ctx, 'GET', `${mr}/discussions?per_page=100`))
+  const discussions: any = await safe('read the merge request threads', () => api(ctx, 'GET', `${mr}/discussions?per_page=100`))
   if (!Array.isArray(discussions)) return
-  const mine = new Map()
+  const mine = new Map<string, { d: any; n: any; raw: string }>()
   for (const d of discussions) {
     const n = d.notes?.[0], raw = concernIdOf(n?.body)
     if (raw) keepThread(mine, idOf(raw), { d, n, raw })
   }
-  const sameUser = (a, b) => !!a && !!b && (a.id !== undefined && b.id !== undefined ? a.id === b.id : a.username === b.username)
+  const sameUser = (a: any, b: any): boolean => !!a && !!b && (a.id !== undefined && b.id !== undefined ? a.id === b.id : a.username === b.username)
   // A person replied in the thread: theirs now.
-  const touched = (d, n) => (d.notes ?? []).slice(1).some((x) => !x.system && !sameUser(x.author, n.author))
-  const noteUrl = (nid) => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
-  let refs
+  const touched = (d: any, n: any): boolean => (d.notes ?? []).slice(1).some((x: any) => !x.system && !sameUser(x.author, n.author))
+  const noteUrl = (nid: unknown): string => `${ctx.web}/-/merge_requests/${ctx.mr}#note_${nid}`
+  let refs: any
   for (const [id, it] of want) {
     const had = mine.get(id)
     if (had) {
@@ -172,7 +188,7 @@ async function syncGitlab(ctx, want, { urls, text, log }) {
     const position = p && refs?.base_sha
       ? { position_type: 'text', base_sha: refs.base_sha, start_sha: refs.start_sha, head_sha: refs.head_sha, new_path: p.file, new_line: p.line }
       : undefined
-    const posted = (d) => {
+    const posted = (d: any): boolean => {
       const nid = d?.notes?.[0]?.id
       if (nid !== undefined) urls.set(id, noteUrl(nid))
       return true
@@ -185,7 +201,7 @@ async function syncGitlab(ctx, want, { urls, text, log }) {
         ok = true
       } catch { /* not in the diff */ }
     }
-    if (ok) { say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
+    if (ok) { say(`${text.what(it)} posted on ${p!.file}:${p!.line} (${id}).`); continue }
     const note = () => api(ctx, 'POST', `${mr}/discussions`, { body: text.bodyOf(it, false) }).then(posted)
     if (await safe('post a thread', note)) say(`${text.what(it)} posted as a note (${id}).`)
   }
@@ -201,14 +217,14 @@ async function syncGitlab(ctx, want, { urls, text, log }) {
  * GitHub: review comments (side RIGHT) or, off the diff, issue comments; what is no longer flagged gets one "No longer
  * flagged." reply (resolving a review thread needs GraphQL), removed when it is flagged again.
  */
-async function syncGithub(ctx, want, { urls, text, log, head }) {
+async function syncGithub(ctx: Ctx, want: Map<string, ReviewItem>, { urls, text, log, head }: { urls: Map<string, string>; text: ThreadTexts; log: SyncLog; head?: string }): Promise<void> {
   const { say, safe } = log
   const repoUrl = `/repos/${ctx.project}`
   const pr = `${repoUrl}/pulls/${ctx.mr}`
   const review = await safe('read the review comments', () => api(ctx, 'GET', `${pr}/comments?per_page=100`))
   const notes = await safe('read the comments', () => api(ctx, 'GET', `${repoUrl}/issues/${ctx.mr}/comments?per_page=100`))
   if (!Array.isArray(review) || !Array.isArray(notes)) return
-  const mine = new Map(), closed = new Map()
+  const mine = new Map<string, { c: any; review: boolean; raw: string }>(), closed = new Map<string, any>()
   for (const c of review) {
     const raw = concernIdOf(c.body)
     if (raw && !c.in_reply_to_id) keepThread(mine, idOf(raw), { c, review: true, raw })
@@ -221,10 +237,10 @@ async function syncGithub(ctx, want, { urls, text, log, head }) {
     const id = closedIdOf(c.body)
     if (id) closed.set(id, c)
   }
-  for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body), c) }
+  for (const c of notes) { if (closedIdOf(c.body)) closed.set(closedIdOf(c.body)!, c) }
   // A person replied to the review thread: theirs now.
-  const replied = (c) => review.some((x) => x.in_reply_to_id === c.id && !closedIdOf(x.body) && x.user?.login !== c.user?.login)
-  const ghUrl = (c, rv) => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
+  const replied = (c: any): boolean => review.some((x) => x.in_reply_to_id === c.id && !closedIdOf(x.body) && x.user?.login !== c.user?.login)
+  const ghUrl = (c: any, rv: boolean): string => `${ctx.web}/pull/${ctx.mr}#${rv ? `discussion_r${c.id}` : `issuecomment-${c.id}`}`
   for (const [id, it] of want) {
     const had = mine.get(id)
     if (had) {
@@ -247,8 +263,8 @@ async function syncGithub(ctx, want, { urls, text, log, head }) {
         ok = true
       } catch { /* not in the diff */ }
     }
-    if (ok) { say(`${text.what(it)} posted on ${p.file}:${p.line} (${id}).`); continue }
-    const comment = () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: text.bodyOf(it, false) }).then((c) => {
+    if (ok) { say(`${text.what(it)} posted on ${p!.file}:${p!.line} (${id}).`); continue }
+    const comment = () => api(ctx, 'POST', `${repoUrl}/issues/${ctx.mr}/comments`, { body: text.bodyOf(it, false) }).then((c: any) => {
       if (c?.id !== undefined) urls.set(id, ghUrl(c, false))
       return true
     })

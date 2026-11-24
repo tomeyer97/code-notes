@@ -17,7 +17,7 @@ import { journeyOfNote, stepLinkOf } from '../sidebar/journeyRows'
 import { NoteEvent } from '../core/format/noteModel'
 import { Note } from '../notes/store'
 import { plural, rangeLabel } from '../core/text'
-import { questionDone } from '../check/types'
+import { isDone } from '../check/types'
 import { seeAlsoLink } from '../tour/checkTour'
 import { tourState, walk } from '../tour/instances'
 import { docUri, missing, openDoc, pastEnd } from '../notes/location'
@@ -291,7 +291,7 @@ function statusRows(n: Note): vscode.Comment[] {
   if (chk?.concern) out.push(concernRow(id, chk.concern))
   // An open check question whose code a journey of the repository walks: one link to that step.
   const cq = understanding?.isCheck(n) ? understanding.questionOf(n) : undefined
-  if (cq && !questionDone(understanding!.rowOf(n)?.state ?? '')) {
+  if (cq && !isDone(understanding!.rowOf(n)?.state ?? '')) {
     const files = [cq.file, ...(cq.also ?? []).map((x) => x.file)]
     const also = seeAlsoLink(files, cq.start ? { start: n.data.range.start, end: n.data.range.end } : undefined)
     if (also) out.push(systemRow(systemMarkdown(also), 'See also'))

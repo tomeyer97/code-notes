@@ -1,20 +1,19 @@
-// cli/understanding.mjs is built from cli/understanding/*.mjs (cli/bundle.mjs): the committed file must be the build
-// of the modules as they are, and every module must load on its own (its imports name what it uses).
+// cli/understanding.mjs is committed (CI recipes download it by URL): it must be the build of cli/understanding/*.ts
+// as they are (npm run build writes it; the build checks the types first).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { BUILT, ORDER, SOURCES, bundle } from '../../cli/bundle.mjs'
+import { BUILT, buildCli } from '../../scripts/build/cli.mjs'
 
-test('cli/understanding.mjs is the build of cli/understanding/ (run npm run cli)', () => {
-  assert.equal(fs.readFileSync(BUILT, 'utf8'), bundle())
+const SOURCES = path.join(path.dirname(BUILT), 'understanding')
+
+test('cli/understanding.mjs is up to date (npm run build)', async () => {
+  assert.equal(fs.readFileSync(BUILT, 'utf8'), (await buildCli()).text)
 })
 
-test('cli/bundle.mjs joins every module of cli/understanding/', () => {
-  assert.deepEqual(fs.readdirSync(SOURCES).filter((f) => f.endsWith('.mjs')).map((f) => f.slice(0, -4)).sort(), [...ORDER].sort())
-})
-
-test('each module of cli/understanding/ loads on its own', async () => {
-  for (const name of ORDER) await import(pathToFileURL(path.join(SOURCES, `${name}.mjs`)).href)
+test('every module of cli/understanding/ is in the built file (types.ts: types only)', async () => {
+  const { inputs } = await buildCli()
+  const modules = fs.readdirSync(SOURCES).filter((f) => f.endsWith('.ts') && f !== 'types.ts').map((f) => `cli/understanding/${f}`)
+  assert.deepEqual(modules.filter((m) => !inputs.includes(m)), [])
 })

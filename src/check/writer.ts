@@ -13,7 +13,7 @@ import type { CheckController } from './controller'
 import { writeFailure } from './failures'
 import { costOf } from './log'
 import { checkPhase, checkPrompt, tourPrompt } from './prompts'
-import type { Status } from './types'
+import type { BranchStatus } from './types'
 import { busyLabel } from './viewModel'
 import { fireAndForget } from '../platform/run'
 import { STATE } from '../platform/state'
@@ -77,7 +77,7 @@ export class Writer {
    * Before Claude writes: Claude may run here (in the background: the folder is trusted; nothing is asked), what the
    * questions leave out is noted, Claude Code is found (else that is said, and the prompt goes to the clipboard).
    */
-  private async preflight(st: Status, topUp: boolean, bg: boolean): Promise<(Omit<SkillRun, 'run'> & { dir: string }) | undefined> {
+  private async preflight(st: BranchStatus, topUp: boolean, bg: boolean): Promise<(Omit<SkillRun, 'run'> & { dir: string }) | undefined> {
     if (!this.trusted(bg, 'write understanding-check questions')) return undefined
     // Uncommitted work doesn't stop the start: the view names what the questions leave out.
     if (!bg) {

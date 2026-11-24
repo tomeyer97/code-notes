@@ -1,12 +1,15 @@
 // Comment syntax by file type, and whether a line is code (not blank, not a whole-line comment).
 import path from 'node:path'
 
+/** How a file type writes comments: line markers, block [open, close] pairs, `star`: doc blocks written one "*" per line. */
+type CommentStyle = { line?: string[]; block?: [string, string][]; star?: boolean }
+
 // Comment syntax by file extension (pragmatic: whole-line comments only; a block comment is followed within a hunk).
-const C_LIKE = { line: ['//'], block: [['/*', '*/']], star: true }
-const HASH = { line: ['#'] }
-const DASH = { line: ['--'] }
-const MARKUP = { block: [['<!--', '-->']] }
-const STYLES = {
+const C_LIKE: CommentStyle = { line: ['//'], block: [['/*', '*/']], star: true }
+const HASH: CommentStyle = { line: ['#'] }
+const DASH: CommentStyle = { line: ['--'] }
+const MARKUP: CommentStyle = { block: [['<!--', '-->']] }
+const STYLES: Record<string, CommentStyle> = {
   js: C_LIKE, mjs: C_LIKE, cjs: C_LIKE, jsx: C_LIKE, ts: C_LIKE, mts: C_LIKE, cts: C_LIKE, tsx: C_LIKE, java: C_LIKE, kt: C_LIKE, kts: C_LIKE,
   scala: C_LIKE, groovy: C_LIKE, gradle: C_LIKE, c: C_LIKE, h: C_LIKE, cc: C_LIKE, cpp: C_LIKE, cxx: C_LIKE, hpp: C_LIKE, m: C_LIKE, mm: C_LIKE,
   cs: C_LIKE, go: C_LIKE, rs: C_LIKE, swift: C_LIKE, dart: C_LIKE, proto: C_LIKE, zig: C_LIKE, sol: C_LIKE, jsonc: C_LIKE, json5: C_LIKE,
@@ -20,9 +23,9 @@ const STYLES = {
   vue: { line: ['//'], block: [['<!--', '-->'], ['/*', '*/']], star: true }, svelte: { line: ['//'], block: [['<!--', '-->'], ['/*', '*/']], star: true },
   erb: MARKUP, ejs: MARKUP, hbs: MARKUP, jsp: MARKUP,
 }
-const BY_NAME = { dockerfile: HASH, makefile: HASH, gemfile: HASH, rakefile: HASH, procfile: HASH, '.gitignore': HASH, '.dockerignore': HASH, '.gitattributes': HASH }
+const BY_NAME: Record<string, CommentStyle> = { dockerfile: HASH, makefile: HASH, gemfile: HASH, rakefile: HASH, procfile: HASH, '.gitignore': HASH, '.dockerignore': HASH, '.gitattributes': HASH }
 /** How a file writes comments (undefined: no comments known; only blank lines don't count). */
-export function commentStyle(file) {
+export function commentStyle(file: string): CommentStyle | undefined {
   const name = path.posix.basename(String(file)).toLowerCase()
   if (BY_NAME[name] || name.startsWith('dockerfile')) return BY_NAME[name] ?? HASH
   const ext = /\.([a-z0-9]+)$/.exec(name)?.[1]
@@ -33,7 +36,7 @@ export function commentStyle(file) {
  * Whether a line is code: not blank, not a whole-line comment. `state.block`: the close marker of a block comment the
  * previous line left open (pass the same object for consecutive lines; it is updated).
  */
-export function isCode(line, file, state = {}) {
+export function isCode(line: string, file: string, state: { block?: string } = {}): boolean {
   const t = String(line).trim()
   if (!t) return false
   const st = commentStyle(file)

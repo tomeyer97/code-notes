@@ -25,7 +25,7 @@ export function whoOf(me: Who): Who {
   return who
 }
 /**
- * The same person: by email when both have one, else by name. (The CLI's sameWho, cli/understanding/checkFile.mjs, is
+ * The same person: by email when both have one, else by name. (The CLI's sameWho, cli/understanding/checkFile.ts, is
  * this rule for the CLI and the merge request; the view model here is loaded without the CLI.)
  */
 export function samePerson(a: Who, b: Who): boolean {

@@ -1,18 +1,25 @@
 // The command line: `node understanding.mjs <command>` (see HELP).
 import fs from 'node:fs'
 import path from 'node:path'
-import { CI_URL, cliName, DOCS_URL, hasSkill, SELF, SKILL_DIR, SKILL_URL, withoutVsCode } from './constants.mjs'
-import { currentBranch, repoRoot } from './git.mjs'
-import { diffText } from './diff.mjs'
-import { addAttempt, fileFor, flagConcern, gitIdentity, loadConfig, readCheck, unknownLine, unknownSettings, writeCheck } from './checkFile.mjs'
-import { validateCheck } from './validate.mjs'
-import { localStatus, nextQuestion, stamp, stateOf, stateWords, summarize } from './state.mjs'
-import { applyGrade, gradeQuestion, promptFor } from './grading.mjs'
-import { pickBackend } from './graderBackends.mjs'
-import { commitCheck } from './push.mjs'
-import { MARK } from './mrComment.mjs'
-import { runCi } from './ci.mjs'
-import { FOLD_TEXT, initRepo, installSkill } from './init.mjs'
+import { CI_URL, cliName, DOCS_URL, hasSkill, SKILL_DIR, SKILL_URL, withoutVsCode } from './constants'
+import { currentBranch, repoRoot } from './git'
+import { diffText } from './diff'
+import { addAttempt, fileFor, flagConcern, gitIdentity, loadConfig, readCheck, unknownLine, unknownSettings, writeCheck } from './checkFile'
+import { validateCheck } from './validate'
+import { localStatus, nextQuestion, stamp, stateOf, stateWords, summarize } from './state'
+import { applyGrade, gradeQuestion, promptFor } from './grading'
+import { pickBackend } from './graderBackends'
+import { commitCheck } from './push'
+import { MARK } from './mrComment'
+import { runCi } from './ci'
+import { FOLD_TEXT, initRepo, installSkill } from './init'
+import type { Attempt, Check, Config, Question } from './types'
+
+/** The parsed command line (parseArgs): `_` the words, then each `--flag`: its value, or true. */
+type Args = { _: string[]; [flag: string]: any }
+type Print = (s: string) => void
+/** What a command gets: the arguments, the repository, where it runs, the environment, where it prints. */
+interface CommandArgs { o: Args; repo: string; cwd: string; env: NodeJS.ProcessEnv; print: Print }
 
 const HELP = `understanding.mjs: an understanding check for a change (docs: ${DOCS_URL})
 
@@ -42,8 +49,8 @@ ANTHROPIC_API_KEY (Messages API). UNDERSTANDING_CLAUDE: the claude CLI to run.
 The questions are written by the understanding-check skill: in VS Code by Code Notes, else by Claude Code
 (/understanding-check; ${SKILL_URL}).`
 
-export function parseArgs(argv) {
-  const o = { _: [] }
+export function parseArgs(argv: string[]): Args {
+  const o: Args = { _: [] }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a.startsWith('--')) { o._.push(a); continue }
@@ -55,7 +62,7 @@ export function parseArgs(argv) {
   return o
 }
 
-export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), env = process.env, print = (s) => console.log(s) } = {}) {
+export async function main(argv: string[] = process.argv.slice(2), { cwd = process.cwd(), env = process.env, print = (s: string) => console.log(s) }: { cwd?: string; env?: NodeJS.ProcessEnv; print?: Print } = {}): Promise<number> {
   const o = parseArgs(argv)
   const cmd = o._[0]
   const repo = repoRoot(cwd) ?? cwd
@@ -65,7 +72,7 @@ export async function main(argv = process.argv.slice(2), { cwd = process.cwd(), 
 }
 
 /** The commands, each `({ o: the arguments, repo, cwd, env, print })` → its exit code. */
-const COMMANDS = {
+const COMMANDS: Record<string, (a: CommandArgs) => number | Promise<number>> = {
   status: statusCommand,
   init: initCommand,
   validate: validateCommand,
@@ -76,7 +83,7 @@ const COMMANDS = {
   ci: ciCommand,
 }
 
-function statusCommand({ o, repo, env, print }) {
+function statusCommand({ o, repo, env, print }: CommandArgs): number {
   const s = localStatus(repo, { base: typeof o.base === 'string' ? o.base : undefined, env })
   if (o.json) {
     const { check, ...rest } = s
@@ -91,14 +98,14 @@ function statusCommand({ o, repo, env, print }) {
   }
   print(`  ${s.branch} · ${s.file}${s.exists ? '' : ' (none yet)'} · ${s.changed} code line${s.changed === 1 ? '' : 's'} changed`)
   if (s.conflict) print(`  First conflict at ${s.file}:${s.conflict.line}.`)
-  if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift.lines} lines since the check`)
+  if (s.summary) print(`  ${s.summary.done} done, ${s.summary.passed} passed · ${s.drift!.lines} lines since the check`)
   const unknown = unknownSettings(repo)
   if (unknown.length) print(unknownLine(unknown))
   // A file that can't be read is an error for scripts and hooks too.
   return s.state.phase === 'invalid' ? 1 : 0
 }
 
-function initCommand({ repo, print }) {
+function initCommand({ repo, print }: CommandArgs): number {
   const changed = initRepo(repo)
   const skill = installSkill(repo)
   const files = [...new Set(changed.map((l) => l.split(':')[0]))]
@@ -114,11 +121,11 @@ function initCommand({ repo, print }) {
   return 0
 }
 
-function validateCommand({ o, repo, cwd, print }) {
+function validateCommand({ o, repo, cwd, print }: CommandArgs): number {
   const f = o._[1]
   if (!f) { print('validate: which file?'); return 2 }
-  let c
-  try { c = readCheck(path.resolve(cwd, f)) } catch (e) { print(`✗ ${f}: ${e.message}`); return 1 }
+  let c: Check
+  try { c = readCheck(path.resolve(cwd, f)) } catch (e) { print(`✗ ${f}: ${(e as Error).message}`); return 1 }
   const errs = validateCheck(c, { repo })
   if (!errs.length) { print(`✓ ${f}: ${c.questions.length} questions`); return 0 }
   for (const e of errs) print(`✗ ${e}`)
@@ -129,14 +136,14 @@ function validateCommand({ o, repo, cwd, print }) {
  * `grade`: the ungraded answers (or `--question`'s) graded by a backend; `--prompt` prints the grader's instructions
  * instead; `--reply` records a grade written elsewhere.
  */
-async function gradeCommand({ o, repo, cwd, env, print }) {
+async function gradeCommand({ o, repo, cwd, env, print }: CommandArgs): Promise<number> {
   const f = o._[1] ? path.resolve(cwd, o._[1]) : path.join(repo, fileFor(currentBranch(repo, env)))
-  let c
-  try { c = readCheck(f) } catch (e) { print(`✗ ${f}: ${e.message}`); return 2 }
+  let c: Check
+  try { c = readCheck(f) } catch (e) { print(`✗ ${f}: ${(e as Error).message}`); return 2 }
   const errs = validateCheck(c)
   if (errs.length) { print(`✗ not valid: ${errs[0]}`); return 2 }
   const cfg = loadConfig(repo)
-  let list = c.questions.filter((q) => stateOf(q) === 'ungraded')
+  let list = c.questions.filter((q: Question) => stateOf(q) === 'ungraded')
   const one = typeof o.question === 'string'
   if ((o.prompt || o.reply !== undefined) && (!one || typeof o.answer !== 'string')) {
     print(`--${o.prompt ? 'prompt' : 'reply'} needs --question and --answer`)
@@ -144,7 +151,7 @@ async function gradeCommand({ o, repo, cwd, env, print }) {
   }
   if (!one && typeof o.answer === 'string') { print('--answer needs --question'); return 2 }
   if (one) {
-    const q = c.questions.find((x) => x.id === o.question)
+    const q = c.questions.find((x: Question) => x.id === o.question)
     if (!q) { print(`✗ no question ${o.question}`); return 2 }
     // The grader's instructions for this answer, for Claude Code to grade in a chat: nothing is recorded.
     if (o.prompt) { print(promptFor(repo, c, q, o.answer)); return 0 }
@@ -154,83 +161,83 @@ async function gradeCommand({ o, repo, cwd, env, print }) {
     list = [q]
   }
   if (!list.length) { print('Nothing to grade: no answers without a verdict.'); return 0 }
-  let backend
+  let backend: ReturnType<typeof pickBackend>
   try {
     backend = pickBackend({ flag: typeof o.backend === 'string' ? o.backend : undefined, cfg, env })
   } catch (e) {
-    print(`! ${e.message}`)
+    print(`! ${(e as Error).message}`)
     return 2
   }
   const model = typeof o.model === 'string' ? o.model : cfg.model ?? env.UNDERSTANDING_MODEL ?? undefined
-  let diff
+  let diff: string
   try { diff = diffText(repo, c.base ?? c.head, undefined) } catch { diff = '' }
   let failed = 0
-  await Promise.all(list.map(async (q) => {
+  await Promise.all(list.map(async (q: Question) => {
     try {
       const a = await gradeQuestion(repo, c, q, { backend, model, env, diff })
       print(gradeLine(q, a))
-    } catch (e) { failed++; print(`! ${q.id}: ${e.message}`) }
+    } catch (e) { failed++; print(`! ${q.id}: ${(e as Error).message}`) }
   }))
   if (o.write) { writeCheck(f, stamp(c, cfg)); print(`Saved ${path.relative(repo, f)}.`) }
   return failed ? 2 : 0
 }
 
 /** `grade --reply`: the grade (`reply`) recorded on question `q`'s latest answer, the file saved, what is next said. */
-function recordReply({ f, c, q, cfg, reply, repo, env, print }) {
-  let a
-  try { a = applyGrade(repo, q, q.attempts.at(-1), reply) } catch (e) { print(`✗ ${e.message}`); return 2 }
+function recordReply({ f, c, q, cfg, reply, repo, env, print }: { f: string; c: Check; q: Question; cfg: Config; reply: string; repo: string; env: NodeJS.ProcessEnv; print: Print }): number {
+  let a: Attempt
+  try { a = applyGrade(repo, q, q.attempts!.at(-1)!, reply) } catch (e) { print(`✗ ${(e as Error).message}`); return 2 }
   writeCheck(f, stamp(c, cfg))
   print(gradeLine(q, a))
   print(progressLine(c, cfg, repo, env))
   return 0
 }
 
-function nextCommand({ repo, env, print }) {
+function nextCommand({ repo, env, print }: CommandArgs): number {
   const branch = branchCheck(repo, env, print)
   if (!branch) return 1
   const c = branch.check
   const q = nextQuestion(c)
   if (!q) { print(progressLine(c, loadConfig(repo), repo, env)); return 0 }
   const i = c.questions.indexOf(q)
-  const tries = (q.attempts ?? []).filter((a) => a.verdict).length
+  const tries = (q.attempts ?? []).filter((a: Attempt) => a.verdict).length
   const where = q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`
-  const also = q.also?.length ? ` · also ${q.also.map((x) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''
+  const also = q.also?.length ? ` · also ${q.also.map((x: NonNullable<Question['also']>[number]) => `${x.file}:${x.start}-${x.end}`).join(', ')}` : ''
   print(`${q.id} (${i + 1} of ${c.questions.length}${tries ? `, try ${tries + 1}` : ''}) · ${q.kind} · ${where}${also}`)
   print(q.text)
-  const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts.at(-1).hint : ''
+  const hint = q.attempts?.at(-1)?.verdict === 'retry' ? q.attempts!.at(-1)!.hint : ''
   if (hint) print(`Hint: ${hint}`)
   return 0
 }
 
-function flagCommand({ o, repo, env, print }) {
+function flagCommand({ o, repo, env, print }: CommandArgs): number {
   const branch = branchCheck(repo, env, print)
   if (!branch) return 1
   const c = branch.check
-  const q = c.questions.find((x) => x.id === o.question)
+  const q = c.questions.find((x: Question) => x.id === o.question)
   if (!q) { print(`✗ no question ${o.question ?? '(--question q1)'}`); return 2 }
   if (!flagConcern(c, q, gitIdentity(repo))) { print(`${q.id} has no concern to flag.`); return 1 }
   writeCheck(branch.file, c)
-  print(`⚠ Flagged for the reviewer: ${q.concern.text}`)
+  print(`⚠ Flagged for the reviewer: ${q.concern!.text}`)
   return 0
 }
 
-async function commitCommand({ o, repo, env, print }) {
+async function commitCommand({ o, repo, env, print }: CommandArgs): Promise<number> {
   const r = await commitCheck(repo, { env, push: !o['no-push'] })
   if (!r.ok) { print(`✗ ${r.line}`); return 1 }
-  const fold = r.files.includes('.gitattributes') ? ` (${FOLD_TEXT.replace(/ \(.*$/, '')})` : ''
-  const what = `${r.files.map((x) => path.basename(x)).join(', ')}${fold}`
+  const fold = r.files!.includes('.gitattributes') ? ` (${FOLD_TEXT.replace(/ \(.*$/, '')})` : ''
+  const what = `${r.files!.map((x) => path.basename(x)).join(', ')}${fold}`
   print(`${r.committed ? `Committed ${what}. ` : ''}${r.line === 'Committed.' ? '' : r.line}${r.mr ? ` Open a merge request: ${r.mr}` : ''}`.trim())
   return 0
 }
 
-async function ciCommand({ o, repo, env, print }) {
+async function ciCommand({ o, repo, env, print }: CommandArgs): Promise<number> {
   const r = await runCi(repo, { env, comment: !o['no-comment'], base: typeof o.base === 'string' ? o.base : undefined })
   for (const l of r.lines) print(l)
   return r.code
 }
 
 /** This branch's check file (`file`) and its check, or undefined after saying there is none yet. */
-function branchCheck(repo, env, print) {
+function branchCheck(repo: string, env: NodeJS.ProcessEnv, print: Print): { file: string; check: Check } | undefined {
   const file = path.join(repo, fileFor(currentBranch(repo, env)))
   try {
     return { file, check: readCheck(file) }
@@ -241,21 +248,16 @@ function branchCheck(repo, env, print) {
 }
 
 /** One grade in a line: "✓ q1 pass: Right: …", with the hint and a concern when there are. */
-function gradeLine(q, a) {
+function gradeLine(q: Question, a: Attempt): string {
   const hint = a.hint ? `\n  Hint: ${a.hint}` : ''
   const concern = a.concern ? `\n  Concern: ${a.concern}` : ''
-  return `${MARK[a.verdict]} ${q.id} ${a.verdict}${a.partial ? ' (mostly right)' : ''}: ${a.feedback}${hint}${concern}`
+  return `${MARK[a.verdict!]} ${q.id} ${a.verdict}${a.partial ? ' (mostly right)' : ''}: ${a.feedback}${hint}${concern}`
 }
 /** Where the check stands after a grade, and what is next: the next question, or the commit. */
-function progressLine(check, cfg, repo, env) {
+function progressLine(check: Check, cfg: Config, repo: string, env: NodeJS.ProcessEnv): string {
   const s = summarize(check, cfg)
   const next = nextQuestion(check)
   if (next) return `${s.done} of ${s.total} done · next: ${next.id}`
   if (s.met) return `✓ Done: ${s.passed} of ${s.total} passed (${s.needed} needed). Commit and push: node ${cliName(repo)} commit`
   return `${s.passed} passed, ${s.needed} must pass: say an explained answer back in one sentence (grade --question <id> --answer "…" --reply …).`
-}
-
-// Run as a command (not imported): the command line, its exit code.
-if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF) } catch { return false } })()) {
-  main().then((code) => { process.exitCode = code }, (e) => { console.error(`! ${e.message}`); process.exitCode = 2 })
 }

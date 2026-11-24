@@ -4,7 +4,7 @@ import * as vscode from 'vscode'
 import * as path from 'path'
 import { Ask, AskErrorKind, AskResult } from '../platform/agent/claude'
 import type { Note } from '../notes/store'
-import type { Attempt, Cli, Question } from './types'
+import type { Attempt, ParsedVerdict, Question } from './types'
 import { sameQuestion } from './threadLink'
 import { costOf } from './log'
 import type { CheckController } from './controller'
@@ -110,7 +110,7 @@ export class Grader {
     this.grading.set(id, undefined)
     let diff = ''
     try {
-      diff = await ctl.worker.call<string>('diffText', repo, check.base ?? check.head)
+      diff = await ctl.worker.api.diffText(repo, check.base ?? check.head)
     } catch { /* no diff: the grader reads the code */ }
     const prompt = ctl.cli.graderPrompt({
       q, answer: last.answer ?? '', ...mode,
@@ -126,7 +126,7 @@ export class Grader {
     try {
       if (res.cancelled) return
       if (res.error) { fail({ message: res.error, kind: res.errorKind }); return }
-      let v: ReturnType<Cli['parseVerdict']>
+      let v: ParsedVerdict
       try {
         v = ctl.cli.parseVerdict(res.text, mode.attempt, { restate: mode.explanation !== undefined })
       } catch (e) {
@@ -147,7 +147,7 @@ export class Grader {
    * Writes verdict `v` on the attempt it graded (`last`). The file may have changed while Claude worked: it is read
    * again, and the verdict goes only to the same answer, still ungraded and still the latest. False when it is gone.
    */
-  private applyVerdict(abs: string, id: string, last: Attempt, v: ReturnType<Cli['parseVerdict']>, res: AskResult): boolean {
+  private applyVerdict(abs: string, id: string, last: Attempt, v: ParsedVerdict, res: AskResult): boolean {
     const ctl = this.ctl
     const check = ctl.cli.readCheck(abs)
     const q: Question | undefined = check.questions.find((x) => x.id === id)

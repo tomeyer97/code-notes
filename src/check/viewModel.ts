@@ -4,8 +4,8 @@
 import { clock } from '../core/writing'
 import { concernOf, samePerson } from './concernState'
 import { SAY_IT_BACK, retryText } from './threadText'
-import { notDone } from './types'
-import type { Attempt, Kind, QState, Question, Range, Status, Who, Words } from './types'
+import { isPassed, notDone } from './types'
+import type { Attempt, BranchStatus, Kind, QState, Question, Range, Who, Words } from './types'
 import { baseName } from '../core/paths'
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
@@ -94,7 +94,7 @@ export const busyLabel = (what: string, started: number, now = Date.now()): stri
  */
 export function answerBox(q: Question, n: number, state: QState, o: { draft?: string; grading?: boolean; others?: boolean; applied?: boolean; error?: string } = {}): AnswerBox {
   const a = [...(q.attempts ?? [])].reverse().find((x) => x.verdict)
-  const pass = state === 'pass' || state === 'restated'
+  const pass = isPassed(state)
   const grade = a && !o.grading ? gradeOf(a, state) : undefined
   const concern = o.grading ? undefined : concernOf(q)
   return definedOnly({
@@ -167,7 +167,7 @@ export interface CheckViewOptions {
  * The Check view: where the check stands (the CLI's words), the questions, one button. `unpushed`: the branch has
  * commits its remote doesn't (undefined: no upstream). `pushed`: what Commit & push said last.
  */
-export function checkView(st: Status, w: Words, o: CheckViewOptions = {}): CheckView {
+export function checkView(st: BranchStatus, w: Words, o: CheckViewOptions = {}): CheckView {
   const p = st.state.phase
   const rows = rowsOf(st, o)
   const { action, line } = actionOf(st, w.line, o)
@@ -189,7 +189,7 @@ export function checkView(st: Status, w: Words, o: CheckViewOptions = {}): Check
 }
 
 /** The questions as rows: number, kind, where, state (and its word), a concern's flag, the tour step. */
-function rowsOf(st: Status, o: CheckViewOptions): CheckRow[] {
+function rowsOf(st: BranchStatus, o: CheckViewOptions): CheckRow[] {
   return (st.check?.questions ?? []).map((q, i) => {
     const grading = o.grading?.has(q.id)
     const state: QState = grading ? 'ungraded' : st.summary?.states[i] ?? 'todo'
@@ -223,7 +223,7 @@ export type ActionId = keyof typeof ACTIONS
 const button = (id: ActionId, label: string = ACTIONS[id]): NonNullable<CheckView['action']> => ({ id, label })
 
 /** A check that needs a top-up: Commit… first when only uncommitted lines put it over, else Add questions. */
-const driftAction = (st: Status): 'scm' | 'topUp' => (st.state.commitFirst ? 'scm' : 'topUp')
+const driftAction = (st: BranchStatus): 'scm' | 'topUp' => (st.state.commitFirst ? 'scm' : 'topUp')
 /** Done, and something is left to send: the check file changed (`dirty`), an applied fix, or a push (or no upstream). */
 const leftToSend = (dirty: boolean | undefined, fixes: string[] | undefined, unpushed: boolean | undefined): boolean => {
   return !!(dirty || fixes?.length || unpushed !== false)
@@ -233,7 +233,7 @@ const leftToSend = (dirty: boolean | undefined, fixes: string[] | undefined, unp
  * The view's one button and the line above it (`line`: the CLI's words, replaced where the button needs its own).
  * Check my understanding (the command) decides with runAction, next to this.
  */
-function actionOf(st: Status, line: string, o: CheckViewOptions): { action?: CheckView['action']; line: string } {
+function actionOf(st: BranchStatus, line: string, o: CheckViewOptions): { action?: CheckView['action']; line: string } {
   const p = st.state.phase
   // Nothing of the change committed yet: said before any Claude call; Commit… (the check starts once it is in).
   if (p === 'none' && o.uncommitted) {
@@ -252,7 +252,7 @@ function actionOf(st: Status, line: string, o: CheckViewOptions): { action?: Che
   return { line }
 }
 /** Done: whatever is left to commit or push, the button is there (the check file, an applied fix, the push itself). */
-function doneAction(st: Status, line: string, o: CheckViewOptions): { action?: CheckView['action']; line: string } {
+function doneAction(st: BranchStatus, line: string, o: CheckViewOptions): { action?: CheckView['action']; line: string } {
   let action: CheckView['action']
   const fixes = o.commit?.fixes ?? []
   if (leftToSend(st.dirty, fixes, o.unpushed)) {
@@ -275,7 +275,7 @@ function doneAction(st: Status, line: string, o: CheckViewOptions): { action?: C
  * check, a stash), else the tour or the next question (`walk`).
  */
 export type RunStep = Exclude<ActionId, 'merge' | 'pull'> | 'show' | 'walk'
-export function runAction(st: Status, o: { commit?: Pick<CommitPlan, 'fixes' | 'tourOnly'>; unpushed?: boolean }): RunStep {
+export function runAction(st: BranchStatus, o: { commit?: Pick<CommitPlan, 'fixes' | 'tourOnly'>; unpushed?: boolean }): RunStep {
   const p = st.state.phase
   if (p === 'invalid') return 'openFile'
   if (p === 'nothing' || p === 'stashed') return 'show'
@@ -291,7 +291,7 @@ export function runAction(st: Status, o: { commit?: Pick<CommitPlan, 'fixes' | '
  * What Commit & push names: the files it commits; a TODO added from the check is the person's choice (ticked), an
  * applied fix goes unless unticked.
  */
-function commitOf(st: Status, c: CommitPlan): Pick<CheckView, 'commits' | 'also'> {
+function commitOf(st: BranchStatus, c: CommitPlan): Pick<CheckView, 'commits' | 'also'> {
   const files = [...(st.dirty ? [st.file] : []), ...c.files.filter((f) => f !== st.file)]
   const fixes = c.fixes ?? []
   const also = [
@@ -309,7 +309,7 @@ function commitOf(st: Status, c: CommitPlan): Pick<CheckView, 'commits' | 'also'
 }
 
 /** The selected question's answer box. */
-function answerOf(st: Status, rows: CheckRow[], o: CheckViewOptions): AnswerBox | undefined {
+function answerOf(st: BranchStatus, rows: CheckRow[], o: CheckViewOptions): AnswerBox | undefined {
   const qs = st.check?.questions ?? []
   const si = o.selected ? qs.findIndex((x) => x.id === o.selected) : -1
   if (si < 0) return undefined
@@ -324,7 +324,7 @@ function answerOf(st: Status, rows: CheckRow[], o: CheckViewOptions): AnswerBox 
 }
 
 /** The tour: walk it; an older check (or a run that failed) offers to write one. Nothing while one is being written. */
-function tourOf(st: Status, o: CheckViewOptions): CheckView['tour'] {
+function tourOf(st: BranchStatus, o: CheckViewOptions): CheckView['tour'] {
   const p = st.state.phase
   const steps = st.check?.journey?.steps?.length ?? 0
   // Documentation that describes no code: no tour, on purpose; nothing offers one.
@@ -344,7 +344,7 @@ function tourOf(st: Status, o: CheckViewOptions): CheckView['tour'] {
 export interface CommitPlan { files: string[]; todos: string[]; include: Set<string>; fixes?: string[]; exclude?: Set<string>; applied?: string[]; tourOnly?: boolean; fold?: boolean; foldText?: string }
 
 /** The status bar, from the CLI's words: hidden when no check is needed; an icon by tone; amber for a top-up. */
-export function statusText(st: Status | undefined, w: Words | undefined): { text: string; tip: string; warn: boolean } | undefined {
+export function statusText(st: BranchStatus | undefined, w: Words | undefined): { text: string; tip: string; warn: boolean } | undefined {
   if (!st || !w || !w.bar) return undefined
   const p = st.state.phase
   const icon = p === 'done' ? '$(pass)' : w.tone === 'warn' ? '$(warning)' : '$(checklist)'

@@ -2,14 +2,17 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Question, Status, Summary, Words } from '../src/check/types'
+import { execFileSync } from 'child_process'
+import { pathToFileURL } from 'url'
+import { BranchStatus, Question, Summary, Words } from '../src/check/types'
 import { checkPhase, checkPrompt, tourPrompt } from '../src/check/prompts'
 import { gradeBody, linksAt, questionBody, missingMessages } from '../src/check/threadText'
 import { concernOf, samePerson, whoOf } from '../src/check/concernState'
 import { checkView, statusText, answerBox, linkParts, runAction } from '../src/check/viewModel'
 import { todoLines, todoPlace, commentMark } from '../src/check/todoComment'
 import { gradeFailure, writeFailure, jsonErrorAt } from '../src/check/failures'
-import { importCli } from '../src/check/importCli'
+import { hostCli } from '../src/check/cliApi'
+import { workerApi } from '../src/check/cliWorker'
 import { bashCall } from './toolCalls'
 
 /** A question of the check on api/orders.js lines 10-12. */
@@ -48,7 +51,7 @@ const summaryOf = (states: Summary['states'], over: Partial<Summary> = {}): Summ
   }
 }
 /** A check on feat/x: three questions, two passed, one to do. */
-const statusOf = (over: Partial<Status> = {}): Status => ({
+const statusOf = (over: Partial<BranchStatus> = {}): BranchStatus => ({
   branch: 'feat/x',
   file: 'understanding/feat-x.json',
   changed: 120,
@@ -324,15 +327,15 @@ test('a failure the extension raised is said by its kind, whatever its words', (
   assert.equal(gradeFailure('something else'), "Claude couldn't check it; your answer is saved.")
 })
 
-test('every function of Cli is in the CLI', async () => {
-  // The interface's member names, read from the source: one per line, indented two spaces (as the file is formatted;
-  // more indentation is a nested type's member, not one of Cli's).
-  const src = fs.readFileSync(path.join(__dirname, '../../src/check/types.ts'), 'utf8')
-  const body = /export interface Cli \{([\s\S]*?)\n\}/.exec(src)![1]
-  const names = [...body.matchAll(/^ {2}([A-Za-z_]\w*)[(:]/gm)].map((m) => m[1])
-  assert.ok(names.length > 30, `found ${names.length} names`)
-  const cli = await importCli<Record<string, unknown>>(path.join(__dirname, '../../cli/understanding.mjs'))
-  assert.deepEqual(names.filter((n) => !(n in cli)), [])
+test('every CLI function the extension calls is one the built CLI exports', () => {
+  // The extension compiles the CLI's modules (src/check/cliApi.ts, cliWorker.ts); people run cli/understanding.mjs,
+  // built from the same modules: the names it calls are the CLI's public API.
+  const built = path.join(__dirname, '../../cli/understanding.mjs')
+  const list = `import(${JSON.stringify(pathToFileURL(built).href)}).then((m) => console.log(JSON.stringify(Object.keys(m))))`
+  const exported = new Set<string>(JSON.parse(execFileSync(process.execPath, ['-e', list], { encoding: 'utf8' })))
+  const called = [...Object.keys(hostCli), ...Object.keys(workerApi).filter((n) => n !== 'refreshState'), 'refreshInputs', 'localStatus', 'gitIdentity']
+  assert.ok(called.length > 25, `found ${called.length} names`)
+  assert.deepEqual(called.filter((n) => !exported.has(n)), [])
 })
 
 test('the command does what the view offers, except where it says otherwise', () => {

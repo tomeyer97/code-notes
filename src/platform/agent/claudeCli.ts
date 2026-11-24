@@ -24,7 +24,7 @@ let found: { key: string; cli?: string } | undefined
 /**
  * The `claude` CLI: the setting if given, else the NEWEST install among PATH and the usual places (VS Code's PATH
  * often finds an old global install before the one you update, e.g. nvm's). The understanding CLI's `grade`, run in a
- * terminal, finds its own (UNDERSTANDING_CLAUDE, else `claude` on PATH: cli/understanding/graderBackends.mjs).
+ * terminal, finds its own (UNDERSTANDING_CLAUDE, else `claude` on PATH: cli/understanding/graderBackends.ts).
  */
 export function findCli(setting: string | undefined): string | undefined {
   const p = lookup(setting)
