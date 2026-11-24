@@ -87,10 +87,10 @@ class JourneyFiles implements vscode.Disposable {
         // Only the same code (fresh) follows into a new file: edited look-alikes don't.
         const into = await this.events.findMovedFile(
           (folder) => folder?.uri.toString() === lj.folder.uri.toString(),
-          (lines) => this.journeys.findIn(lj, s.n, lines).state === 'fresh' || undefined,
+          (lines) => this.journeys.locator.findIn(lj, s.n, lines).state === 'fresh' || undefined,
         )
-        if (into) await this.journeys.moveStep(lj, s.n, relPath(lj.folder, into.uri))
-        if (fileOf(lj, s.n) === f && (await this.journeys.locate(lj, (k) => k === s.n))) moved = true
+        if (into) await this.journeys.locator.moveStep(lj, s.n, relPath(lj.folder, into.uri))
+        if (fileOf(lj, s.n) === f && (await this.journeys.locator.locate(lj, (k) => k === s.n))) moved = true
       }
       if (moved) changed.push(lj)
     }
@@ -104,7 +104,7 @@ class JourneyFiles implements vscode.Disposable {
         for (const s of lj.j.steps) {
           const old = vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, s.n)).path
           if (old !== oldUri.path && !old.startsWith(oldUri.path + '/')) continue
-          await this.journeys.moveStep(lj, s.n, relPath(lj.folder, vscode.Uri.joinPath(newUri, old.slice(oldUri.path.length))))
+          await this.journeys.locator.moveStep(lj, s.n, relPath(lj.folder, vscode.Uri.joinPath(newUri, old.slice(oldUri.path.length))))
         }
       }
     }
