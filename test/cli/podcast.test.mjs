@@ -1,93 +1,77 @@
-// The code-journey skill's `journey.py podcast` (and `check`, which runs it): the same rules as the extension's
-// validator (src/core/format/podcast/validate.ts). Every case of test/fixtures/podcast/cases.json, which test/podcastValidate.test.ts
-// runs through the extension's, gives the same problems here.
+// The code-journey skill's `journey.py podcast` (and `check`, which runs it). With node it runs the extension's own
+// validator (src/core/format/podcast/validate.ts, through journey-check.mjs); without, journey.py's copy of its rules.
+// Every case of test/fixtures/podcast/cases.json, which test/podcastValidate.test.ts runs through the extension, gives
+// the same problems both ways.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { JPY } from './helpers.mjs'
+import { both } from './journeyRules.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const cases = JSON.parse(fs.readFileSync(path.join(root, 'test/fixtures/podcast/cases.json'), 'utf8'))
+const byName = (answers) => Object.fromEntries(cases.map((c, i) => [c.name, answers[i]]))
+const { node, python } = both(cases.map((c) => ({ op: 'podcast', ...c })))
+const codes = (ps) => ps.map((p) => `${p.level}:${p.code}` + (p.segment ? `@${p.segment}` : '')).sort()
+const messages = (ps) => ps.map((p) => p.message).sort()
 
-test('journey.py podcast: every validator case gives the same problems as the extension', () => {
-  const py = `
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-out = []
-for c in json.load(sys.stdin):
-    ps = m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files'))
-    out.append(sorted(f"{p['level']}:{p['code']}" + (f"@{p['segment']}" if p['segment'] else '') for p in ps))
-print(json.dumps(out))
-`
-  // No __pycache__ beside the skill's script (it ships as is).
-  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
-  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
-  cases.forEach((c, i) => assert.deepEqual(got[i], [...c.expect].sort(), c.name))
+test('journey.py podcast: every validator case gives its problems, with node and without', () => {
+  cases.forEach((c, i) => {
+    assert.deepEqual(codes(node[i]), [...c.expect].sort(), `node: ${c.name}`)
+    assert.deepEqual(codes(python[i]), [...c.expect].sort(), `python: ${c.name}`)
+  })
 })
 
-test('journey.py podcast: the same words as the extension for a missing step, a string beat, a reused id, the order, the commit', () => {
-  const py = `
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-out = {}
-for c in json.load(sys.stdin):
-    out[c['name']] = [p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files'))]
-print(json.dumps(out))
-`
-  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
-  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(cases), encoding: 'utf8', env }))
-  assert.deepEqual(got["a step the journey doesn't have, in three segments: said once, with its segments and times"], ['step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them'])
-  assert.deepEqual(got['a beat written as a string'], ['Step 1: beat must be a number, got the string "2"; showing the whole step'])
-  assert.ok(got['a duplicate id and an unknown cue'].includes('segment s1: the id "s1" is used twice (0:00 and 0:10)'))
-  assert.match(got["narrated in another order than the journey's (steps reordered since)"][0], /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
-  assert.deepEqual(got['recorded for an older commit, steps changed since: a quiet note'], ['Code changed since recording: steps 1, 3'])
+test('journey.py podcast: the same words with node and without (but for a JSON syntax error, which node says more precisely)', () => {
+  cases.forEach((c, i) => {
+    if (c.name !== 'invalid JSON') assert.deepEqual(messages(python[i]), messages(node[i]), c.name)
+  })
+  assert.ok(cases.filter((c) => c.name.startsWith('marks:')).length >= 3, 'the marks are among them')
+  const said = byName(node.map((ps) => ps.map((p) => p.message)))
+  assert.deepEqual(said["a step the journey doesn't have, in three segments: said once, with its segments and times"], ['step "gone" isn\'t in the journey (segments x1–x3, 0:10–0:39): they keep the view before them'])
+  assert.deepEqual(said['a beat written as a string'], ['Step 1: beat must be a number, got the string "2"; showing the whole step'])
+  assert.ok(said['a duplicate id and an unknown cue'].includes('segment s1: the id "s1" is used twice (0:00 and 0:10)'))
+  assert.match(said["narrated in another order than the journey's (steps reordered since)"][0], /^segment a: narrates step 1 \("a"\) after step 3 \("c"\): the journey's steps were reordered since it was recorded/)
+  assert.deepEqual(said['recorded for an older commit, steps changed since: a quiet note'], ['Code changed since recording: steps 1, 3'])
 })
 
-test('journey.py podcast: marks are said in the same words as the extension', async () => {
-  const { validatePodcast } = await import(path.join(root, 'out/src/core/format/podcast/validate.js'))
-  const py = `
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-out = {}
-for c in json.load(sys.stdin):
-    out[c['name']] = sorted(p['message'] for p in m.podcast_problems(c['raw'], c['journey'], c.get('audio'), c.get('audioDuration'), c.get('changed'), c.get('files')))
-print(json.dumps(out))
-`
-  const marks = cases.filter((c) => c.name.startsWith('marks:'))
-  assert.ok(marks.length >= 3)
-  const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
-  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify(marks), encoding: 'utf8', env }))
-  for (const c of marks) {
-    const files = c.files ? (f) => (f in c.files ? c.files[f] : undefined) : undefined
-    const ts = validatePodcast(c.raw, { journey: c.journey, audio: c.audio, audioDuration: c.audioDuration, changed: c.changed, files }).problems.map((p) => p.message).sort()
-    assert.deepEqual(got[c.name], ts, c.name)
-  }
-})
+/** A WAV file of `secs` seconds of silence: 8-bit mono PCM. */
+function silentWav(secs, rate = 8000) {
+  const data = secs * rate
+  const header = Buffer.alloc(44)
+  let at = 0
+  const text = (s) => { header.write(s, at); at += s.length }
+  const u32 = (n) => { header.writeUInt32LE(n, at); at += 4 }
+  const u16 = (n) => { header.writeUInt16LE(n, at); at += 2 }
+  text('RIFF'); u32(36 + data); text('WAVE')
+  text('fmt '); u32(16); u16(1 /* PCM */); u16(1 /* channels */); u32(rate); u32(rate /* bytes a second */); u16(1 /* block */); u16(8 /* bits */)
+  text('data'); u32(data)
+  return Buffer.concat([header, Buffer.alloc(data, 128)])
+}
 
-/** The example shop (its place-order journey) in a temp folder, with a podcast file and a 30 s WAV beside it. */
+/** The example shop's place-order journey and the files its steps are on, in a temp folder, with a podcast file
+ *  and a 30 s WAV beside it. */
 function shop(podcast) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cn-podcast-'))
-  fs.cpSync(path.join(root, 'examples/shop'), d, { recursive: true })
-  const secs = 30, rate = 8000
-  const wav = Buffer.alloc(44 + secs * rate, 128)
-  wav.write('RIFF', 0); wav.writeUInt32LE(36 + secs * rate, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16)
-  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate, 28)
-  wav.writeUInt16LE(1, 32); wav.writeUInt16LE(8, 34); wav.write('data', 36); wav.writeUInt32LE(secs * rate, 40)
-  fs.writeFileSync(path.join(d, 'journeys/place-order.wav'), wav)
+  const src = path.join(root, 'examples/shop')
+  const journey = JSON.parse(fs.readFileSync(path.join(src, 'journeys/place-order.json'), 'utf8'))
+  const files = new Set(['journeys/place-order.json', ...journey.steps.map((s) => s.file), ...journey.nodes.filter((n) => n.at).map((n) => n.at.file)])
+  for (const f of files) {
+    fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true })
+    fs.copyFileSync(path.join(src, f), path.join(d, f))
+  }
+  fs.writeFileSync(path.join(d, 'journeys/place-order.wav'), silentWav(30))
   fs.writeFileSync(path.join(d, 'journeys/place-order.podcast.json'), typeof podcast === 'string' ? podcast : JSON.stringify(podcast, null, 2))
   return d
 }
-const run = (d, ...args) => { const r = spawnSync('python3', [JPY, ...args], { cwd: d, encoding: 'utf8' }); return { code: r.status, out: r.stdout + r.stderr } }
+const run = (d, ...args) => {
+  const r = spawnSync('python3', [JPY, ...args], { cwd: d, encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+  return { code: r.status, out: r.stdout + r.stderr }
+}
 const episode = (more = {}) => ({
   version: 1, title: 'Placing an order', journey: { id: 'place-order' }, audio: 'place-order.wav', duration: 30,
   segments: [

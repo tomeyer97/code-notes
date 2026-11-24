@@ -152,7 +152,8 @@ Rules (`journey.py help <command>` shows the ones for that command):
   line, nearest within 400 lines): moved = WARNING (`check fix` repoints it, apart from the step's range); not found
   = PROBLEM. A journey with none of them gets one WARNING; a step without links, when others have some, too.
 """
-import datetime, hashlib, json, math, os, random, re, string, subprocess, sys
+import datetime, hashlib, json, math, os, random, re, shutil, string, subprocess, sys
+from collections import namedtuple
 
 # `journey.py` alone: one line per command (the detail: `journey.py help <command>`).
 SUMMARY = [
@@ -246,9 +247,61 @@ MIN_STEPS, MAX_STEPS = 6, 14
 MAX_STEP_TITLE, MAX_LEAD_WORDS = 70, 40
 SOFT_LEAD_WORDS, SOFT_RANGE_LINES = 25, 15      # over these `step`/`restep`/`check` print a WARNING
 MAX_QUESTION = 80
+MAX_REFS = 3
 STEP_FIELDS = ('title', 'lead', 'details', 'refs', 'node', 'range')
 REF = r'((?:[\w.@-]+/)*[\w.@-]+\.[A-Za-z]{1,6}):(\d+)(?:-(\d+))?'
 LINK = r'(?<![\w/])((?:[\w.@-]+/)+[\w.@-]+\.[A-Za-z]{1,6}):(\d+)(?:-(\d+))?'
+
+# What a check finds: PROBLEM = refused when written and a PROBLEM in `check`; REFUSE = refused when written and a
+# WARNING in `check`; WARN = a WARNING.
+PROBLEM, REFUSE, WARN = 'problem', 'refuse', 'warning'
+Issue = namedtuple('Issue', 'level text')
+# A change `check fix` makes: `apply()` makes it and `text` says so; without fix, `warning` is said instead.
+Fix = namedtuple('Fix', 'warning text apply')
+
+
+# --- the extension's rules. journey-check.mjs, beside this script, is built from the Code Notes extension's format
+# core and checks shapes, scenes, marks, podcasts and anchors the way the extension reads them. It runs when node is
+# on PATH; without node, the Python rules further down (the same rules, run against it by the extension's tests) do.
+# JOURNEY_RULES=python or JOURNEY_RULES=node picks one.
+FALLBACK = object()      # the helper could not answer: use the Python rules
+
+
+class NodeRules:
+    HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'journey-check.mjs')
+
+    def __init__(self):
+        self.want = os.environ.get('JOURNEY_RULES', '')
+        self.node = shutil.which('node') if self.want != 'python' else None
+        self.on = bool(self.node) and os.path.isfile(self.HELPER)
+        self.proc = None
+        if self.want == 'node' and not self.on:
+            sys.exit('JOURNEY_RULES=node: node is not on PATH or journey-check.mjs is missing')
+
+    def ask(self, op, **request):
+        """The helper's answer to one request (one JSON line each way, one helper per run), or FALLBACK."""
+        if not self.on:
+            return FALLBACK
+        try:
+            if self.proc is None:
+                self.proc = subprocess.Popen([self.node, self.HELPER], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                             text=True, encoding='utf-8')
+            self.proc.stdin.write(json.dumps({'op': op, **request}) + '\n')
+            self.proc.stdin.flush()
+            got = json.loads(self.proc.stdout.readline())
+        except (OSError, ValueError) as e:
+            return self.give_up(str(e) or type(e).__name__)
+        return self.give_up(got['error']) if 'error' in got else got['ok']
+
+    def give_up(self, why):
+        """The helper failed: the Python rules from here on (JOURNEY_RULES=node: stop)."""
+        if self.want == 'node':
+            sys.exit(f'journey-check.mjs failed: {why}')
+        self.on = False
+        return FALLBACK
+
+
+RULES = NodeRules()
 
 
 def now():
@@ -327,7 +380,7 @@ def load(repo, slug, v1=False):
         if miss:
             unreadable(repo, slug, 'missing ' + ', '.join(miss))
     if j.get('version') == 2:
-        bad = shape_problems(repo, j)
+        bad, upgrades = journey_shape(j)
         if bad:                  # a hand-edited file gets PROBLEM lines, never a traceback
             for b in bad:
                 print('PROBLEM: ' + b)
@@ -335,6 +388,7 @@ def load(repo, slug, v1=False):
             print(f'FAILED: {jpath(repo, slug)} was edited by hand into a shape the commands cannot read; fix the lines '
                   f'above' + (f', or `journey.py restore {repo} {slug}` puts back the last good copy' if os.path.exists(b) else ''))
             sys.exit(1)
+        upgrade(repo, j, upgrades)
     keep_bak(repo, slug, raw)
     if not v1 and j.get('version') != 2:
         sys.exit(f'{slug} is a v{j.get("version")} journey: run `journey.py migrate {repo} {slug}` first')
@@ -344,26 +398,58 @@ def load(repo, slug, v1=False):
 SHAPE_NOTES = []       # hand-edits `load` could read anyway (an "at": "file:a-b" string): `check` reports each as a PROBLEM
 
 
-def shape_problems(repo, j):
-    """The shapes every command relies on, checked once on load. Returns what cannot be read; a box whose `at`
-    is the CLI's own "file:start-end" string is read as that range (and noted in SHAPE_NOTES)."""
-    out = []
-    is_int = lambda v: isinstance(v, int) and not isinstance(v, bool)
-    is_str = lambda v: isinstance(v, str)
+def journey_shape(j):
+    """The shapes every command relies on: (what cannot be read, the hand-edits that can be read anyway). Each
+    upgrade is {node or step: index, file, start, end, at?, note}; `upgrade` applies them."""
+    got = RULES.ask('shape', journey=j)
+    if got is FALLBACK:
+        return shape_problems(j)
+    return got['problems'], got['upgrades']
 
-    def anchor_ok(a):
-        if not isinstance(a, dict) or not all(is_str(a.get(k, '')) for k in ('text', 'before', 'after', 'head', 'tail', 'hash')):
-            return False
-        return a.get('v') != 3 or (is_str(a.get('head')) and is_int(a.get('lines')))
 
-    def reanchor(f, a, b):
-        try:
-            ls = open(os.path.join(repo, f), encoding='utf-8', errors='replace').read().split('\n')
-        except OSError:
-            return make_anchor([''], '', '')
-        if not 1 <= a <= b <= len(ls):
-            return make_anchor([''], '', '')
-        return make_anchor(ls[a - 1:b], *around(ls, a - 1, b - 1))
+def upgrade(repo, j, upgrades):
+    """Reads hand-edits the way the commands write them: a box `at` written as "file:start-end" becomes
+    {file, start, end, anchor}; a range without an anchor gets one. Each is noted (SHAPE_NOTES) for `check`."""
+    for u in upgrades:
+        a = reanchor(repo, u['file'], u['start'], u['end'])
+        if 'step' in u:
+            j['steps'][u['step']]['anchor'] = a
+        elif u.get('at'):
+            j['nodes'][u['node']]['at'] = {'file': u['file'], 'start': u['start'], 'end': u['end'], 'anchor': a}
+        else:
+            j['nodes'][u['node']]['at']['anchor'] = a
+        SHAPE_NOTES.append(u['note'])
+
+
+def reanchor(repo, f, a, b):
+    """The anchor of lines a-b of f now; an empty one when they are not there."""
+    try:
+        ls = open(os.path.join(repo, f), encoding='utf-8', errors='replace').read().split('\n')
+    except OSError:
+        return make_anchor([''], '', '')
+    if not 1 <= a <= b <= len(ls):
+        return make_anchor([''], '', '')
+    return make_anchor(ls[a - 1:b], *around(ls, a - 1, b - 1))
+
+
+# --- the Python rules for a journey's shape (without node; the helper's are cli/journey/shape.ts of the extension)
+ANCHOR_TEXT = ('text', 'before', 'after', 'head', 'tail', 'hash')
+STEP_LISTS = (('links', ('phrase', 'file', 'start', 'end')), ('values', ('name', 'value', 'file', 'line')))
+
+
+def is_str(v):
+    return isinstance(v, str)
+
+
+def anchor_ok(a):
+    if not isinstance(a, dict) or not all(is_str(a.get(k, '')) for k in ANCHOR_TEXT):
+        return False
+    return a.get('v') != 3 or (is_str(a.get('head')) and is_int(a.get('lines')))
+
+
+def shape_problems(j):
+    """journey_shape's rules: (problems, upgrades). Reads `j`, never changes it."""
+    out, ups = [], []
     for key in ('nodes', 'edges', 'steps'):
         if not isinstance(j.get(key), list):
             out.append(f'"{key}" must be a list')
@@ -373,73 +459,85 @@ def shape_problems(repo, j):
         if key in j and not is_str(j[key]):
             out.append(f'"{key}" must be a string')
     if out:
-        return out
+        return out, ups
     for i, n in enumerate(j['nodes']):
-        if not isinstance(n, dict) or not is_str(n.get('id')) or not n.get('id'):
-            out.append(f'nodes[{i}]: a box is an object with a string "id"')
-            continue
-        name = f'box {n["id"]}'
-        if n.get('kind') not in KINDS:
-            out.append(f'{name}: kind {n.get("kind")!r} is not one of {", ".join(KINDS)}')
-        if not is_str(n.get('label')):
-            out.append(f'{name}: "label" must be a string')
-        for key in ('blurb', 'summary', 'path', 'parent'):
-            if key in n and not is_str(n[key]):
-                out.append(f'{name}: "{key}" must be a string')
-        if 'at' not in n:
-            continue
-        at = n['at']
-        if is_str(at):
-            m = re.fullmatch(r'(.+):(\d+)(?:-(\d+))?', at.strip())
-            if not m:
-                out.append(f'{name}: "at" is the string {at!r}; it must be {{file, start, end, anchor}}: remove the line, '
-                           f'then `set {n["id"]} at <file:start-end>`')
-                continue
-            f, a, b = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
-            n['at'] = {'file': f, 'start': a, 'end': b, 'anchor': reanchor(f, a, b)}
-            SHAPE_NOTES.append(f'{name}: "at" was hand-written as the string "{at}"; it must be {{file, start, end, anchor}}: '
-                               f'run `set {n["id"]} at {f}:{a}-{b}` (never edit the file by hand)')
-        elif not (isinstance(at, dict) and is_str(at.get('file')) and is_int(at.get('start')) and is_int(at.get('end'))):
-            out.append(f'{name}: "at" must be {{file, start, end, anchor}} with whole line numbers: remove it, then '
-                       f'`set {n["id"]} at <file:start-end>`')
-        elif not anchor_ok(at.get('anchor')):
-            at['anchor'] = reanchor(at['file'], at['start'], at['end'])
-            SHAPE_NOTES.append(f'{name}: "at" has no anchor (hand-written): run `set {n["id"]} at '
-                               f'{at["file"]}:{at["start"]}-{at["end"]}`')
+        node_shape(n, i, out, ups)
     for i, e in enumerate(j['edges']):
-        if not isinstance(e, dict) or not all(is_str(e.get(k)) for k in ('from', 'to', 'label')):
-            out.append(f'edges[{i}]: an edge is an object with string "from", "to" and "label" (rewrite it with `edge`)')
-        elif 'detail' in e and not is_str(e['detail']):
-            out.append(f'edge {e["from"]} -> {e["to"]}: "detail" must be a string')
-    for i, st in enumerate(j['steps'], 1):
-        name = f'step {i}'
-        if not isinstance(st, dict):
-            out.append(f'{name}: a step is an object')
-            continue
-        for key in ('title', 'node', 'file'):
-            if not is_str(st.get(key)):
-                out.append(f'{name}: "{key}" must be a string')
-        for key in ('lead', 'details', 'id'):
-            if key in st and not is_str(st[key]):
-                out.append(f'{name}: "{key}" must be a string')
-        r = st.get('range')
-        if is_str(r) or not (isinstance(r, dict) and is_int(r.get('start')) and is_int(r.get('end'))):
-            out.append(f'{name}: "range" must be {{start, end}} with whole line numbers (and "file" beside it): put the '
-                       f'old value back, then `restep {i} range <file> <start> <end>`')
-        elif not anchor_ok(st.get('anchor')) and is_str(st.get('file')):
-            st['anchor'] = reanchor(st['file'], r['start'], r['end'])
-            SHAPE_NOTES.append(f'{name}: no anchor (hand-written range): run `restep {i} range {st["file"]} {r["start"]} {r["end"]}`')
-        for key, need in (('links', ('phrase', 'file', 'start', 'end')), ('values', ('name', 'value', 'file', 'line'))):
-            if key in st and not (isinstance(st[key], list) and all(isinstance(x, dict) and all(
-                    (is_int if f in ('start', 'end', 'line') else is_str)(x.get(f)) for f in need) for x in st[key])):
-                out.append(f'{name}: "{key}" must be a list of {{{", ".join(need)}, text}} objects (rewrite them with '
-                           f'`{key[:-1]}`, after removing the line)')
-        if 'scene' in st and not (isinstance(st['scene'], dict) and isinstance(st['scene'].get('actors'), list)
-                                  and isinstance(st['scene'].get('beats'), list)):
-            out.append(f'{name}: "scene" must be {{actors, wires, beats}} (remove it, then `scene {i}` < the JSON)')
-        if 'refs' in st and not (isinstance(st['refs'], list) and all(is_str(x) for x in st['refs'])):
-            out.append(f'{name}: "refs" must be a list of strings, each one sentence with a path:line in it (restep {i} refs "…")')
-    return out
+        edge_shape(e, i, out)
+    for k, st in enumerate(j['steps'], 1):
+        step_shape(st, k, out, ups)
+    return out, ups
+
+
+def node_shape(n, i, out, ups):
+    if not isinstance(n, dict) or not is_str(n.get('id')) or not n.get('id'):
+        out.append(f'nodes[{i}]: a box is an object with a string "id"')
+        return
+    name = f'box {n["id"]}'
+    if n.get('kind') not in KINDS:
+        out.append(f'{name}: kind {n.get("kind")!r} is not one of {", ".join(KINDS)}')
+    if not is_str(n.get('label')):
+        out.append(f'{name}: "label" must be a string')
+    for key in ('blurb', 'summary', 'path', 'parent'):
+        if key in n and not is_str(n[key]):
+            out.append(f'{name}: "{key}" must be a string')
+    if 'at' not in n:
+        return
+    at = n['at']
+    if is_str(at):
+        m = re.fullmatch(r'(.+):(\d+)(?:-(\d+))?', at.strip())
+        if not m:
+            out.append(f'{name}: "at" is the string {at!r}; it must be {{file, start, end, anchor}}: remove the line, '
+                       f'then `set {n["id"]} at <file:start-end>`')
+            return
+        f, a, b = m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))
+        ups.append({'node': i, 'file': f, 'start': a, 'end': b, 'at': True,
+                    'note': f'{name}: "at" was hand-written as the string "{at}"; it must be {{file, start, end, anchor}}: '
+                            f'run `set {n["id"]} at {f}:{a}-{b}` (never edit the file by hand)'})
+    elif not (isinstance(at, dict) and is_str(at.get('file')) and is_int(at.get('start')) and is_int(at.get('end'))):
+        out.append(f'{name}: "at" must be {{file, start, end, anchor}} with whole line numbers: remove it, then '
+                   f'`set {n["id"]} at <file:start-end>`')
+    elif not anchor_ok(at.get('anchor')):
+        ups.append({'node': i, 'file': at['file'], 'start': at['start'], 'end': at['end'],
+                    'note': f'{name}: "at" has no anchor (hand-written): run `set {n["id"]} at '
+                            f'{at["file"]}:{at["start"]}-{at["end"]}`'})
+
+
+def edge_shape(e, i, out):
+    if not isinstance(e, dict) or not all(is_str(e.get(k)) for k in ('from', 'to', 'label')):
+        out.append(f'edges[{i}]: an edge is an object with string "from", "to" and "label" (rewrite it with `edge`)')
+    elif 'detail' in e and not is_str(e['detail']):
+        out.append(f'edge {e["from"]} -> {e["to"]}: "detail" must be a string')
+
+
+def step_shape(st, k, out, ups):
+    name = f'step {k}'
+    if not isinstance(st, dict):
+        out.append(f'{name}: a step is an object')
+        return
+    for key in ('title', 'node', 'file'):
+        if not is_str(st.get(key)):
+            out.append(f'{name}: "{key}" must be a string')
+    for key in ('lead', 'details', 'id'):
+        if key in st and not is_str(st[key]):
+            out.append(f'{name}: "{key}" must be a string')
+    r = st.get('range')
+    if is_str(r) or not (isinstance(r, dict) and is_int(r.get('start')) and is_int(r.get('end'))):
+        out.append(f'{name}: "range" must be {{start, end}} with whole line numbers (and "file" beside it): put the '
+                   f'old value back, then `restep {k} range <file> <start> <end>`')
+    elif not anchor_ok(st.get('anchor')) and is_str(st.get('file')):
+        ups.append({'step': k - 1, 'file': st['file'], 'start': r['start'], 'end': r['end'],
+                    'note': f'{name}: no anchor (hand-written range): run `restep {k} range {st["file"]} {r["start"]} {r["end"]}`'})
+    for key, need in STEP_LISTS:
+        ok = lambda x: isinstance(x, dict) and all((is_int if f in ('start', 'end', 'line') else is_str)(x.get(f)) for f in need)
+        if key in st and not (isinstance(st[key], list) and all(ok(x) for x in st[key])):
+            out.append(f'{name}: "{key}" must be a list of {{{", ".join(need)}, text}} objects (rewrite them with '
+                       f'`{key[:-1]}`, after removing the line)')
+    if 'scene' in st and not (isinstance(st['scene'], dict) and isinstance(st['scene'].get('actors'), list)
+                              and isinstance(st['scene'].get('beats'), list)):
+        out.append(f'{name}: "scene" must be {{actors, wires, beats}} (remove it, then `scene {k}` < the JSON)')
+    if 'refs' in st and not (isinstance(st['refs'], list) and all(is_str(x) for x in st['refs'])):
+        out.append(f'{name}: "refs" must be a list of strings, each one sentence with a path:line in it (restep {k} refs "…")')
 
 
 def new_id(used):
@@ -1517,8 +1615,10 @@ def check_ref(repo, ref):
     return '', [(a, ls[a - 1].strip()[:90])] + ([(b, ls[b - 1].strip()[:90])] if b > a else [])
 
 
-# --- finding a step again after the code moved: the same rules as the extension (src/core/anchors/anchor.ts;
-# keep the two in step). Lines compare without whitespace, with one quote style and no trailing ; or , (`norm`).
+# --- finding a step again after the code moved. With node, the extension's own rules (src/core/anchors, through
+# journey-check.mjs: anchor_place, line_at); the Python rules below are the same, and run against the extension's
+# relocation cases (test/fixtures/compact-cases.json) in its tests. Lines compare without whitespace, with one quote
+# style and no trailing ; or , (`norm`).
 def norm(s):
     return re.sub(r'[;,]+$', '', re.sub(r"['`]", '"', re.sub(r'\s+', '', s)))
 
@@ -1531,8 +1631,7 @@ def weak(s):                     # `}` or `);` says nothing about where code is:
     return len(norm(s)) < 3
 
 
-# --- compact anchors (v3), as in docs/journey-format.md ("In the repo"); the extension does the same in
-# src/core/anchors/compact.ts (keep the two in step).
+# --- compact anchors (v3), as in docs/journey-format.md ("In the repo"); written here, found again by anchor_place.
 def text_hash(text_lines, blanks=False):
     """sha1 of the non-blank lines through `norm`, joined by "\n" (compact.ts blockHash): a blank line added or
     removed is not a change. blanks=True: the other reading (every line, blank ones as ""), accepted when read."""
@@ -1565,6 +1664,14 @@ def as_v3(a):
     before = ([l for l in a.get('before', '').split('\n') if not blank(l)] or [''])[-1]
     after = ([l for l in a.get('after', '').split('\n') if not blank(l)] or [''])[0]
     return make_anchor(a.get('text', '').split('\n'), before, after)
+
+
+def anchor_place(repo, f, a, start0):
+    """Where anchor a (v2 or v3) is in file f now: (start0, end0, same_hash), or None when it is not found."""
+    got = RULES.ask('place', repo=repo, file=f, anchor=a, hint=start0)
+    if got is FALLBACK:
+        return place(lines_of(repo, f), as_v3(a), start0)
+    return tuple(got) if got else None
 
 
 def place(lines, a, start0):
@@ -1710,11 +1817,9 @@ def where(repo, since, file, start, end, a):
         files.append(new)
     if not files:
         return 'nofile', file, start, end, ''
-    a3 = as_v3(a)
     changed = None
     for f in files:
-        lines = open(os.path.join(repo, f), encoding='utf-8', errors='replace').read().split('\n')
-        got = place(lines, a3, start - 1 if f == file else 0)
+        got = anchor_place(repo, f, a, start - 1 if f == file else 0)
         if not got:
             continue
         s0, e0, same = got
@@ -1923,17 +2028,20 @@ def repeat_warning(k, s):
 # animation (`scene`), its code links (`links`: phrases of the lead/details that open the lines doing that part) and
 # its value hints (`values`: what a variable holds in the example run, above its line). Every line is read from the
 # source by the commands below; the author never types a line's text.
-FIND_NEAR = 400        # lineFollow.ts findLine (SAME_TEXT_RADIUS): how far the same trimmed text is still taken for a line that moved
-MIN_BEATS, SOFT_BEATS, MAX_BEATS = 3, 6, 7
-MAX_ACTORS = 4
+FIND_NEAR = 400        # how far the same trimmed text is still taken for a line that moved (the extension's SAME_TEXT_RADIUS)
 SOFT_LINK_LINES = 15
 MAX_VALUE, SOFT_NOTE = 40, 60          # valueHints.ts cuts a value at 40 (capValue); a note is a few words
 VALUE_NEAR, BEAT_NEAR = 25, 12         # a hint sits near the step's lines, or near a beat or link of the step
+
+# A scene's limits, for the Python rules (without node). The helper reads them from the extension's journey schema
+# (src/core/format/schema/journey.schema.json); the extension's tests check that these say the same.
+MIN_BEATS, SOFT_BEATS, MAX_BEATS = 3, 6, 7
+MAX_ACTORS = 4
 SOFT_CAPTION, SOFT_CAPTION_ALL = 70, 110
 MAX_CHECKS, MAX_CHECK, MAX_ROWS, MAX_TERM_LINE = 5, 28, 3, 36
 MAX_PACKET = 24
-# What each actor type reads (the builders in journey-scene.js; the app actor's in journey-scene-app.js), what a beat's `set` may change on it, and the beat's own
-# keys. Anything else is ignored by the engine.
+# What each actor type reads (anything else is ignored by the engine), what a beat's `set` may change on it, and the
+# beat's own keys.
 APP_OLD_KEYS = {'test', 'env', 'findings', 'timeline', 'status', 'provider', 'chat'}     # older journeys' flat fields
 ACTOR_KEYS = {'app': {'brand', 'logo', 'tabs', 'dialog', 'detail', 'signin', 'pages', 'screen'} | APP_OLD_KEYS,
               'service': {'fn', 'checks'}, 'table': {'rows'}, 'cluster': {'pods', 'inner'},
@@ -1950,21 +2058,16 @@ SET_KEYS = {'app': {'screen', 'status', 'tone', 'findings', 'cards', 'events', '
             'chat': {'show', 'hi'}, 'queue': {'fill', 'drop', 'note'}, 'gauge': {'used', 'want', 'note'}}
 BEAT_KEYS = {'focus', 'caption', 'muted', 'set', 'packet', 'click', 'flash', 'code', 'example', 'hold', 'marks'}
 SCREENS = ('dialog', 'detail', 'signin')             # and the names of the actor's own `pages`
-SCREEN_ALIAS = {'run-dialog': 'dialog', 'run-page': 'detail', 'login': 'signin'}     # older journeys' screen names
+SCREEN_ALIAS = ('run-dialog', 'run-page', 'login')   # older journeys' names of the three
 PANES = ('picture', 'chat', 'desktop')               # desktop: the older name of picture
 TONES = ('neutral', 'active', 'good', 'bad')
 LOCKS = ('ok', 'warn')
-DEFAULT_LABEL = {'app': ('Web app', ''), 'browser': ('Browser', ''), 'terminal': ('Terminal', ''),
-                 'file': ('file', ''), 'chat': ('Chat', '')}
+DEFAULT_LABEL = {'app': 'Web app', 'browser': 'Browser', 'terminal': 'Terminal', 'file': 'file', 'chat': 'Chat'}
 STARTS_EMPTY = ('terminal', 'chat')                  # nothing is shown until a beat sets `show`
-# Text that must fit its box (journey-scene.css; the box is drawn at about scale 1 in a 400 px scene): characters, at
-# an average glyph width calibrated with test/journey-scene/check.mjs. Over these a label is cut or sticks out of its
-# box (the panel check fails).
+# Characters that fit a box. Over these a label is cut or sticks out of its box (the panel check fails).
 LABEL_CHARS = {'service': 38, 'app': 42, 'browser': 42, 'terminal': 42, 'file': 42, 'chat': 42, 'table': 46,
                'cluster': 46, 'queue': 46, 'gauge': 46}
-# The app window (.ap-win: 304 px wide, 207 px tall under its label). The top bar holds the logo, the brand (12.5 px
-# bold, about 7.8 px a character) and the tabs (12 px, about 6.8 px a character, 12 px apart) in TOP_PX.
-TOP_PX, BRAND_PX, TAB_PX, TAB_GAP, MAX_TABS, TAB_CHARS = 280, 7.8, 6.8, 12, 3, 10
+MAX_TABS, TAB_CHARS = 3, 10
 DIALOG_CHARS = {'title': 24, 'item': 24, 'button': 18}
 DIALOG_LINES, LINE_KEY, LINE_VALUE = 2, 12, 18
 DETAIL_CHARS = {'title': 22, 'status': 12, 'empty': 30, 'picture': 38, 'placeholder': 32}
@@ -1974,21 +2077,33 @@ OLD_CHARS = {'test': 22, 'env': LINE_VALUE, 'provider': SIGNIN_CHARS['provider']
 BROWSER_CHARS = {'url': 32, 'title': 20, 'shop': 20, 'button': 13, 'cart': 10, 'markLabel': 18}
 SHOP_TOP = 26                                        # the shop's name and the cart share one line
 FN_CHARS, CARD_CHARS, TIMELINE_CHARS, PRODUCT_CHARS, INNER_LABEL_CHARS = 28, 32, 36, 14, 40
-ROW_PX, PODS_PX, INNER_PODS_PX = 300, 320, 296
-FILE_CHARS, FILE_NUM_CHARS, FILE_VIEW = 34, 30, 8     # .fl-line: 12 px mono, cut beyond; a gutter when `from` is set
-CHAT_CHARS, CHAT_TOOL_CHARS, CHAT_VIEW = 38, 32, 4    # .ch-msg: one line, 13 px (a tool call 12 px mono), cut beyond
+FILE_CHARS, FILE_NUM_CHARS = 34, 30                  # a file's line; with line numbers (`from`)
+CHAT_CHARS, CHAT_TOOL_CHARS = 38, 32                 # a chat message; a tool call
 APP_CHAT_CHARS, NOTE_CHARS, QUEUE_SLOTS = 32, 44, 8
 PAGE_ROWS, PAGE_KEY, PAGE_VALUE, PAGE_BANNER = 4, 12, 20, 38
 PAGE_ITEMS = 4                                       # rows, the banner and the button: what fits under the title
 PAGE_CHARS = {'title': 22, 'chip': 12, 'tab': TAB_CHARS, 'button': 20}
+# Widths in pixels, estimated from character counts (media/journey-scene.css; calibrated with the extension's panel
+# check, test/journey-scene/check.mjs).
+TOP_PX, BRAND_PX, TAB_PX, TAB_GAP = 280, 7.8, 6.8, 12   # the app window's top bar; its brand (12.5 px bold), tabs (12 px)
+ROW_PX, MONO_13_PX, ROW_ID_MIN_PX = 300, 7.8, 70     # a table row; its id in 13 px mono, at least 70 px wide
+PILL_PX, PILL_GAP, PILL_PAD = 6.2, 9, 18             # a row's pills: 12 px text, 9 px apart
+PODS_PX, INNER_PODS_PX = 320, 296                    # pods side by side
+LABEL_14_PX, NOTE_12_PX = 7.2, 6.4                   # a pod's 14 px label over its 12 px note
 
 
 def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def line_at(repo, f, line, text):
+    """Where a link's, value's or beat's line is in file f now (0-based), found by its text near `line`; -1: gone."""
+    got = RULES.ask('line', repo=repo, file=f, line=line, text=text)
+    return find_line(lines_of(repo, f), line, text) if got is FALLBACK else got
+
+
 def find_line(lines, line, text):
-    """BeatLine.ts findLine: the written line if it still says `text` (trimmed), else the nearest line within
+    """line_at's rule (src/core/anchors/lineFollow.ts findLine): the written line if it still says `text` (trimmed), else the nearest line within
     FIND_NEAR that does; -1 when none does. 0-based."""
     want = (text or '').strip()
     if not want:
@@ -2103,249 +2218,329 @@ def value_far(s, v):
 
 
 def value_issues(k, s, v, others):
-    """(level, text) for one value hint; level P = a PROBLEM (refused when written), R = refused when written and a
-    WARNING in check, W = a WARNING."""
+    """The Issues of one value hint."""
     out = []
     name, val = str(v.get('name', '')), str(v.get('value', ''))
     where = f'step {k}: value {name} at {v.get("file")}:{v.get("line")}'
     if not name.strip() or not val.strip():
-        out.append(('P', f'{where}: a hint needs a name and a value'))
+        out.append(Issue(PROBLEM, f'{where}: a hint needs a name and a value'))
     if name and name not in str(v.get('text', '')):
-        out.append(('R', f'{where}: the line does not mention "{name}" ("{str(v.get("text", ""))[:70]}"): a hint sits on '
+        out.append(Issue(REFUSE, f'{where}: the line does not mention "{name}" ("{str(v.get("text", ""))[:70]}"): a hint sits on '
                          f'the line that declares or uses that variable'))
     if len(val) > MAX_VALUE:
-        out.append(('R', f'{where}: the value is {len(val)} chars (max {MAX_VALUE}; the extension cuts it there): '
+        out.append(Issue(REFUSE, f'{where}: the value is {len(val)} chars (max {MAX_VALUE}; the extension cuts it there): '
                          f'"{val}": say less ("[2 items]", "ord_7f3a…")'))
     if len(str(v.get('note', ''))) > SOFT_NOTE:
-        out.append(('W', f'{where}: the note is {len(v["note"])} chars (aim for <= {SOFT_NOTE}: a few words on what '
+        out.append(Issue(WARN, f'{where}: the note is {len(v["note"])} chars (aim for <= {SOFT_NOTE}: a few words on what '
                          f'the value IS in this run)'))
     twin = [o for o in others if o is not v and o.get('file') == v.get('file') and o.get('line') == v.get('line')]
     if twin:
-        out.append(('P', f'{where}: {twin[0].get("name")} already has a hint on that line (one hint per line: the '
+        out.append(Issue(PROBLEM, f'{where}: {twin[0].get("name")} already has a hint on that line (one hint per line: the '
                          f'CodeLens row holds one)'))
     if value_far(s, v):
-        out.append(('W', f'{where} is neither within {VALUE_NEAR} lines of the step\'s range nor within {BEAT_NEAR} '
+        out.append(Issue(WARN, f'{where} is neither within {VALUE_NEAR} lines of the step\'s range nor within {BEAT_NEAR} '
                          f'lines of a beat or link of this step: the reader never sees it there (rmvalue {k} {name})'))
     return out
 
 
-def scene_issues(k, s, sc):
-    """(level, text) for a step's scene, against what journey-scene.js draws (levels as in value_issues)."""
-    out = []
-    W = lambda m: out.append(('W', f'step {k} scene: {m}'))
-    R = lambda m: out.append(('R', f'step {k} scene: {m}'))
-    P = lambda m: out.append(('P', f'step {k} scene: {m}'))
+def scene_issues(k, sc):
+    """Issues of step k's scene against what the scene engine (media/journey-scene.js) draws."""
+    got = RULES.ask('scene', step=k, scene=sc)
+    if got is FALLBACK:
+        return scene_rules(k, sc)
+    return [Issue(i['level'], i['text']) for i in got]
+
+
+# --- the Python rules for a scene (without node; the helper's are cli/journey/scene.ts of the extension, which
+# reads the sizes from the journey schema)
+class Issues(list):
+    """Issues said with a common prefix: problem(text), refuse(text), warn(text)."""
+    def __init__(self, prefix=''):
+        super().__init__()
+        self.prefix = prefix
+
+    def problem(self, text):
+        self.append(Issue(PROBLEM, self.prefix + text))
+
+    def refuse(self, text):
+        self.append(Issue(REFUSE, self.prefix + text))
+
+    def warn(self, text):
+        self.append(Issue(WARN, self.prefix + text))
+
+
+def actor_type(a):
+    return TYPE_ALIAS.get(a.get('type'), a.get('type'))
+
+
+def listed(a, key):
+    """A list field of an actor; anything else is none."""
+    return a.get(key) if isinstance(a.get(key), list) else []
+
+
+def scene_rules(k, sc):
+    out = Issues(f'step {k} scene: ')
     if not isinstance(sc, dict):
-        P('must be an object {actors, wires, beats}')
+        out.problem('must be an object {actors, wires, beats}')
         return out
     for key in set(sc) - {'actors', 'wires', 'beats'}:
-        R(f'"{key}" is not part of a scene (actors, wires, beats); the engine ignores it')
-    actors, beats, wires = sc.get('actors'), sc.get('beats'), sc.get('wires', [])
+        out.refuse(f'"{key}" is not part of a scene (actors, wires, beats); the engine ignores it')
+    actors, beats = sc.get('actors'), sc.get('beats')
     if not isinstance(actors, list) or not actors or not isinstance(beats, list) or not beats:
-        P('needs a non-empty "actors" list and a non-empty "beats" list')
+        out.problem('needs a non-empty "actors" list and a non-empty "beats" list')
         return out
+    ids = actor_issues(actors, out)
+    pairs = wire_issues(sc.get('wires', []), ids, out)
+    beat_issues(k, beats, ids, pairs, out)
+    return out
+
+
+def actor_issues(actors, out):
+    """Each actor checked; returns the actors by id."""
     ids = {}
     for i, a in enumerate(actors):
         if not isinstance(a, dict) or not isinstance(a.get('id'), str) or not a.get('id'):
-            P(f'actors[{i}] needs a string "id"')
+            out.problem(f'actors[{i}] needs a string "id"')
             continue
-        aid, t = a['id'], TYPE_ALIAS.get(a.get('type'), a.get('type'))
+        aid, t = a['id'], actor_type(a)
         if aid in ids:
-            P(f'two actors have the id "{aid}"')
+            out.problem(f'two actors have the id "{aid}"')
         if aid == 'all':
-            P('"all" is not an actor id')
+            out.problem('"all" is not an actor id')
         ids[aid] = a
         if t not in ACTOR_KEYS:
-            P(f'actor {aid}: type {t!r} does not exist (types: {", ".join(ACTOR_KEYS)}): the engine skips it')
+            out.problem(f'actor {aid}: type {t!r} does not exist (types: {", ".join(ACTOR_KEYS)}): the engine skips it')
             continue
         extra = set(a) - COMMON_KEYS - ACTOR_KEYS[t]
         if extra:
-            R(f'actor {aid}: {", ".join(sorted(extra))} {"is" if len(extra) == 1 else "are"} not read by a {t} '
-              f'(it reads {", ".join(sorted(ACTOR_KEYS[t]))}): the engine ignores it')
+            out.refuse(f'actor {aid}: {", ".join(sorted(extra))} {"is" if len(extra) == 1 else "are"} not read by a {t} '
+                       f'(it reads {", ".join(sorted(ACTOR_KEYS[t]))}): the engine ignores it')
         if 'col' in a and not (is_int(a['col']) and 0 <= a['col'] <= 3):
-            P(f'actor {aid}: "col" is a column number 0-3')
-        dl, ds = DEFAULT_LABEL.get(t, (aid, ''))
-        lab = str(a.get('label') or dl) + (f' · {a.get("sub") or ds}' if (a.get('sub') or ds) else '')
+            out.problem(f'actor {aid}: "col" is a column number 0-3')
+        sub = a.get('sub') or ''
+        lab = str(a.get('label') or DEFAULT_LABEL.get(t, aid)) + (f' · {sub}' if sub else '')
         if len(lab) > LABEL_CHARS[t]:
-            P(f'actor {aid}: label and sub "{lab}" are {len(lab)} chars; a {t} box holds about {LABEL_CHARS[t]} on '
-              f'its top line: shorten them')
-        lst = lambda key: a.get(key) if isinstance(a.get(key), list) else []
-        if t == 'service':
-            if len(str(a.get('fn', ''))) > FN_CHARS:
-                P(f'actor {aid}: fn "{a["fn"]}" is {len(a["fn"])} chars (max {FN_CHARS}: the name and "()")')
-            cs = lst('checks')
-            if len(cs) > MAX_CHECKS:
-                P(f'actor {aid}: {len(cs)} checks (max {MAX_CHECKS})')
-            for c in cs:
-                if len(str(c)) > MAX_CHECK:
-                    P(f'actor {aid}: check "{c}" is {len(str(c))} chars (max {MAX_CHECK})')
-        elif t == 'table':
-            rows = lst('rows')
-            if len(rows) > MAX_ROWS:
-                P(f'actor {aid}: {len(rows)} rows (max {MAX_ROWS})')
-            for r in rows:
-                if not isinstance(r, dict) or not isinstance(r.get('id'), str):
-                    P(f'actor {aid}: a row is {{"id": "…", "chips": ["…"], "old"?: true}}')
-                    continue
-                px = row_px(r['id'], r.get('chips') or [])
-                if px > ROW_PX:
-                    P(f'actor {aid}: row "{r["id"]}" with chips {r.get("chips")} is about {px} px wide (the row holds '
-                      f'{ROW_PX}): a shorter id or fewer, shorter chips')
-        elif t == 'cluster':
-            pods = lst('pods')
-            for msg in pods_issues(pods, PODS_PX, 32, 12):
-                P(f'actor {aid}: {msg}')
-            inner = a.get('inner')
-            if inner is not None:
-                if not isinstance(inner, dict):
-                    P(f'actor {aid}: "inner" is {{"label", "sub"?, "ghost"?, "pods"}}')
-                else:
-                    il = str(inner.get('label') or 'cluster') + (f' · {inner["sub"]}' if inner.get('sub') else '')
-                    if len(il) > INNER_LABEL_CHARS:
-                        P(f'actor {aid}: inner label and sub "{il}" are {len(il)} chars (about {INNER_LABEL_CHARS} fit)')
-                    for msg in pods_issues(inner.get('pods') if isinstance(inner.get('pods'), list) else [], INNER_PODS_PX, 24, 10):
-                        P(f'actor {aid}: inner {msg}')
-                    if len(pods) > 2:
-                        P(f'actor {aid}: {len(pods)} pods above an inner cluster (1 or 2 fit)')
-        elif t == 'app':
-            for msg in app_issues(a):
-                (W if msg.startswith('W:') else P)(f'actor {aid}: {msg.removeprefix("W:")}')
-        elif t == 'browser':
-            for key, n in BROWSER_CHARS.items():
-                if len(str(a.get(key, ''))) > n:
-                    P(f'actor {aid}: {key} "{a[key]}" is {len(str(a[key]))} chars (max {n})')
-            name, cart = str(a.get('title') or a.get('shop') or 'Shop'), str(a.get('cart') or 'Cart 0')
-            if len(name) + len(cart) > SHOP_TOP:
-                P(f'actor {aid}: title "{name}" and cart "{cart}" share one line: {len(name) + len(cart)} chars (max {SHOP_TOP})')
-            for p in lst('products')[:2]:
-                nm = p[0] if isinstance(p, list) and p else p
-                if len(str(nm)) > PRODUCT_CHARS:
-                    P(f'actor {aid}: product "{nm}" is {len(str(nm))} chars (max {PRODUCT_CHARS})')
-        elif t == 'file':
-            lim = FILE_NUM_CHARS if a.get('from') else FILE_CHARS
-            if 'from' in a and not (is_int(a['from']) and a['from'] >= 1):
-                P(f'actor {aid}: "from" is the number of the first line (omit it for a folder or a made-up document)')
-            for ln in lst('lines'):
-                if len(str(ln)) > lim:
-                    P(f'actor {aid}: line "{ln}" is {len(str(ln))} chars (max {lim}{" with line numbers" if a.get("from") else ""}; '
-                      f'a longer one is cut)')
-        elif t == 'chat':
-            for m in lst('messages'):
-                if not (isinstance(m, dict) and m.get('from') in ('me', 'them') and isinstance(m.get('text'), str)):
-                    P(f'actor {aid}: a message is {{"from": "me" | "them", "text": "…", "tool"?: true}}')
-                    continue
-                lim = CHAT_TOOL_CHARS if m.get('tool') else CHAT_CHARS
-                if len(m['text']) > lim:
-                    P(f'actor {aid}: message "{m["text"]}" is {len(m["text"])} chars (max {lim}{" for a tool call" if m.get("tool") else ""}; one line)')
-        elif t == 'queue':
-            if 'slots' in a and not (is_int(a['slots']) and 1 <= a['slots']):
-                P(f'actor {aid}: "slots" is a number of places ({QUEUE_SLOTS} are drawn at most; "cap" says the real size)')
-            if len(str(a.get('cap', ''))) > NOTE_CHARS:
-                P(f'actor {aid}: cap "{a["cap"]}" is {len(str(a["cap"]))} chars (max {NOTE_CHARS})')
-        elif t == 'gauge':
-            if not (isinstance(a.get('max'), (int, float)) and a['max'] > 0):
-                P(f'actor {aid}: "max" is the limit, a number above 0')
-        elif t == 'terminal':
-            for ln in lst('lines'):
-                if len(str(ln)) > MAX_TERM_LINE:
-                    P(f'actor {aid}: line "{ln}" is {len(str(ln))} chars (max {MAX_TERM_LINE}; a longer one is cut): '
-                      f'shorten it, keeping what the code prints')
+            out.problem(f'actor {aid}: label and sub "{lab}" are {len(lab)} chars; a {t} box holds about {LABEL_CHARS[t]} '
+                        f'on its top line: shorten them')
+        said = Issues(f'actor {aid}: ')
+        ACTOR_RULES[t](a, said)
+        out.extend(Issue(lv, out.prefix + m) for lv, m in said)
     if len(actors) > MAX_ACTORS:
-        R(f'{len(actors)} actors (max {MAX_ACTORS}: the parts this step touches; one box per part)')
+        out.refuse(f'{len(actors)} actors (max {MAX_ACTORS}: the parts this step touches; one box per part)')
+    return ids
+
+
+def service_rules(a, out):
+    fn = a.get('fn', '')
+    if len(str(fn)) > FN_CHARS:
+        out.problem(f'fn "{fn}" is {len(str(fn))} chars (max {FN_CHARS}: the name and "()")')
+    cs = listed(a, 'checks')
+    if len(cs) > MAX_CHECKS:
+        out.problem(f'{len(cs)} checks (max {MAX_CHECKS})')
+    for c in cs:
+        if len(str(c)) > MAX_CHECK:
+            out.problem(f'check "{c}" is {len(str(c))} chars (max {MAX_CHECK})')
+
+
+def table_rules(a, out):
+    rows = listed(a, 'rows')
+    if len(rows) > MAX_ROWS:
+        out.problem(f'{len(rows)} rows (max {MAX_ROWS})')
+    for r in rows:
+        if not isinstance(r, dict) or not isinstance(r.get('id'), str):
+            out.problem('a row is {"id": "…", "chips": ["…"], "old"?: true}')
+            continue
+        px = row_px(r['id'], r.get('chips') or [])
+        if px > ROW_PX:
+            out.problem(f'row "{r["id"]}" with chips {r.get("chips")} is about {px} px wide (the row holds {ROW_PX}): '
+                        f'a shorter id or fewer, shorter chips')
+
+
+def cluster_rules(a, out):
+    pods = listed(a, 'pods')
+    for m in pods_issues(pods, PODS_PX, 32, 12):
+        out.problem(m)
+    inner = a.get('inner')
+    if inner is None:
+        return
+    if not isinstance(inner, dict):
+        out.problem('"inner" is {"label", "sub"?, "ghost"?, "pods"}')
+        return
+    il = str(inner.get('label') or 'cluster') + (f' · {inner["sub"]}' if inner.get('sub') else '')
+    if len(il) > INNER_LABEL_CHARS:
+        out.problem(f'inner label and sub "{il}" are {len(il)} chars (about {INNER_LABEL_CHARS} fit)')
+    for m in pods_issues(listed(inner, 'pods'), INNER_PODS_PX, 24, 10):
+        out.problem(f'inner {m}')
+    if len(pods) > 2:
+        out.problem(f'{len(pods)} pods above an inner cluster (1 or 2 fit)')
+
+
+def app_rules(a, out):
+    out.extend(Issue(lv, out.prefix + m) for lv, m in app_issues(a))
+
+
+def browser_rules(a, out):
+    for key, n in BROWSER_CHARS.items():
+        if len(str(a.get(key, ''))) > n:
+            out.problem(f'{key} "{a[key]}" is {len(str(a[key]))} chars (max {n})')
+    name, cart = str(a.get('title') or a.get('shop') or 'Shop'), str(a.get('cart') or 'Cart 0')
+    if len(name) + len(cart) > SHOP_TOP:
+        out.problem(f'title "{name}" and cart "{cart}" share one line: {len(name) + len(cart)} chars (max {SHOP_TOP})')
+    for p in listed(a, 'products')[:2]:
+        nm = p[0] if isinstance(p, list) and p else p
+        if len(str(nm)) > PRODUCT_CHARS:
+            out.problem(f'product "{nm}" is {len(str(nm))} chars (max {PRODUCT_CHARS})')
+
+
+def file_rules(a, out):
+    lim = FILE_NUM_CHARS if a.get('from') else FILE_CHARS
+    if 'from' in a and not (is_int(a['from']) and a['from'] >= 1):
+        out.problem('"from" is the number of the first line (omit it for a folder or a made-up document)')
+    for ln in listed(a, 'lines'):
+        if len(str(ln)) > lim:
+            out.problem(f'line "{ln}" is {len(str(ln))} chars (max {lim}{" with line numbers" if a.get("from") else ""}; '
+                        f'a longer one is cut)')
+
+
+def chat_rules(a, out):
+    for m in listed(a, 'messages'):
+        if not (isinstance(m, dict) and m.get('from') in ('me', 'them') and isinstance(m.get('text'), str)):
+            out.problem('a message is {"from": "me" | "them", "text": "…", "tool"?: true}')
+            continue
+        lim = CHAT_TOOL_CHARS if m.get('tool') else CHAT_CHARS
+        if len(m['text']) > lim:
+            out.problem(f'message "{m["text"]}" is {len(m["text"])} chars (max {lim}{" for a tool call" if m.get("tool") else ""}; one line)')
+
+
+def queue_rules(a, out):
+    if 'slots' in a and not (is_int(a['slots']) and 1 <= a['slots']):
+        out.problem(f'"slots" is a number of places ({QUEUE_SLOTS} are drawn at most; "cap" says the real size)')
+    if len(str(a.get('cap', ''))) > NOTE_CHARS:
+        out.problem(f'cap "{a["cap"]}" is {len(str(a["cap"]))} chars (max {NOTE_CHARS})')
+
+
+def gauge_rules(a, out):
+    if not (isinstance(a.get('max'), (int, float)) and a['max'] > 0):
+        out.problem('"max" is the limit, a number above 0')
+
+
+def terminal_rules(a, out):
+    for ln in listed(a, 'lines'):
+        if len(str(ln)) > MAX_TERM_LINE:
+            out.problem(f'line "{ln}" is {len(str(ln))} chars (max {MAX_TERM_LINE}; a longer one is cut): shorten it, '
+                        f'keeping what the code prints')
+
+
+# What each actor type draws, checked (one function per type, as the builders in media/journey-scene.js).
+ACTOR_RULES = {'app': app_rules, 'service': service_rules, 'table': table_rules, 'cluster': cluster_rules,
+               'browser': browser_rules, 'terminal': terminal_rules, 'file': file_rules, 'chat': chat_rules,
+               'queue': queue_rules, 'gauge': gauge_rules}
+
+
+def wire_issues(wires, ids, out):
+    """The wires checked; returns the pairs of actors they join, both ways."""
     pairs = set()
     if not isinstance(wires, list):
-        P('"wires" is a list of [fromId, toId] pairs')
-        wires = []
+        out.problem('"wires" is a list of [fromId, toId] pairs')
+        return pairs
     for w in wires:
-        if not (isinstance(w, list) and len(w) == 2 and all(x in ids for x in w)):
-            P(f'wire {w}: a wire is [fromId, toId] between two actors of this scene')
+        if not (isinstance(w, list) and len(w) == 2 and all(isinstance(x, str) and x in ids for x in w)):
+            out.problem(f'wire {w}: a wire is [fromId, toId] between two actors of this scene')
             continue
         pairs |= {tuple(w), tuple(w[::-1])}
+    return pairs
+
+
+def beat_issues(k, beats, ids, pairs, out):
     if len(beats) > MAX_BEATS:
-        P(f'{len(beats)} beats (max {MAX_BEATS}; aim for {MIN_BEATS}-{SOFT_BEATS}): one thing happening per beat')
+        out.problem(f'{len(beats)} beats (max {MAX_BEATS}; aim for {MIN_BEATS}-{SOFT_BEATS}): one thing happening per beat')
     elif len(beats) > SOFT_BEATS:
-        W(f'{len(beats)} beats (aim for {MIN_BEATS}-{SOFT_BEATS}): merge two')
+        out.warn(f'{len(beats)} beats (aim for {MIN_BEATS}-{SOFT_BEATS}): merge two')
     elif len(beats) < MIN_BEATS:
-        R(f'{len(beats)} beats (want {MIN_BEATS}-{SOFT_BEATS}); a step with less to show gets no scene (rmscene {k})')
-    bare = 0
-    shown = {}             # terminal ids -> lines shown so far
+        out.refuse(f'{len(beats)} beats (want {MIN_BEATS}-{SOFT_BEATS}); a step with less to show gets no scene (rmscene {k})')
+    types = {actor_type(x) for x in ids.values()}
+    is_actor = lambda v: isinstance(v, str) and v in ids
+    is_browser = lambda v: is_actor(v) and ids[v].get('type') == 'browser'
+    bare, shown = 0, {}              # beats in a row without code; terminal and chat ids -> lines shown so far
     for i, b in enumerate(beats, 1):
         bn = f'beat {i}'
         if not isinstance(b, dict):
-            P(f'{bn} is not an object')
+            out.problem(f'{bn} is not an object')
             continue
         extra = set(b) - BEAT_KEYS
         if extra:
-            R(f'{bn}: {", ".join(sorted(extra))} {"is" if len(extra) == 1 else "are"} not part of a beat '
-              f'({", ".join(sorted(BEAT_KEYS))})')
+            out.refuse(f'{bn}: {", ".join(sorted(extra))} {"is" if len(extra) == 1 else "are"} not part of a beat '
+                       f'({", ".join(sorted(BEAT_KEYS))})')
         f = b.get('focus')
         if f == 'all':
-            P(f'{bn}: focus "all" (a zoomed-out view too small to read): focus the one actor whose line the beat lights')
-        elif f not in ids:
-            P(f'{bn}: focus {f!r} is not an actor of this scene ({", ".join(ids)})')
+            out.problem(f'{bn}: focus "all" (a zoomed-out view too small to read): focus the one actor whose line the beat lights')
+        elif not is_actor(f):
+            out.problem(f'{bn}: focus {f!r} is not an actor of this scene ({", ".join(ids)})')
         cap, mut = str(b.get('caption', '')).strip(), str(b.get('muted', '')).strip()
         if not cap:
-            P(f'{bn}: no caption')
+            out.problem(f'{bn}: no caption')
         elif len(cap) > SOFT_CAPTION:
-            W(f'{bn}: the caption is {len(cap)} chars (aim for < 60, max ~{SOFT_CAPTION}: read in three seconds); '
-              f'move a clause to "muted" or cut it: "{cap}"')
+            out.warn(f'{bn}: the caption is {len(cap)} chars (aim for < 60, max ~{SOFT_CAPTION}: read in three seconds); '
+                     f'move a clause to "muted" or cut it: "{cap}"')
         elif len(cap) + len(mut) > SOFT_CAPTION_ALL:
-            W(f'{bn}: caption and muted are {len(cap) + len(mut)} chars together (aim for <= {SOFT_CAPTION_ALL}: read '
-              f'in three seconds)')
-        st = b.get('set', {})
-        if not isinstance(st, dict):
-            P(f'{bn}: "set" is {{actorId: {{…}}}}')
-            st = {}
-        for aid, ch in st.items():
-            a = ids.get(aid)
-            if a is None:
-                P(f'{bn}: set on {aid!r}, which is not an actor of this scene')
-                continue
-            t = TYPE_ALIAS.get(a.get('type'), a.get('type'))
-            if not isinstance(ch, dict):
-                P(f'{bn}: set.{aid} is an object of what changes')
-                continue
-            bad = set(ch) - SET_KEYS.get(t, set())
-            if bad:
-                R(f'{bn}: set.{aid}: {", ".join(sorted(bad))} does nothing on a {t} (it takes '
-                  f'{", ".join(sorted(SET_KEYS.get(t, set())))})')
-            for m in state_issues(a, ch):
-                R(f'{bn}: set.{aid}: {m}')
-            if t in STARTS_EMPTY and 'show' in ch:
-                shown[aid] = ch['show']
-        if f in ids and ids[f].get('type') in STARTS_EMPTY and not shown.get(f):
-            W(f'{bn}: focus on {ids[f]["type"]} {f} while none of its lines is shown yet (set {{"{f}": {{"show": 1}}}})')
+            out.warn(f'{bn}: caption and muted are {len(cap) + len(mut)} chars together (aim for <= {SOFT_CAPTION_ALL}: '
+                     f'read in three seconds)')
+        set_issues(bn, b.get('set', {}), ids, shown, out)
+        if is_actor(f) and ids[f].get('type') in STARTS_EMPTY and not shown.get(f):
+            out.warn(f'{bn}: focus on {ids[f]["type"]} {f} while none of its lines is shown yet (set {{"{f}": {{"show": 1}}}})')
         p = b.get('packet')
         if p is not None:
-            if not (isinstance(p, dict) and p.get('from') in ids and p.get('to') in ids):
-                P(f'{bn}: a packet is {{from, to, label}} between two actors of this scene')
+            if not (isinstance(p, dict) and is_actor(p.get('from')) and is_actor(p.get('to'))):
+                out.problem(f'{bn}: a packet is {{from, to, label}} between two actors of this scene')
             elif (p['from'], p['to']) not in pairs:
-                P(f'{bn}: packet {p["from"]} -> {p["to"]} has no wire to travel on (add ["{p["from"]}", "{p["to"]}"] '
-                  f'to wires): the engine does not show it')
+                out.problem(f'{bn}: packet {p["from"]} -> {p["to"]} has no wire to travel on (add ["{p["from"]}", '
+                            f'"{p["to"]}"] to wires): the engine does not show it')
             elif len(str(p.get('label', ''))) > MAX_PACKET:
-                W(f'{bn}: packet label "{p["label"]}" is {len(str(p["label"]))} chars (aim for <= {MAX_PACKET})')
-        types = {TYPE_ALIAS.get(x.get('type'), x.get('type')) for x in ids.values()}
+                out.warn(f'{bn}: packet label "{p["label"]}" is {len(str(p["label"]))} chars (aim for <= {MAX_PACKET})')
         v = b.get('click')
         if v and not types & {'browser', 'app'}:
-            R(f'{bn}: "click" does nothing without a browser or app actor')
-        elif v and 'app' not in types and (v not in ids or ids[v].get('type') != 'browser'):
-            R(f'{bn}: click {v!r} must be the id of the browser actor the click happens in')
+            out.refuse(f'{bn}: "click" does nothing without a browser or app actor')
+        elif v and 'app' not in types and not is_browser(v):
+            out.refuse(f'{bn}: click {v!r} must be the id of the browser actor the click happens in')
         v = b.get('flash')
-        if v and (v not in ids or ids[v].get('type') != 'browser'):
-            R(f'{bn}: flash {v!r} must be the id of a browser actor (the screenshot flash)')
+        if v and not is_browser(v):
+            out.refuse(f'{bn}: flash {v!r} must be the id of a browser actor (the screenshot flash)')
         c = b.get('code')
         if c is None:
             bare += 1
             if bare == 2:
-                W(f'beats {i - 1} and {i} have no code line: never two in a row (a beat without code is for something '
-                  f'with no line in this repo; keep those rare)')
+                out.warn(f'beats {i - 1} and {i} have no code line: never two in a row (a beat without code is for '
+                         f'something with no line in this repo; keep those rare)')
         else:
             bare = 0
             if not (isinstance(c, dict) and isinstance(c.get('file'), str) and is_int(c.get('line'))):
-                P(f'{bn}: code is {{"file": "<repo path>", "line": <n>}} (the script reads the text)')
+                out.problem(f'{bn}: code is {{"file": "<repo path>", "line": <n>}} (the script reads the text)')
     if not any(isinstance(b, dict) and b.get('code') for b in beats):
-        P('no beat has a code line: a scene lights the code that does what it shows')
-    return out
+        out.problem('no beat has a code line: a scene lights the code that does what it shows')
+
+
+def set_issues(bn, st, ids, shown, out):
+    """A beat's `set`: the actors it names, what it changes on each. Records what terminals and chats show."""
+    if not isinstance(st, dict):
+        out.problem(f'{bn}: "set" is {{actorId: {{…}}}}')
+        return
+    for aid, ch in st.items():
+        a = ids.get(aid)
+        if a is None:
+            out.problem(f'{bn}: set on {aid!r}, which is not an actor of this scene')
+            continue
+        t = actor_type(a)
+        if not isinstance(ch, dict):
+            out.problem(f'{bn}: set.{aid} is an object of what changes')
+            continue
+        bad = set(ch) - SET_KEYS.get(t, set())
+        if bad:
+            out.refuse(f'{bn}: set.{aid}: {", ".join(sorted(bad))} does nothing on a {t} (it takes '
+                       f'{", ".join(sorted(SET_KEYS.get(t, set())))})')
+        for m in (STATE_RULES[t](a, ch) if t in STATE_RULES else []):
+            out.refuse(f'{bn}: set.{aid}: {m}')
+        if t in STARTS_EMPTY and 'show' in ch:
+            shown[aid] = ch['show']
 
 
 def screens_of(a):
@@ -2365,124 +2560,144 @@ def app_list(a, key, old):
     return v if isinstance(v, list) else []
 
 
+SCREEN_FIELDS = (('dialog', {'tab', 'title', 'item', 'lines', 'button'}),
+                 ('detail', {'tab', 'title', 'status', 'tone', 'empty', 'cards', 'timeline', 'picture', 'placeholder', 'chat'}),
+                 ('signin', {'title', 'notice', 'provider', 'button'}))
+
+
 def app_issues(a):
-    """What in an app actor does not fit the window it draws (or is not what the engine reads); "W:" = a WARNING."""
-    out = []
-    long = lambda what, v, n: out.append(f'{what} "{v}" is {len(str(v))} chars (max {n})') if len(str(v)) > n else None
+    """What in an app actor does not fit the window it draws, or is not what the engine reads."""
+    out = Issues()
+
+    def long(what, v, n):
+        if len(str(v)) > n:
+            out.problem(f'{what} "{v}" is {len(str(v))} chars (max {n})')
     brand = str(a.get('brand') or 'App')
     logo = str(a.get('logo') or brand[:1])
     if len(logo) > 2:
-        out.append(f'logo "{logo}" is 1 or 2 letters')
+        out.problem(f'logo "{logo}" is 1 or 2 letters')
     tabs = a.get('tabs', [])
     if not isinstance(tabs, list) or len(tabs) > MAX_TABS or not all(isinstance(x, str) for x in tabs):
-        out.append(f'"tabs" is a list of at most {MAX_TABS} short names')
+        out.problem(f'"tabs" is a list of at most {MAX_TABS} short names')
         tabs = []
     for x in tabs:
         long('tab', x, TAB_CHARS)
-    top = (28 if len(logo) > 1 else 20) + 16 + BRAND_PX * len(brand) + (sum(TAB_PX * len(x) for x in tabs) + TAB_GAP * (len(tabs) - 1) if tabs else 0)
-    if top > TOP_PX:
-        out.append(f'brand "{brand}" and tabs {tabs} are about {round(top)} px in the top bar ({TOP_PX} fit): shorter names or fewer tabs')
+    if top_bar_px(logo, brand, tabs) > TOP_PX:
+        out.problem(f'brand "{brand}" and tabs {tabs} are about {round(top_bar_px(logo, brand, tabs))} px in the top bar '
+                    f'({TOP_PX} fit): shorter names or fewer tabs')
     if a.get('screen') and a['screen'] not in screens_of(a):
-        out.append(f'screen {a["screen"]!r} does not exist ({", ".join(screens_of(a))})')
-    for key, allowed in (('dialog', {'tab', 'title', 'item', 'lines', 'button'}),
-                         ('detail', {'tab', 'title', 'status', 'tone', 'empty', 'cards', 'timeline', 'picture', 'placeholder', 'chat'}),
-                         ('signin', {'title', 'notice', 'provider', 'button'})):
+        out.problem(f'screen {a["screen"]!r} does not exist ({", ".join(screens_of(a))})')
+    on_tabs = lambda tab: tab is None or not tabs or tab in tabs
+    for key, allowed in SCREEN_FIELDS:
         if key in a and not isinstance(a[key], dict):
-            out.append(f'"{key}" is an object ({", ".join(sorted(allowed))})')
+            out.problem(f'"{key}" is an object ({", ".join(sorted(allowed))})')
         extra = set(sub_of(a, key)) - allowed
         if extra:
-            out.append(f'{key}: {", ".join(sorted(extra))} is not read (it reads {", ".join(sorted(allowed))})')
+            out.problem(f'{key}: {", ".join(sorted(extra))} is not read (it reads {", ".join(sorted(allowed))})')
         tab = sub_of(a, key).get('tab')
-        if tab is not None and tabs and tab not in tabs:
-            out.append(f'{key} tab {tab!r} is not one of its tabs {tabs}')
+        if not on_tabs(tab):
+            out.problem(f'{key} tab {tab!r} is not one of its tabs {tabs}')
     for key, n in OLD_CHARS.items():
         long(key, a.get(key, ''), n)
     dg, dt, sg = sub_of(a, 'dialog'), sub_of(a, 'detail'), sub_of(a, 'signin')
     for key, n in DIALOG_CHARS.items():
         long(f'dialog {key}', dg.get(key, ''), n)
-    lines = dg.get('lines', [])
-    if not isinstance(lines, list) or len(lines) > DIALOG_LINES:
-        out.append(f'dialog "lines" is a list of at most {DIALOG_LINES} [label, value] pairs')
-        lines = []
-    for ln in lines:
-        if not (isinstance(ln, list) and len(ln) == 2):
-            out.append('dialog: a line is ["label", "value"]')
-        elif len(str(ln[0])) > LINE_KEY or len(str(ln[1])) > LINE_VALUE:
-            out.append(f'dialog line {ln}: label max {LINE_KEY} chars, value max {LINE_VALUE}')
+    dialog_lines(dg.get('lines', []), out)
     for key, n in DETAIL_CHARS.items():
         long(f'detail {key}', dt.get(key, ''), n)
     title = str(dt.get('title') or dg.get('item') or a.get('test') or 'Item')
     status = str(dt.get('status') or a.get('status') or 'New')
     if len(title) + len(status) > TITLE_CHIP:
-        out.append(f'detail title "{title}" and status "{status}" share one line: {len(title) + len(status)} chars (max {TITLE_CHIP})')
+        out.problem(f'detail title "{title}" and status "{status}" share one line: {len(title) + len(status)} chars (max {TITLE_CHIP})')
     if dt.get('tone') not in (None,) + TONES:
-        out.append(f'detail tone {dt["tone"]!r} is one of {", ".join(TONES)}')
+        out.problem(f'detail tone {dt["tone"]!r} is one of {", ".join(TONES)}')
     cards = app_list(a, 'cards', 'findings')
     if len(cards) > 2:
-        out.append(f'W:{len(cards)} cards; the detail page draws the first 2')
+        out.warn(f'{len(cards)} cards; the detail page draws the first 2')
     for c in cards:
         if not isinstance(c, dict):
-            out.append('a card is {"sev"?: "low" | "medium" | "high" | "critical", "title": "…"}')
+            out.problem('a card is {"sev"?: "low" | "medium" | "high" | "critical", "title": "…"}')
         else:
             long('card', c.get('title', ''), CARD_CHARS)
     for e in app_list(a, 'timeline', 'timeline'):
         long('timeline row', e, TIMELINE_CHARS)
     for m in app_list(a, 'chat', 'chat'):
         if not (isinstance(m, dict) and m.get('from') in ('me', 'them', 'you', 'agent') and isinstance(m.get('text'), str)):
-            out.append('a chat message is {"from": "me" | "them", "text": "…"}')
+            out.problem('a chat message is {"from": "me" | "them", "text": "…"}')
         else:
             long('chat message', m['text'], APP_CHAT_CHARS)
     for key, n in SIGNIN_CHARS.items():
         long(f'signin {key}', sg.get(key, ''), n)
     st = str(sg.get('title') or f'Sign in to {brand}')
     if len(st) > SIGNIN_CHARS['title']:
-        out.append(f'the sign-in title "{st}" is {len(st)} chars (max {SIGNIN_CHARS["title"]}): a shorter brand or signin.title')
-    pages = a.get('pages', {})
-    if not isinstance(pages, dict):
-        out.append('"pages" is {name: {tab, title, chip?, tone?, banner?, rows: [[label, value]], button?}}')
-        pages = {}
-    for name, pg in pages.items():
-        if name in SCREENS or name in SCREEN_ALIAS or not isinstance(pg, dict):
-            out.append(f'page {name!r} must be an object with a name other than {", ".join(SCREENS + tuple(SCREEN_ALIAS))}')
-            continue
-        for key, lim in PAGE_CHARS.items():
-            long(f'page {name} {key}', pg.get(key, ''), lim)
-        if pg.get('tab') is not None and tabs and pg['tab'] not in tabs:
-            out.append(f'page {name} tab {pg["tab"]!r} is not one of its tabs {tabs}')
-        if len(str(pg.get('title') or name)) + len(str(pg.get('chip', ''))) > TITLE_CHIP:
-            out.append(f'page {name}: title and chip share one line (max {TITLE_CHIP} chars together)')
-        if pg.get('tone') not in (None,) + TONES:
-            out.append(f'page {name} tone {pg["tone"]!r} is one of {", ".join(TONES)}')
-        long(f'page {name} banner', pg.get('banner', ''), PAGE_BANNER)
-        rows = pg.get('rows', [])
-        if len(rows) > PAGE_ROWS:
-            out.append(f'page {name} has {len(rows)} rows (the page draws {PAGE_ROWS})')
-        items = len(rows) + bool(pg.get('banner')) + bool(pg.get('button'))
-        if items > PAGE_ITEMS:
-            out.append(f'page {name}: {len(rows)} rows{", a banner" if pg.get("banner") else ""}'
-                       f'{", a button" if pg.get("button") else ""}: {PAGE_ITEMS} of these fit under the title')
-        for r in rows:
-            if not (isinstance(r, list) and len(r) == 2):
-                out.append(f'page {name}: a row is ["label", "value"]')
-            elif len(str(r[0])) > PAGE_KEY or len(str(r[1])) > PAGE_VALUE:
-                out.append(f'page {name} row {r}: label max {PAGE_KEY} chars, value max {PAGE_VALUE}')
+        out.problem(f'the sign-in title "{st}" is {len(st)} chars (max {SIGNIN_CHARS["title"]}): a shorter brand or signin.title')
+    page_issues(a.get('pages', {}), on_tabs, tabs, long, out)
     return out
 
 
+def top_bar_px(logo, brand, tabs):
+    """The app window's top bar: the logo (20 px, 28 for two letters), a gap, the brand and the tabs."""
+    tabs_px = sum(TAB_PX * len(x) for x in tabs) + TAB_GAP * (len(tabs) - 1) if tabs else 0
+    return (28 if len(logo) > 1 else 20) + 16 + BRAND_PX * len(brand) + tabs_px
+
+
+def dialog_lines(lines, out):
+    if not isinstance(lines, list) or len(lines) > DIALOG_LINES:
+        out.problem(f'dialog "lines" is a list of at most {DIALOG_LINES} [label, value] pairs')
+        return
+    for ln in lines:
+        if not (isinstance(ln, list) and len(ln) == 2):
+            out.problem('dialog: a line is ["label", "value"]')
+        elif len(str(ln[0])) > LINE_KEY or len(str(ln[1])) > LINE_VALUE:
+            out.problem(f'dialog line {ln}: label max {LINE_KEY} chars, value max {LINE_VALUE}')
+
+
+def page_issues(pages, on_tabs, tabs, long, out):
+    if not isinstance(pages, dict):
+        out.problem('"pages" is {name: {tab, title, chip?, tone?, banner?, rows: [[label, value]], button?}}')
+        return
+    for name, pg in pages.items():
+        if name in SCREENS or name in SCREEN_ALIAS or not isinstance(pg, dict):
+            out.problem(f'page {name!r} must be an object with a name other than {", ".join(SCREENS + tuple(SCREEN_ALIAS))}')
+            continue
+        for key, lim in PAGE_CHARS.items():
+            long(f'page {name} {key}', pg.get(key, ''), lim)
+        if not on_tabs(pg.get('tab')):
+            out.problem(f'page {name} tab {pg["tab"]!r} is not one of its tabs {tabs}')
+        if len(str(pg.get('title') or name)) + len(str(pg.get('chip', ''))) > TITLE_CHIP:
+            out.problem(f'page {name}: title and chip share one line (max {TITLE_CHIP} chars together)')
+        if pg.get('tone') not in (None,) + TONES:
+            out.problem(f'page {name} tone {pg["tone"]!r} is one of {", ".join(TONES)}')
+        long(f'page {name} banner', pg.get('banner', ''), PAGE_BANNER)
+        rows = pg.get('rows', [])
+        if len(rows) > PAGE_ROWS:
+            out.problem(f'page {name} has {len(rows)} rows (the page draws {PAGE_ROWS})')
+        if len(rows) + bool(pg.get('banner')) + bool(pg.get('button')) > PAGE_ITEMS:
+            out.problem(f'page {name}: {len(rows)} rows{", a banner" if pg.get("banner") else ""}'
+                        f'{", a button" if pg.get("button") else ""}: {PAGE_ITEMS} of these fit under the title')
+        for r in rows:
+            if not (isinstance(r, list) and len(r) == 2):
+                out.problem(f'page {name}: a row is ["label", "value"]')
+            elif len(str(r[0])) > PAGE_KEY or len(str(r[1])) > PAGE_VALUE:
+                out.problem(f'page {name} row {r}: label max {PAGE_KEY} chars, value max {PAGE_VALUE}')
+
+
 def row_px(rid, chips):
-    """A table row's width in px (journey-scene.css .scn-row: id in 13 px mono, min 70; pills of 12 px, gap 9)."""
-    return round(max(70, 7.8 * len(str(rid))) + sum(9 + 18 + 6.2 * len(str(c)) for c in chips))
+    """A table row's width in px: the id, then its pills."""
+    pills = sum(PILL_GAP + PILL_PAD + PILL_PX * len(str(c)) for c in chips)
+    return round(max(ROW_ID_MIN_PX, MONO_13_PX * len(str(rid))) + pills)
 
 
 def pods_issues(pods, room, pad, gap):
-    """Pods side by side (.scn-pod: nowrap, 14 px label over a 12 px note): problems when they do not fit `room` px."""
+    """Pods side by side: problems when they do not fit `room` px."""
     out = []
     w = 0
     for p in pods:
         if not isinstance(p, dict) or not isinstance(p.get('label'), str):
             out.append('a pod is {"label", "note"?, "madeNote"?, "ghost"?}')
             continue
-        w += pad + max(7.2 * len(p['label']), 6.4 * max(len(str(p.get('note', ''))), len(str(p.get('madeNote', '')))))
+        note = max(len(str(p.get('note', ''))), len(str(p.get('madeNote', ''))))
+        w += pad + max(LABEL_14_PX * len(p['label']), NOTE_12_PX * note)
     w += gap * max(0, len(pods) - 1)
     if w > room:
         out.append(f'pods {", ".join(str((p or {}).get("label")) for p in pods if isinstance(p, dict))} are about '
@@ -2490,135 +2705,207 @@ def pods_issues(pods, room, pad, gap):
     return out
 
 
-def state_issues(a, ch):
-    """Indexes and values a beat's `set` gives an actor that point at nothing it has."""
-    out = []
-    t = TYPE_ALIAS.get(a.get('type'), a.get('type'))
-    n = lambda key: len(a.get(key)) if isinstance(a.get(key), list) else 0
-    idx = lambda v, m: is_int(v) and -1 <= v < m
+# --- a beat's `set`, per actor type: indexes and values that point at nothing the actor has
+def is_index(v, m):
+    """A list index into m items, or -1 for none."""
+    return is_int(v) and -1 <= v < m
 
-    def need(key, m, what):
-        if key in ch and not idx(ch[key], m):
-            out.append(f'{key} {ch[key]!r} is not one of its {m} {what} (0-{m - 1}, or -1 for none)')
-    if t == 'service' and 'done' in ch and not (is_int(ch['done']) and 0 <= ch['done'] <= n('checks')):
-        out.append(f'done {ch["done"]!r}: it has {n("checks")} checks')
-    if t == 'table':
-        need('hi', n('rows'), 'rows')
-        for r in (ch.get('chips') or {}):
-            if not (str(r).isdigit() and int(r) < n('rows')):
-                out.append(f'chips for row {r!r}: it has {n("rows")} rows')
-            elif row_px(a['rows'][int(r)].get('id', ''), ch['chips'][r] or []) > ROW_PX:
-                out.append(f'chips {ch["chips"][r]} make row {r} wider than the box ({ROW_PX} px)')
-    if t == 'cluster':
-        need('mark', n('pods'), 'pods')
-        for key in ('made', 'gone'):
-            if any(not idx(x, n('pods')) for x in (ch.get(key) or [])):
-                out.append(f'{key} {ch[key]}: it has {n("pods")} pods')
-        inner = a.get('inner') if isinstance(a.get('inner'), dict) else None
-        if inner is None and set(ch) & {'inner', 'innerMade', 'innerMark', 'innerGone'}:
-            out.append('inner/innerMade/innerMark/innerGone need an "inner" cluster on the actor')
-        elif inner is not None:
-            m = len(inner.get('pods') or [])
-            need('innerMark', m, 'inner pods')
-            for key in ('innerMade', 'innerGone'):
-                if any(not idx(x, m) for x in (ch.get(key) or [])):
-                    out.append(f'{key} {ch[key]}: the inner cluster has {m} pods')
-    if t == 'browser' and ch.get('lock') not in (None, '') + LOCKS:
-        out.append(f'lock {ch["lock"]!r} is "ok" (a padlock) or "warn" ("Not secure")')
-    if t == 'file':
-        m = n('lines')
-        if 'show' in ch and not (is_int(ch['show']) and 0 <= ch['show'] <= m):
-            out.append(f'show {ch["show"]!r}: it has {m} lines')
-        hi = ch.get('hi')
-        if hi is not None and not (idx(hi, m) or (isinstance(hi, list) and len(hi) == 2 and all(idx(x, m) for x in hi) and hi[0] <= hi[1])):
-            out.append(f'hi {hi!r} is a line index or [first, last] of its {m} lines')
-        lim = FILE_NUM_CHARS if a.get('from') else FILE_CHARS
-        for i, v in (ch.get('text') or {}).items():
-            if not (str(i).isdigit() and int(i) < m):
-                out.append(f'text for line {i!r}: it has {m} lines')
-            elif len(str(v)) > lim:
-                out.append(f'text "{v}" is {len(str(v))} chars (max {lim})')
-    if t == 'chat':
-        need('hi', n('messages'), 'messages')
-        if 'show' in ch and not (is_int(ch['show']) and 0 <= ch['show'] <= n('messages')):
-            out.append(f'show {ch["show"]!r}: it has {n("messages")} messages')
-    if t == 'queue':
-        room = min(QUEUE_SLOTS, a.get('slots') or 6) if is_int(a.get('slots') or 6) else QUEUE_SLOTS
-        if 'fill' in ch and not (is_int(ch['fill']) and 0 <= ch['fill'] <= room):
-            out.append(f'fill {ch["fill"]!r}: it draws {room} places')
-    if t in ('queue', 'gauge') and len(str(ch.get('note', ''))) > NOTE_CHARS:
-        out.append(f'note "{ch["note"]}" is {len(str(ch["note"]))} chars (max {NOTE_CHARS}; one line)')
-    if t == 'gauge':
-        for key in ('used', 'want'):
-            if key in ch and not (isinstance(ch[key], (int, float)) and ch[key] >= 0):
-                out.append(f'{key} {ch[key]!r} is a number')
-    if t == 'terminal':
-        need('hi', n('lines'), 'lines')
-        if 'show' in ch and not (is_int(ch['show']) and 0 <= ch['show'] <= n('lines')):
-            out.append(f'show {ch["show"]!r}: it has {n("lines")} lines')
-    if t == 'app':
-        if 'screen' in ch and ch['screen'] not in screens_of(a):
-            out.append(f'screen {ch["screen"]!r} does not exist ({", ".join(screens_of(a))})')
-        if ch.get('pane') not in (None, '') + PANES:
-            out.append(f'pane {ch["pane"]!r} is "picture" or "chat" (the detail page; none: cards and timeline)')
-        nchat, ncards, nevents = len(app_list(a, 'chat', 'chat')), len(app_list(a, 'cards', 'findings')), len(app_list(a, 'timeline', 'timeline'))
-        if 'chat' in ch and not (is_int(ch['chat']) and 0 <= ch['chat'] <= nchat):
-            out.append(f'chat {ch["chat"]!r}: the actor has {nchat} chat messages')
-        need('newChat', nchat, 'chat messages')
-        if len(str(ch.get('typing', ''))) > APP_CHAT_CHARS:
-            out.append(f'typing "{ch["typing"]}" is over {APP_CHAT_CHARS} chars')
-        for key in ('picture', 'desktop'):
-            if len(str(ch.get(key, ''))) > DETAIL_CHARS['picture']:
-                out.append(f'{key} "{ch[key]}" is over {DETAIL_CHARS["picture"]} chars')
-        most = max([len(p.get('rows') or []) for p in (a.get('pages') or {}).values() if isinstance(p, dict)] or [0])
-        if 'rows' in ch and not (is_int(ch['rows']) and 0 <= ch['rows'] <= most):
-            out.append(f'rows {ch["rows"]!r}: its pages have at most {most} rows')
-        need('hiRow', most, 'page rows')
-        for key, m, what in (('findings', ncards, 'cards'), ('cards', ncards, 'cards'), ('events', nevents, 'timeline rows')):
-            if key in ch and not (is_int(ch[key]) and 0 <= ch[key] <= m):
-                out.append(f'{key} {ch[key]!r}: it has {m} {what}')
-        need('newFinding', ncards, 'cards')
-        need('newCard', ncards, 'cards')
-        need('newEvent', nevents, 'timeline rows')
-        if len(str(ch.get('status', ''))) > DETAIL_CHARS['status']:
-            out.append(f'status "{ch["status"]}" is over {DETAIL_CHARS["status"]} chars')
-        if ch.get('tone') not in (None,) + TONES:
-            out.append(f'tone {ch["tone"]!r} is one of {", ".join(TONES)}')
+
+def is_count(v, m):
+    return is_int(v) and 0 <= v <= m
+
+
+def count(a, key):
+    return len(a.get(key)) if isinstance(a.get(key), list) else 0
+
+
+class StateRules:
+    """The rules a beat's `set` shares across actor types, appending to `out`."""
+    def __init__(self, ch, out):
+        self.ch, self.out = ch, out
+
+    def index(self, key, m, what):
+        if key in self.ch and not is_index(self.ch[key], m):
+            self.out.append(f'{key} {self.ch[key]!r} is not one of its {m} {what} (0-{m - 1}, or -1 for none)')
+
+    def count(self, key, m, says):
+        if key in self.ch and not is_count(self.ch[key], m):
+            self.out.append(f'{key} {self.ch[key]!r}: {says}')
+
+    def indexes(self, key, m, says):
+        if any(not is_index(x, m) for x in (self.ch.get(key) or [])):
+            self.out.append(f'{key} {self.ch[key]}: {says}')
+
+    def long(self, key, n, says):
+        if len(str(self.ch.get(key, ''))) > n:
+            self.out.append(f'{key} "{self.ch[key]}" {says}')
+
+
+def service_state(a, ch):
+    out = []
+    StateRules(ch, out).count('done', count(a, 'checks'), f'it has {count(a, "checks")} checks')
     return out
 
 
+def table_state(a, ch):
+    out = []
+    rows = count(a, 'rows')
+    StateRules(ch, out).index('hi', rows, 'rows')
+    for r in (ch.get('chips') or {}):
+        if not (str(r).isdigit() and int(r) < rows):
+            out.append(f'chips for row {r!r}: it has {rows} rows')
+        elif row_px(a['rows'][int(r)].get('id', ''), ch['chips'][r] or []) > ROW_PX:
+            out.append(f'chips {ch["chips"][r]} make row {r} wider than the box ({ROW_PX} px)')
+    return out
+
+
+def cluster_state(a, ch):
+    out = []
+    rules = StateRules(ch, out)
+    pods = count(a, 'pods')
+    rules.index('mark', pods, 'pods')
+    for key in ('made', 'gone'):
+        rules.indexes(key, pods, f'it has {pods} pods')
+    inner = a.get('inner') if isinstance(a.get('inner'), dict) else None
+    if inner is None and set(ch) & {'inner', 'innerMade', 'innerMark', 'innerGone'}:
+        out.append('inner/innerMade/innerMark/innerGone need an "inner" cluster on the actor')
+    elif inner is not None:
+        m = len(inner.get('pods') or [])
+        rules.index('innerMark', m, 'inner pods')
+        for key in ('innerMade', 'innerGone'):
+            rules.indexes(key, m, f'the inner cluster has {m} pods')
+    return out
+
+
+def browser_state(a, ch):
+    if ch.get('lock') not in (None, '') + LOCKS:
+        return [f'lock {ch["lock"]!r} is "ok" (a padlock) or "warn" ("Not secure")']
+    return []
+
+
+def file_state(a, ch):
+    out = []
+    m = count(a, 'lines')
+    StateRules(ch, out).count('show', m, f'it has {m} lines')
+    hi = ch.get('hi')
+    span = isinstance(hi, list) and len(hi) == 2 and all(is_index(x, m) for x in hi) and hi[0] <= hi[1]
+    if hi is not None and not (is_index(hi, m) or span):
+        out.append(f'hi {hi!r} is a line index or [first, last] of its {m} lines')
+    lim = FILE_NUM_CHARS if a.get('from') else FILE_CHARS
+    for i, v in (ch.get('text') or {}).items():
+        if not (str(i).isdigit() and int(i) < m):
+            out.append(f'text for line {i!r}: it has {m} lines')
+        elif len(str(v)) > lim:
+            out.append(f'text "{v}" is {len(str(v))} chars (max {lim})')
+    return out
+
+
+def chat_state(a, ch):
+    out = []
+    rules = StateRules(ch, out)
+    m = count(a, 'messages')
+    rules.index('hi', m, 'messages')
+    rules.count('show', m, f'it has {m} messages')
+    return out
+
+
+def note_state(ch):
+    out = []
+    StateRules(ch, out).long('note', NOTE_CHARS, f'is {len(str(ch.get("note", "")))} chars (max {NOTE_CHARS}; one line)')
+    return out
+
+
+def queue_state(a, ch):
+    out = []
+    slots = a.get('slots') or 6
+    room = min(QUEUE_SLOTS, slots) if is_int(slots) else QUEUE_SLOTS
+    StateRules(ch, out).count('fill', room, f'it draws {room} places')
+    return out + note_state(ch)
+
+
+def gauge_state(a, ch):
+    out = note_state(ch)
+    for key in ('used', 'want'):
+        if key in ch and not (isinstance(ch[key], (int, float)) and ch[key] >= 0):
+            out.append(f'{key} {ch[key]!r} is a number')
+    return out
+
+
+def terminal_state(a, ch):
+    out = []
+    rules = StateRules(ch, out)
+    m = count(a, 'lines')
+    rules.index('hi', m, 'lines')
+    rules.count('show', m, f'it has {m} lines')
+    return out
+
+
+def app_state(a, ch):
+    out = []
+    rules = StateRules(ch, out)
+    if 'screen' in ch and ch['screen'] not in screens_of(a):
+        out.append(f'screen {ch["screen"]!r} does not exist ({", ".join(screens_of(a))})')
+    if ch.get('pane') not in (None, '') + PANES:
+        out.append(f'pane {ch["pane"]!r} is "picture" or "chat" (the detail page; none: cards and timeline)')
+    chats, cards, events = len(app_list(a, 'chat', 'chat')), len(app_list(a, 'cards', 'findings')), len(app_list(a, 'timeline', 'timeline'))
+    rules.count('chat', chats, f'the actor has {chats} chat messages')
+    rules.index('newChat', chats, 'chat messages')
+    rules.long('typing', APP_CHAT_CHARS, f'is over {APP_CHAT_CHARS} chars')
+    for key in ('picture', 'desktop'):
+        rules.long(key, DETAIL_CHARS['picture'], f'is over {DETAIL_CHARS["picture"]} chars')
+    most = max([len(p.get('rows') or []) for p in (a.get('pages') or {}).values() if isinstance(p, dict)] or [0])
+    rules.count('rows', most, f'its pages have at most {most} rows')
+    rules.index('hiRow', most, 'page rows')
+    rules.count('findings', cards, f'it has {cards} cards')
+    rules.count('cards', cards, f'it has {cards} cards')
+    rules.count('events', events, f'it has {events} timeline rows')
+    rules.index('newFinding', cards, 'cards')
+    rules.index('newCard', cards, 'cards')
+    rules.index('newEvent', events, 'timeline rows')
+    rules.long('status', DETAIL_CHARS['status'], f'is over {DETAIL_CHARS["status"]} chars')
+    if ch.get('tone') not in (None,) + TONES:
+        out.append(f'tone {ch["tone"]!r} is one of {", ".join(TONES)}')
+    return out
+
+
+# What a beat's `set` may point at, per actor type.
+STATE_RULES = {'app': app_state, 'service': service_state, 'table': table_state, 'cluster': cluster_state,
+               'browser': browser_state, 'terminal': terminal_state, 'file': file_state, 'chat': chat_state,
+               'queue': queue_state, 'gauge': gauge_state}
+
+
 def link_issues(k, s, l):
-    """(level, text) for one code link, without its anchor (checked apart)."""
+    """The Issues of one code link, without its anchor (checked apart)."""
     out = []
     ph = str(l.get('phrase', ''))
     where = f'step {k}: link "{ph}"'
     r = s.get('range') or {}
     a, b = l.get('start'), l.get('end')
     if is_int(a) and is_int(b) and b < a:
-        out.append(('P', f'{where}: end {b} is before start {a}'))
+        out.append(Issue(PROBLEM, f'{where}: end {b} is before start {a}'))
     elif is_int(a) and is_int(b):
         if l.get('file') == s.get('file') and (a, b) == (r.get('start'), r.get('end')):
-            out.append(('R', f'{where} points at the step\'s whole own range ({s["file"]}:{a}-{b}): that is already '
+            out.append(Issue(REFUSE, f'{where} points at the step\'s whole own range ({s["file"]}:{a}-{b}): that is already '
                              f'lit; a link opens the few lines that do what the phrase says'))
         if b - a + 1 > SOFT_LINK_LINES:
-            out.append(('W', f'{where} marks {b - a + 1} lines ({l.get("file")}:{a}-{b}); aim for 1-8, max ~'
+            out.append(Issue(WARN, f'{where} marks {b - a + 1} lines ({l.get("file")}:{a}-{b}); aim for 1-8, max ~'
                              f'{SOFT_LINK_LINES}: the lines that do what the phrase says'))
     same = [o for o in s.get('links', []) if o is not l and (o.get('file'), o.get('start'), o.get('end')) == (l.get('file'), a, b)]
     if same:
-        out.append(('R', f'{where} points at the same lines as the link "{same[0].get("phrase")}" '
+        out.append(Issue(REFUSE, f'{where} points at the same lines as the link "{same[0].get("phrase")}" '
                          f'({l.get("file")}:{a}-{b}): one link per place'))
     if [o.get('phrase') for o in s.get('links', [])].count(ph) > 1:
-        out.append(('P', f'{where}: two links of this step have this phrase (only the first can be a link)'))
+        out.append(Issue(PROBLEM, f'{where}: two links of this step have this phrase (only the first can be a link)'))
     return out
 
 
 def say_issues(issues, write):
-    """For a write: refuses on P and R (nothing written); prints the W lines after the echo."""
-    stop = [m for lv, m in issues if lv in ('P', 'R')] if write else []
+    """For a write: refuses on a PROBLEM or REFUSE issue (nothing written); returns the warnings to print after the echo."""
+    stop = [m for lv, m in issues if lv in (PROBLEM, REFUSE)] if write else []
     if stop:
         print('\n'.join('PROBLEM: ' + m for m in stop[1:]))
         refuse(stop[0])
-    return [m for lv, m in issues if lv == 'W']
+    return [m for lv, m in issues if lv == WARN]
 
 
 def extras_line(s):
@@ -2737,8 +3024,8 @@ def cmd_scene(repo, slug, n):
         sc = json.loads(raw)
     except json.JSONDecodeError as e:
         refuse(f'the scene is not valid JSON (line {e.lineno} column {e.colno}: {e.msg})')
-    issues = scene_issues(k, s, sc)
-    if not any(lv == 'P' for lv, _ in issues):
+    issues = scene_issues(k, sc)
+    if not any(lv == PROBLEM for lv, _ in issues):
         for i, b in enumerate(sc['beats'], 1):     # the script reads each beat's line; a given text must agree
             c = b.get('code')
             if not c:
@@ -2750,7 +3037,7 @@ def cmd_scene(repo, slug, n):
             b['code'] = {'file': c['file'], 'line': c['line'], 'text': text}
             why = odd_line(text, c['file'])
             if why:
-                issues.append(('W', f'step {k} scene: beat {i} lights {why} ({c["file"]}:{c["line"]}): light the line '
+                issues.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c["file"]}:{c["line"]}): light the line '
                                     f'that DOES what the caption says (the call, the assignment, the check)'))
     warns = say_issues(issues, True)
     s['scene'] = {'actors': sc['actors'], 'wires': sc.get('wires', []), 'beats': sc['beats']}
@@ -2777,98 +3064,151 @@ def cmd_rmscene(repo, slug, n):
     print(f'removed step {k} scene ({len(sc.get("beats", []))} beats)')
 
 
-def check_extras(repo, since, j, fix, P, warnings, fixed):
-    """`check` on every step's links, values and scene: the static rules above, and each stored line found again the
-    way the extension finds it (findLine): moved = WARNING (`fix` repoints it), gone = PROBLEM."""
-    def relocate(name, h, fkey, lkey, how, span=None):
-        f, ln, text = h.get(fkey), h.get(lkey), str(h.get('text', ''))
-        if not isinstance(f, str) or not is_int(ln):
-            return P(f'{name}: needs a file and a line number ({how})')
-        if not text.strip():
-            return P(f'{name}: no "text" (the line it is on); rewrite it with the command ({how})')
-        cur = f
-        if not os.path.isfile(os.path.join(repo, f)):
-            cur = renamed(repo, since, f)
-            if cur == f or not os.path.isfile(os.path.join(repo, cur)):
-                return P(f'{name}: {f} no longer exists{" (git could not be asked about a rename)" if GIT_ERROR else ""} ({how})')
-        ls = lines_of(repo, cur)
-        i = find_line(ls, ln, text)
-        if i < 0:
-            return P(f'{name}: {f}:{ln} no longer reads "{text[:70]}", and no line within {FIND_NEAR} lines does: '
-                     f'the code changed; re-read it and rewrite this ({how})')
-        if (cur, i + 1) == (f, ln):
-            return
-        if fix:
-            h[fkey], d = cur, i + 1 - ln
-            h[lkey] = i + 1
-            if span:
-                h[span] = h.get(span, ln) + d
-            fixed.append(f'{name}: {f}:{ln} -> {cur}:{i + 1}')
-        else:
-            warnings.append(f'{name} moved to {cur}:{i + 1} (was {f}:{ln}; run check fix)')
+def relocate(repo, since, name, h, fkey, lkey, how, span=None):
+    """A link's, value's or beat's line (h[fkey]:h[lkey]) found again by its text, the way the extension finds it:
+    None in place, an Issue when it can't be found, a Fix when it moved."""
+    f, ln, text = h.get(fkey), h.get(lkey), str(h.get('text', ''))
+    if not isinstance(f, str) or not is_int(ln):
+        return Issue(PROBLEM, f'{name}: needs a file and a line number ({how})')
+    if not text.strip():
+        return Issue(PROBLEM, f'{name}: no "text" (the line it is on); rewrite it with the command ({how})')
+    cur = f
+    if not os.path.isfile(os.path.join(repo, f)):
+        cur = renamed(repo, since, f)
+        if cur == f or not os.path.isfile(os.path.join(repo, cur)):
+            return Issue(PROBLEM, f'{name}: {f} no longer exists{" (git could not be asked about a rename)" if GIT_ERROR else ""} ({how})')
+    i = line_at(repo, cur, ln, text)
+    if i < 0:
+        return Issue(PROBLEM, f'{name}: {f}:{ln} no longer reads "{text[:70]}", and no line within {FIND_NEAR} lines does: '
+                              f'the code changed; re-read it and rewrite this ({how})')
+    if (cur, i + 1) == (f, ln):
+        return None
+
+    def move():
+        h[fkey], h[lkey] = cur, i + 1
+        if span:
+            h[span] = h.get(span, ln) + i + 1 - ln
+    return Fix(f'{name} moved to {cur}:{i + 1} (was {f}:{ln}; run check fix)', f'{name}: {f}:{ln} -> {cur}:{i + 1}', move)
+
+
+def scene_found(repo, since, k, sc):
+    """A step's scene: its Issues, then each beat's line found again (Fix or Issue) and what it lights."""
+    found = scene_issues(k, sc)
+    if any(lv == PROBLEM for lv, _ in found):
+        return found
+    for i, b in enumerate(sc['beats'], 1):
+        c = b.get('code')
+        if not isinstance(c, dict):
+            continue
+        found.append(relocate(repo, since, f'step {k} scene: beat {i} ("{str(b.get("caption", ""))[:40]}")', c, 'file',
+                              'line', f'scene {k}: give the beat its line again'))
+        why = odd_line(str(c.get('text', '')), str(c.get('file', '')))
+        if why:
+            found.append(Issue(WARN, f'step {k} scene: beat {i} lights {why} ({c.get("file")}:{c.get("line")}): '
+                                     f'light the line that DOES what the caption says'))
+    return found
+
+
+def check_extras(repo, since, j):
+    """`check` on every step's links, values, scene and marks: the static rules above, and each stored line found
+    again the way the extension finds it. Issues and Fixes (moved: `check fix` applies them), in the order found."""
+    found = []
     any_extra = False
     some_links = any(x.get('links') for x in j['steps'])
     for k, s in enumerate(j['steps'], 1):
         links, vals, sc = s.get('links', []), s.get('values', []), s.get('scene')
         any_extra = any_extra or bool(links or vals or sc)
         for l in links:
-            relocate(f'step {k}: link "{l.get("phrase")}"', l, 'file', 'start', f'link {k} "{l.get("phrase")}" <file> <start> <end>', 'end')
-            for lv, m in link_issues(k, s, l):
-                (P if lv == 'P' else warnings.append)(m)
-        warnings.extend(link_warnings(k, s))      # dead links: refused when written; old files stay valid
+            found.append(relocate(repo, since, f'step {k}: link "{l.get("phrase")}"', l, 'file', 'start',
+                                  f'link {k} "{l.get("phrase")}" <file> <start> <end>', 'end'))
+            found.extend(link_issues(k, s, l))
+        found.extend(Issue(WARN, w) for w in link_warnings(k, s))      # dead links: refused when written; old files stay valid
         for v in vals:
-            relocate(f'step {k}: value {v.get("name")}', v, 'file', 'line', f'value {k} {v.get("name")} "<value>" <file> <line>')
-            for lv, m in value_issues(k, s, v, vals):
-                (P if lv == 'P' else warnings.append)(m)
+            found.append(relocate(repo, since, f'step {k}: value {v.get("name")}', v, 'file', 'line',
+                                  f'value {k} {v.get("name")} "<value>" <file> <line>'))
+            found.extend(value_issues(k, s, v, vals))
         if sc is not None:
-            issues = scene_issues(k, s, sc)
-            for lv, m in issues:
-                (P if lv == 'P' else warnings.append)(m)
-            if not any(lv == 'P' for lv, _ in issues):
-                for i, b in enumerate(sc['beats'], 1):
-                    c = b.get('code')
-                    if isinstance(c, dict):
-                        relocate(f'step {k} scene: beat {i} ("{str(b.get("caption", ""))[:40]}")', c, 'file', 'line',
-                                 f'scene {k}: give the beat its line again')
-                        why = odd_line(str(c.get('text', '')), str(c.get('file', '')))
-                        if why:
-                            warnings.append(f'step {k} scene: beat {i} lights {why} ({c.get("file")}:{c.get("line")}): '
-                                            f'light the line that DOES what the caption says')
-        for lv, m in marks_issues(repo, since, k, s, fix, fixed):
-            (P if lv == 'P' else warnings.append)(m)
+            found.extend(scene_found(repo, since, k, sc))
+        found.extend(marks_issues(repo, since, k, s))
         if some_links and not links:
-            warnings.append(f'step {k}: no code links (aim for 3-6: the phrases of the lead and details that name '
-                            f'what a few lines do; link {k} "<phrase>" <file> <start> <end>)')
+            found.append(Issue(WARN, f'step {k}: no code links (aim for 3-6: the phrases of the lead and details that '
+                                     f'name what a few lines do; link {k} "<phrase>" <file> <start> <end>)'))
     if not any_extra and j['steps']:
-        warnings.append('no step has code links, value hints or an animation: add them once the steps are written '
-                        '(link, value, scene: SKILL.md "Links, values, marks, scenes")')
+        found.append(Issue(WARN, 'no step has code links, value hints or an animation: add them once the steps are '
+                                 'written (link, value, scene: SKILL.md "Links, values, marks, scenes")'))
+    return [x for x in found if x]
+
+
+def as_issues(found):
+    """Issues and Fixes as Issues: a Fix not applied is a WARNING."""
+    return [Issue(WARN, x.warning) if isinstance(x, Fix) else x for x in found]
 
 
 # ---------- marks: the part of a line a step or beat is about (docs/journey-format.md "Marks"; a podcast segment's
-# marks have the same shape plus phrase and at). The extension's src/core/format/marks.ts, rule for rule. ----------
+# marks have the same shape plus phrase and at). With node, the extension's src/core/format/marks.ts checks them
+# (mark_check); the Python rules below are the same, and its tests run both on the same marks. ----------
 
 MAX_MARKS = 3             # per step or beat: more, and nothing stands out
+MARK_REFIND = 20          # a match is looked for this many lines up and down when the code moved
+MARK_SLACK = 0.05         # s: a podcast mark this close to its segment is in it
+# shape: what is wrong with its fields; code: (what, moved) against the code; spot: (line, col, end line, end col) lit.
+MarkCheck = namedtuple('MarkCheck', 'shape code spot')
+
+
+def mark_check(m, f, doc, missing):
+    """Mark m of file f (its lines `doc`; None: the file isn't there). `missing`: what a match not found lights,
+    'lines' (a podcast) or 'drop' (a journey: nothing)."""
+    got = RULES.ask('mark', mark=m, file=f, doc=doc, onMissing=missing)
+    if got is FALLBACK:
+        return mark_check_py(m, f, doc, missing)
+    code = got['code']
+    return MarkCheck(got['shape'], code and (code['what'], code['moved']), got['spot'] and tuple(got['spot']))
+
+
+def mark_check_py(m, f, doc, missing):
+    if not isinstance(m, dict):
+        return MarkCheck('not an object { lines, match? }', None, None)
+    shape = mark_shape_problem(m)
+    if shape:
+        return MarkCheck(shape, None, None)
+    return MarkCheck(None, mark_code_problem(doc, f, m, missing), mark_spot(doc, m) if doc else None)
+
+
+def is_whole_number(x):
+    """A number with nothing after the point (JSON's 2 or 2.0), never a bool: the extension's Number.isInteger."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and float(x).is_integer()
+
+
+def _js(v):
+    """A value in a message, as the extension's JSON.stringify writes it (no spaces, whole floats as integers)."""
+    def norm(x):
+        if isinstance(x, float) and x.is_integer():
+            return int(x)
+        if isinstance(x, list):
+            return [norm(y) for y in x]
+        if isinstance(x, dict):
+            return {k: norm(y) for k, y in x.items()}
+        return x
+    return json.dumps(norm(v), separators=(',', ':'), ensure_ascii=False)
 
 
 def mark_shape_problem(m):
-    """What is wrong with a mark's code fields (lines, file, match, nth), the first found: (message, field) or None.
-    As model.ts markShapeProblem."""
+    """What is wrong with a mark's code fields (lines, file, match, nth), the first found; None: usable."""
     ln = m.get('lines')
-    if not (isinstance(ln, list) and len(ln) == 2 and all(_is_int(x) and x >= 1 for x in ln) and ln[1] >= ln[0]):
-        return (f'lines must be [first, last] (1-based, first <= last), got {_js(ln) if "lines" in m else "undefined"}', 'lines')
+    if not (isinstance(ln, list) and len(ln) == 2 and all(is_whole_number(x) and x >= 1 for x in ln) and ln[1] >= ln[0]):
+        return f'lines must be [first, last] (1-based, first <= last), got {_js(ln) if "lines" in m else "undefined"}'
     if 'file' in m and (not isinstance(m['file'], str) or not m['file'].strip()):
-        return ('file is not a path', 'file')
+        return 'file is not a path'
     if 'match' in m and (not isinstance(m['match'], str) or not m['match']):
-        return ('match is not a text', 'match')
-    if 'nth' in m and not (_is_int(m['nth']) and m['nth'] >= 1):
-        return (f'nth must be 1 or more, got {_js(m["nth"])}', 'nth')
+        return 'match is not a text'
+    if 'nth' in m and not (is_whole_number(m['nth']) and m['nth'] >= 1):
+        return f'nth must be 1 or more, got {_js(m["nth"])}'
     return None
 
 
 def mark_code_problem(doc, f, m, missing):
     """What is wrong with mark m against its file's lines `doc` (None: the file isn't there): (message, moved) or
-    None when it is in place. moved: the shift it was found at, None when it lights nothing. `missing`: what a match
-    not found lights: 'lines' (a podcast) or 'drop' (a journey: nothing). As model.ts markCodeProblem."""
+    None when it is in place. moved: the shift it was found at, None when it lights nothing."""
     if doc is None:
         return (f"{f} isn't in the repository; nothing is lit", None)
     a, b = int(m['lines'][0]), int(m['lines'][1])
@@ -2878,7 +3218,7 @@ def mark_code_problem(doc, f, m, missing):
         return (f"{where} {('is' if a == b else 'are') if past else 'go'} past its end ({len(doc)} lines){'; nothing is lit' if past else ''}", None)
     if not isinstance(m.get('match'), str):
         return None
-    nth = int(m['nth']) if _is_int(m.get('nth')) else 1
+    nth = int(m['nth']) if is_whole_number(m.get('nth')) else 1
     moved = mark_moved(doc, [a, b], m['match'], nth)
     if moved == 0:
         return None
@@ -2889,15 +3229,40 @@ def mark_code_problem(doc, f, m, missing):
     return (f"{what}, nor within {MARK_REFIND} lines: {'the whole lines light' if missing == 'lines' else 'nothing is lit'}", None)
 
 
+def mark_occurrence(doc, a, b, match, nth):
+    """The nth occurrence of `match` in lines a..b (0-based, inclusive; clipped to the document): True when there."""
+    a, b = max(0, a), min(len(doc) - 1, b)
+    if a > b:
+        return False
+    text = '\n'.join(doc[a:b + 1])
+    i = -len(match)
+    for _ in range(nth):
+        i = text.find(match, i + len(match))
+        if i < 0:
+            return False
+    return True
+
+
+def mark_moved(doc, lines, match, nth=1):
+    """Where `match` is, against `lines` (1-based [first, last]): 0 in place, else the nearest shift within
+    MARK_REFIND lines (up before down), None: not there."""
+    a, b = lines[0] - 1, lines[1] - 1
+    for d in range(0, MARK_REFIND + 1):
+        for s in ((0,) if d == 0 else (-d, d)):
+            if mark_occurrence(doc, a + s, b + s, match, nth):
+                return s
+    return None
+
+
 def mark_spot(doc, m):
-    """Where mark m lights in `doc` (its lines, 1-based in m): (line, col, end_line, end_col), 0-based, the end
-    exclusive; None: nothing. As model.ts findMark (a journey's: a match not found lights nothing)."""
+    """Where mark m lights in `doc`: (line, col, end_line, end_col), 0-based, the end exclusive; None: nothing (a
+    journey's match not found lights nothing)."""
     a, b = int(m['lines'][0]) - 1, min(int(m['lines'][1]) - 1, len(doc) - 1)
     if a < 0 or a >= len(doc):
         return None
     if not isinstance(m.get('match'), str):
-        return (a, len(doc[a]) - len(doc[a].lstrip()), b, len(doc[b]))
-    nth = int(m['nth']) if _is_int(m.get('nth')) else 1
+        return (a, len(doc[a]) - len(doc[a].lstrip()) if doc[a].strip() else 0, b, len(doc[b]))
+    nth = int(m['nth']) if is_whole_number(m.get('nth')) else 1
     moved = mark_moved(doc, [a + 1, b + 1], m['match'], nth)
     if moved is None:
         return None
@@ -2906,6 +3271,7 @@ def mark_spot(doc, m):
     i = -len(m['match'])
     for _ in range(nth):
         i = text.find(m['match'], i + len(m['match']))
+
     def pos(off):
         ln = lo
         while off > len(doc[ln]):
@@ -2916,9 +3282,8 @@ def mark_spot(doc, m):
     return (l1, c1, l2, c2)
 
 
-def mark_preview(doc, m, indent='      '):
-    """The lines a mark lights, each with a ^ line under the characters it lights."""
-    sp = mark_spot(doc, m)
+def mark_preview(doc, sp, indent='      '):
+    """The lines a mark lights (sp: its spot), each with a ^ line under the characters it lights."""
     if not sp:
         return [f'{indent}(nothing lit)']
     l1, c1, l2, c2 = sp
@@ -2935,13 +3300,17 @@ def mark_preview(doc, m, indent='      '):
     return out
 
 
-def mark_text_words(match):
-    """The words of a match a step's text could name: identifiers and numbers, split at camelCase and _."""
-    out = set()
-    for w in re.findall(r'[A-Za-z]+|\d+', re.sub(r'([a-z])([A-Z])', r'\1 \2', match)):
-        if len(w) >= 3 or w.isdigit():
-            out.add(w.lower())
-    return out
+def words_of(text):
+    """The words a text names a mark by: identifiers split at camelCase and _, and numbers."""
+    return re.findall(r'[A-Za-z]+|\d+', re.sub(r'([a-z])([A-Z])', r'\1 \2', text))
+
+
+def names_match(named, match):
+    """The text's words (stemmed) name the match: one of its words (3 letters or more, or a number), or a word
+    sharing its first 4 letters or more."""
+    ws = {stem(w.lower()) for w in words_of(match) if len(w) >= 3 or w.isdigit()}
+    near = lambda w, t: w == t or min(len(w), len(t)) >= 4 and (w.startswith(t) or t.startswith(w))
+    return not ws or any(near(w, t) for w in ws for t in named)
 
 
 def mark_file_lines(repo, since, f):
@@ -2968,58 +3337,68 @@ def marks_groups(s):
     return out
 
 
-def marks_issues(repo, since, k, s, fix=False, fixed=None):
-    """(level, text) for a step's marks and its beats' (P: lights nothing or can't be read; W: moved, too many, not on
-    the step's lines, not named by the text, the step's whole range). `fix`: a moved match's lines are rewritten."""
+def marks_issues(repo, since, k, s):
+    """A step's marks and its beats': Issues (a PROBLEM lights nothing or can't be read; a WARNING: too many, not on
+    the step's lines, not named by the text, the step's whole range) and a Fix for a match a few lines off."""
     out = []
-    r = s.get('range') or {}
     for where, ms, own, text, beat in marks_groups(s):
         name = f'step {k}{where}'
         if not isinstance(ms, list):
-            out.append(('P', f'{name}: marks is not a list of {{ lines, match? }}'))
+            out.append(Issue(PROBLEM, f'{name}: marks is not a list of {{ lines, match? }}'))
             continue
         if len(ms) > MAX_MARKS:
-            out.append(('W', f'{name}: {len(ms)} marks (aim for <= {MAX_MARKS}: only what the text names, so it stands out)'))
-        named_words = {stem(w) for w in re.findall(r'[a-z]+|\d+', re.sub(r'([a-z])([A-Z])', r'\1 \2', text).lower())}
+            out.append(Issue(WARN, f'{name}: {len(ms)} marks (aim for <= {MAX_MARKS}: only what the text names, so it stands out)'))
+        group = MarkGroup(repo, since, s, own, {stem(w.lower()) for w in words_of(text)}, beat,
+                          f'mark {k}{"." + where.split()[-1] if where else ""} …')
         for n, m in enumerate(ms, 1):
-            label = f'{name}: mark {n}'
-            if not isinstance(m, dict):
-                out.append(('P', f'{label}: not an object {{ lines, match? }}'))
-                continue
-            shape = mark_shape_problem(m)
-            if shape:
-                out.append(('P', f'{label}: {shape[0]}'))
-                continue
-            f = m.get('file') or own
-            if not isinstance(f, str) or not f:
-                out.append(('P', f'{label}: no file (give "file")'))
-                continue
-            doc, cur = mark_file_lines(repo, since, f)
-            got = mark_code_problem(doc, f, m, 'drop')
-            if got:
-                msg, moved = got
-                if moved:
-                    if fix and fixed is not None:
-                        m['lines'] = [m['lines'][0] + moved, m['lines'][1] + moved]
-                        fixed.append(f'{label}: lines moved {moved:+d} to {m["lines"][0]}-{m["lines"][1]}')
-                    else:
-                        out.append(('W', f'{label}: {msg} (run check fix)'))
-                else:
-                    out.append(('P', f'{label}: {msg}; mark the characters as they are now (mark {k}{"." + where.split()[-1] if where else ""} …)'))
-                continue
-            a, b = m['lines']
-            if beat is None and f == s.get('file') and (b < r.get('start', a) or a > r.get('end', b)):
-                out.append(('W', f'{label}: {f}:{a}-{b} is outside the step\'s lines ({r.get("start")}-{r.get("end")}): a step marks its own code'))
-            if 'match' not in m:
-                if f == s.get('file') and beat is None and (a, b) == (r.get('start'), r.get('end')):
-                    out.append(('W', f'{label}: lights the step\'s whole range: mark the part the text names (a "match")'))
-            else:
-                ws = {stem(w) for w in mark_text_words(m['match'])}
-                if ws and not any(w == t or min(len(w), len(t)) >= 4 and (w.startswith(t) or t.startswith(w)) for w in ws for t in named_words):
-                    out.append(('W', f'{label}: {_js(m["match"])}: the {"caption" if beat is not None else "step\'s text"} '
-                                     f'names none of it; mark only what the text talks about'))
-                elif doc and m['match'].strip() == '\n'.join(x.strip() for x in doc[a - 1:b]).strip():
-                    out.append(('W', f'{label}: {_js(m["match"])} is the whole line: leave "match" out, or mark the part that matters'))
+            out.extend(group.issues(f'{name}: mark {n}', m))
+    return out
+
+
+class MarkGroup(namedtuple('MarkGroup', 'repo since step own named beat again')):
+    """A step's or a beat's marks: their default file, the words its text names, and the command that marks one
+    again."""
+    def issues(self, label, m):
+        return mark_issues(self, label, m)
+
+
+def mark_issues(g, label, m):
+    """One mark of group g: an Issue, a Fix (found a few lines off), or the warnings of a mark that lights."""
+    if not isinstance(m, dict):
+        return [Issue(PROBLEM, f'{label}: not an object {{ lines, match? }}')]
+    f = m.get('file') or g.own
+    doc = mark_file_lines(g.repo, g.since, f)[0] if isinstance(f, str) and f.strip() else None
+    got = mark_check(m, f if isinstance(f, str) else '', doc, 'drop')
+    if got.shape:
+        return [Issue(PROBLEM, f'{label}: {got.shape}')]
+    if not isinstance(f, str) or not f:
+        return [Issue(PROBLEM, f'{label}: no file (give "file")')]
+    if got.code:
+        msg, moved = got.code
+        if not moved:
+            return [Issue(PROBLEM, f'{label}: {msg}; mark the characters as they are now ({g.again})')]
+        lines = [m['lines'][0] + moved, m['lines'][1] + moved]
+        return [Fix(f'{label}: {msg} (run check fix)', f'{label}: lines moved {moved:+d} to {lines[0]}-{lines[1]}',
+                    lambda: m.__setitem__('lines', lines))]
+    return mark_warnings(label, g, m, f, doc)
+
+
+def mark_warnings(label, g, m, f, doc):
+    """A mark that lights: where it is against the step, and whether the text names it."""
+    out = []
+    s, beat = g.step, g.beat
+    r = s.get('range') or {}
+    a, b = m['lines']
+    if beat is None and f == s.get('file') and (b < r.get('start', a) or a > r.get('end', b)):
+        out.append(Issue(WARN, f'{label}: {f}:{a}-{b} is outside the step\'s lines ({r.get("start")}-{r.get("end")}): a step marks its own code'))
+    if 'match' not in m:
+        if f == s.get('file') and beat is None and (a, b) == (r.get('start'), r.get('end')):
+            out.append(Issue(WARN, f'{label}: lights the step\'s whole range: mark the part the text names (a "match")'))
+    elif not names_match(g.named, m['match']):
+        whose = 'caption' if beat is not None else "step's text"
+        out.append(Issue(WARN, f'{label}: {_js(m["match"])}: the {whose} names none of it; mark only what the text talks about'))
+    elif doc and m['match'].strip() == '\n'.join(x.strip() for x in doc[a - 1:b]).strip():
+        out.append(Issue(WARN, f'{label}: {_js(m["match"])} is the whole line: leave "match" out, or mark the part that matters'))
     return out
 
 
@@ -3057,7 +3436,8 @@ def cmd_mark(repo, slug, target, rel, lines, match='', nth=''):
     if rel != own:
         m = {'file': rel, **m}
     doc, _ = mark_file_lines(repo, None, rel)
-    got = mark_code_problem(doc, rel, m, 'drop')
+    check = mark_check(m, rel, doc, 'drop')
+    got = check.code
     if got:
         refuse(f'mark: {got[0]}' if got[1] is None else f'mark: {_js(match)} isn\'t on {rel}:{a}-{b} (it is {abs(got[1])} line{"" if abs(got[1]) == 1 else "s"} {"up" if got[1] < 0 else "down"}): give the lines it is on')
     ms = list(holder.get('marks', []))
@@ -3067,14 +3447,14 @@ def cmd_mark(repo, slug, target, rel, lines, match='', nth=''):
     else:
         ms[same] = m
     holder['marks'] = ms
-    issues = [x for x in marks_issues(repo, None, k, s) if (f'step {k}{f" beat {target.split(".")[1]}" if beat is not None else ""}: ' in x[1])]
-    if any(lv == 'P' for lv, _ in issues):
-        refuse(next(t for lv, t in issues if lv == 'P'))
+    issues = [x for x in as_issues(marks_issues(repo, None, k, s)) if (f'step {k}{f" beat {target.split(".")[1]}" if beat is not None else ""}: ' in x[1])]
+    if any(lv == PROBLEM for lv, _ in issues):
+        refuse(next(t for lv, t in issues if lv == PROBLEM))
     save(repo, slug, j)
     where = f'step {k}' + (f' beat {target.split(".")[1]}' if beat is not None else '')
     print(f'{where} mark {ms.index(m) + 1}{" (replaced)" if same is not None else ""}: {rel}:{a}{"-" + str(b) if b > a else ""}'
           f'{" " + _js(match) if match else " (whole lines)"}  ({len(ms)} mark{"" if len(ms) == 1 else "s"})')
-    print('\n'.join(mark_preview(doc, m, '  ')))
+    print('\n'.join(mark_preview(doc, check.spot, '  ')))
     for lv, t in issues:
         print('WARNING: ' + t)
 
@@ -3118,24 +3498,26 @@ def cmd_marks(repo, slug, n=''):
             if beat is not None:
                 print(f'  {where.strip()}: {str(beat.get("caption", ""))[:90]}')
             for i, m in enumerate(ms if isinstance(ms, list) else [], 1):
-                if not isinstance(m, dict) or mark_shape_problem(m):
+                f = m.get('file') or own if isinstance(m, dict) else ''
+                doc = mark_file_lines(repo, None, f)[0] if isinstance(f, str) and f.strip() else None
+                check = mark_check(m, f if isinstance(f, str) else '', doc, 'drop')
+                if check.shape:
                     continue
                 total += 1
-                f = m.get('file') or own
-                doc, cur = mark_file_lines(repo, None, f)
                 head = f'    mark {i}: {f}:{m["lines"][0]}{"-" + str(m["lines"][1]) if m["lines"][1] > m["lines"][0] else ""}'
                 print(head + (f' {_js(m["match"])}' if 'match' in m else ' (whole lines)') + (f' #{m["nth"]}' if 'nth' in m else ''))
-                print('\n'.join(mark_preview(doc, m)) if doc else '      (file not found)')
-        issues += marks_issues(repo, None, k, s)
+                print('\n'.join(mark_preview(doc, check.spot)) if doc else '      (file not found)')
+        issues += as_issues(marks_issues(repo, None, k, s))
     for lv, t in issues:
-        print(('PROBLEM: ' if lv == 'P' else 'WARNING: ') + t)
-    np = sum(1 for lv, _ in issues if lv == 'P')
+        print(('PROBLEM: ' if lv == PROBLEM else 'WARNING: ') + t)
+    np = sum(1 for lv, _ in issues if lv == PROBLEM)
     print(f'{total} mark{"s" if total != 1 else ""}, {np} problem{"s" if np != 1 else ""}, {len(issues) - np} warning{"s" if len(issues) - np != 1 else ""}')
-    sys.exit(1 if any(lv == 'P' for lv, _ in issues) else 0)
+    sys.exit(1 if np else 0)
 
 
-# ---------- podcasts: <slug>.podcast.json (the Code Notes extension's src/core/format/podcast/validate.ts, rule for rule; the
-# cases in its test/fixtures/podcast/cases.json run through both) ----------
+# ---------- podcasts: <slug>.podcast.json next to the journey (docs/podcast-format.md of the Code Notes extension).
+# With node, the extension's own validator (src/core/format/podcast/validate.ts) checks it; without, the Python
+# rules below, which its tests run on the same cases (test/fixtures/podcast/cases.json). ----------
 
 POD_CUES = ('map', 'open', 'beat')
 POD_SLACK = 0.05          # s: times this close are the same time
@@ -3203,97 +3585,67 @@ def _sentences_problem(v, start, end):
     return None
 
 
-MARK_SLACK = 0.05
-MARK_REFIND = 20
-
-
-def _js(v):
-    """A value in a message, as JSON.stringify writes it (no spaces, whole floats as integers)."""
-    def norm(x):
-        if isinstance(x, float) and x.is_integer():
-            return int(x)
-        if isinstance(x, list):
-            return [norm(y) for y in x]
-        if isinstance(x, dict):
-            return {k: norm(y) for k, y in x.items()}
-        return x
-    return json.dumps(norm(v), separators=(',', ':'), ensure_ascii=False)
-
-
 def _r2(t):
     """Seconds rounded to hundredths, as the extension writes them (2.8, 3, 0.48)."""
     r = math.floor(t * 100 + 0.5) / 100
     return str(int(r)) if float(r).is_integer() else repr(r)
 
 
-def _is_int(x):
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and float(x).is_integer()
+PodMarkProblem = namedtuple('PodMarkProblem', 'k text drop')   # k: the mark's index (None: the list); drop: ignored
+
+
+class PhraseCursor:
+    """Where the marks' phrases were found so far in a segment's text: each is looked for after the one before; the
+    same phrase as the mark before is the same words (two places lit at once)."""
+    def __init__(self, text):
+        self.text, self.after, self.phrase, self.pos = text, 0, None, -1
+
+    def find(self, phrase):
+        p = self.pos if phrase == self.phrase else self.text.find(phrase, self.after)
+        if p >= 0:
+            self.after = p + len(phrase)
+        self.phrase, self.pos = phrase, p
+        return p
 
 
 def _marks_problems(v, text, start, end, on_map):
-    """What is wrong with a segment's `marks`: [(k, message, drop)] (k None: the list itself). As model.ts marksProblems."""
+    """What is wrong with a segment's `marks`: PodMarkProblems. As the extension's marksProblems."""
     if not isinstance(v, list):
-        return [(None, 'marks is not a list of { phrase, at, lines }; ignored', True)]
-    out, prev_at, frm, prev_phrase, prev_pos = [], None, 0, None, -1
+        return [PodMarkProblem(None, 'marks is not a list of { phrase, at, lines }; ignored', True)]
+    out, prev_at, cursor = [], None, PhraseCursor(text)
     length = max(0, end - start)
     for k, m in enumerate(v):
-        def bad(what):
-            out.append((k, f'mark {k + 1}: {what}; ignored', True))
-        if not isinstance(m, dict):
-            bad('not an object { phrase, at, lines }')
+        bad = mark_problem_at(m, start, end, length, on_map)
+        if bad:
+            out.append(PodMarkProblem(k, f'mark {k + 1}: {bad}; ignored', True))
             continue
-        ph = m.get('phrase')
-        if not isinstance(ph, str) or not ph.strip():
-            bad('no phrase')
-            continue
-        at = _pnum(m.get('at'))
-        if at is None:
-            bad('no "at" (seconds from the segment\'s start)' if 'at' not in m else f'at {_js(m.get("at"))} is not a time in seconds')
-            continue
-        if at < -MARK_SLACK or at > length + MARK_SLACK:
-            bad(f'at {_clock_ms(start + at)} ({_r2(at)} s) is outside the segment ({_clock_ms(start)}–{_clock_ms(end)})')
-            continue
-        shape = mark_shape_problem(m)
-        if shape:
-            bad(shape[0])
-            continue
-        if 'file' not in m and on_map:
-            bad('a mark in a segment on the map ("at": null) needs its own "file"')
-            continue
+        at, ph = _pnum(m.get('at')), m['phrase']
         if prev_at is not None and at < prev_at - MARK_SLACK:
-            out.append((k, f'mark {k + 1} lights at {_r2(at)} s, before mark {k} ({_r2(prev_at)} s): marks light in the order they are said', False))
-        # The same phrase as the mark before: the same words (two places at once).
-        p = prev_pos if ph == prev_phrase else text.find(ph, frm)
-        if p < 0:
-            out.append((k, f'mark {k + 1}: the phrase {_js(ph)} isn\'t in the text' + (' after the phrase before it' if frm else ''), False))
-        else:
-            frm = p + len(ph)
-        prev_at, prev_phrase, prev_pos = at, ph, p
+            out.append(PodMarkProblem(k, f'mark {k + 1} lights at {_r2(at)} s, before mark {k} ({_r2(prev_at)} s): marks light in the order they are said', False))
+        searched_from = cursor.after
+        if cursor.find(ph) < 0:
+            out.append(PodMarkProblem(k, f'mark {k + 1}: the phrase {_js(ph)} isn\'t in the text' + (' after the phrase before it' if searched_from else ''), False))
+        prev_at = at
     return out
 
 
-def _mark_occurrence(doc, a, b, match, nth):
-    """The nth occurrence of `match` in lines a..b (0-based, inclusive; clipped to the document): True when there."""
-    a, b = max(0, a), min(len(doc) - 1, b)
-    if a > b:
-        return False
-    text = '\n'.join(doc[a:b + 1])
-    i = -len(match)
-    for _ in range(nth):
-        i = text.find(match, i + len(match))
-        if i < 0:
-            return False
-    return True
-
-
-def mark_moved(doc, lines, match, nth=1):
-    """Where `match` is, against `lines` (1-based [first, last]): 0 in place, else the nearest shift within
-    MARK_REFIND lines (up before down), None: not there. As model.ts findMark."""
-    a, b = lines[0] - 1, lines[1] - 1
-    for d in range(0, MARK_REFIND + 1):
-        for s in ((0,) if d == 0 else (-d, d)):
-            if _mark_occurrence(doc, a + s, b + s, match, nth):
-                return s
+def mark_problem_at(m, start, end, length, on_map):
+    """Why a podcast mark is ignored (its shape, phrase, time, file); None: it is used."""
+    if not isinstance(m, dict):
+        return 'not an object { phrase, at, lines }'
+    ph = m.get('phrase')
+    if not isinstance(ph, str) or not ph.strip():
+        return 'no phrase'
+    at = _pnum(m.get('at'))
+    if at is None:
+        return 'no "at" (seconds from the segment\'s start)' if 'at' not in m else f'at {_js(m.get("at"))} is not a time in seconds'
+    if at < -MARK_SLACK or at > length + MARK_SLACK:
+        return f'at {_clock_ms(start + at)} ({_r2(at)} s) is outside the segment ({_clock_ms(start)}–{_clock_ms(end)})'
+    shape = mark_shape_problem(m)
+    if shape:
+        return shape
+    if 'file' not in m and on_map:
+        return 'a mark in a segment on the map ("at": null) needs its own "file"'
     return None
 
 
@@ -3306,7 +3658,7 @@ def _mark_own_file(x, steps_by_id):
     if not st:
         return ''
     b, bf = at.get('beat'), None
-    if x.get('cue') != 'map' and _is_int(b) and b >= 1:
+    if x.get('cue') != 'map' and is_whole_number(b) and b >= 1:
         files = st.get('beatFiles') or []
         bf = files[int(b) - 1] if int(b) - 1 < len(files) else None
     return bf or st.get('file') or ''
@@ -3321,7 +3673,7 @@ def _pod_bad_beat(x, beats_by_id):
     if at['step'] not in beats_by_id:
         return False
     b = at['beat']
-    return not (_is_int(b) and 1 <= b <= beats_by_id[at['step']])
+    return not (is_whole_number(b) and 1 <= b <= beats_by_id[at['step']])
 
 
 def _mark_code_problems(x, k_drop, steps_by_id, files, docs, bad_beat=False):
@@ -3349,213 +3701,279 @@ def _mark_code_problems(x, k_drop, steps_by_id, files, docs, bad_beat=False):
     return out
 
 
-def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed=None, files=None):
+def podcast_findings(raw, journey=None, audio=None, audio_duration=None, changed=None, files=None, repo=None):
     """Every problem of a podcast file: dicts with level (error | warning | info), code, message, segment (or None).
-    journey: {id, steps: [{id, beats}]}; audio: {exists, size} when looked at; audio_duration: the audio's seconds;
-    changed: the journey's steps (numbers) whose code changed since the podcast's journey.commit; files: a repository
-    file's text by path (None: not there; ...: not read), for the marks."""
-    out, errors = [], []
+    journey: {id, steps: [{id, beats, file, beatFiles}]}; audio: {exists, size} when looked at; audio_duration: the
+    audio's seconds; changed: the journey's steps (numbers) whose code changed since the podcast's journey.commit.
+    The marks' files are read from `repo`, or taken from `files` (path -> text; None: not there; left out: not read)."""
+    got = RULES.ask('podcast', raw=raw, journey=journey, audio=audio, audioDuration=audio_duration, changed=changed,
+                    files=files, repo=repo)
+    if got is not FALLBACK:
+        return got
+    read = (lambda f: _repo_text(repo, f)) if repo is not None else files
+    return podcast_problems(raw, journey, audio, audio_duration, changed, read)
 
-    def err(code, msg):
-        errors.append({'level': 'error', 'code': code, 'message': msg, 'segment': None})
 
-    def warn(code, msg, seg=None, prefix=True):
-        out.append({'level': 'warning', 'code': code, 'message': (f'segment {seg}: ' if seg and prefix else '') + msg, 'segment': seg})
+# --- the Python rules for a podcast (without node; the helper runs the extension's own validator)
+Segment = namedtuple('Segment', 'x i start end')      # a segment as written, its index, its start and end (None: none)
 
+
+def segment_name(x, i):
+    return x['id'] if isinstance(x.get('id'), str) and x['id'] else f'#{i + 1}'
+
+
+class PodcastCheck:
+    """One podcast file checked: the errors (it can't be played) and the rest, in file order."""
+    def __init__(self):
+        self.errors, self.out = [], []
+
+    def error(self, code, msg):
+        self.errors.append({'level': 'error', 'code': code, 'message': msg, 'segment': None})
+
+    def warn(self, code, msg, seg=None, prefix=True):
+        self.out.append({'level': 'warning', 'code': code, 'message': (f'segment {seg}: ' if seg and prefix else '') + msg, 'segment': seg})
+
+
+def podcast_problems(raw, journey=None, audio=None, audio_duration=None, changed=None, files=None):
+    """podcast_findings' rules. files: a repository file's text by path (None: not there; ...: not read), a callable
+    or a dict."""
+    c = PodcastCheck()
     try:
         d = json.loads(raw)
     except ValueError as e:
-        if not raw.strip():
-            err('json', 'the file is empty')
-        else:
-            err('json', f'not valid JSON: line {e.lineno}, column {e.colno}: {e.msg}')
-        return errors
+        c.error('json', 'the file is empty' if not raw.strip() else f'not valid JSON: line {e.lineno}, column {e.colno}: {e.msg}')
+        return c.errors
     if not isinstance(d, dict):
-        err('object', 'not a podcast: the file is not a JSON object')
-        return errors
-    v = d.get('version')
-    if _pnum(v) != 1:
-        err('version', 'no "version" (this player reads version 1)' if 'version' not in d else
-            f'version {json.dumps(v)}: this player reads version 1')
-        return errors
-    a = d['audio'].strip() if isinstance(d.get('audio'), str) else ''
-    if not a:
-        err('audio', 'no "audio": the audio file, relative to this file' if 'audio' not in d else '"audio" is not a file name')
-    else:
-        where = podcast_audio_problem(a)
-        if where:
-            err('audio-outside', where)
-        elif audio is not None and not audio.get('exists'):
-            err('audio-missing', f"the audio file {a} isn't there")
-        elif audio is not None and audio.get('size') == 0:
-            err('audio-empty', f'the audio file {a} is empty')
-    segs = d.get('segments')
-    if 'segments' not in d:
-        err('segments', 'no "segments": the parts of the episode')
-    elif not isinstance(segs, list):
-        err('segments', '"segments" is not a list')
-    elif not segs:
-        err('segments', '"segments" is empty: the episode has no parts')
-    segs = segs if isinstance(segs, list) else []
-    written = []
-    for i, x in enumerate(segs):
-        if isinstance(x, dict):
-            written.append((x, i))
-        else:
-            warn('segment', f'segment #{i + 1} is not an object; skipped')
-    name = lambda x, i: x['id'] if isinstance(x.get('id'), str) and x['id'] else f'#{i + 1}'
+        c.error('object', 'not a podcast: the file is not a JSON object')
+        return c.errors
+    if _pnum(d.get('version')) != 1:
+        c.error('version', 'no "version" (this player reads version 1)' if 'version' not in d else
+                f'version {json.dumps(d.get("version"))}: this player reads version 1')
+        return c.errors
+    audio_problems(c, d, audio)
+    written = written_segments(c, d)
     j = d.get('journey') if isinstance(d.get('journey'), dict) else {}
     jid = j.get('id') if isinstance(j.get('id'), str) else ''
     if jid and journey and jid != journey['id']:
-        warn('journey', f'written for journey "{jid}", but it is next to "{journey["id"]}": it plays with the journey next to it')
+        c.warn('journey', f'written for journey "{jid}", but it is next to "{journey["id"]}": it plays with the journey next to it')
     duration = _pnum(d.get('duration'))
     if 'duration' in d and not (duration is not None and duration > 0):
-        warn('duration', f'"duration" {json.dumps(d.get("duration"))} is not a length in seconds; ignored')
-    # Times (start, end, order, overlaps).
+        c.warn('duration', f'"duration" {json.dumps(d.get("duration"))} is not a length in seconds; ignored')
+    srt = sorted(time_problems(c, written, duration), key=lambda t: (t.start, t.i))
+    overlap_problems(c, srt)
+    sentence_problems(c, srt, duration)
+    mark_drops = segment_mark_problems(c, srt, duration)
+    if journey:
+        order_problems(c, srt, journey)
+        link_problems(c, srt, journey)
+        if files is not None:
+            marks_against_code(c, srt, journey, files if callable(files) else (lambda f: files.get(f, ...)), mark_drops)
+    commit = j.get('commit') if isinstance(j.get('commit'), str) else ''
+    if commit and changed:         # worth knowing, nothing wrong with the file
+        c.out.append({'level': 'info', 'code': 'recorded-for', 'segment': None,
+                      'message': f'Code changed since recording: {"step" if len(changed) == 1 else "steps"} '
+                                 f'{", ".join(str(n) for n in changed)}'})
+    if audio_duration and audio_duration > 0:
+        audio_length_problems(c, written, duration, audio_duration)
+    if written and not any(_pnum(x.get('start')) is not None and _pnum(x.get('start')) >= 0 for x, _ in written):
+        c.error('segments', 'no segment has a start time: nothing to play')
+    return c.errors + c.out
+
+
+def audio_problems(c, d, audio):
+    a = d['audio'].strip() if isinstance(d.get('audio'), str) else ''
+    if not a:
+        c.error('audio', 'no "audio": the audio file, relative to this file' if 'audio' not in d else '"audio" is not a file name')
+        return
+    where = podcast_audio_problem(a)
+    if where:
+        c.error('audio-outside', where)
+    elif audio is not None and not audio.get('exists'):
+        c.error('audio-missing', f"the audio file {a} isn't there")
+    elif audio is not None and audio.get('size') == 0:
+        c.error('audio-empty', f'the audio file {a} is empty')
+
+
+def written_segments(c, d):
+    """The segments that are objects, with their index in the file."""
+    segs = d.get('segments')
+    if 'segments' not in d:
+        c.error('segments', 'no "segments": the parts of the episode')
+    elif not isinstance(segs, list):
+        what = {str: 'a string', bool: 'a boolean', int: 'a number', float: 'a number'}.get(type(segs), 'an object')
+        c.error('segments', f'"segments" is not a list (it is {what})')
+    elif not segs:
+        c.error('segments', '"segments" is empty: the episode has no parts')
+    written = []
+    for i, x in enumerate(segs if isinstance(segs, list) else []):
+        if isinstance(x, dict):
+            written.append((x, i))
+        else:
+            c.warn('segment', f'segment #{i + 1} is not an object; skipped')
+    return written
+
+
+def time_problems(c, written, duration):
+    """Start, end, order in the file, past the duration. Returns the segments with a start time."""
     ids, prev, timed = {}, None, []
     for x, i in written:
-        n = name(x, i)
+        n = segment_name(x, i)
         if isinstance(x.get('id'), str) and x['id']:
             if x['id'] in ids:
-                warn('id', f'the id "{x["id"]}" is used twice ({_pod_place(*ids[x["id"]])} and {_pod_place(i, x.get("start"))})', n)
+                c.warn('id', f'the id "{x["id"]}" is used twice ({_pod_place(*ids[x["id"]])} and {_pod_place(i, x.get("start"))})', n)
             else:
                 ids[x['id']] = (i, x.get('start'))
         if 'cue' in x and x['cue'] not in POD_CUES:
-            warn('cue', f'cue {json.dumps(x["cue"])} is not map, open or beat; ignored', n)
+            c.warn('cue', f'cue {json.dumps(x["cue"])} is not map, open or beat; ignored', n)
         start = _pnum(x.get('start'))
         if start is None or start < 0:
-            warn('start', ('no start time' if 'start' not in x else f'start {json.dumps(x.get("start"))} is not a time in seconds') + '; skipped', n)
+            c.warn('start', ('no start time' if 'start' not in x else f'start {json.dumps(x.get("start"))} is not a time in seconds') + '; skipped', n)
             continue
         end = _pnum(x.get('end'))
         if 'end' in x and end is None:
-            warn('end', f'end {json.dumps(x.get("end"))} is not a time in seconds; it ends where the next one starts', n)
+            c.warn('end', f'end {json.dumps(x.get("end"))} is not a time in seconds; it ends where the next one starts', n)
         if end is not None and end < start - POD_SLACK:
-            warn('end-before-start', f'ends at {_clock_ms(end)}, before it starts ({_clock_ms(start)})', n)
+            c.warn('end-before-start', f'ends at {_clock_ms(end)}, before it starts ({_clock_ms(start)})', n)
             end = None
         if prev and start < prev[1] - POD_SLACK:
-            warn('order', f'starts at {_clock_ms(start)}, before segment {prev[0]} above it ({_clock_ms(prev[1])}): '
-                          f'segments play in time order, not in file order', n)
+            c.warn('order', f'starts at {_clock_ms(start)}, before segment {prev[0]} above it ({_clock_ms(prev[1])}): '
+                            f'segments play in time order, not in file order', n)
         if duration is not None and duration > 0 and (end if end is not None else start) > duration + POD_SLACK:
             what = f'ends at {_clock_ms(end)}' if end is not None else f'starts at {_clock_ms(start)}'
-            warn('past-duration', f'{what}, after the episode\'s "duration" ({_clock_ms(duration)})', n)
+            c.warn('past-duration', f'{what}, after the episode\'s "duration" ({_clock_ms(duration)})', n)
         prev = (n, start)
-        timed.append((x, i, start, end))
-    srt = sorted(timed, key=lambda t: (t[2], t[1]))
-    for (xa, ia, sa, ea), (xb, ib, sb, eb) in zip(srt, srt[1:]):
-        if ea is not None and sb < ea - POD_SLACK:
-            warn('overlap', f'starts at {_clock_ms(sb)}, before segment {name(xa, ia)} ends ({_clock_ms(ea)}): the later '
-                            f'one wins from its start', name(xb, ib))
-    # Sentence times, within the segment as the player times it (its end, else the next start, else the duration).
-    for k, (x, i, start, _) in enumerate(srt):
-        if 'sentences' in x:
-            nxt = srt[k + 1][2] if k + 1 < len(srt) else None
-            end = next((e for e in (_pnum(x.get('end')), nxt, duration) if e is not None), None)
-            bad = _sentences_problem(x['sentences'], start, None if end is None else max(end, start))
+        timed.append(Segment(x, i, start, end))
+    return timed
+
+
+def overlap_problems(c, srt):
+    for a, b in zip(srt, srt[1:]):
+        if a.end is not None and b.start < a.end - POD_SLACK:
+            c.warn('overlap', f'starts at {_clock_ms(b.start)}, before segment {segment_name(a.x, a.i)} ends ({_clock_ms(a.end)}): '
+                              f'the later one wins from its start', segment_name(b.x, b.i))
+
+
+def played_end(srt, k, duration):
+    """Where segment k ends as the player times it: its end, else the next start, else the duration (None: none)."""
+    nxt = srt[k + 1].start if k + 1 < len(srt) else None
+    return next((e for e in (_pnum(srt[k].x.get('end')), nxt, duration) if e is not None), None)
+
+
+def sentence_problems(c, srt, duration):
+    for k, seg in enumerate(srt):
+        if 'sentences' in seg.x:
+            end = played_end(srt, k, duration)
+            bad = _sentences_problem(seg.x['sentences'], seg.start, None if end is None else max(end, seg.start))
             if bad:
-                warn('sentences', f'{bad}; the caption is estimated from the text instead', name(x, i))
-    # Marks (their shape, time, phrase), within the segment as the player times it.
-    mark_drops = {}
-    for k, (x, i, start, _) in enumerate(srt):
-        if 'marks' in x:
-            nxt = srt[k + 1][2] if k + 1 < len(srt) else None
-            e = _pnum(x.get('end'))
-            end = max(next((v for v in (e, nxt, duration) if v is not None), start), start)
-            text = x['text'] if isinstance(x.get('text'), str) else ''
-            ps = _marks_problems(x['marks'], text, start, end, 'at' in x and x['at'] is None)
-            mark_drops[i] = {n for n, _, drop in ps if drop}
-            for _, msg, _ in ps:
-                warn('mark', msg, name(x, i))
-    # The narration's order against the journey's (steps first talked about in another order: reordered since).
-    if journey:
-        index = {s['id']: k for k, s in enumerate(journey['steps'])}
-        firsts = []
-        for x, i, _, _ in srt:
-            at = x.get('at')
-            st = at.get('step') if isinstance(at, dict) and isinstance(at.get('step'), str) else None
-            if st is None or st not in index or any(f[0] == st for f in firsts):
-                continue
-            firsts.append((st, index[st], x, i))
-        late = [k for k in range(1, len(firsts)) if firsts[k][1] < firsts[k - 1][1]]
-        if late:
-            f, b = firsts[late[0]], firsts[late[0] - 1]
-            more = f' ({len(late)} steps out of order)' if len(late) > 1 else ''
-            warn('narration-order', f'narrates step {f[1] + 1} ("{f[0]}") after step {b[1] + 1} ("{b[0]}"): the journey\'s '
-                                    f'steps were reordered since it was recorded; re-record it, or put the steps back{more}', name(f[2], f[3]))
-    # Links: where each segment is shown (with a start time only, as the player). A step the journey doesn't have is
-    # said once, with the segments about it and when.
-    if journey:
-        steps = {s['id']: s['beats'] for s in journey['steps']}
-        step_n = {s['id']: k + 1 for k, s in enumerate(journey['steps'])}
-        missing = {}
-        for x, i, _, _ in srt:
-            at = x.get('at', ...)
-            if isinstance(at, dict) and isinstance(at.get('step'), str) and at['step'] not in steps:
-                missing.setdefault(at['step'], []).append((x, i))
-        for x, i, _, _ in srt:
-            n, at = name(x, i), x.get('at', ...)
-            if at is None:
-                continue
-            if not isinstance(at, dict) or not isinstance(at.get('step'), str):
-                warn('at', '"at" is ' + ('missing' if at is ... else 'not null or { step, beat }') + '; it keeps the view before it', n)
-                continue
-            if at['step'] not in steps:
-                segs = missing[at['step']]
-                if segs[0][1] == i:
-                    names = [name(y, k) for y, k in segs]
-                    first, last = segs[0][0], segs[-1][0]
-                    frm = _pnum(first.get('start')) or 0
-                    to = _pnum(last.get('end')) if _pnum(last.get('end')) is not None else (_pnum(last.get('start')) if _pnum(last.get('start')) is not None else frm)
-                    which = f'segment {names[0]}' if len(names) == 1 else f'segments {names[0]}–{names[-1]}'
-                    keep = 'it keeps the view before it' if len(names) == 1 else 'they keep the view before them'
-                    warn('step', f'step "{at["step"]}" isn\'t in the journey ({which}, {_clock_ms(frm)}–{_clock_ms(to)}): {keep}', n, prefix=False)
-                continue
-            if 'beat' not in at or x.get('cue') == 'map':
-                continue
-            b, beats = at['beat'], steps[at['step']]
-            sn = step_n[at['step']]
+                c.warn('sentences', f'{bad}; the caption is estimated from the text instead', segment_name(seg.x, seg.i))
+
+
+def segment_mark_problems(c, srt, duration):
+    """The marks' shape, time and phrase. Returns, by segment index, the marks left out."""
+    drops = {}
+    for k, seg in enumerate(srt):
+        if 'marks' not in seg.x:
+            continue
+        end = played_end(srt, k, duration)
+        end = max(seg.start if end is None else end, seg.start)
+        text = seg.x['text'] if isinstance(seg.x.get('text'), str) else ''
+        found = _marks_problems(seg.x['marks'], text, seg.start, end, 'at' in seg.x and seg.x['at'] is None)
+        drops[seg.i] = {p.k for p in found if p.drop}
+        for p in found:
+            c.warn('mark', p.text, segment_name(seg.x, seg.i))
+    return drops
+
+
+def step_of(x):
+    """The step id a segment shows, None when it shows none."""
+    at = x.get('at')
+    return at.get('step') if isinstance(at, dict) and isinstance(at.get('step'), str) else None
+
+
+def order_problems(c, srt, journey):
+    """Steps first narrated in another order than the journey's: reordered since it was recorded."""
+    index = {s['id']: k for k, s in enumerate(journey['steps'])}
+    firsts = []
+    for seg in srt:
+        st = step_of(seg.x)
+        if st is None or st not in index or any(f[0] == st for f in firsts):
+            continue
+        firsts.append((st, index[st], seg))
+    late = [k for k in range(1, len(firsts)) if firsts[k][1] < firsts[k - 1][1]]
+    if late:
+        f, b = firsts[late[0]], firsts[late[0] - 1]
+        more = f' ({len(late)} steps out of order)' if len(late) > 1 else ''
+        c.warn('narration-order', f'narrates step {f[1] + 1} ("{f[0]}") after step {b[1] + 1} ("{b[0]}"): the journey\'s '
+                                  f'steps were reordered since it was recorded; re-record it, or put the steps back{more}',
+               segment_name(f[2].x, f[2].i))
+
+
+def link_problems(c, srt, journey):
+    """Where each segment is shown. A step the journey doesn't have is said once, with its segments and when."""
+    beats = {s['id']: s['beats'] for s in journey['steps']}
+    number = {s['id']: k + 1 for k, s in enumerate(journey['steps'])}
+    missing = {}
+    for seg in srt:
+        st = step_of(seg.x)
+        if st is not None and st not in beats:
+            missing.setdefault(st, []).append(seg)
+    for seg in srt:
+        n, at = segment_name(seg.x, seg.i), seg.x.get('at', ...)
+        if at is None:
+            continue
+        if not isinstance(at, dict) or not isinstance(at.get('step'), str):
+            c.warn('at', '"at" is ' + ('missing' if at is ... else 'not null or { step, beat }') + '; it keeps the view before it', n)
+        elif at['step'] not in beats:
+            if missing[at['step']][0].i == seg.i:
+                c.warn('step', missing_step(at['step'], missing[at['step']]), n, prefix=False)
+        elif 'beat' in at and seg.x.get('cue') != 'map':
+            b, sn = at['beat'], number[at['step']]
             if isinstance(b, str):
-                warn('beat', f'Step {sn}: beat must be a number, got the string {json.dumps(b)}; showing the whole step', n, prefix=False)
-                continue
-            if _pod_bad_beat(x, steps):
-                warn('beat', f'Step {sn}: no beat {json.dumps(b)} (it has {beats or "none"}); showing the whole step', n, prefix=False)
-    # The marks against the code: the file, the lines, the match (when the files can be read).
-    if journey and files is not None:
-        read = files if callable(files) else (lambda f: files.get(f, ...))
-        by_id = {st['id']: st for st in journey['steps']}
-        docs = {}
-        for x, i, _, _ in srt:
-            if isinstance(x.get('marks'), list):
-                # A beat the step doesn't have is said once: its marks are not checked against the step's file.
-                bad_beat = _pod_bad_beat(x, {s['id']: s['beats'] for s in journey['steps']})
-                for _, msg in _mark_code_problems(x, mark_drops.get(i, set()), by_id, read, docs, bad_beat):
-                    warn('mark', msg, name(x, i))
-    # Recorded for an older commit, and steps' code changed since: worth knowing, nothing wrong with the file.
-    commit = j.get('commit') if isinstance(j.get('commit'), str) else ''
-    if commit and changed:
-        k = len(changed)
-        out.append({'level': 'info', 'code': 'recorded-for', 'segment': None,
-                    'message': f'Code changed since recording: {"step" if k == 1 else "steps"} '
-                               f'{", ".join(str(c) for c in changed)}'})
-    # The audio's real length.
-    if audio_duration and audio_duration > 0:
-        L = audio_duration
-        ends = [e for e in ((_pnum(x.get('end')) if _pnum(x.get('end')) is not None else _pnum(x.get('start'))) for x, _ in written) if e is not None]
-        episode = max([duration or 0, 0] + ends)
-        slack = max(POD_DUR_SLACK, L * 0.01)
-        past = [x for x, _ in written if (_pnum(x.get('start')) if _pnum(x.get('start')) is not None else -1) >= L]
-        if episode > L + max(2, slack) and past:
-            warn('audio-short', f'The audio is {_clock(L)} long but the episode is {_clock(episode)}: the file looks cut off '
-                                f'({len(past)} {"part starts" if len(past) == 1 else "parts start"} after its end)')
-        else:
-            if duration is not None and abs(duration - L) > slack:
-                warn('duration', f'"duration" says {_clock_ms(duration)} but the audio is {_clock_ms(L)} long')
-            for x, i in written:
-                e = _pnum(x.get('end'))
-                if e is not None and e > L + slack:
-                    warn('past-audio', f"ends at {_clock_ms(e)}, after the audio's end ({_clock_ms(L)})", name(x, i))
-    if written and not any(_pnum(x.get('start')) is not None and _pnum(x.get('start')) >= 0 for x, _ in written):
-        err('segments', 'no segment has a start time: nothing to play')
-    return errors + out
+                c.warn('beat', f'Step {sn}: beat must be a number, got the string {json.dumps(b)}; showing the whole step', n, prefix=False)
+            elif _pod_bad_beat(seg.x, beats):
+                c.warn('beat', f'Step {sn}: no beat {json.dumps(b)} (it has {beats[at["step"]] or "none"}); showing the whole step', n, prefix=False)
+
+
+def missing_step(step, segs):
+    names = [segment_name(s.x, s.i) for s in segs]
+    frm = _pnum(segs[0].x.get('start')) or 0
+    last = segs[-1].x
+    to = next((t for t in (_pnum(last.get('end')), _pnum(last.get('start'))) if t is not None), frm)
+    which = f'segment {names[0]}' if len(names) == 1 else f'segments {names[0]}–{names[-1]}'
+    keep = 'it keeps the view before it' if len(names) == 1 else 'they keep the view before them'
+    return f'step "{step}" isn\'t in the journey ({which}, {_clock_ms(frm)}–{_clock_ms(to)}): {keep}'
+
+
+def marks_against_code(c, srt, journey, read, mark_drops):
+    """The marks against the code: the file, the lines, the match."""
+    by_id = {st['id']: st for st in journey['steps']}
+    beats = {s['id']: s['beats'] for s in journey['steps']}
+    docs = {}
+    for seg in srt:
+        if isinstance(seg.x.get('marks'), list):
+            # A beat the step doesn't have is said once: its marks are not checked against the step's file.
+            bad_beat = _pod_bad_beat(seg.x, beats)
+            for _, msg in _mark_code_problems(seg.x, mark_drops.get(seg.i, set()), by_id, read, docs, bad_beat):
+                c.warn('mark', msg, segment_name(seg.x, seg.i))
+
+
+def audio_length_problems(c, written, duration, length):
+    """The episode against the audio's real length."""
+    starts = [(x, _pnum(x.get('start'))) for x, _ in written]
+    ends = [e for e in (_pnum(x.get('end')) if _pnum(x.get('end')) is not None else s for x, s in starts) if e is not None]
+    episode = max([duration or 0, 0] + ends)
+    slack = max(POD_DUR_SLACK, length * 0.01)
+    past = [x for x, s in starts if (s if s is not None else -1) >= length]
+    if episode > length + max(2, slack) and past:
+        c.warn('audio-short', f'The audio is {_clock(length)} long but the episode is {_clock(episode)}: the file looks cut off '
+                              f'({len(past)} {"part starts" if len(past) == 1 else "parts start"} after its end)')
+        return
+    if duration is not None and abs(duration - length) > slack:
+        c.warn('duration', f'"duration" says {_clock_ms(duration)} but the audio is {_clock_ms(length)} long')
+    for x, i in written:
+        e = _pnum(x.get('end'))
+        if e is not None and e > length + slack:
+            c.warn('past-audio', f"ends at {_clock_ms(e)}, after the audio's end ({_clock_ms(length)})", segment_name(x, i))
 
 
 def _pod_place(i, start):
@@ -3564,6 +3982,7 @@ def _pod_place(i, start):
     return _clock_ms(t) if t is not None and t >= 0 else f'#{i + 1}'
 
 
+# --- the podcast next to a journey
 def podcast_changed_steps(repo, commit, j):
     """The journey's steps (numbers) whose file changed since `commit` (committed or not); None: git can't say."""
     if not re.match(r'^[0-9a-f]{4,40}$', commit or '', re.I):
@@ -3579,13 +3998,14 @@ def podcast_changed_steps(repo, commit, j):
 
 
 def audio_seconds(path):
-    """The audio file's length in seconds: a .wav by its header, anything else with ffprobe (None: unknown)."""
+    """The audio file's length in seconds: a .wav by its header, anything else with ffprobe when it is installed
+    (None: unknown, and `podcast` says how to give it)."""
     if path.lower().endswith('.wav'):
+        import wave
         try:
-            import wave
             with wave.open(path) as w:
                 return w.getnframes() / float(w.getframerate())
-        except Exception:
+        except (wave.Error, EOFError, OSError, ZeroDivisionError):
             return None
     try:
         r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
@@ -3593,6 +4013,21 @@ def audio_seconds(path):
         return float(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
+
+
+def beat_file(b):
+    """The file a beat's code line is in; None when it has none."""
+    c = b.get('code') if isinstance(b, dict) else None
+    return c.get('file') if isinstance(c, dict) and isinstance(c.get('file'), str) else None
+
+
+def journey_shape_of(j, slug):
+    """What the podcast check needs of the journey: its id, and each step's id, beats and files."""
+    def beats(s):
+        sc = s.get('scene') or {}
+        return sc.get('beats') or []
+    return {'id': j.get('id') or slug, 'steps': [{'id': s.get('id'), 'beats': len(beats(s)), 'file': s.get('file'),
+                                                  'beatFiles': [beat_file(b) for b in beats(s)]} for s in j.get('steps', [])]}
 
 
 def podcast_report(repo, slug, j, seconds=None):
@@ -3604,25 +4039,20 @@ def podcast_report(repo, slug, j, seconds=None):
         raw = open(pf, encoding='utf-8').read()
     except (OSError, UnicodeDecodeError) as e:
         return [f'{pf}: can\'t be read ({e})'], [], ''
-    journey = {'id': j.get('id') or slug, 'steps': [{
-        'id': s.get('id'), 'beats': len(((s.get('scene') or {}).get('beats')) or []), 'file': s.get('file'),
-        'beatFiles': [((b or {}).get('code') or {}).get('file') if isinstance(((b or {}).get('code') or {}).get('file'), str) else None
-                      for b in ((s.get('scene') or {}).get('beats') or [])]} for s in j.get('steps', [])]}
-    audio, length = None, None
     try:
-        name = json.loads(raw).get('audio')
-    except (ValueError, AttributeError):
-        name = None
+        d = json.loads(raw)
+    except ValueError:
+        d = None
+    d = d if isinstance(d, dict) else {}
+    audio, length = None, None
+    name = d.get('audio')
     if isinstance(name, str) and name.strip() and not podcast_audio_problem(name.strip()):
         ap = os.path.normpath(os.path.join(os.path.dirname(pf), name.strip()))
         audio = {'exists': os.path.isfile(ap), 'size': os.path.getsize(ap) if os.path.isfile(ap) else 0}
         length = float(seconds) if seconds else (audio_seconds(ap) if audio['exists'] else None)
-    try:
-        commit = (json.loads(raw).get('journey') or {}).get('commit')
-    except (ValueError, AttributeError):
-        commit = None
+    commit = d['journey'].get('commit') if isinstance(d.get('journey'), dict) else None
     changed = podcast_changed_steps(repo, commit, j) if isinstance(commit, str) else None
-    found = podcast_problems(raw, journey, audio, length, changed, lambda f: _repo_text(repo, f))
+    found = podcast_findings(raw, journey_shape_of(j, slug), audio, length, changed, repo=repo)
     problems = [f'podcast: {p["message"]}' for p in found if p['level'] == 'error']
     warnings = [f'podcast: {p["message"]}' for p in found if p['level'] == 'warning']
     summary = '' if length else ' (audio length unknown: pass it as <audio seconds>, or install ffprobe, to check the times against it)'
@@ -3666,196 +4096,88 @@ def cmd_podcast(repo, slug, seconds=''):
     sys.exit(1 if problems else 0)
 
 
-def cmd_check(repo, slug, flag=''):
-    flag = {'--fix': 'fix'}.get(flag, flag)
-    if flag not in ('', 'quiet', 'story', 'refs', 'fix'):
-        sys.exit('check <repo> <slug> [quiet|story|refs|fix]   quiet: PROBLEM/WARNING lines + a one-line summary; story: storyline only; '
-                 'refs: ref lines only; fix: repoint steps/boxes whose code moved')
-    fix = flag == 'fix'
-    show_links = flag in ('', 'refs', 'fix')
-    j = load(repo, slug)
-    ids = {n['id']: n for n in j['nodes']}
-    problems, warnings, fixed = [], [], []
-    since = j.get('commit', '')
+class Report:
+    """What `check` found: problems, warnings, and the fixes it made (with fix) in the order found."""
+    def __init__(self, fix):
+        self.fix = fix
+        self.problems, self.warnings, self.fixed = [], [], []
 
-    def follow(name, loc, a, how):
-        """Loc: a dict with file/start/end (a box's `at`) or a step; a: its anchor. Moves it on fix, else reports."""
-        r = loc.get('range', loc)
-        st, f, s0, e0, more = where(repo, since, loc['file'], r['start'], r['end'], a)
-        old = f'{loc["file"]}:{r["start"]}-{r["end"]}'
-        k = name.split()[-1]
-        if st == 'moved':
-            if fix:
-                loc['file'] = f
-                r['start'], r['end'] = s0, e0
-                if 'anchor' in loc:      # its hash is the same; the line count and the lines around it may not be
-                    loc['anchor'] = anchor(repo, f, s0, e0, quiet=True)
-                fixed.append(f'{name}: {old} -> {f}:{s0}-{e0}')
-            else:
-                warnings.append(f'{name} moved to {f}:{s0}-{e0} (was {old}; run check --fix)')
-        elif st == 'nofile':
-            if GIT_ERROR:
-                P(f'{name}: {old} no longer exists; git could not be asked about a rename (see the WARNING): {how}')
-            else:
-                P(f'{name}: {old} no longer exists (and git shows no rename): {how}')
-        elif st in ('changed', 'gone'):
-            # changed code may have made the step false; moving the anchor alone would bless it
-            if st == 'changed':
-                seen, diff = f'now at {f}:{s0}-{e0}, was {old}', old_diff(a, lines_of(repo, f)[s0 - 1:e0])
-                verb = 'changed'
-            else:
-                cur = more.replace('renamed to ', '') if more else loc['file']
-                near = nearest(repo, cur, a)
-                verb = 'changed' if near else 'is gone'
-                if near:
-                    seen = f'now about {cur}:{near[0]}-{near[1]}, was {old}'
-                    lines = near[2][:12] + ([f'  … {len(near[2]) - 12} more changed lines'] if len(near[2]) > 12 else [])
-                    diff = ''.join('\n      ' + d[:140] for d in lines)
-                else:
-                    head = as_v3(a).get('head', '').split('\n')[0].strip()[:80]
-                    seen = (f'was {old}' + (f', file {more}' if more else '') + f'; its first lines ("{head}" …) and '
-                            f'its last ones are not found together in the file any more')
-                    diff = ''
-            if 'range' in loc:
-                P(f'{name} "{loc.get("title", "")}": its code {verb} ({seen}). Re-read the code and re-verify the '
-                  f'title and the lead: if they are still true, {how}; if not, correct them first '
-                  f'(restep {k} title|lead|details "…") and then re-anchor; if the code is gone, rmstep {k}{diff}')
-            else:
-                P(f'{name}: its code {verb} ({seen}). Re-read the function, check the steps on this box still say '
-                  f'what it does, then {how}{diff}')
-        return f, s0, e0
-    P = problems.append
-    kids = {}
-    # --- header
-    tp = journey_title_problem(j['title'])
-    if tp:
-        P(f'title "{j["title"]}" {tp} (meta title "…")')
-    if not j.get('question', '').strip():
-        P('no question (meta question "…")')
-    elif question_problem(j['question']):
-        P(f'question {question_problem(j["question"])} (meta question "…")')
-    warnings.extend(similar_journeys(repo, slug, j))
-    sm = sentences(j.get('summary', ''))
-    if not sm:
-        P('no summary')
-    else:
-        if len(sm) > 2:
-            P(f'summary has {len(sm)} sentences (max 2, plain words; the rest belongs in the steps)')
-        if '`' in re.split(SENT, j['summary'].strip())[0]:
-            P('summary: code (backticks) in the first sentence; say it in plain words')
-    # --- map
-    for n in j['nodes']:
-        kids.setdefault(n.get('parent', ''), []).append(n)
-        want = PARENT_KINDS[n['kind']]
-        par = ids.get(n.get('parent', ''))
-        if (par['kind'] if par else None) not in want:
-            P(f'{n["id"]}: a {n["kind"]} node has parent {par["kind"] if par else "none"}, expected {" or ".join(w or "none" for w in want)}')
-        if n['kind'] == 'function' and 'at' not in n:
-            P(f'{n["id"]}: a function node needs file:start-end')
-        if len(n['label']) > 30:
-            P(f'{n["id"]}: label is {len(n["label"])} chars (max 30; paths go in `set {n["id"]} path`)')
-        if label_warning(n):
-            warnings.append(label_warning(n))
-        if node_text_warning(n):
-            warnings.append(node_text_warning(n))
-        if n['kind'] != 'function' and not n.get('blurb'):
-            P(f'{n["id"]}: no blurb (set {n["id"]} blurb "<= 60 chars")')
-        if len(n.get('blurb', '')) > 60:
-            P(f'{n["id"]}: blurb is {len(n["blurb"])} chars (max 60)')
-        if n.get('path') and not os.path.exists(os.path.join(repo, n['path'])):
-            to = renamed_path(repo, since, n['path'])          # a box path follows a git rename like an anchor
-            if to and os.path.exists(os.path.join(repo, to)):
-                if fix:
-                    fixed.append(f'{n["id"]} path: {n["path"]} -> {to}')
-                    n['path'] = to
-                else:
-                    warnings.append(f'{n["id"]}: path {n["path"]} moved to {to} (run check --fix)')
-            elif GIT_ERROR:
-                P(f'{n["id"]}: path {n["path"]} does not exist; git could not be asked about a rename (see the WARNING) '
-                  f'(set {n["id"]} path <dir or file>)')
-            else:
-                P(f'{n["id"]}: path {n["path"]} does not exist (set {n["id"]} path <dir or file>)')
-        if 'at' in n:
-            follow(f'box {n["id"]}', n['at'], n['at']['anchor'], f'set {n["id"]} at file:start-end')
-    for p, ks in kids.items():
-        if len(ks) > MAX_CHILDREN:
-            P(f'{p or "top level"}: {len(ks)} children (max {MAX_CHILDREN}: group them)')
-    seen = set()
-    for e in j['edges']:
-        name = f'edge {e["from"]} -> {e["to"]}'
-        for x in (e['from'], e['to']):
-            if x not in ids:
-                P(f'{name}: node {x} not defined')
-        if ids.get(e['from'], {}).get('kind') == 'store':
-            P(f'{name}: "{ids[e["from"]]["label"]}" is a store box and a store never acts; draw the edge from the box '
-              f'that reads or polls it (rmedge {e["from"]} {e["to"]}; edge {e["to"]} {e["from"]} "polls …" async)')
-        if (e['from'], e['to']) in seen:
-            P(f'{name}: twice (one edge per pair; put both hops in the label/detail)')
-        seen.add((e['from'], e['to']))
-        if len(e['label']) > 30:
-            P(f'{name}: label is {len(e["label"])} chars (max 30; the sentence goes in detail)')
-        if e['label'].strip().endswith('?'):
-            P(f'{name}: label "{e["label"]}" is a question; say what flows or who acts ("reads the status", "writes the receipt")')
-        if re.match(r'(?i)^(calls?|uses?|invokes?)\b', e['label'].strip()):
-            P(f'{name}: label "{e["label"]}" says nothing; say what for or how ("renders the plan", "start run", "polls every 2 s")')
-        if edge_text_warning(e):
-            warnings.append(edge_text_warning(e))
+    def problem(self, text):
+        self.problems.append(text)
 
-    def touched(nid):          # an edge touches this box or something inside it
-        if any(nid in (e['from'], e['to']) for e in j['edges']):
-            return True
-        return any(touched(c['id']) for c in kids.get(nid, []))
-    stray = dict(unvisited(j))
-    unused = set()             # a box with no step and no edge is one problem, not two
-    if len(j['nodes']) > 1:
+    def warn(self, text):
+        if text:
+            self.warnings.append(text)
+
+    def add(self, found):
+        """Issues (a PROBLEM, else a WARNING) and Fixes (applied with fix, else a WARNING)."""
+        for x in found:
+            if isinstance(x, Fix):
+                if self.fix:
+                    x.apply()
+                    self.fixed.append(x.text)
+                else:
+                    self.warnings.append(x.warning)
+            elif x.level == PROBLEM:
+                self.problems.append(x.text)
+            else:
+                self.warnings.append(x.text)
+
+
+class JourneyMap:
+    """The boxes and edges of a journey as a graph: what is inside what, who reaches whom."""
+    def __init__(self, repo, j):
+        self.repo, self.j = repo, j
+        self.ids = {n['id']: n for n in j['nodes']}
+        self.kids = {}
         for n in j['nodes']:
-            if not touched(n['id']):
-                if n['id'] in stray:
-                    unused.add(n['id'])
-                    P(f'{n["id"]}: "{n["label"]}" is unused (no step, no edge): rmnode {n["id"]}')
-                else:
-                    P(f'{n["id"]}: no edge touches this box; connect it (edge) or drop it')
-    # --- steps
-    if not MIN_STEPS <= len(j['steps']) <= MAX_STEPS:
-        P(f'{len(j["steps"])} steps (want {MIN_STEPS}-{MAX_STEPS}: merge or split)')
-    for nid, what in stray.items():
-        if nid not in unused:
-            P(f'{nid}: {what}')
-    labels = {n['label'].lower() for n in j['nodes']}
-    links = []
+            self.kids.setdefault(n.get('parent', ''), []).append(n)
+        self.edges = j['edges']
+        self.direct = {(e['from'], e['to']) for e in self.edges}
+        both = [(a, b) for e in self.edges if e['from'] in self.ids and e['to'] in self.ids
+                for a in self.up(e['from']) for b in self.up(e['to'])]
+        self.lifted = set(both)
 
-    def up(nid):               # the box and the boxes around it
+    def up(self, nid):
+        """The box and the boxes around it."""
         out = []
-        while nid in ids:
+        while nid in self.ids:
             out.append(nid)
-            nid = ids[nid].get('parent', '')
+            nid = self.ids[nid].get('parent', '')
         return out
-    lifted = {(a, b) for e in j['edges'] if e['from'] in ids and e['to'] in ids for a in up(e['from']) for b in up(e['to'])}
 
-    def callers(nid):          # every box the path came through to get here (edges followed backwards)
+    def touched(self, nid):
+        """An edge touches this box or something inside it."""
+        if any(nid in (e['from'], e['to']) for e in self.edges):
+            return True
+        return any(self.touched(c['id']) for c in self.kids.get(nid, []))
+
+    def callers(self, nid):
+        """Every box the path came through to get here (edges followed backwards)."""
         out, todo = set(), [nid]
         while todo:
             x = todo.pop()
-            for e in j['edges']:
+            for e in self.edges:
                 if e['to'] == x and e['from'] not in out and e['from'] != nid:
                     out.add(e['from'])
                     todo.append(e['from'])
         return out
 
-    def joined(x, y):
-        ux, uy = up(x), up(y)
-        return any(((p, q) in lifted or (q, p) in lifted) for p in ux for q in uy if p not in uy and q not in ux)
+    def joined(self, x, y):
+        ux, uy = self.up(x), self.up(y)
+        return any(((p, q) in self.lifted or (q, p) in self.lifted) for p in ux for q in uy if p not in uy and q not in ux)
 
-    def linked(a, b):
-        # an edge joins the two boxes at some level (either way); or the path returns to a box it came through
-        # (a caller) and that box has the edge to b; or both have an edge with one same box (a store, a queue).
-        if joined(a, b) or b in callers(a) or any(joined(x, b) for x in callers(a) if x in ids and x != b):
+    def linked(self, a, b):
+        """An edge joins the two boxes at some level (either way); or the path returns to a box it came through (a
+        caller) and that box has the edge to b; or both have an edge with one same box (a store, a queue)."""
+        if self.joined(a, b) or b in self.callers(a) or any(self.joined(x, b) for x in self.callers(a) if x in self.ids and x != b):
             return True
-        direct = {(e['from'], e['to']) for e in j['edges']} | {(e['to'], e['from']) for e in j['edges']}
-        return any((a, x) in direct and (b, x) in direct for x in ids if x not in (a, b))
+        both_ways = self.direct | {(t, f) for f, t in self.direct}
+        return any((a, x) in both_ways and (b, x) in both_ways for x in self.ids if x not in (a, b))
 
-    def names(nid):            # the identifiers a call of this box would use: its label and what its first line declares
-        n = ids[nid]
+    def names(self, nid):
+        """The identifiers a call of this box would use: its label and what its first line declares."""
+        n = self.ids[nid]
         head = as_v3(n['at']['anchor']).get('head', '').split('\n')[0] if 'at' in n else ''
         m = re.search(r'\bfunc\s+(?:\([^)]*\)\s*)?(\w+)|\bfunction\s+(\w+)|\bdef\s+(\w+)|\b(?:const|let|var)\s+(\w+)'
                       r'|^\s*(?:export\s+)?(?:async\s+)?(\w+)\s*\(', head)
@@ -3863,116 +4185,269 @@ def cmd_check(repo, slug, flag=''):
         out |= {w for w in re.findall(r'[A-Za-z_]\w{3,}', n['label']) if re.search(r'[a-z][A-Z]|_', w) or ' ' not in n['label']}
         return out
 
-    def mentions(x, y):        # the code of box x names box y
-        text = '\n'.join(code_at(repo, ids[x].get('at')))
-        return any(re.search(r'\b' + re.escape(w) + r'\b', text) for w in names(y))
+    def mentions(self, x, y):
+        """The code of box x names box y."""
+        text = '\n'.join(code_at(self.repo, self.ids[x].get('at')))
+        return any(re.search(r'\b' + re.escape(w) + r'\b', text) for w in self.names(y))
 
-    def hop_hint(a, b):
+    def hop_hint(self, a, b):
         """How to join two boxes the path jumps between. A call is only suggested when the code of one names the
         other; when they can only meet through a stored record, the hint is a store box, never an arrow between them."""
-        direct = {(e['from'], e['to']) for e in j['edges']}
+        ids = self.ids
         for x, y in ((a, b), (b, a)):
-            st = [s for s in ids.values() if s['kind'] == 'store' and (x, s['id']) in direct]
+            st = [s for s in ids.values() if s['kind'] == 'store' and (x, s['id']) in self.direct]
             if st:             # one side already writes or reads a store box
                 return (f'"{ids[x]["label"]}" already has an edge to the store box "{st[0]["label"]}": if "{ids[y]["label"]}" '
                         f'meets it there, edge {y} {st[0]["id"]} "polls … / reads …" async (not an arrow between the two)')
-        if 'at' in ids[a] and 'at' in ids[b] and (mentions(a, b) or mentions(b, a)):
-            x, y = (a, b) if mentions(a, b) else (b, a)
+        if 'at' in ids[a] and 'at' in ids[b] and (self.mentions(a, b) or self.mentions(b, a)):
+            x, y = (a, b) if self.mentions(a, b) else (b, a)
             return f'"{ids[x]["label"]}" names "{ids[y]["label"]}" in its code: add the hop (edge {x} {y} "…")'
-        par = next((p for p in up(a)[1:] + up(b)[1:] if ids[p]['kind'] in PARENT_KINDS['store']), '<system or module>')
+        par = next((p for p in self.up(a)[1:] + self.up(b)[1:] if ids[p]['kind'] in PARENT_KINDS['store']), '<system or module>')
         return (f'if they only meet through a record, queue or table of the app (one writes it, the other polls or reads '
                 f'it), add a store box both have an edge to: node <id> store "<the record>" {par} --blurb "…"; '
                 f'edge {a} <id> "inserts …"; edge {b} <id> "polls every … s" async. Draw an edge between the two only if '
                 f'one really reaches the other (a call, an HTTP request, a watch), labelled with how')
+
+
+def follow(repo, since, r, name, loc, a, how):
+    """Where anchored code is now: loc is a box's `at` (file/start/end) or a step; a its anchor. Moved: fixed with
+    fix, else a WARNING; changed, gone or no file: a PROBLEM. Returns where it is now (file, start, end)."""
+    rng = loc.get('range', loc)
+    st, f, s0, e0, more = where(repo, since, loc['file'], rng['start'], rng['end'], a)
+    old = f'{loc["file"]}:{rng["start"]}-{rng["end"]}'
+    k = name.split()[-1]
+    if st == 'moved':
+        if r.fix:
+            loc['file'] = f
+            rng['start'], rng['end'] = s0, e0
+            if 'anchor' in loc:      # its hash is the same; the line count and the lines around it may not be
+                loc['anchor'] = anchor(repo, f, s0, e0, quiet=True)
+            r.fixed.append(f'{name}: {old} -> {f}:{s0}-{e0}')
+        else:
+            r.warn(f'{name} moved to {f}:{s0}-{e0} (was {old}; run check --fix)')
+    elif st == 'nofile':
+        if GIT_ERROR:
+            r.problem(f'{name}: {old} no longer exists; git could not be asked about a rename (see the WARNING): {how}')
+        else:
+            r.problem(f'{name}: {old} no longer exists (and git shows no rename): {how}')
+    elif st in ('changed', 'gone'):
+        # changed code may have made the step false; moving the anchor alone would bless it
+        verb, seen, diff = what_changed(repo, st, loc, a, f, s0, e0, old, more)
+        if 'range' in loc:
+            r.problem(f'{name} "{loc.get("title", "")}": its code {verb} ({seen}). Re-read the code and re-verify the '
+                      f'title and the lead: if they are still true, {how}; if not, correct them first '
+                      f'(restep {k} title|lead|details "…") and then re-anchor; if the code is gone, rmstep {k}{diff}')
+        else:
+            r.problem(f'{name}: its code {verb} ({seen}). Re-read the function, check the steps on this box still say '
+                      f'what it does, then {how}{diff}')
+    return f, s0, e0
+
+
+def what_changed(repo, st, loc, a, f, s0, e0, old, more):
+    """(verb, where it is now, the diff lines) for code that changed or is gone."""
+    if st == 'changed':
+        return 'changed', f'now at {f}:{s0}-{e0}, was {old}', old_diff(a, lines_of(repo, f)[s0 - 1:e0])
+    cur = more.replace('renamed to ', '') if more else loc['file']
+    near = nearest(repo, cur, a)
+    if near:
+        lines = near[2][:12] + ([f'  … {len(near[2]) - 12} more changed lines'] if len(near[2]) > 12 else [])
+        return 'changed', f'now about {cur}:{near[0]}-{near[1]}, was {old}', ''.join('\n      ' + d[:140] for d in lines)
+    head = as_v3(a).get('head', '').split('\n')[0].strip()[:80]
+    seen = (f'was {old}' + (f', file {more}' if more else '') + f'; its first lines ("{head}" …) and '
+            f'its last ones are not found together in the file any more')
+    return 'is gone', seen, ''
+
+
+def check_header(repo, slug, j, r):
+    """The journey's title, question and summary, and the journeys like it."""
+    tp = journey_title_problem(j['title'])
+    if tp:
+        r.problem(f'title "{j["title"]}" {tp} (meta title "…")')
+    if not j.get('question', '').strip():
+        r.problem('no question (meta question "…")')
+    elif question_problem(j['question']):
+        r.problem(f'question {question_problem(j["question"])} (meta question "…")')
+    r.warnings.extend(similar_journeys(repo, slug, j))
+    sm = sentences(j.get('summary', ''))
+    if not sm:
+        r.problem('no summary')
+    else:
+        if len(sm) > 2:
+            r.problem(f'summary has {len(sm)} sentences (max 2, plain words; the rest belongs in the steps)')
+        if '`' in re.split(SENT, j['summary'].strip())[0]:
+            r.problem('summary: code (backticks) in the first sentence; say it in plain words')
+
+
+def check_node(repo, since, j, g, n, r):
+    """One box: its parent, label, blurb, path and the code it is anchored on."""
+    want = PARENT_KINDS[n['kind']]
+    par = g.ids.get(n.get('parent', ''))
+    if (par['kind'] if par else None) not in want:
+        r.problem(f'{n["id"]}: a {n["kind"]} node has parent {par["kind"] if par else "none"}, expected {" or ".join(w or "none" for w in want)}')
+    if n['kind'] == 'function' and 'at' not in n:
+        r.problem(f'{n["id"]}: a function node needs file:start-end')
+    if len(n['label']) > MAX_LABEL:
+        r.problem(f'{n["id"]}: label is {len(n["label"])} chars (max {MAX_LABEL}; paths go in `set {n["id"]} path`)')
+    r.warn(label_warning(n))
+    r.warn(node_text_warning(n))
+    if n['kind'] != 'function' and not n.get('blurb'):
+        r.problem(f'{n["id"]}: no blurb (set {n["id"]} blurb "<= {MAX_BLURB} chars")')
+    if len(n.get('blurb', '')) > MAX_BLURB:
+        r.problem(f'{n["id"]}: blurb is {len(n["blurb"])} chars (max {MAX_BLURB})')
+    if n.get('path') and not os.path.exists(os.path.join(repo, n['path'])):
+        to = renamed_path(repo, since, n['path'])          # a box path follows a git rename like an anchor
+        if to and os.path.exists(os.path.join(repo, to)):
+            if r.fix:
+                r.fixed.append(f'{n["id"]} path: {n["path"]} -> {to}')
+                n['path'] = to
+            else:
+                r.warn(f'{n["id"]}: path {n["path"]} moved to {to} (run check --fix)')
+        elif GIT_ERROR:
+            r.problem(f'{n["id"]}: path {n["path"]} does not exist; git could not be asked about a rename (see the WARNING) '
+                      f'(set {n["id"]} path <dir or file>)')
+        else:
+            r.problem(f'{n["id"]}: path {n["path"]} does not exist (set {n["id"]} path <dir or file>)')
+    if 'at' in n:
+        follow(repo, since, r, f'box {n["id"]}', n['at'], n['at']['anchor'], f'set {n["id"]} at file:start-end')
+
+
+def check_edges(g, r):
+    seen = set()
+    for e in g.edges:
+        name = f'edge {e["from"]} -> {e["to"]}'
+        for x in (e['from'], e['to']):
+            if x not in g.ids:
+                r.problem(f'{name}: node {x} not defined')
+        if g.ids.get(e['from'], {}).get('kind') == 'store':
+            r.problem(f'{name}: "{g.ids[e["from"]]["label"]}" is a store box and a store never acts; draw the edge from the box '
+                      f'that reads or polls it (rmedge {e["from"]} {e["to"]}; edge {e["to"]} {e["from"]} "polls …" async)')
+        if (e['from'], e['to']) in seen:
+            r.problem(f'{name}: twice (one edge per pair; put both hops in the label/detail)')
+        seen.add((e['from'], e['to']))
+        if len(e['label']) > MAX_EDGE_LABEL:
+            r.problem(f'{name}: label is {len(e["label"])} chars (max {MAX_EDGE_LABEL}; the sentence goes in detail)')
+        if e['label'].strip().endswith('?'):
+            r.problem(f'{name}: label "{e["label"]}" is a question; say what flows or who acts ("reads the status", "writes the receipt")')
+        if re.match(r'(?i)^(calls?|uses?|invokes?)\b', e['label'].strip()):
+            r.problem(f'{name}: label "{e["label"]}" says nothing; say what for or how ("renders the plan", "start run", "polls every 2 s")')
+        r.warn(edge_text_warning(e))
+
+
+def check_map(repo, since, j, g, r):
+    """The boxes and edges. Returns the boxes without a step (id -> what to do)."""
+    for n in j['nodes']:
+        check_node(repo, since, j, g, n, r)
+    for p, ks in g.kids.items():
+        if len(ks) > MAX_CHILDREN:
+            r.problem(f'{p or "top level"}: {len(ks)} children (max {MAX_CHILDREN}: group them)')
+    check_edges(g, r)
+    stray = dict(unvisited(j))
+    unused = set()             # a box with no step and no edge is one problem, not two
+    if len(j['nodes']) > 1:
+        for n in j['nodes']:
+            if g.touched(n['id']):
+                continue
+            if n['id'] in stray:
+                unused.add(n['id'])
+                r.problem(f'{n["id"]}: "{n["label"]}" is unused (no step, no edge): rmnode {n["id"]}')
+            else:
+                r.problem(f'{n["id"]}: no edge touches this box; connect it (edge) or drop it')
+    return {nid: what for nid, what in stray.items() if nid not in unused}
+
+
+def check_steps(repo, since, j, g, stray, r):
+    """The storyline: its length, its path through the map, each step. Returns the lines its refs and links point
+    at, for the report."""
+    if not MIN_STEPS <= len(j['steps']) <= MAX_STEPS:
+        r.problem(f'{len(j["steps"])} steps (want {MIN_STEPS}-{MAX_STEPS}: merge or split)')
+    for nid, what in stray.items():
+        r.problem(f'{nid}: {what}')
     for k in range(1, len(j['steps'])):
         a, b = j['steps'][k - 1]['node'], j['steps'][k]['node']
-        if a != b and a in ids and b in ids and not linked(a, b):
-            P(f'steps {k} -> {k + 1}: the path jumps from "{ids[a]["label"]}" to "{ids[b]["label"]}" but no edge joins those boxes '
-              f'(at any level), not even from a box the path came through: {hop_hint(a, b)}')
-    seen_ids, placed = set(), {}
+        if a != b and a in g.ids and b in g.ids and not g.linked(a, b):
+            r.problem(f'steps {k} -> {k + 1}: the path jumps from "{g.ids[a]["label"]}" to "{g.ids[b]["label"]}" but no edge '
+                      f'joins those boxes (at any level), not even from a box the path came through: {g.hop_hint(a, b)}')
+    seen_ids = set()
     for k, s in enumerate(j['steps'], 1):
         if not s.get('id') or s['id'] in seen_ids:
-            P(f'step {k}: {"duplicate" if s.get("id") else "no"} id (any write command, e.g. `meta`, gives every step one)')
+            r.problem(f'step {k}: {"duplicate" if s.get("id") else "no"} id (any write command, e.g. `meta`, gives every step one)')
         seen_ids.add(s.get('id'))
+    labels = {n['label'].lower() for n in j['nodes']}
+    links, placed = [], {}
     for k, s in enumerate(j['steps'], 1):
-        name = f'step {k}'
-        kind = ids.get(s['node'], {}).get('kind')
-        if kind not in STEP_KINDS:
-            P(f'{name}: on a {kind} box; steps go on a function, external or store box (add the function box, then '
-              f'stepnode {k} <id>)')
-        tp = title_problem(s['title'], labels)
-        if tp:
-            P(f'{name}: title "{s["title"]}" {tp}')
-        lead = s.get('lead', '')
-        if not lead:
-            P(f'{name}: no lead')
-        elif words(lead) > 40:
-            P(f'{name}: lead is {words(lead)} words (max 40; move the rest to details)')
-        if lead and repeat_warning(k, s):
-            warnings.append(repeat_warning(k, s))
-        warnings.extend(w for w in (lead and lead_warning(k, s), span_warning(k, s)) if w)
-        warnings.extend(style_warnings(k, s))
-        if near_ref_warning(k, s):
-            warnings.append(near_ref_warning(k, s))
-        warnings.extend(ref_warnings(k, s))
-        sf, ss, se = follow(name, s, s['anchor'], f'restep {k} range <file> <start> <end>')
+        sf, ss, se = check_step(repo, since, g, labels, k, s, links, r)
         placed.setdefault((sf, ss, se), []).append(k)
-        if os.path.isfile(os.path.join(repo, sf)):
-            for w in range_warnings(lines_of(repo, sf), sf, ss, se):
-                warnings.append(f'{name}: {w} (restep {k} range <file> <start> <end>)')
-        at = ids.get(s['node'], {}).get('at')
-        if at:
-            af, aa, ab = where(repo, since, at['file'], at['start'], at['end'], at['anchor'])[1:4] if not fix else \
-                (at['file'], at['start'], at['end'])
-            if af == sf and (se < aa or ss > ab):
-                P(f'{name}: anchored at {sf}:{ss}-{se}, outside its box "{ids[s["node"]]["label"]}" '
-                  f'({aa}-{ab} in the same file): move the step (restep {k} node|range) or fix the box (set {s["node"]} at)')
-        refs = s.get('refs', [])
-        if len(refs) > 3:
-            P(f'{name}: {len(refs)} refs (max 3: keep the lines a reader should open)')
-        for ref in refs:
-            tok = ref_token(ref)
-            if not tok:
-                P(f'{name}: ref "{ref}" has no full path:line (or path:line-line) in it: a ref is one sentence with '
-                  f'the repo-relative path:line inside (restep {k} refs -)')
-                continue
-            prob, got = check_ref(repo, tok)
-            if prob:
-                P(f'{name}: ref {tok}: {prob}')
-            links.append((k, 'ref', tok, got, '' if ref_bare(ref) else ref))
-        text = lead + '\n' + s.get('details', '')
-        for m in re.finditer(LINK, text):
-            if m.group(0) in [ref_token(x) for x in refs]:
-                continue
-            prob, got = check_ref(repo, m.group(0))
-            if prob:
-                P(f'{name}: link {m.group(0)}: {prob}')
-            links.append((k, 'link', m.group(0), got, ''))
-        if re.search(r'(?i)\bsteps? \d+\b', text):
-            P(f'{name}: the text says "step N"; numbers change when steps move: name the step instead')
-        if re.search(r'(?<![\w/.]):\d+(?:-\d+)?\b', plain(text)):
-            P(f'{name}: a bare ":NNN" reference; write the full path:line so it is a link and gets checked')
-
     for (sf, ss, se), ks in placed.items():      # two steps showing the very same lines
         if len(ks) > 1:
-            warnings.append(f'steps {" and ".join(map(str, ks))} are anchored on the same lines ({sf}:{ss}-{se}): each '
-                            f'step shows the lines its own title is about (restep N range <file> <start> <end>)')
-    check_extras(repo, since, j, fix, P, warnings, fixed)
-    pod = podcast_report(repo, slug, j)       # its podcast, when it has one (`journey.py podcast` for the details)
-    if pod:
-        problems.extend(pod[0])
-        warnings.extend(pod[1])
-    for note in SHAPE_NOTES:
-        P(note)
-    if GIT_ERROR and any('git could not be asked about a rename' in p for p in problems):      # said once, as what it is
-        warnings.insert(0, f'git failed ({GIT_ERROR}), so renames cannot be followed and `check fix` cannot repoint moved '
-                           f'files: run check as the owner of the repo, or `git config --global --add safe.directory '
-                           f'{os.path.abspath(repo)}`, then check again')
-    if fixed:
-        save(repo, slug, j)
-    # --- outline
+            r.warn(f'steps {" and ".join(map(str, ks))} are anchored on the same lines ({sf}:{ss}-{se}): each '
+                   f'step shows the lines its own title is about (restep N range <file> <start> <end>)')
+    return links
+
+
+def check_step(repo, since, g, labels, k, s, links, r):
+    """One step: its box, title, lead, refs and the code it is anchored on. Returns where that code is now."""
+    name = f'step {k}'
+    kind = g.ids.get(s['node'], {}).get('kind')
+    if kind not in STEP_KINDS:
+        r.problem(f'{name}: on a {kind} box; steps go on a function, external or store box (add the function box, then '
+                  f'stepnode {k} <id>)')
+    tp = title_problem(s['title'], labels)
+    if tp:
+        r.problem(f'{name}: title "{s["title"]}" {tp}')
+    lead = s.get('lead', '')
+    if not lead:
+        r.problem(f'{name}: no lead')
+    elif words(lead) > MAX_LEAD_WORDS:
+        r.problem(f'{name}: lead is {words(lead)} words (max {MAX_LEAD_WORDS}; move the rest to details)')
+    if lead:
+        r.warn(repeat_warning(k, s))
+        r.warn(lead_warning(k, s))
+    r.warn(span_warning(k, s))
+    r.warnings.extend(style_warnings(k, s))
+    r.warn(near_ref_warning(k, s))
+    r.warnings.extend(ref_warnings(k, s))
+    sf, ss, se = follow(repo, since, r, name, s, s['anchor'], f'restep {k} range <file> <start> <end>')
+    if os.path.isfile(os.path.join(repo, sf)):
+        for w in range_warnings(lines_of(repo, sf), sf, ss, se):
+            r.warn(f'{name}: {w} (restep {k} range <file> <start> <end>)')
+    at = g.ids.get(s['node'], {}).get('at')
+    if at:
+        af, aa, ab = (at['file'], at['start'], at['end']) if r.fix else where(repo, since, at['file'], at['start'], at['end'], at['anchor'])[1:4]
+        if af == sf and (se < aa or ss > ab):
+            r.problem(f'{name}: anchored at {sf}:{ss}-{se}, outside its box "{g.ids[s["node"]]["label"]}" '
+                      f'({aa}-{ab} in the same file): move the step (restep {k} node|range) or fix the box (set {s["node"]} at)')
+    refs = s.get('refs', [])
+    if len(refs) > MAX_REFS:
+        r.problem(f'{name}: {len(refs)} refs (max {MAX_REFS}: keep the lines a reader should open)')
+    for ref in refs:
+        tok = ref_token(ref)
+        if not tok:
+            r.problem(f'{name}: ref "{ref}" has no full path:line (or path:line-line) in it: a ref is one sentence with '
+                      f'the repo-relative path:line inside (restep {k} refs -)')
+            continue
+        prob, got = check_ref(repo, tok)
+        if prob:
+            r.problem(f'{name}: ref {tok}: {prob}')
+        links.append((k, 'ref', tok, got, '' if ref_bare(ref) else ref))
+    text = lead + '\n' + s.get('details', '')
+    for m in re.finditer(LINK, text):
+        if m.group(0) in [ref_token(x) for x in refs]:
+            continue
+        prob, got = check_ref(repo, m.group(0))
+        if prob:
+            r.problem(f'{name}: link {m.group(0)}: {prob}')
+        links.append((k, 'link', m.group(0), got, ''))
+    if re.search(r'(?i)\bsteps? \d+\b', text):
+        r.problem(f'{name}: the text says "step N"; numbers change when steps move: name the step instead')
+    if re.search(r'(?<![\w/.]):\d+(?:-\d+)?\b', plain(text)):
+        r.problem(f'{name}: a bare ":NNN" reference; write the full path:line so it is a link and gets checked')
+    return sf, ss, se
+
+
+def print_check(j, g, flag, links, r):
+    """The outline, the storyline and the lines the steps point at (as `flag` asks), then what check found."""
     def show(parent, depth):
-        for n in kids.get(parent, []):
+        for n in g.kids.get(parent, []):
             st = [str(k) for k, s in enumerate(j['steps'], 1) if s['node'] == n['id']]
             at = f' @ {n["at"]["file"]}:{n["at"]["start"]}' if 'at' in n else ''
             bl = f' — {n["blurb"]}' if n.get('blurb') else ''
@@ -3988,33 +4463,63 @@ def cmd_check(repo, slug, flag=''):
             print(f'  {e["from"]} -> {e["to"]}: {e["label"]}{"  (async)" if e.get("async") else ""}')
     if flag not in ('refs', 'quiet'):
         print('Storyline (with the map it must answer the question, without opening a step):')
-    for k, s in enumerate(j['steps'], 1):
-        if flag not in ('refs', 'quiet'):
+        for k, s in enumerate(j['steps'], 1):
             print(f'  {k:2}. {s["title"]}   [{s["id"]} on {s["node"]}, {words(s.get("lead", ""))}w, {len(s.get("refs", []))} refs'
                   f'{extras_line(s)}]')
-    if show_links:
-        last = 0
-        for k, kind, ref, got, sentence in links:
-            if k != last:        # the step's header, then the lines it points at
-                st = j['steps'][k - 1]
-                r = st['range']
-                print(f'step {k} [{st["node"]}] {st["title"]}   @ {st["file"]}:{r["start"]}-{r["end"]}')
-                last = k
-            if sentence:         # the sentence the reader sees, then the line it must describe
-                print(f'  ref  "{sentence}"')
-            for i, (ln, txt) in enumerate(got):
-                print(f'  {kind:4} {ref}: {txt}' if i == 0 else f'       … L{ln}: {txt}')
-    for f in fixed:
+    if flag in ('', 'refs', 'fix'):
+        print_links(j, links)
+    for f in r.fixed:
         print('FIXED: ' + f)
-    for w in warnings:
+    for w in r.warnings:
         print('WARNING: ' + w)
-    for p in problems:
+    for p in r.problems:
         print('PROBLEM: ' + p)
     if quiet:
         plural = lambda n, w: f'{n} {w}{"" if n == 1 else "s"}'
-        warn = f', {plural(len(warnings), "warning")}' if warnings else ''
-        print(f'{"FAILED" if problems else "ok"}: {plural(len(j["steps"]), "step")}, {plural(len(problems), "problem")}{warn}')
-    sys.exit(1 if problems else 0)
+        warn = f', {plural(len(r.warnings), "warning")}' if r.warnings else ''
+        print(f'{"FAILED" if r.problems else "ok"}: {plural(len(j["steps"]), "step")}, {plural(len(r.problems), "problem")}{warn}')
+
+
+def print_links(j, links):
+    """Each step's header, then the lines its refs and links point at."""
+    last = 0
+    for k, kind, ref, got, sentence in links:
+        if k != last:
+            st = j['steps'][k - 1]
+            print(f'step {k} [{st["node"]}] {st["title"]}   @ {st["file"]}:{st["range"]["start"]}-{st["range"]["end"]}')
+            last = k
+        if sentence:         # the sentence the reader sees, then the line it must describe
+            print(f'  ref  "{sentence}"')
+        for i, (ln, txt) in enumerate(got):
+            print(f'  {kind:4} {ref}: {txt}' if i == 0 else f'       … L{ln}: {txt}')
+
+
+def cmd_check(repo, slug, flag=''):
+    flag = {'--fix': 'fix'}.get(flag, flag)
+    if flag not in ('', 'quiet', 'story', 'refs', 'fix'):
+        sys.exit('check <repo> <slug> [quiet|story|refs|fix]   quiet: PROBLEM/WARNING lines + a one-line summary; story: storyline only; '
+                 'refs: ref lines only; fix: repoint steps/boxes whose code moved')
+    j = load(repo, slug)
+    r = Report(flag == 'fix')
+    g = JourneyMap(repo, j)
+    since = j.get('commit', '')
+    check_header(repo, slug, j, r)
+    stray = check_map(repo, since, j, g, r)
+    links = check_steps(repo, since, j, g, stray, r)
+    r.add(check_extras(repo, since, j))
+    pod = podcast_report(repo, slug, j)       # its podcast, when it has one (`journey.py podcast` for the details)
+    if pod:
+        r.problems.extend(pod[0])
+        r.warnings.extend(pod[1])
+    r.problems.extend(SHAPE_NOTES)
+    if GIT_ERROR and any('git could not be asked about a rename' in p for p in r.problems):      # said once, as what it is
+        r.warnings.insert(0, f'git failed ({GIT_ERROR}), so renames cannot be followed and `check fix` cannot repoint moved '
+                             f'files: run check as the owner of the repo, or `git config --global --add safe.directory '
+                             f'{os.path.abspath(repo)}`, then check again')
+    if r.fixed:
+        save(repo, slug, j)
+    print_check(j, g, flag, links, r)
+    sys.exit(1 if r.problems else 0)
 
 
 if __name__ == '__main__':
