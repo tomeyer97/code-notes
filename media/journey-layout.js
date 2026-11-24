@@ -1,12 +1,31 @@
 // The journey map's layout, as data (journey-graph.js draws it and moves the view): systems contain their modules,
-// modules their functions; every edge between its real ends, with its label. ELK (layered, hierarchical:
-// out/vendor/elk.bundled.js, as window.ELK: the page loads it before its bundle) places the boxes; an arrow between
-// modules gets one curve of its own; each label goes where it covers least. The boxes are measured with the real styles first: so the boxes' markup is here
-// too (titleEl, leafEl), and journey-graph.js draws the same elements.
-// Exports { layout(j) → Promise<{ w, h, abs, titleH, kids, edges }>, signature(j), stepsOf(j),
-//   ancestors(byId, id), titleEl(n), leafEl(n, nums), samples(edge), pathD(points), curveD(bez), verb(label),
-//   isGeneric(label) }
-import { el, overlapArea, edgesOf } from './common.js'
+// modules their functions; every edge between its real ends, with its label. ELK (layered, hierarchical) places the
+// boxes; an arrow between modules gets one curve of its own; each label goes where it covers least. No DOM here: the
+// caller measures the boxes and labels (with the real styles) and gives the ELK instance, so it runs in a unit test.
+// Exports { layout(j, measure, elk) → Promise<MapLayout>, signature(j), stepsOf(j), ancestors(byId, id),
+//   samples(edge), pathD(points), curveD(bez), verb(label), isGeneric(label) }
+import { overlapArea, edgesOf } from './common.js'
+
+/** @typedef {{ x: number, y: number }} Point */
+/** @typedef {{ x: number, y: number, w: number, h: number }} Rect */
+/** @typedef {{ w: number, h: number }} Size */
+/**
+ * What the layout measures, with the real styles (journey-graph's boxes.js measureBoxes): a box that holds others by
+ * its title, a box that holds none with its step numbers, an arrow's label.
+ * @typedef {{ title(n: any): Size, leaf(n: any, nums: number[]): Size, label(text: string): Size, done(): void }} Measure
+ */
+/**
+ * An arrow as laid out: `e` the journey's edge, `text` what its label says ('' none), `pts` ELK's route or `bez` its
+ * own curve (one of them), `labelBox` where its label goes (world px).
+ * @typedef {{ i: number, e: any, text: string, cross: boolean, pts?: Point[], bez?: Point[], labelBox?: Rect,
+ *   lw?: number, lh?: number }} MapEdge
+ */
+/**
+ * The map laid out (world px): its size, every box's rectangle by id (`abs`), the boxes each box holds (`kids`,
+ * '' the top level), the height of each holder's title, the arrows.
+ * @typedef {{ w: number, h: number, abs: Map<string, Rect>, titleH: Record<string, number>, kids: Map<string, any[]>,
+ *   edges: MapEdge[] }} MapLayout
+ */
 
 // ---------- an arrow's label: a plain verb phrase ----------
 
@@ -54,13 +73,6 @@ const ELK_OPTIONS = {
 function signature(j) {
   return JSON.stringify([j.nodes.map((n) => [n.id, n.kind, n.label, n.parent || '']), j.edges.map((e) => [e.from, e.to, e.label, !!e.async]), j.steps.map((s) => s.node)])
 }
-/** The size a box's text needs, measured with the real styles. */
-function measurer() {
-  const box = el('div', 'gmeasure')
-  document.body.append(box)
-  const size = (e) => { box.append(e); const r = { w: Math.ceil(e.offsetWidth) + 1, h: Math.ceil(e.offsetHeight) }; e.remove(); return r }
-  return { size, done: () => box.remove() }
-}
 /** Node id → the numbers of its steps. */
 function stepsOf(j) {
   const m = new Map()
@@ -76,20 +88,6 @@ function ancestors(byId, id) {
   const out = []
   for (let n = byId.get(id); n && n.parent && out.length < byId.size; n = byId.get(n.parent)) out.push(n.parent)
   return out
-}
-
-/** A box's title (a box that holds others). */
-function titleEl(n) { return el('div', `gtitle ${n.kind}`, n.label) }
-/** A box that holds no other: its name and its step numbers. */
-function leafEl(n, nums) {
-  const d = el('div', `gbox leaf ${n.kind}`)
-  d.append(el('span', 'glbl', n.label))
-  if (nums.length) {
-    const s = el('span', 'gnums')
-    for (const v of nums) { const b = el('button', 'gnum', String(v)); b.dataset.n = v; s.append(b) }
-    d.append(s)
-  }
-  return d
 }
 
 /** The boxes in a box (its id; '' : the top level), in the order the path first reaches them (unvisited last): ELK
@@ -112,13 +110,13 @@ function kidsOf(j, byId, steps) {
   return kids
 }
 
-/** ELK's graph of the boxes, each measured (`ms`): { root, titleH: id → its title's height }. */
-function toElkGraph(kids, steps, ms) {
+/** ELK's graph of the boxes, each measured: { root, titleH: id → its title's height }. @param {Measure} measure */
+function toElkGraph(kids, steps, measure) {
   const titleH = Object.create(null)
   const box = (n, parentTitle) => {
     const ch = kids.get(n.id) || []
     if (ch.length) {
-      const t = ms.size(titleEl(n))
+      const t = measure.title(n)
       titleH[n.id] = t.h
       return {
         id: n.id,
@@ -127,7 +125,7 @@ function toElkGraph(kids, steps, ms) {
         edges: [],
       }
     }
-    const s = ms.size(leafEl(n, steps.get(n.id) || []))
+    const s = measure.leaf(n, steps.get(n.id) || [])
     // The only box in a module: at least as wide as the module's title (ELK can't be told a compound's minimum here).
     return { id: n.id, width: Math.max(s.w, parentTitle - 4), height: s.h }
   }
@@ -180,32 +178,38 @@ function readEdges(edgesIn, out, abs, byId) {
   })
 }
 
-async function layout(j) {
+/**
+ * The journey laid out. `measure`: the boxes' and labels' sizes; `elk`: an ELK instance (the page's window.ELK).
+ * @param {Measure} measure @returns {Promise<MapLayout>}
+ */
+async function layout(j, measure, elk) {
   const byId = new Map(j.nodes.map((n) => [n.id, n]))
   const steps = stepsOf(j)
   const kids = kidsOf(j, byId, steps)
   // A box's path from the top: its holders, outermost first, then itself.
   const pathOf = (id) => (byId.has(id) ? [...ancestors(byId, id).reverse(), id] : [])
-  const ms = measurer()
-  const { root, titleH } = toElkGraph(kids, steps, ms)
+  const { root, titleH } = toElkGraph(kids, steps, measure)
   const elkById = indexById(root)
   // Each edge in the innermost box holding both ends, its label measured.
   const edgesIn = j.edges.map((e, i) => {
     const container = edgeContainer(pathOf(e.from), pathOf(e.to), e)
     const text = isGeneric(e.label) ? '' : verb(e.label)
-    const lab = text ? ms.size(el('div', 'glabel', text)) : undefined
+    const lab = text ? measure.label(text) : undefined
     const labels = lab ? { labels: [{ id: `e${i}l`, text, width: lab.w, height: lab.h }] } : {}
     const ee = { id: `e${i}`, sources: [e.from], targets: [e.to], ...labels }
     elkById.get(container).edges.push(ee)
     return { i, e, text, container, ee }
   })
-  ms.done()
-  const out = /** @type {any} */ (await new window.ELK().layout(root))
+  measure.done()
+  const out = /** @type {any} */ (await elk.layout(root))
   const abs = absolutePositions(out)
-  const edgesOut = readEdges(edgesIn, out, abs, byId)
-  curves(edgesOut, abs, kids)
-  placeLabels(edgesOut, abs, kids, titleH)
-  return { w: out.width, h: out.height, abs, titleH, kids, edges: edgesOut }
+  const routed = readEdges(edgesIn, out, abs, byId)
+  // A curve of its own replaces ELK's route.
+  const bezOf = curves(routed, abs, kids)
+  const shaped = routed.map(({ pts, ...ed }) => (bezOf.has(ed.i) ? { ...ed, bez: bezOf.get(ed.i) } : { ...ed, pts }))
+  const labelBoxOf = placeLabels(shaped, abs, kids, titleH)
+  const edges = shaped.map((ed) => (labelBoxOf.has(ed.i) ? { ...ed, labelBox: labelBoxOf.get(ed.i) } : ed))
+  return { w: out.width, h: out.height, abs, titleH, kids, edges }
 }
 
 // ---------- arrows between modules: one curve each ----------
@@ -241,65 +245,80 @@ function pushOut(p, m) {
   }
 }
 
+/** The distance between points `a` and `b`. */
+const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
+
 /**
  * Arrows between boxes in different modules: one simple curve from end to end (ELK routes them around whole
  * modules, in long detours that read like empty boxes). Ends spread along the side they leave/enter, in the order
- * of the far end, so curves from one box don't cross each other.
+ * of the far end, so curves from one box don't cross each other. Returns edge index → its curve's four points (an
+ * arrow no curve clears keeps ELK's route: not in it).
+ * @param {MapEdge[]} edges @param {Map<string, Rect>} abs @returns {Map<number, Point[]>}
  */
 function curves(edges, abs, kidsOf) {
-  // Each box's ends on each of its sides: id → side → [{ ed, which (0: the arrow leaves here, 1: enters), key }].
+  const anchors = endAnchors(edges, abs)
+  const bezOf = new Map()
+  for (const ed of edges) {
+    const [a, b] = anchors.get(ed.i) || []
+    if (!a || !b) continue
+    const bez = clearCurve(ed, a, b, abs, kidsOf)
+    if (bez) bezOf.set(ed.i, bez)
+  }
+  return bezOf
+}
+
+/** Where each arrow between modules leaves and enters its boxes: edge index → [start, end] (each a point with the
+ *  `side` it is on), spread along each side in the order of the far ends. */
+function endAnchors(edges, abs) {
+  // Each box's ends on each of its sides: id → side → [{ i, which (0: the arrow leaves here, 1: enters), key }].
   const ends = new Map()
-  const add = (ed, id, side, which, other) => {
+  const add = (i, id, side, which, other) => {
     if (!ends.has(id)) ends.set(id, new Map())
     const sides = ends.get(id)
     if (!sides.has(side)) sides.set(side, [])
     // Spread in the order of the far end along this side.
     const key = side === 'b' || side === 't' ? other.x + other.w / 2 : other.y + other.h / 2
-    sides.get(side).push({ ed, which, key })
+    sides.get(side).push({ i, which, key })
   }
   for (const ed of edges) {
     if (!ed.cross) continue
     const s = abs.get(ed.e.from), t = abs.get(ed.e.to)
     if (!s || !t) continue
     const [ss, ts] = sidesBetween(s, t)
-    ed.sides = [ss, ts]
-    add(ed, ed.e.from, ss, 0, t)
-    add(ed, ed.e.to, ts, 1, s)
+    add(ed.i, ed.e.from, ss, 0, t)
+    add(ed.i, ed.e.to, ts, 1, s)
   }
+  const anchors = new Map()
   for (const [id, sides] of ends) {
     const r = abs.get(id)
     for (const [side, list] of sides) {
       list.sort((a, b) => a.key - b.key)
-      list.forEach((x, i) => {
-        const p = sidePoint(r, side, (i + 1) / (list.length + 1))
-        ;(x.ed.anchor || (x.ed.anchor = []))[x.which] = { ...p, side }
+      list.forEach((x, n) => {
+        if (!anchors.has(x.i)) anchors.set(x.i, [])
+        anchors.get(x.i)[x.which] = { ...sidePoint(r, side, (n + 1) / (list.length + 1)), side }
       })
     }
   }
-  for (const ed of edges) {
-    if (!ed.anchor || !ed.anchor[0] || !ed.anchor[1]) continue
-    const [a, b] = ed.anchor
-    const d = Math.hypot(b.x - a.x, b.y - a.y)
-    const m = Math.max(20, Math.min(90, d / 2.5))
-    // Only a curve that crosses no other box (a line under a box reads as an arrow into it): bent sideways as far as
-    // needed; when none is clear, ELK's route.
-    const vert = a.side === 'b' || a.side === 't'
-    const isOther = (id) => id !== ed.e.from && id !== ed.e.to && id !== '#root'
-    const leaves = [...abs].filter(([id]) => isOther(id) && !(kidsOf.get(id) || []).length).map(([, r]) => r)
-    const clear = (bz) => {
-      const pts = samples({ bez: bz })
-      return !leaves.some((r) => crossesBox(pts, r))
-    }
-    let bez
-    for (const off of SIDE_OFFSETS) {
-      const sh = (p) => (vert ? { x: p.x + off, y: p.y } : { x: p.x, y: p.y + off })
-      const bz = [a, sh(pushOut(a, m)), sh(pushOut(b, m)), b]
-      if (clear(bz)) { bez = bz; break }
-    }
-    if (!bez) continue
-    ed.bez = bez
-    delete ed.pts
+  return anchors
+}
+
+/** Arrow `ed`'s curve from `a` to `b` that crosses no other box (a line under a box reads as an arrow into it): bent
+ *  sideways as far as needed; undefined when none is clear. */
+function clearCurve(ed, a, b, abs, kidsOf) {
+  const m = Math.max(20, Math.min(90, dist(a, b) / 2.5))
+  const vert = a.side === 'b' || a.side === 't'
+  const isOther = (id) => id !== ed.e.from && id !== ed.e.to && id !== '#root'
+  const leaves = [...abs].filter(([id]) => isOther(id) && !(kidsOf.get(id) || []).length).map(([, r]) => r)
+  const clear = (bz) => {
+    const pts = samples({ bez: bz })
+    return !leaves.some((r) => crossesBox(pts, r))
   }
+  for (const off of SIDE_OFFSETS) {
+    const sh = (p) => (vert ? { x: p.x + off, y: p.y } : { x: p.x, y: p.y + off })
+    const bz = [a, sh(pushOut(a, m)), sh(pushOut(b, m)), b]
+    if (clear(bz)) return bz
+  }
+  return undefined
 }
 
 /** Some of points `pts` come within CLEARANCE of box `r`. */
@@ -308,24 +327,33 @@ function crossesBox(pts, r) {
   return pts.some((q) => q.x > r.x - m && q.x < r.x + r.w + m && q.y > r.y - m && q.y < r.y + r.h + m)
 }
 
-/** Points along an arrow, every ~4 px (for placing its label on it). */
+/** Points on a curve (samples): this many steps from end to end. */
+const BEZIER_SAMPLES = 60
+/** Points on a polyline (samples): about this far apart (px). */
+const SAMPLE_STEP_PX = 4
+
+/** The point at `t` (0..1) on the cubic Bézier curve through `p0..p3`. */
+function bezierAt(bez, t) {
+  const [p0, p1, p2, p3] = bez
+  const u = 1 - t
+  const at = (a, b, c, d) => u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d
+  return { x: at(p0.x, p1.x, p2.x, p3.x), y: at(p0.y, p1.y, p2.y, p3.y) }
+}
+
+/** The point `k` of `n` equal steps from `a` to `b`. */
+const stepAlong = (a, b, k, n) => ({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n })
+
+/** Points along an arrow (its curve `bez`, else its route `pts`), for placing its label on it. */
 function samples(ed) {
   const out = []
   if (ed.bez) {
-    const [p0, p1, p2, p3] = ed.bez
-    for (let i = 0; i <= 60; i++) {
-      const t = i / 60, u = 1 - t
-      out.push({
-        x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
-        y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
-      })
-    }
+    for (let i = 0; i <= BEZIER_SAMPLES; i++) out.push(bezierAt(ed.bez, i / BEZIER_SAMPLES))
     return out
   }
   const P = ed.pts
   for (let i = 1; i < P.length; i++) {
-    const a = P[i - 1], b = P[i], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 4))
-    for (let k = i === 1 ? 0 : 1; k <= n; k++) out.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n })
+    const a = P[i - 1], b = P[i], n = Math.max(1, Math.ceil(dist(a, b) / SAMPLE_STEP_PX))
+    for (let k = i === 1 ? 0 : 1; k <= n; k++) out.push(stepAlong(a, b, k, n))
   }
   return out
 }
@@ -341,7 +369,11 @@ const OFF_CENTRE_COST = 20
  *  not measured) and TITLE_PAD below it. */
 const TITLE_MAX_W = 260, TITLE_H = 18, TITLE_PAD = 6
 
-/** Each label centred on its own line, where it covers no box, title or other label (else where it covers least). */
+/**
+ * Each label centred on its own line, where it covers no box, title or other label (else where it covers least).
+ * Returns edge index → its label's box.
+ * @param {MapEdge[]} edges @returns {Map<number, Rect>}
+ */
 function placeLabels(edges, abs, kids, titleH) {
   const obstacles = []
   for (const [id, r] of abs) {
@@ -353,43 +385,56 @@ function placeLabels(edges, abs, kids, titleH) {
   const area = (a, b) => overlapArea(edgesOf(a), edgesOf(b))
   const offCentre = (f) => Math.abs(f - 0.5) * OFF_CENTRE_COST
   // Shorter arrows first: they have the fewest places to go.
+  const boxOf = new Map()
   const order = edges
     .filter((ed) => ed.text && ed.lw)
     .map((ed) => ({ ed, pts: samples(ed) }))
     .sort((a, b) => a.pts.length - b.pts.length)
   for (const { ed, pts } of order) {
+    const { lw = 0, lh = 0 } = ed
     let best, bestCost = Infinity
     for (const f of LABEL_SPOTS) {
       const p = pts[Math.round((pts.length - 1) * f)]
-      const r = { x: p.x - ed.lw / 2, y: p.y - ed.lh / 2, w: ed.lw, h: ed.lh }
+      const r = { x: p.x - lw / 2, y: p.y - lh / 2, w: lw, h: lh }
       // What it covers, and a little for being off the middle; covering nothing ends the search.
       const cost = obstacles.reduce((c, o) => c + area(r, o), 0) + offCentre(f)
       if (cost < bestCost) { bestCost = cost; best = r }
       if (cost <= offCentre(f)) break
     }
-    ed.label = best
+    boxOf.set(ed.i, best)
     obstacles.push(best)
   }
+  return boxOf
 }
 
-/** A rounded orthogonal polyline. */
+/** A rounded corner's radius (px) at most. */
+const CORNER_R = 6
+/** The unit vector from `p` toward `q` (0 long: divided by 1). */
+const unit = (p, q) => {
+  const l = dist(p, q) || 1
+  return { x: (q.x - p.x) / l, y: (q.y - p.y) / l }
+}
+/** Point `p` moved `d` along unit vector `u`. */
+const along = (p, u, d) => ({ x: p.x + u.x * d, y: p.y + u.y * d })
+
+/** A rounded orthogonal polyline: at each bend, a line to just before the corner and a quarter curve around it. */
 function pathD(pts) {
   if (pts.length < 2) return ''
   let d = `M${pts[0].x},${pts[0].y}`
   for (let i = 1; i < pts.length - 1; i++) {
-    const a = pts[i - 1], b = pts[i], c = pts[i + 1]
-    const r = Math.min(6, Math.hypot(b.x - a.x, b.y - a.y) / 2, Math.hypot(c.x - b.x, c.y - b.y) / 2)
-    const u = (p, q) => { const l = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: (q.x - p.x) / l, y: (q.y - p.y) / l } }
-    const ua = u(b, a), uc = u(b, c)
-    d += ` L${b.x + ua.x * r},${b.y + ua.y * r} Q${b.x},${b.y} ${b.x + uc.x * r},${b.y + uc.y * r}`
+    const a = pts[i - 1], corner = pts[i], c = pts[i + 1]
+    const r = Math.min(CORNER_R, dist(a, corner) / 2, dist(corner, c) / 2)
+    const enter = along(corner, unit(corner, a), r), leave = along(corner, unit(corner, c), r)
+    d += ` L${enter.x},${enter.y} Q${corner.x},${corner.y} ${leave.x},${leave.y}`
   }
   const z = pts[pts.length - 1]
   return `${d} L${z.x},${z.y}`
 }
 
 /** A cubic Bézier curve through its four points (curves()'s `bez`). */
-function curveD([p0, p1, p2, p3]) {
+function curveD(bez) {
+  const [p0, p1, p2, p3] = bez
   return `M${p0.x},${p0.y} C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`
 }
 
-export { layout, signature, stepsOf, ancestors, titleEl, leafEl, samples, pathD, curveD, verb, isGeneric }
+export { layout, signature, stepsOf, ancestors, samples, pathD, curveD, verb, isGeneric }

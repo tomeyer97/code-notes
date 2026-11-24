@@ -1,21 +1,19 @@
 // The journey panel's home: every journey of the workspace, to find one and walk it (docs/journey-list.md). Search,
 // filter chips, sections, a preview of the selected journey (beside the list when wide, unfolded under its row when
-// narrow). The extension computes the list (src/core/list/journeyList.ts) with this home's search, filter and sort; we draw it.
-// Styles in journey-home.css. Made by journey-map.js, which draws it in place of the journey while it is in front:
-//   const home = JourneyHome({ app, post(m), render(), walk(key), hasJourney(), isTutorialUp() })
-//   home.on  home.set(on)  home.open()  home.take(tourMessage)  home.preview(m)  home.beforeRender()  home.draw()
-// What it posts (home, list, preview, refresh, hereAll; walk(key) is journey-map.js's walk) is typed with the panel's
-// other messages: src/protocol/map.ts FromMap.
+// narrow). The extension computes the list (src/core/list/journeyList.ts) with this home's search, filter and sort; we
+// draw it. Styles in journey-home.css; its words in home/text.js. journey-map.js makes it and draws it in place of the
+// journey while it is in front; what it posts is typed by src/protocol/map.ts FromMap.
 import { el, button, baseName, runKey, itemAt, rovingKeys } from './common.js'
+import { SORTS, staleTip, walkLabel, podcastBadge, escapeRegExp } from './home/text.js'
 
-/** The orders the list can be sorted in (src/core/list/journeyList.ts sorts); `best` only while searching. */
-const SORTS = [
-  ['best', 'Best match'],
-  ['area', 'By area'],
-  ['newest', 'Newest'],
-  ['walked', 'Recently walked'],
-  ['name', 'A–Z'],
-]
+/**
+ * What the home needs of the page (journey-map.js): its root element (emptied and drawn again on every render),
+ * posting a message, rendering the panel again, walking a journey, whether a journey is open (Esc goes back to it),
+ * whether the tutorial is up (it has the keyboard then).
+ * @typedef {{ app: HTMLElement, post(m: import('../src/protocol/map').FromMap): void, render(): void,
+ *   walk(key: string): void, hasJourney(): boolean, isTutorialUp(): boolean }} HomeHost
+ */
+
 /** The preview lists this many steps (and every stale one), wide / narrow. */
 const PREVIEW_STEPS_WIDE = 14, PREVIEW_STEPS_NARROW = 8
 /** The list and the preview side by side from this panel width (px). */
@@ -26,8 +24,9 @@ const AREA_CHIPS = 8
 const LIST_DEBOUNCE_MS = 90
 
 /**
- * Where the keyboard goes back to after a render: the `data-f` of an element (focusNext, beforeRender, draw): a
- * row, a filter chip, a section's "Show n more", the search, the sort menu, the preview's Walk and Refresh.
+ * Where the keyboard goes back to after a render (the panel draws the home anew): an element's focus key, set with
+ * FOCUS.tag and found with FOCUS.find. A row, a filter chip, a section's "Show n more", the search, the sort menu,
+ * the preview's Walk and Refresh.
  */
 const FOCUS = {
   row: (key) => `row:${key}`,
@@ -37,23 +36,23 @@ const FOCUS = {
   sort: 'sort',
   walk: 'walk',
   refresh: 'refresh',
+  /** Element `e` marked with focus key `key`; returns `e`. @template {HTMLElement} E @param {E} e @returns {E} */
+  tag: (e, key) => { e.dataset.f = key; return e },
+  /** The focus key of element `e` ('' none). @param {Element | null} e */
+  of: (e) => (e instanceof HTMLElement && e.dataset.f) || '',
+  /** The element in `root` with focus key `key`. @param {HTMLElement} root @returns {HTMLElement | undefined} */
+  find: (root, key) => [.../** @type {NodeListOf<HTMLElement>} */ (root.querySelectorAll('[data-f]'))].find((x) => x.dataset.f === key),
 }
 
-/** "⚠ Step 4 changed" for a row's tooltip. */
-const staleTip = (r) => {
-  const n = r.staleSteps || []
-  if (n.length) return `${n.length === 1 ? `Step ${n[0]}` : `Steps ${n.join(', ')}`} changed since it was written`
-  return `${r.stale} step${r.stale === 1 ? '' : 's'} changed since it was written`
-}
-
-/** Text with the matched words marked. */
+/** Text with the matched words (`hits`) marked. */
 function marked(text, hits) {
   const span = el('span', 't')
   if (!hits || !hits.length) { span.textContent = text; return span }
-  const re = new RegExp(`(${hits.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi')
+  const re = new RegExp(`(${hits.map(escapeRegExp).join('|')})`, 'gi')
+  const isHit = new Set(hits.map((h) => h.toLowerCase()))
   for (const part of text.split(re)) {
     if (!part) continue
-    if (hits.some((h) => h.toLowerCase() === part.toLowerCase())) span.append(el('mark', '', part))
+    if (isHit.has(part.toLowerCase())) span.append(el('mark', '', part))
     else span.append(document.createTextNode(part))
   }
   return span
@@ -66,14 +65,7 @@ function badge(cls, text, title) {
   return x
 }
 
-/** The preview's button: back to where the walk is, on from where it was left, or from the start. */
-function walkLabel(r) {
-  if (r.walking) return `Back to step ${r.resume}`
-  if (r.resume > 1) return `Resume at ${r.resume}`
-  return 'Walk'
-}
-
-/** @param {{ post: (m: import('../src/protocol/map').FromMap) => void, [k: string]: any }} host */
+/** @param {HomeHost} host */
 export function JourneyHome(host) {
   const { app, post } = host
 
@@ -95,12 +87,7 @@ export function JourneyHome(host) {
   /** The search box: one, kept across renders (it keeps the caret). */
   let searchEl
   let listTimer = 0
-  /** The keyboard goes here after the next render (a FOCUS name). */
-  let focusNext = ''
-  /** The list just came to the front: the keyboard into the search. */
-  let focusSearch = false
-  /** Where the keyboard was when the render began (beforeRender). */
-  let was = { search: false, caret: 0, f: '' }
+  const focus = focusKeeper(app, () => searchEl)
 
   /** Asks the extension for the list with this query and filter (and `extra`, e.g. a sort): at once with `extra`,
    *  else once typing pauses. */
@@ -120,16 +107,26 @@ export function JourneyHome(host) {
   function set(v) {
     if (on === v) return
     on = v
-    if (v) focusSearch = true
+    if (v) focus.toSearch()
     post({ type: 'home', on: v })
+    if (v) keepSelectionShown()
   }
 
-  function select(k, focus, unfold) {
-    if (!k || (k === sel && !unfold && !focus)) return
+  /** The selection on a row the list shows (the first when it is not), its preview asked for. Run when the list
+   *  changes or comes to the front, not while drawing. */
+  function keepSelectionShown() {
+    const keys = keysShown()
+    if (keys.includes(sel)) return
+    sel = keys[0] || ''
+    if (sel) fetchPreview(sel)
+  }
+
+  function select(k, focusIt, unfold) {
+    if (!k || (k === sel && !unfold && !focusIt)) return
     sel = k
     if (unfold) unfolded = k
     fetchPreview(k)
-    if (focus) focusNext = FOCUS.row(k)
+    if (focusIt) focus.after(FOCUS.row(k))
     host.render()
   }
 
@@ -145,9 +142,9 @@ export function JourneyHome(host) {
       const pressed = hq.area === id
       const b = el('button', `chip${pressed ? ' on' : ''}`, label)
       b.setAttribute('aria-pressed', String(pressed))
-      b.dataset.f = FOCUS.chip(id)
+      FOCUS.tag(b, FOCUS.chip(id))
       if (title) b.title = title
-      b.onclick = () => { hq.area = pressed ? '' : id; focusNext = FOCUS.chip(id); sendList({}) }
+      b.onclick = () => { hq.area = pressed ? '' : id; focus.after(FOCUS.chip(id)); sendList({}) }
       chips.push(b)
       bar.append(b)
     }
@@ -173,9 +170,8 @@ export function JourneyHome(host) {
 
   /** The sort menu. A search orders by best match unless another order is picked for it (the list's own sort stays). */
   function sortMenu(m) {
-    const menu = el('select', 'hsort')
+    const menu = FOCUS.tag(el('select', 'hsort'), FOCUS.sort)
     menu.setAttribute('aria-label', 'Sort')
-    menu.dataset.f = FOCUS.sort
     const searching = !!m.query
     const current = searching ? m.searchSort || 'best' : m.sort
     for (const [id, label] of SORTS) {
@@ -186,7 +182,7 @@ export function JourneyHome(host) {
       menu.append(o)
     }
     menu.onchange = () => {
-      focusNext = FOCUS.sort
+      focus.after(FOCUS.sort)
       if (searching) { hq.searchSort = menu.value; sendList({}) }
       else sendList({ sort: menu.value })
     }
@@ -200,13 +196,14 @@ export function JourneyHome(host) {
       searchEl.type = 'search'
       searchEl.placeholder = 'Search journeys'
       searchEl.setAttribute('aria-label', 'Search journeys (/)')
-      searchEl.dataset.f = FOCUS.search
+      FOCUS.tag(searchEl, FOCUS.search)
       searchEl.addEventListener('input', () => { hq.query = searchEl.value; sendList() })
     }
     if (searchEl.value !== hq.query) searchEl.value = hq.query
     return searchEl
   }
 
+  /** The home: its heading and count, the search, the chips and sort, the list and (wide) the preview. */
   function homeView() {
     const m = model
     const h = el('div', 'home')
@@ -220,9 +217,15 @@ export function JourneyHome(host) {
     if (m) h.append(chipBar(m))
     if (m && m.fallback) h.append(el('p', 'hnote', m.fallback.note))
     const body = el('div', 'hbody')
+    body.append(sectionsEl(m, wide))
+    if (wide && sel && m) body.append(previewEl(m.rows[sel], true))
+    h.append(body)
+    return h
+  }
+
+  /** The list: each section's rows (narrow: the selected one unfolded), its "Show n more"; a note when it is empty. */
+  function sectionsEl(m, wide) {
     const listEl = el('div', 'hlist')
-    const keys = keysShown()
-    if (!keys.includes(sel)) { sel = keys[0] || ''; if (sel) fetchPreview(sel) }
     for (const sec of m ? m.sections : []) {
       listEl.append(el('h2', 'hsec', sec.label))
       const ul = el('ul', 'jlist')
@@ -234,24 +237,17 @@ export function JourneyHome(host) {
         ul.append(li)
       }
       listEl.append(ul)
-      if (sec.more) {
-        const more = button('link hmore', `Show ${sec.more} more`, () => post({ type: 'hereAll' }))
-        more.dataset.f = FOCUS.more(sec.id)
-        listEl.append(more)
-      }
+      if (sec.more) listEl.append(FOCUS.tag(button('link hmore', `Show ${sec.more} more`, () => post({ type: 'hereAll' })), FOCUS.more(sec.id)))
     }
     if (m && !m.count) listEl.append(el('p', 'note', m.total ? 'Nothing matches.' : 'No journeys in this workspace.'))
-    body.append(listEl)
-    if (wide && sel && m) body.append(previewEl(m.rows[sel], true))
-    h.append(body)
-    return h
+    return listEl
   }
 
   /** A journey's row: its title (matches marked) and marks, its question, one line about it. */
   function homeRow(r, k, sec) {
     const b = el('button', `jrow${k === sel ? ' sel' : ''}${r.here ? ' here' : ''}`)
     b.dataset.key = k
-    b.dataset.f = FOCUS.row(k)
+    FOCUS.tag(b, FOCUS.row(k))
     b.tabIndex = k === sel ? 0 : -1
     b.setAttribute('aria-selected', String(k === sel))
     const t = el('span', 'jtop')
@@ -264,10 +260,8 @@ export function JourneyHome(host) {
     }
     // A podcast: its length, or that it is being listened to (paused at …).
     if (r.podcast) {
-      const p = r.podcast
-      const text = p.playing ? '♪ Listening' : p.at !== undefined ? `♪ ${podClock(p.at)}` : `♪ ${podClock(p.duration)}`
-      const tip = p.playing ? 'Listening to its podcast' : p.at !== undefined ? `Podcast paused at ${podClock(p.at)} of ${podClock(p.duration)}` : `Podcast, ${podClock(p.duration)}: ▶ Listen on its row in the Journeys view`
-      t.append(badge(`jpod${p.playing ? ' on' : ''}`, text, tip))
+      const { text, tip } = podcastBadge(r.podcast)
+      t.append(badge(`jpod${r.podcast.playing ? ' on' : ''}`, text, tip))
     }
     if (r.stale) {
       const x = badge('jstale', '⚠', staleTip(r))
@@ -280,11 +274,6 @@ export function JourneyHome(host) {
     b.onclick = () => select(k, false, true)
     b.ondblclick = () => host.walk(k)
     return b
-  }
-
-  function podClock(t) {
-    const x = Math.max(0, Math.floor(t || 0))
-    return `${Math.floor(x / 60)}:${String(x % 60).padStart(2, '0')}`
   }
 
   /** Row `r`'s stale steps: step number → when its code changed ('' until the preview's journey says). */
@@ -327,14 +316,14 @@ export function JourneyHome(host) {
   function previewActions(r, hasStale) {
     const acts = el('div', 'pacts')
     const go = button('walkb', walkLabel(r), () => host.walk(r.key))
-    go.dataset.f = FOCUS.walk
+    FOCUS.tag(go, FOCUS.walk)
     acts.append(go)
     if (hasStale) {
       const refresh = () => post({ type: 'refresh', key: r.key })
       const rf = button('link refreshb', r.refreshing ? 'Refreshing…' : 'Refresh', refresh)
       rf.disabled = !!r.refreshing
       rf.title = 'The agent updates the stale steps of this journey (nothing else)'
-      rf.dataset.f = FOCUS.refresh
+      FOCUS.tag(rf, FOCUS.refresh)
       acts.append(rf)
     }
     return acts
@@ -344,13 +333,14 @@ export function JourneyHome(host) {
   // "/" finds; Esc clears the search, then goes back to the journey; ↑ ↓ move between the rows (↓ from the search
   // into them, ↑ from the first back to it); Home End on a row; → unfolds the selected row; Enter walks it.
 
-  document.addEventListener('keydown', (e) => {
-    if (!on || host.isTutorialUp()) return
+  /** Key `e` when the home is in front: whether it was the home's. @param {KeyboardEvent} e */
+  function ownsKey(e) {
+    if (!on || host.isTutorialUp()) return false
     /** @type {any} The element with the keyboard, or the document. */
     const t = e.target
     const inSearch = t === searchEl
     const onRow = !!(t && t.classList && t.classList.contains('jrow'))
-    // Nothing else has the keyboard (the page has it; a test's key is sent to the document).
+    // Nothing else has the keyboard (the page has it; the panel's test hook sends its keys to the document).
     const onPage = t === document || t === document.body
     const keys = keysShown()
     const i = keys.indexOf(sel)
@@ -359,14 +349,14 @@ export function JourneyHome(host) {
       if (d < 0 && i <= 0 && searchEl) { searchEl.focus(); return }
       select(itemAt(keys, i + d), true)
     }
-    runKey(e, {
+    return runKey(e, {
       '/': !inSearch && (() => { if (searchEl) searchEl.focus() }),
       Escape: () => {
         if (hq.query) {
           hq.query = ''
           delete hq.searchSort
           if (searchEl) searchEl.value = ''
-          focusNext = FOCUS.search
+          focus.after(FOCUS.search)
           sendList({})
         } else if (host.hasJourney()) { set(false); host.render() }
       },
@@ -374,18 +364,19 @@ export function JourneyHome(host) {
       ArrowUp: (inSearch || onRow || onPage) && move(-1),
       Home: onRow && (() => select(keys[0], true)),
       End: onRow && (() => select(keys[keys.length - 1], true)),
-      // (Only from a row or a test's key: a key on the bare page leaves it.)
+      // (Only from a row or the test hook's key: a key on the bare page leaves it.)
       ArrowRight: (onRow || t === document) && (() => {
         if (!sel) return
         unfolded = sel
         fetchPreview(sel)
-        focusNext = FOCUS.row(sel)
+        focus.after(FOCUS.row(sel))
         host.render()
       }),
       // Enter on another button or the sort menu is its own.
       Enter: (inSearch || onRow || !t.closest || !t.closest('button, select')) && (() => host.walk(sel || keys[0])),
     })
-  })
+  }
+  document.addEventListener('keydown', ownsKey)
 
   return {
     get on() { return on },
@@ -395,6 +386,7 @@ export function JourneyHome(host) {
       const self = (list.find((x) => x.here) || {}).key
       if (self) { sel = self; unfolded = self; fetchPreview(self) }
       set(true)
+      keepSelectionShown()
       window.scrollTo(0, 0)
       host.render()
       const row = self && app.querySelector('.jrow.sel')
@@ -404,6 +396,7 @@ export function JourneyHome(host) {
     take(m) {
       if (m.list) list = m.list
       if (m.home) model = m.home
+      if (on) keepSelectionShown()
     },
     /** A journey for the preview. */
     preview(m) {
@@ -412,24 +405,49 @@ export function JourneyHome(host) {
       if (on && m.key === sel) host.render()
     },
     /** Before the panel is emptied for a render: where the keyboard is (the list is drawn again under it). */
-    beforeRender() {
-      const a = /** @type {HTMLElement | null} */ (document.activeElement)
-      const search = !!searchEl && a === searchEl
-      was = { search, caret: search ? searchEl.selectionStart : 0, f: focusNext || (a && a.dataset && a.dataset.f) || '' }
-      focusNext = ''
-    },
+    beforeRender: () => focus.remember(),
     /** The home in the (emptied) panel; the keyboard back where it was: a row, a chip, the search (and its caret). */
     draw() {
       app.append(homeView())
-      const back = was.f && was.f !== FOCUS.search && [...app.querySelectorAll('[data-f]')].find((x) => x.dataset.f === was.f)
+      focus.restore()
+    },
+  }
+}
+
+/**
+ * The keyboard across the panel's renders (it empties the panel and draws the home anew, so the element that had
+ * the keyboard is gone): where it was before the render, or where an action sends it (`after`, a FOCUS key), is
+ * found again after it; the search (and its caret) when the home just came to the front.
+ * @param {HTMLElement} app @param {() => HTMLInputElement | undefined} searchBox
+ */
+function focusKeeper(app, searchBox) {
+  /** The keyboard goes here after the next render (a FOCUS key). */
+  let next = ''
+  /** The home just came to the front: the keyboard into the search. */
+  let toSearch = false
+  /** Where the keyboard was when the render began. */
+  let was = { search: false, caret: 0, f: '' }
+  return {
+    after(key) { next = key },
+    toSearch() { toSearch = true },
+    remember() {
+      const a = document.activeElement
+      const box = searchBox()
+      const search = !!box && a === box
+      was = { search, caret: search && box ? box.selectionStart || 0 : 0, f: next || FOCUS.of(a) }
+      next = ''
+    },
+    restore() {
+      const back = was.f && was.f !== FOCUS.search && FOCUS.find(app, was.f)
+      const box = searchBox()
       if (back) {
         back.focus({ preventScroll: true })
         back.scrollIntoView({ block: 'nearest' })
-        focusSearch = false
-      } else if (was.search || focusSearch || was.f === FOCUS.search) {
-        searchEl.focus()
-        if (was.search) searchEl.setSelectionRange(was.caret, was.caret)
-        focusSearch = false
+        toSearch = false
+      } else if (box && (was.search || toSearch || was.f === FOCUS.search)) {
+        box.focus()
+        if (was.search) box.setSelectionRange(was.caret, was.caret)
+        toSearch = false
       }
     },
   }
