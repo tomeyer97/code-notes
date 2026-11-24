@@ -7,21 +7,10 @@ import type { Note } from '../notes/store'
 import type { ScopedRecord } from '../platform/state'
 import type { HostCli } from './cliApi'
 import type { CheckLog } from './log'
-import { linkOf } from './threadLink'
+import { checkExtra, linkOf } from './threadLink'
 import type { BranchStatus, Check, Question, Who, Words } from './types'
 
-/**
- * The keys the check keeps in a note's `extra` (core/format/noteModel.ts keeps unknown keys as they are): a check
- * thread's link to its question, and on a note made from one (Ask Claude, Suggest a fix) its check file and question.
- */
-export interface CheckNoteExtra {
-  check?: { file: string; q: string; h?: string }
-  checkFile?: string
-  checkAsk?: string
-  checkFix?: string
-}
-/** A note's `extra`, read as the check's keys. */
-export const checkExtra = (n: Note): CheckNoteExtra => (n.data.extra ?? {}) as CheckNoteExtra
+export { checkExtra, type CheckNoteExtra } from './threadLink'
 
 /** What is kept per workspace, per question: unsent answers (per check file), applied fixes and added TODOs (per branch). */
 export interface CheckRecords {
@@ -84,6 +73,9 @@ export class CheckState {
 
   // ---------- read ----------
 
+  /** A suggested fix for question `qid`'s concern was applied on this branch (and not committed since). */
+  fixApplied(qid: string): boolean { return Object.hasOwn(this.fixes.get(this.st?.branch), qid) }
+
   /** The files a TODO was added to from this branch's check. */
   todoFiles(): string[] { return [...new Set(Object.values(this.todos.get(this.st?.branch)).map((t) => t.file))] }
 
@@ -121,6 +113,22 @@ export interface CheckCore {
   post(): void
   /** Writes the check file with today's line numbers and its result. */
   save(abs: string, check: Check): void
+}
+
+/**
+ * The one way a part changes the check file: read, `change`d (false: nothing to write), written with today's line
+ * numbers (CheckCore.save). From the read to the write nothing else runs, so two writers never interleave. False: no
+ * check file here, or nothing written.
+ */
+export function updateCheck(
+  core: Pick<CheckCore, 'state' | 'cli' | 'save'>, change: (check: Check) => boolean | void,
+): boolean {
+  const abs = core.state.abs
+  if (!abs) return false
+  const check = core.cli.readCheck(abs)
+  if (change(check) === false) return false
+  core.save(abs, check)
+  return true
 }
 
 /**

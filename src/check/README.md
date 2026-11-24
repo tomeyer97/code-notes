@@ -13,6 +13,7 @@ the threads are a view of it, kept in sync both ways. Where the check stands com
 - `state.ts` holds what the check knows now (`CheckState`) and what every part gets (`CheckCore`). Each part takes
   only the ports it uses (its `…Ports` interface, next to it), never the controller.
 - `query.ts` is what the rest of the extension may ask (`CheckQuery`) and the thread commands' arguments.
+- A part changes the check file only through `updateCheck` (state.ts): read, changed, written in one go.
 
 ## The parts
 
@@ -20,14 +21,15 @@ the threads are a view of it, kept in sync both ways. Where the check stands com
 |---|---|
 | writer.ts | Claude writes the questions and the tour |
 | grading.ts | answers and grades |
-| threads.ts | the questions as note threads |
-| concern.ts | concerns about the code (fix, TODO, flag, dismiss) |
-| push.ts | Commit & push |
+| threads.ts | the questions as note threads (what changes is planned in threadSync.ts) |
+| concern.ts | concerns about the code (fix, TODO, flag, dismiss; the TODO's text in todoComment.ts, its edit in editor.ts) |
+| push.ts | Commit & push (its git calls in pushGit.ts) |
 | park.ts | a check moved aside while another branch is checked out |
-| background.ts | questions written after a push |
+| background.ts | questions written after a push (pushSeen.ts says when one happened) |
 | invalidFile.ts | a check file that can't be read |
 | view.ts | the Check view's webview |
 | statusItem.ts | the status bar item |
 
-The vscode-free model they share is in `types.ts`, `viewModel.ts`, `viewRequests.ts`, `navigation.ts` and the
-other files that say so; the CLI (`cli/understanding/`) holds the rules.
+The vscode-free model they share is in `types.ts`, `viewModel.ts`, `viewRequests.ts`, `navigation.ts`,
+`checkText.ts` and the other files that say so; the CLI (`cli/understanding/`) holds the rules. Each has its tests
+in `test/check<Module>.test.ts` (the view model's: `test/checkModel.test.ts`).

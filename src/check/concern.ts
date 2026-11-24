@@ -3,63 +3,70 @@
 // the merge request), Dismiss (with a reason, or "I fixed it").
 import * as vscode from 'vscode'
 import type { Note } from '../notes/store'
-import { Check, Question } from './types'
-import { concernOf, samePerson, settledConcern, whoOf, type ConcernAction } from './concernState'
-import { commentMark, todoLines, todoPlace } from './todoComment'
+import type { Question, Who } from './types'
+import { concernOf, samePerson, settledConcern, whoOf, type ConcernAction, type ConcernView } from './concernState'
+import { commentMarkFor, todoLines, todoPlace } from './todoComment'
 import { gitOut } from '../platform/git'
 import { docLines } from '../platform/documents'
+import { exists } from '../platform/exists'
+import { clampLine, insertLinesAbove } from './editor'
 import type { CheckHost } from './host'
 import type { Pusher } from './push'
-import type { CheckCore } from './state'
+import { type CheckCore, updateCheck } from './state'
 
 export { isConcernAction, VIEW_CONCERN_ACTIONS, type ConcernAction } from './concernState'
 
 /** A concern as shown: its question and what concernOf says. */
-type Shown = { q: Question; c: NonNullable<ReturnType<typeof concernOf>> }
+interface Shown { q: Question; c: ConcernView }
 
-/** What the concerns need: the check's core, the notes (Suggest a fix asks Claude), and Commit & push's plan. */
-export interface ConcernsPorts extends Pick<CheckCore, 'state' | 'cli' | 'refresh' | 'save'> {
+/** What the concerns need: the check's core, the notes (Suggest a fix asks Claude), and the log. */
+export interface ConcernsPorts extends Pick<CheckCore, 'state' | 'cli' | 'log' | 'refresh' | 'save'> {
   host: Pick<CheckHost, 'askAbout' | 'now' | 'refresh'>
-  push: Pick<Pusher, 'commit'>
+  /** Not read: whether a fix was applied is the state's (CheckState.fixApplied). Kept while the controller passes it. */
+  push?: Pick<Pusher, 'commit'>
 }
+
+/** The lines a concern is about. */
+interface Place { file: string; start: number; end: number }
 
 export class Concerns {
   constructor(private ports: ConcernsPorts) {}
 
   private get host() { return this.ports.host }
 
+  /** What each action does to the concern `shown` of thread `n` (`given`: a dismissal's reason). */
+  private readonly handlers: Record<ConcernAction, (n: Note, shown: Shown, given?: string) => Promise<void>> = {
+    fix: (n, shown) => this.suggestFix(n, shown),
+    todo: (n, shown) => this.addTodo(n, shown),
+    flag: (_n, shown) => this.toggleFlag(shown),
+    dismiss: (n, shown, given) => this.dismiss(n, shown, given),
+    fixed: (_n, shown) => this.settle(shown, { fixed: true }),
+  }
+
   /** `action` on the concern of thread `n`'s question; `given`: a dismissal's reason (no prompt). */
   async act(n: Note, action: ConcernAction, given?: string): Promise<void> {
     const q = this.ports.state.questionOf(n)
     const c = q && concernOf(q)
     if (!q || !c || !this.ports.state.repo) return
-    const shown = { q, c }
-    if (action === 'fix') return this.suggestFix(n, shown)
-    if (action === 'todo') return this.addTodo(n, shown)
-    if (action === 'dismiss') return this.dismiss(n, shown, given)
-    if (action === 'fixed') return this.settle(shown, { fixed: true })
-    return this.toggleFlag(shown)
+    await this.handlers[action](n, { q, c }, given)
   }
 
   /** A note on the code the concern names, asked to Claude for a short fix that Apply puts in. */
-  private async suggestFix(n: Note, { q, c }: Shown): Promise<void> {
-    const at = await this.concernAt(q, n)
-    await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id, ...this.ports.state.branchOf(n) })
+  private async suggestFix(n: Note, shown: Shown): Promise<void> {
+    const at = await this.concernAt(shown.q, n)
+    const extra = { checkFix: shown.q.id, ...this.ports.state.branchOf(n) }
+    await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${wordsOf(shown)}`, extra)
   }
 
   /** Above the code the concern names (else the question's first line); the whole concern, wrapped; said in the thread. */
-  private async addTodo(n: Note, { q, c }: Shown): Promise<void> {
-    const at = await this.concernAt(q, n)
-    const uri = vscode.Uri.joinPath(this.ports.state.folder!.uri, at.file)
-    const doc = await vscode.workspace.openTextDocument(uri)
+  private async addTodo(n: Note, shown: Shown): Promise<void> {
+    const at = await this.concernAt(shown.q, n)
+    const doc = await this.document(at.file)
     // Above the line, at its indentation (inside the block a "} catch {" line opens).
-    const place = todoPlace(docLines(doc), Math.min(doc.lineCount - 1, Math.max(0, at.start - 1)))
-    const text = todoLines(commentMark(at.file), c.suspect ? q.text : c.text).map((l) => `${place.indent}${l}\n`).join('')
-    const edit = new vscode.WorkspaceEdit()
-    edit.insert(uri, new vscode.Position(place.line, 0), text)
-    if (!(await vscode.workspace.applyEdit(edit))) return
-    await doc.save()
-    await this.ports.state.todos.set(this.ports.state.st!.branch, q.id, { file: at.file, line: place.line + 1 })
+    const place = todoPlace(docLines(doc), clampLine(doc, at.start - 1))
+    const lines = todoLines(commentMarkFor(doc.languageId, at.file), wordsOf(shown)).map((l) => `${place.indent}${l}`)
+    if (!(await insertLinesAbove(doc, place.line, lines))) return
+    await this.ports.state.todos.set(this.ports.state.st!.branch, shown.q.id, { file: at.file, line: place.line + 1 })
     this.host.refresh()
   }
 
@@ -92,49 +99,57 @@ export class Concerns {
 
   /** Flag for reviewer: on the merge request (toggles); independent of a TODO. */
   private async toggleFlag(shown: Shown): Promise<void> {
-    await this.update(shown, (fq, text, check) => {
+    await this.update(shown, (fq, text, author) => {
       fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: !shown.c.flagged }
       // Flagged by someone other than the check's author: the merge request says who.
-      const me = this.ports.state.who, author = check.answeredBy
+      const me = this.ports.state.who
       if (fq.concern.flagged && me && author && !samePerson(me, author)) fq.concern.by = whoOf(me)
       else delete fq.concern.by
     })
   }
 
-  /** Reads the check file, lets `change` edit the concern's question there (`text`: its words), saves, refreshes. */
-  private async update({ q, c }: Shown, change: (fq: Question, text: string, check: Check) => void): Promise<void> {
-    const abs = this.ports.state.abs!
-    const check = this.ports.cli.readCheck(abs)
-    const fq = check.questions.find((x) => x.id === q.id)
-    if (!fq) return
-    change(fq, c.suspect ? q.text : c.text, check)
-    this.ports.save(abs, check)
+  /**
+   * The check file with the concern's question changed by `change` (`text`: the concern's words, `author`: the
+   * check's), then the check and the notes drawn again.
+   */
+  private async update(shown: Shown, change: (fq: Question, text: string, author: Who | undefined) => void): Promise<void> {
+    const written = updateCheck(this.ports, (check) => {
+      const fq = check.questions.find((x) => x.id === shown.q.id)
+      if (!fq) return false
+      change(fq, wordsOf(shown), check.answeredBy)
+    })
+    if (!written) return
     await this.ports.refresh()
     this.host.refresh()
   }
 
   /**
    * The lines a concern is about: the code its grade linked (found again by its text when it moved), else the
-   * question's thread.
+   * question's thread (also when the linked file is gone).
    */
-  private async concernAt(q: Question, n: Note): Promise<{ file: string; start: number; end: number }> {
+  private async concernAt(q: Question, n: Note): Promise<Place> {
     const thread = { file: n.data.file, start: n.data.range.start, end: n.data.range.end }
     const l = this.ports.cli.concernLink(q)
     if (!l) return thread
+    const doc = await this.documentIfThere(l.file)
+    if (!doc) return thread
     let start = l.start
-    try {
-      const doc = await this.document(l.file)
-      const moved = !!l.text && doc.lineAt(Math.min(doc.lineCount - 1, l.start - 1)).text !== l.text
-      if (moved) start = nearestLine(docLines(doc), l.text!, l.start) ?? start
-    } catch {
-      return thread
-    }
+    const moved = !!l.text && doc.lineAt(clampLine(doc, l.start - 1)).text !== l.text
+    if (moved) start = nearestLine(docLines(doc), l.text!, l.start) ?? start
     return { file: l.file, start, end: start + (l.end - l.start) }
   }
 
+  private uri(file: string): vscode.Uri { return vscode.Uri.joinPath(this.ports.state.folder!.uri, file) }
+
   /** A file of the repository as an open document (unsaved edits included). */
   private document(file: string): Thenable<vscode.TextDocument> {
-    return vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.ports.state.folder!.uri, file))
+    return vscode.workspace.openTextDocument(this.uri(file))
+  }
+  /** The same, or undefined when the file is not there (said in the log). */
+  private async documentIfThere(file: string): Promise<vscode.TextDocument | undefined> {
+    if (await exists(this.uri(file))) return this.document(file)
+    this.ports.log.debug(`concern: ${file} is not there`)
+    return undefined
   }
 
   /**
@@ -143,18 +158,27 @@ export class Concerns {
    * concernChanged, looks only at the named line, at a commit.)
    */
   private async changedSinceRaised(q: Question, n: Note): Promise<boolean> {
-    if (this.ports.push.commit?.applied?.includes(q.id) || q.id in this.ports.state.fixes.get(this.ports.state.st?.branch)) return true
+    const state = this.ports.state
+    if (state.fixApplied(q.id)) return true
     const l = this.ports.cli.concernLink(q)
-    try {
-      if (l?.text && !docLines(await this.document(l.file)).includes(l.text)) return true
-      const at = await this.concernAt(q, n)
-      const diff = await gitOut(this.ports.state.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
-      return this.ports.cli.hunksOf(diff ?? '').some((h) => h.start <= at.end && h.end >= at.start)
-    } catch {
+    if (l?.text) {
+      const doc = await this.documentIfThere(l.file)
+      if (!doc) return false
+      if (!docLines(doc).includes(l.text)) return true
+    }
+    const at = await this.concernAt(q, n)
+    const diff = await gitOut(state.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
+    if (diff === undefined) {
+      // Git couldn't say: "I fixed it" is not offered first (Dismiss asks why).
+      this.ports.log.debug(`concern: git diff of ${at.file} failed`)
       return false
     }
+    return this.ports.cli.hunksOf(diff).some((h) => h.start <= at.end && h.end >= at.start)
   }
 }
+
+/** A concern's words: the question itself for its own "may be a bug" (that line alone says nothing). */
+const wordsOf = ({ q, c }: Shown): string => (c.suspect ? q.text : c.text)
 
 /** The 1-based line of `lines` that is `text`, nearest to line `near` (the first of two as near); undefined: none. */
 function nearestLine(lines: string[], text: string, near: number): number | undefined {

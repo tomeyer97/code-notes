@@ -1,6 +1,6 @@
 // What the Journeys home (journey-home.js) says about a row: the sort menu's entries, the stale and podcast marks, the
 // preview's Walk button. Pure: unit-tested in test/journeyHome.test.ts.
-import { clock } from '../journey-podcast.js'
+import { clock } from '../podcast/format.js'
 
 /**
  * The sort menu: the extension's sorts (src/core/list/journeyList.ts SORTS, same ids and labels: the unit test holds
