@@ -1,6 +1,6 @@
 // Journeys kept in the repository (<repo>/journeys/, the codeNotes.journeys.folder setting) with compact (v3) anchors:
 // read once even when a personal copy has the same id; a block that moved is found fresh, one edited inside is
-// "changed", one deleted is "gone". Source: src/journeys/, src/compact.ts.
+// "changed", one deleted is "gone". Source: src/journeys/, src/core/anchors/compact.ts.
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'

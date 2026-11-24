@@ -1,12 +1,12 @@
 // The Check view's model (what media/check.js and media/checkAnswer.js draw): where the check stands in the CLI's words,
 // the questions as rows, one button, the selected question's answer box, the tour; and the status bar item's text.
 // No vscode API here (unit-tested in test/checkModel.test.ts).
-import { clock } from '../writing'
+import { clock } from '../core/writing'
 import { concernOf, samePerson } from './concernState'
 import { SAY_IT_BACK, retryText } from './threadText'
 import { notDone } from './types'
 import type { Attempt, Kind, QState, Question, Range, Status, Who, Words } from './types'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 
 export const KIND_LABEL: Record<Kind, string> = { how: 'How', why: 'Why', failure: 'Failure', edge: 'Edge case', change: 'Change' }
 

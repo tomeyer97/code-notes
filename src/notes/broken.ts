@@ -3,9 +3,9 @@
 
 import * as vscode from 'vscode'
 import { store } from '../app'
-import { serialize } from '../noteModel'
+import { serialize } from '../core/format/noteModel'
 import { Node } from '../sidebar/nodes'
-import { wfs } from '../workspaceFs'
+import { wfs } from '../platform/workspaceFs'
 
 /** Where in the file the problem `why` (store.ts's words) is: a field's name, the end (bad JSON), or the top. */
 function problemAt(doc: vscode.TextDocument, why: string): vscode.Position {

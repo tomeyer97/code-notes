@@ -3,8 +3,8 @@
 
 import * as vscode from 'vscode'
 import { journeys, mapPanel, state } from '../app'
-import { Group, SORTS } from '../journeyList'
-import { pickOne } from '../quickPick'
+import { Group, SORTS } from '../core/list/journeyList'
+import { pickOne } from '../platform/quickPick'
 import { walkJourney } from '../tour/commands'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
 import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'

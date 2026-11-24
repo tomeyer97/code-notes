@@ -64,7 +64,7 @@ const cliName = (repo) => {
 
 // Running git: `git`/`gitOk` (synchronous, for reading), `gitRun` (asynchronous, for commit and push: no credential
 // prompt, a timeout); the branch, its base, a stack's parent, a stash. The extension has its own runner for its own
-// git calls (src/git.ts); what it reads through this file runs these on a worker thread (src/check/cliWorker.ts).
+// git calls (src/platform/git.ts); what it reads through this file runs these on a worker thread (src/check/cliWorker.ts).
 
 export function git(repo, args, opts = {}) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'], ...opts })
@@ -1129,7 +1129,7 @@ export function stamp(check, cfg) {
 // ---------- anchors.mjs ----------
 
 // Compact anchors: a question's lines found again after the code moved. The same format and rules as the
-// extension's src/compact.ts (written in another language; test/compact.test.ts and test/cli check each side).
+// extension's src/core/anchors/compact.ts (written in another language; test/compact.test.ts and test/cli check each side).
 
 const norm = (s) => s.replace(/\s+/g, '').replace(/['`]/g, '"').replace(/[;,]+$/, '')
 const blank = (s) => norm(s) === ''
@@ -1170,7 +1170,7 @@ function backward(lines, e, want, floor) {
 }
 /**
  * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
- * it was. The rules of the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
+ * it was. The rules of the extension's findCompact (src/core/anchors/compact.ts): head and tail found in order, an exact hash
  * first, then the closest length, then the context lines, then the nearest place. Both sides run the same cases
  * (test/fixtures/compact-cases.json).
  */
@@ -1600,7 +1600,7 @@ const GRADER_MAX_TOKENS = 4000
 const GRADER_TIMEOUT_MS = 300_000
 
 /**
- * The `claude` to run: UNDERSTANDING_CLAUDE, else `claude` on PATH. The extension finds its own (src/claudeCli.ts:
+ * The `claude` to run: UNDERSTANDING_CLAUDE, else `claude` on PATH. The extension finds its own (src/platform/agent/claudeCli.ts:
  * the codeNotes.claude.path setting, else the newest install on PATH and the usual places) and grades with it; this one
  * is for `grade` in a terminal, so the two can differ when several are installed. This file has no dependencies and
  * reads no VS Code setting, so it doesn't share the extension's search.

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { placeFile, settingFolder } from '../src/paths'
+import { placeFile, settingFolder } from '../src/core/paths'
 
 const root = '/home/dev/shop'
 

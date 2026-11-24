@@ -1,7 +1,7 @@
 // A check thread's link to its question (in the note's `extra.check`): which check file, which question, and a hash
 // of the question's text when the thread was made.
 import { createHash } from 'crypto'
-import type { Note } from '../store'
+import type { Note } from '../notes/store'
 import { Question } from './types'
 import { questionBody } from './threadText'
 

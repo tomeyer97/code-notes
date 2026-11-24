@@ -8,9 +8,9 @@ import * as os from 'os'
 import * as path from 'path'
 import { cfg, extUri, showError } from '../app'
 import { claudeCli } from '../ask/settings'
-import { Ask, AskOptions, AskResult, modelProblem } from '../claude'
-import { folderName } from '../store'
-import { clock, phaseOf } from '../writing'
+import { Ask, AskOptions, AskResult, modelProblem } from '../platform/agent/claude'
+import { folderName } from '../notes/store'
+import { clock, phaseOf } from '../core/writing'
 import { Writing, writingChanged, writingNow } from './inProgress'
 
 /** The model a journey is written with (a request's `model`, the settings), and how it is named. */

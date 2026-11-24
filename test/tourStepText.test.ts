@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Journey, JStep, parseJourney } from '../src/journeyModel'
+import { Journey, JStep, parseJourney } from '../src/core/format/journeyModel'
 import { parseBare, refFiles, StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
 import type { StepAt } from '../src/journeys/steps'
 

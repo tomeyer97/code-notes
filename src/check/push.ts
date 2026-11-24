@@ -6,7 +6,7 @@ import * as path from 'path'
 import { concernOf, settledConcern } from './concernState'
 import { unsavedIn } from './unsaved'
 import { CommitPlan } from './viewModel'
-import { gitOut } from '../git'
+import { gitOut } from '../platform/git'
 import { PUSHED_MESSAGE_MS, REPO_FILES } from './constants'
 import type { CheckController } from './controller'
 

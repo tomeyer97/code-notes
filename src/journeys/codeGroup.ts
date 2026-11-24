@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { ownSelection } from '../claudeChatLinks'
+import { ownSelection } from '../codeLinks/claudeChatLinks'
 
 // A step's code in the editor group beside the panel (the code group): where a file a step names is now, and showing
 // it there. Used by code links (codeLinks.ts), the beat's line (beats.ts) and value hints (valueHints.ts).

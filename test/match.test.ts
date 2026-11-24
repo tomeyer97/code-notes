@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchScore, queryWords, scoreJourney, stem, tellingWords, STOP } from '../src/match'
+import { matchScore, queryWords, scoreJourney, stem, tellingWords, STOP } from '../src/core/list/match'
 import { items } from './fixtures/journeyList'
 
 // ---------- the Journeys list's search (matchScore, queryWords) ----------

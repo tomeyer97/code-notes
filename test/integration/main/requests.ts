@@ -1,8 +1,8 @@
 // Asking for a journey from outside the window: the request file (.code-notes/.request.json, written by a script or
 // another tool, answered in .result.json) and vscode://<extension id>/explain links. A match opens; no match asks
 // first and then writes one with Claude (or Claude asks back); a link never starts Claude.
-// Source: src/write/requests.ts (requests, links), src/write/rank.ts (the confirm and pick), src/match.ts (matching),
-// src/writing.ts.
+// Source: src/write/requests.ts (requests, links), src/write/rank.ts (the confirm and pick), src/core/list/match.ts (matching),
+// src/core/writing.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'

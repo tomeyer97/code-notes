@@ -1,7 +1,7 @@
 // A step with code links, value hints and an animation (prototype): phrases of the card link to their lines; a
 // value hint shows what a variable holds in the example run; the row's toggle plays the scene in place of the map and
 // each beat lights the line that does it; back, forward and "Map" all work. Then: files opened over the panel move to
-// the code group. Source: src/codeLinks.ts, src/codeLinkText.ts, src/valueHints.ts, src/beats.ts, src/lineFollow.ts,
+// the code group. Source: src/codeLinks/codeLinks.ts, src/core/codeLinkText.ts, src/codeLinks/valueHints.ts, src/codeLinks/beats.ts, src/core/anchors/lineFollow.ts,
 // src/tour/card.ts; the panel's side in media/journey-scene.js (test/journey-scene/check.mjs).
 import * as vscode from 'vscode'
 import assert from 'assert'

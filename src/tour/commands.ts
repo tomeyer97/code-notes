@@ -6,7 +6,7 @@ import { beats, codeLinks, gstate, journeys, log, mapPanel, state, valueHints } 
 import { prefixUsed } from '../chords'
 import { MAP_VIEW } from '../journeys/mapPanel'
 import { fileOf, journeyById, LoadedJourney, posKey } from '../journeys/steps'
-import { markJourneysSeen } from '../seen'
+import { markJourneysSeen } from '../notes/seen'
 import { INTRO_KEY, showIntro } from '../sidebar/journeyRows'
 import { tree } from '../sidebar/notesTree'
 import { cardOnly, codeGetsMoreRoom, keepWidthOnFocus, noteLayout, panelFits, roomForMap } from './panelLayout'

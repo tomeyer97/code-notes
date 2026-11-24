@@ -3,9 +3,9 @@
 // changed or went is removed (a thread never stands for a question it didn't show).
 import * as fs from 'fs'
 import * as path from 'path'
-import { findCompact } from '../compact'
-import { captureAnchor, type NoteData } from '../noteModel'
-import type { Note } from '../store'
+import { findCompact } from '../core/anchors/compact'
+import { captureAnchor, type NoteData } from '../core/format/noteModel'
+import type { Note } from '../notes/store'
 import { Attempt, Check, notDone, Question } from './types'
 import { gradeBody, missingMessages, questionBody, showsGrade } from './threadText'
 import { AUTHOR, SESSION } from './constants'

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { LineEdit, findLine, followLine, shiftLine } from '../src/lineFollow'
+import { LineEdit, findLine, followLine, shiftLine } from '../src/core/anchors/lineFollow'
 
 test('findLine: the written line, the nearest moved one, or gone', () => {
   const lines = ['a()', '  store(run)', 'b()', '  store(run)', 'c()']

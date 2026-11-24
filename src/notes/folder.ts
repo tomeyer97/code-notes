@@ -4,10 +4,10 @@ import * as vscode from 'vscode'
 import { cfg, gstate, journeys, notes, showError, store } from '../app'
 import { refreshAll } from '../refresh'
 import { treeView } from '../sidebar/notesTree'
-import { folderProblem } from '../noteModel'
-import { DEFAULT_FOLDER, folderName } from '../store'
-import { plural } from '../text'
-import { wfs } from '../workspaceFs'
+import { folderProblem } from '../core/format/noteModel'
+import { DEFAULT_FOLDER, folderName } from './store'
+import { plural } from '../core/text'
+import { wfs } from '../platform/workspaceFs'
 
 /** The notes folder as last set (a change offers to move the notes). */
 let currentFolder = DEFAULT_FOLDER

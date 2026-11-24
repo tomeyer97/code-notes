@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Coalesced } from '../src/coalesced'
+import { Coalesced } from '../src/core/coalesced'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

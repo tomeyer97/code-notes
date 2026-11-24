@@ -1,12 +1,12 @@
 // How notes mark their lines in the editor: a bar for open and stale notes, the exact text a note is about, unread
-// in the scrollbar. (src/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
+// in the scrollbar. (src/platform/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
 
 import * as vscode from 'vscode'
 import { cfg } from '../app'
-import { setDecorations } from '../decorations'
-import { unread } from '../seen'
+import { setDecorations } from '../platform/decorations'
+import { unread } from './seen'
 import { hiddenInEditor } from '../sidebar/notesFilter'
-import { Note } from '../store'
+import { Note } from './store'
 import { card } from '../tour/instances'
 import { lineNotesFor } from './location'
 

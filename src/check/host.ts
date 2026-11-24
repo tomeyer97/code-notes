@@ -1,7 +1,7 @@
 // What the understanding check needs from the rest of the extension (src/check/wiring.ts provides it), and the parts
 // of VS Code's git extension API it listens to.
 import * as vscode from 'vscode'
-import type { Note, Store } from '../store'
+import type { Note, Store } from '../notes/store'
 import type { Check } from './types'
 
 /**
@@ -33,7 +33,7 @@ export interface NotesHost {
 
 /** Claude Code (writer.ts, grading.ts). */
 export interface ClaudeHost {
-  /** The `claude` CLI (Claude Code; src/claudeCli.ts findCli), or undefined. Not the understanding CLI (controller's `cli`). */
+  /** The `claude` CLI (Claude Code; src/platform/agent/claudeCli.ts findCli), or undefined. Not the understanding CLI (controller's `cli`). */
   cli(): string | undefined
   /** Claude may run here (a trusted folder); says why not otherwise. */
   allowed(what: string): boolean

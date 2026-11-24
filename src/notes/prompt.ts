@@ -3,12 +3,12 @@
 
 import * as vscode from 'vscode'
 import { byId, log, notes } from '../app'
-import { me, waitingForAgent } from '../identity'
+import { me, waitingForAgent } from './identity'
 import { checked } from '../sidebar/notesFilter'
-import { folderName, Note } from '../store'
-import { plural, rangeLabel } from '../text'
+import { folderName, Note } from './store'
+import { plural, rangeLabel } from '../core/text'
 import { notesFrom } from './which'
-import { fileName } from '../jsonFolder'
+import { fileName } from '../platform/jsonFolder'
 
 /** The prompt's words; `dir`: the notes folder. No frozen timestamp: a prompt pasted an hour later must not date replies in the past. */
 const PROMPT = {

@@ -7,10 +7,10 @@
 import * as vscode from 'vscode'
 import { journeys, log } from '../app'
 import { stepFileUri } from '../journeys/codeGroup'
-import { git } from '../checkout'
+import { git } from '../platform/checkout'
 import { fileOf, LoadedJourney } from '../journeys/steps'
-import { readText } from '../jsonFolder'
-import { wfs } from '../workspaceFs'
+import { readText } from '../platform/jsonFolder'
+import { wfs } from '../platform/workspaceFs'
 import { isPodcastFile, podcastFileOf, PodcastProblem } from './model'
 import { audioPathProblem, lineCol, locate, markFileNames, validatePodcast, Validation } from './validate'
 

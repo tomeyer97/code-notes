@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { cfg, setCtx } from '../app'
-import { findCli, findCliAsync } from '../claudeCli'
+import { findCli, findCliAsync } from '../platform/agent/claudeCli'
 
 export const claudeMode = () => cfg().get<string>('claude.mode', 'button')
 

@@ -1,5 +1,5 @@
 // Compact anchors: a question's lines found again after the code moved. The same format and rules as the
-// extension's src/compact.ts (written in another language; test/compact.test.ts and test/cli check each side).
+// extension's src/core/anchors/compact.ts (written in another language; test/compact.test.ts and test/cli check each side).
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -43,7 +43,7 @@ function backward(lines, e, want, floor) {
 }
 /**
  * Where a compact anchor's code is now (0-based `{ start, end, fresh }`), or undefined when it is gone. `hint`: where
- * it was. The rules of the extension's findCompact (src/compact.ts): head and tail found in order, an exact hash
+ * it was. The rules of the extension's findCompact (src/core/anchors/compact.ts): head and tail found in order, an exact hash
  * first, then the closest length, then the context lines, then the nearest place. Both sides run the same cases
  * (test/fixtures/compact-cases.json).
  */

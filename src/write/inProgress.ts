@@ -1,8 +1,8 @@
 // The journeys Claude is writing (or refreshing) now: never listed half-made; one row each while they are.
 
 import * as vscode from 'vscode'
-import { Ask } from '../claude'
-import { clock } from '../writing'
+import { Ask } from '../platform/agent/claude'
+import { clock } from '../core/writing'
 
 /** A journey being written: "Writing: <question> · 1:20", its phase, the model, and the run (to cancel it). */
 export interface Writing { id: string; question: string; started: number; phase: string; model: string; ask?: Ask }

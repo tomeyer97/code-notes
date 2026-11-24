@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { cmdLink, journeys, mapPanel, understanding } from '../app'
 import { Check, questionDone } from '../check/types'
-import { seeAlso } from '../journeyList'
+import { seeAlso } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { listItems } from '../sidebar/listModel'
 import { endJourney } from './commands'

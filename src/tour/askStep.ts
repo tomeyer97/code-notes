@@ -8,7 +8,7 @@ import { fileOf, LoadedJourney } from '../journeys/steps'
 import { createNote } from '../notes/create'
 import { reveal } from '../notes/reveal'
 import { refreshAll } from '../refresh'
-import { Note } from '../store'
+import { Note } from '../notes/store'
 import { card, tourState, walk } from './instances'
 import { podcasts } from '../podcast/player'
 

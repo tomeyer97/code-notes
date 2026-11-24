@@ -4,9 +4,9 @@ import * as vscode from 'vscode'
 import { byId, showError, understanding } from '../app'
 import { refreshAll } from '../refresh'
 import { anchorAt, docUri, missing, noAnchor, otherAnchor, pastEnd } from './location'
-import { rangeLabel } from '../text'
+import { rangeLabel } from '../core/text'
 import { suggestionOf } from '../threads/comments'
-import { docLines } from '../documents'
+import { docLines } from '../platform/documents'
 
 /** Apply on an agent's ```suggestion block: replaces the note's lines; the editor's Undo takes it back. */
 export async function applySuggestion(id: string, mi: number, k: number): Promise<boolean> {

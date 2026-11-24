@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { codeWidth, listeningShare, panelShare } from '../src/panelWidth'
+import { codeWidth, listeningShare, panelShare } from '../src/core/panelWidth'
 
 test('the code\'s 80 columns count the gutter, the scrollbar and the minimap', () => {
   // Measured in VS Code at 14 px: a 733 px editor (gutter 83 px, minimap on) showed 66 columns.

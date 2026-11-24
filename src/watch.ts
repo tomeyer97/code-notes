@@ -2,15 +2,15 @@
 // journey steps follow their code.
 
 import * as vscode from 'vscode'
-import { Loc } from './anchor'
-import { shift, swallows } from './lineFollow'
+import { Loc } from './core/anchors/anchor'
+import { shift, swallows } from './core/anchors/lineFollow'
 import { journeys, mapPanel, notes, store } from './app'
-import { refreshBranch } from './checkout'
-import { authorChanged } from './identity'
+import { refreshBranch } from './platform/checkout'
+import { authorChanged } from './notes/identity'
 import { fileOf } from './journeys/steps'
 import { applyIgnoreInGit, changeFolder, rewriteReadmes } from './notes/folder'
 import { refreshAll, updateCursorContext } from './refresh'
-import { markRead, unread } from './seen'
+import { markRead, unread } from './notes/seen'
 import { journeysTree } from './sidebar/journeysTree'
 import { findMovedFile, followMovedFiles, followRename, inNotesFolder, lineNotesFor, notesAtLine, notesFor, pathUri, reanchor, reanchorAll, recentCreates, relPath, toLoc } from './notes/location'
 import { noteVisibleEditors } from './threads/settle'
@@ -18,8 +18,8 @@ import { refreshDecorations } from './notes/decorations'
 import { syncThread, threads } from './threads/sync'
 import { keepOffMap } from './tour/panelLayout'
 import { card, tourState, walk } from './tour/instances'
-import { docLines } from './documents'
-import { wfs } from './workspaceFs'
+import { docLines } from './platform/documents'
+import { wfs } from './platform/workspaceFs'
 
 /** Steps whose file was renamed or deleted on disk: follow the code into a file created just now, or go stale. */
 async function followJourneyFiles(): Promise<void> {

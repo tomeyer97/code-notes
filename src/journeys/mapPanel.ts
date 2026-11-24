@@ -1,11 +1,11 @@
 import * as vscode from 'vscode'
-import type { ListKind, ListModel, Sort } from '../journeyList'
+import type { ListKind, ListModel, Sort } from '../core/list/journeyList'
 import type { StepCard } from '../tour/card'
 import { escapeHtml, webviewPage } from '../webview/page'
-import { fileName } from '../jsonFolder'
+import { fileName } from '../platform/jsonFolder'
 import { LoadedJourney } from './steps'
 import { journeysFolderName } from './journeys'
-import { folderName } from '../store'
+import { folderName } from '../notes/store'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor, and the
 // messages between it and media/journey-map.js.
@@ -367,7 +367,7 @@ export class MapPanel implements vscode.Disposable {
       inline: 'var exports = {}; var JourneyModel = exports',
       // In this order: each of media/ needs the ones before it (its header says which).
       scripts: [
-        file('out', 'src', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
+        file('out', 'src', 'core', 'format', 'journeyModel.js'), file('out', 'vendor', 'elk.bundled.js'),
         ...[
           'common', 'journey-layout', 'journey-farnames', 'journey-graph', 'code-paint', 'journey-scene', 'journey-scene-app',
           'journey-home', 'journey-splitter', 'journey-tutorial', 'journey-podcast', 'journey-map',

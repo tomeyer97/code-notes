@@ -1,9 +1,9 @@
 import type * as vscode from 'vscode'
-import type { Journey, JStep } from '../journeyModel'
-import { anchor } from '../anchor'
-import { staleKind } from '../staleDiff'
-import { AnyAnchor, compactOf, findCompact, isCompact, toCompact } from '../compact'
-import { captureAnchor } from '../noteModel'
+import type { Journey, JStep } from '../core/format/journeyModel'
+import { anchor } from '../core/anchors/anchor'
+import { staleKind } from '../core/anchors/staleDiff'
+import { AnyAnchor, compactOf, findCompact, isCompact, toCompact } from '../core/anchors/compact'
+import { captureAnchor } from '../core/format/noteModel'
 
 // A loaded journey and where its steps' code is now. No vscode API at run time (unit-tested in test/journeySteps.test.ts):
 // the tracker (tracker.ts) reads the files and keeps state; these say where a step is in the lines it got.

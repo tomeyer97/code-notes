@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import { journeys } from '../app'
 import { LoadedJourney, posKey } from '../journeys/steps'
-import { pickOne } from '../quickPick'
+import { pickOne } from '../platform/quickPick'
 import { Node } from '../sidebar/nodes'
 import { writeJourney } from '../write/writeJourney'
 import { journeyModel, modelLabel } from '../write/claudeRun'

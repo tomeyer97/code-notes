@@ -2,12 +2,12 @@
 // can do about it: Suggest a fix (a note asked to Claude), Add TODO (a comment above the lines), Flag for review (on
 // the merge request), Dismiss (with a reason, or "I fixed it").
 import * as vscode from 'vscode'
-import type { Note } from '../store'
+import type { Note } from '../notes/store'
 import { Check, Question } from './types'
 import { concernOf, samePerson, settledConcern, whoOf } from './concernState'
 import { commentMark, todoLines, todoPlace } from './todoComment'
-import { gitOut } from '../git'
-import { docLines } from '../documents'
+import { gitOut } from '../platform/git'
+import { docLines } from '../platform/documents'
 import type { CheckController } from './controller'
 
 export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'

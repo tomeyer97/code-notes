@@ -1,0 +1,6 @@
+# Imports from src/podcast/ that break the layer rule today; remove a line when you fix it.
+src/podcast/listenView.ts -> src/app.ts
+src/podcast/listenView.ts -> src/webview/page.ts
+src/podcast/load.ts -> src/app.ts
+src/podcast/player.ts -> src/app.ts
+src/podcast/player.ts -> src/sidebar/journeysTree.ts

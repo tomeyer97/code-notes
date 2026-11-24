@@ -26,7 +26,7 @@ const SAMPLES = path.join(ROOT, 'test/fixtures/journey/journeys')
 const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
 /** Run in each page before its own scripts: the contrast helpers (window.contrast) and the layout rules `check` uses. */
 const PAGE_HELPERS = [path.join(ROOT, 'test/harness/contrast.js'), path.join(ROOT, 'test/journey-map/layoutChecks.js')]
-for (const f of [path.join(ROOT, 'out/src/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js')]) {
+for (const f of [path.join(ROOT, 'out/src/core/format/journeyModel.js'), path.join(ROOT, 'out/vendor/elk.bundled.js')]) {
   if (!fs.existsSync(f)) { console.error(`${path.relative(ROOT, f)} is missing: run \`npm run build\` first`); process.exit(2) }
 }
 
@@ -107,7 +107,7 @@ const list = (extra.length ? extra : ['place-order.json', 'other.json']).map((f,
   ...(i === 1 ? { start: true } : {}),
 }))
 // The home's model, as the extension builds it from the same journeys (journeyList.ts).
-const { buildList } = (await import(pathToFileURL(path.join(ROOT, 'out/src/journeyList.js')).href)).default
+const { buildList } = (await import(pathToFileURL(path.join(ROOT, 'out/src/core/list/journeyList.js')).href)).default
 const homeModel = buildList(list.map((x) => ({
   key: x.key, kind: 'journey', title: x.title, question: x.question, summary: '', files: ['web/a.js'], stepTitles: [],
   steps: x.steps, stale: 0, isNew: false, resume: x.resume, ...(x.start ? { start: true } : {}),

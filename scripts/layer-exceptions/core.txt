@@ -1,0 +1,4 @@
+# Imports from src/core/ that break the layer rule today; remove a line when you fix it.
+src/core/linkifyAnswer.ts -> src/journeys/textFormat.ts
+src/core/text.ts -> src/notes/store.ts
+src/core/writing.ts -> src/platform/agent/claude.ts

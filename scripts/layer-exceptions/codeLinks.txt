@@ -1,0 +1,2 @@
+# Imports from src/codeLinks/ that break the layer rule today; remove a line when you fix it.
+src/codeLinks/codeLinkClick.ts -> src/app.ts

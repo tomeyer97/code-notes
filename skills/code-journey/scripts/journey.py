@@ -1517,7 +1517,7 @@ def check_ref(repo, ref):
     return '', [(a, ls[a - 1].strip()[:90])] + ([(b, ls[b - 1].strip()[:90])] if b > a else [])
 
 
-# --- finding a step again after the code moved: the same rules as the extension (src/anchor.ts;
+# --- finding a step again after the code moved: the same rules as the extension (src/core/anchors/anchor.ts;
 # keep the two in step). Lines compare without whitespace, with one quote style and no trailing ; or , (`norm`).
 def norm(s):
     return re.sub(r'[;,]+$', '', re.sub(r"['`]", '"', re.sub(r'\s+', '', s)))
@@ -1532,7 +1532,7 @@ def weak(s):                     # `}` or `);` says nothing about where code is:
 
 
 # --- compact anchors (v3), as in docs/journey-format.md ("In the repo"); the extension does the same in
-# src/compact.ts (keep the two in step).
+# src/core/anchors/compact.ts (keep the two in step).
 def text_hash(text_lines, blanks=False):
     """sha1 of the non-blank lines through `norm`, joined by "\n" (compact.ts blockHash): a blank line added or
     removed is not a change. blanks=True: the other reading (every line, blank ones as ""), accepted when read."""
@@ -1919,7 +1919,7 @@ def repeat_warning(k, s):
     return ''
 
 
-# --- step extras (format: media/journey-scene.js, src/codeLinkText.ts, src/valueHints.ts): a step's
+# --- step extras (format: media/journey-scene.js, src/core/codeLinkText.ts, src/codeLinks/valueHints.ts): a step's
 # animation (`scene`), its code links (`links`: phrases of the lead/details that open the lines doing that part) and
 # its value hints (`values`: what a variable holds in the example run, above its line). Every line is read from the
 # source by the commands below; the author never types a line's text.

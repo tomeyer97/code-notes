@@ -1,4 +1,4 @@
-// Marks on a walked step (src/tour/stepMarks.ts, src/marks/lights.ts, src/tour/card.ts, src/beats.ts): opening the
+// Marks on a walked step (src/tour/stepMarks.ts, src/marks/lights.ts, src/tour/card.ts, src/codeLinks/beats.ts): opening the
 // step lights its marks, each beat its own as the focus with the ones before dimmer; while there are marks the step's
 // lines get the thin grey bar and the beat's line no box; a mark not found near its lines lights nothing; marks follow
 // the step when code is inserted above it; a step without marks looks as it always did. CODE_NOTES_SHOTS: the step

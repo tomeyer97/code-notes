@@ -3,7 +3,7 @@
 // (written by keysAndMap.ts, resolved by notesReview.ts). Builders for any journey or note: ../fixtures.ts.
 import * as fs from 'fs'
 import * as path from 'path'
-import { compactOf } from '../../../src/compact'
+import { compactOf } from '../../../src/core/anchors/compact'
 import { StepFixture, journey, step } from '../fixtures'
 import { journeysDir, wsPath } from './context'
 

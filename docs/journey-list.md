@@ -46,7 +46,7 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
 
 ## As built (0.24.0)
 
-- Model: `src/journeyList.ts` (`buildList`): rows with `area`, `age`, `here`, `meta`, search hits; the panel's
+- Model: `src/core/list/journeyList.ts` (`buildList`): rows with `area`, `age`, `here`, `meta`, search hits; the panel's
   `sections` and the sidebar's `groups` come from the same call. Search: every word must match (title, question,
   summary, step titles, file paths; title hits weigh most; a light stem lets "retry" find "retries").
 - On the panel each row is listed once: Continue, In <file>, Checks and New come first; the area sections hold the
@@ -94,7 +94,7 @@ the panel home at 320/600/1000 px and the sidebar; measure overflow/clipping; ca
   replaces the journey file and a notice offers **Show changes** (a diff). No note is written and nothing is said in
   the reader's name. From the preview or the row it refreshes that journey; the command's picker preselects only the
   journey in front (the walk, the panel's), never the first in the list.
-- **Lenses:** one per function. Functions come from `src/codeBlocks.ts`: the language's symbols (functions,
+- **Lenses:** one per function. Functions come from `src/core/codeBlocks.ts`: the language's symbols (functions,
   methods, classes; never what is nested in a function, so a destructuring or a callback is part of it), else
   the text (indentation and braces) while a language server is still starting. A step on the comment just above a
   function belongs to it; a file's top-level consts share one lens. The picker lists one row per journey.

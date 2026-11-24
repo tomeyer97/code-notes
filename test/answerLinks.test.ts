@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { linkify } from '../src/linkifyAnswer'
-import { linkTarget } from '../src/linkUri'
+import { linkify } from '../src/core/linkifyAnswer'
+import { linkTarget } from '../src/core/linkUri'
 
 const link = (t: string, f: string, l?: string) => `[${t}](cmd:${f}:${l ?? 1})`
 

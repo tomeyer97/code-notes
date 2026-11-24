@@ -1,6 +1,6 @@
 // "Ask the agent to write a journey" when nothing matches: the fake claude CLI (test/fixtures/fake-claude.js) plays
 // the code-journey skill's journey.py; the journey is staged, checked, moved into journeys/, and its map opens.
-// Source: src/writing.ts (staging), src/claude.ts (the CLI's arguments), src/write/ (claudeRun.ts, writeJourney.ts).
+// Source: src/core/writing.ts (staging), src/platform/agent/claude.ts (the CLI's arguments), src/write/ (claudeRun.ts, writeJourney.ts).
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'

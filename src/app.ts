@@ -2,16 +2,16 @@
 // `provide`), the settings, and a few small helpers. Read anywhere; set only through `provide` and `setKey`.
 
 import * as vscode from 'vscode'
-import { Beats } from './beats'
+import { Beats } from './codeLinks/beats'
 import { CheckController } from './check/controller'
-import { ClaudeLinks } from './claudeChatLinks'
-import { CodeLinks } from './codeLinks'
+import { ClaudeLinks } from './codeLinks/claudeChatLinks'
+import { CodeLinks } from './codeLinks/codeLinks'
 import { Journeys } from './journeys/journeys'
 import { MapPanel } from './journeys/mapPanel'
-import { Store } from './store'
+import { Store } from './notes/store'
 import { TourItems } from './tour/walk'
-import { TutorialSpot } from './tutorialSpot'
-import { ValueHints } from './valueHints'
+import { TutorialSpot } from './tour/tutorialSpot'
+import { ValueHints } from './codeLinks/valueHints'
 
 /** The notes, and the stored state of this workspace (`state`) and of every workspace (`gstate`). */
 export let store: Store

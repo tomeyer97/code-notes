@@ -2,8 +2,8 @@
 
 import * as vscode from 'vscode'
 import { notes, setCtx, store } from '../app'
-import { unread } from '../seen'
-import { Note } from '../store'
+import { unread } from '../notes/seen'
+import { Note } from '../notes/store'
 import { journeyOfNote, journeyQuestionRows, journeyRows, questionRows } from './journeyRows'
 import { journeysTree } from './journeysTree'
 import { fileNode, Node, noteNode, rowOrder, sessionNode, sessionOf } from './nodes'

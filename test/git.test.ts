@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { statusBranch, statusPaths } from '../src/git'
+import { statusBranch, statusPaths } from '../src/platform/git'
 
 test('git status v2 entries: their paths (renames: the new one), the branch', () => {
   const out = [

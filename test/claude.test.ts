@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { foldEvent, modelProblem } from '../src/claude'
+import { foldEvent, modelProblem } from '../src/platform/agent/claude'
 
 test('folds a real `claude -p --output-format stream-json` transcript', () => {
   const lines = fs.readFileSync(path.join(__dirname, '../../test/fixtures/claude-stream.jsonl'), 'utf8').split('\n').filter(Boolean)

@@ -3,9 +3,9 @@
 
 import * as vscode from 'vscode'
 import { cfg, journeys, understanding } from '../app'
-import { Block, blockAt, groupSteps } from '../codeBlocks'
+import { Block, blockAt, groupSteps } from '../core/codeBlocks'
 import { fileOf } from '../journeys/steps'
-import { blocksOf } from '../symbolBlocks'
+import { blocksOf } from '../platform/symbolBlocks'
 import { inNotesFolder, notesFor, relPath } from '../notes/location'
 import { card, tourState, walk } from './instances'
 

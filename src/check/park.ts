@@ -3,7 +3,7 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import { gitOut } from '../git'
+import { gitOut } from '../platform/git'
 import { RESTORED_OPEN_MS } from './constants'
 import type { CheckController } from './controller'
 

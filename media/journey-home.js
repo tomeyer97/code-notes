@@ -1,6 +1,6 @@
 // The journey panel's home: every journey of the workspace, to find one and walk it (docs/journey-list.md). Search,
 // filter chips, sections, a preview of the selected journey (beside the list when wide, unfolded under its row when
-// narrow). The extension computes the list (src/journeyList.ts) with this home's search, filter and sort; we draw it.
+// narrow). The extension computes the list (src/core/list/journeyList.ts) with this home's search, filter and sort; we draw it.
 // Needs common.js; styles in journey-home.css. Made by journey-map.js, which draws it in place of the journey while it
 // is in front:
 //   const home = JourneyHome({ app, post(m), render(), walk(key), hasJourney(), isTutorialUp() })
@@ -10,7 +10,7 @@
 ;(function () {
   const { el, button, baseName, runKey, itemAt, rovingKeys } = window.common
 
-  /** The orders the list can be sorted in (src/journeyList.ts sorts); `best` only while searching. */
+  /** The orders the list can be sorted in (src/core/list/journeyList.ts sorts); `best` only while searching. */
   const SORTS = [
     ['best', 'Best match'],
     ['area', 'By area'],
@@ -82,7 +82,7 @@
 
     /** In front (the list over the journey), or not. */
     let on = false
-    /** The list's model (src/journeyList.ts) and the journeys as the tour message lists them (`here`: the one open). */
+    /** The list's model (src/core/list/journeyList.ts) and the journeys as the tour message lists them (`here`: the one open). */
     let model
     let list = []
     /** The query and filter chip, sent to the extension, which answers with a new model. */

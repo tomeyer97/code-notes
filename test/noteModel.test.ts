@@ -1,7 +1,7 @@
-// A note file's content (src/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
+// A note file's content (src/core/format/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NoteData, agentReadme, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
+import { NoteData, agentReadme, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/core/format/noteModel'
 
 const note = (o: Record<string, unknown> = {}) => JSON.stringify({
   file: 'src/a.ts', range: { start: 3, end: 5 }, status: 'open', messages: [{ author: 'ann', role: 'human', body: 'Why?' }], ...o,

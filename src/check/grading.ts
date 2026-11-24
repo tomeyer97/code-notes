@@ -2,8 +2,8 @@
 // read-only; the verdict is written into the file and reaches the thread through the threads' sync.
 import * as vscode from 'vscode'
 import * as path from 'path'
-import { Ask, AskErrorKind, AskResult } from '../claude'
-import type { Note } from '../store'
+import { Ask, AskErrorKind, AskResult } from '../platform/agent/claude'
+import type { Note } from '../notes/store'
 import type { Attempt, Cli, Question } from './types'
 import { sameQuestion } from './threadLink'
 import { costOf } from './log'

@@ -1,0 +1,9 @@
+# Imports from src/sidebar/ that break the layer rule today; remove a line when you fix it.
+src/sidebar/journeyRows.ts -> src/app.ts
+src/sidebar/journeysTree.ts -> src/app.ts
+src/sidebar/listModel.ts -> src/app.ts
+src/sidebar/nodes.ts -> src/app.ts
+src/sidebar/notesFilter.ts -> src/app.ts
+src/sidebar/notesFilter.ts -> src/refresh.ts
+src/sidebar/notesTree.ts -> src/app.ts
+src/sidebar/rowItems.ts -> src/app.ts

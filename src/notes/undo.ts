@@ -3,8 +3,8 @@
 
 import * as vscode from 'vscode'
 import { setCtx } from '../app'
-import { NoteData } from '../noteModel'
-import { Note } from '../store'
+import { NoteData } from '../core/format/noteModel'
+import { Note } from './store'
 
 /** The last undoable action: the toast's Undo, and "Code Notes: Undo" after the toast is gone. */
 let lastUndo: { what: string; run: () => Promise<void> } | undefined

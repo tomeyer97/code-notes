@@ -11,7 +11,7 @@
 import * as vscode from 'vscode'
 import { webviewPage } from '../webview/page'
 import { journeysFolderName } from '../journeys/journeys'
-import { folderName } from '../store'
+import { folderName } from '../notes/store'
 import { setCtx } from '../app'
 
 export const LISTEN_VIEW = 'codeNotes.listen'

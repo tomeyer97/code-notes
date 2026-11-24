@@ -1,6 +1,6 @@
 // Running git: `git`/`gitOk` (synchronous, for reading), `gitRun` (asynchronous, for commit and push: no credential
 // prompt, a timeout); the branch, its base, a stack's parent, a stash. The extension has its own runner for its own
-// git calls (src/git.ts); what it reads through this file runs these on a worker thread (src/check/cliWorker.ts).
+// git calls (src/platform/git.ts); what it reads through this file runs these on a worker thread (src/check/cliWorker.ts).
 import { execFileSync, spawn } from 'node:child_process'
 import { DIR } from './constants.mjs'
 import { isHex } from './validate.mjs'

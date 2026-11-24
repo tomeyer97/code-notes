@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { gitRenames } from '../src/gitRenames'
+import { gitRenames } from '../src/platform/gitRenames'
 
 /** git in `repo` as a test user. */
 const gitIn = (repo: string) => (...a: string[]) => {

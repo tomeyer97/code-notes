@@ -3,8 +3,8 @@
 import * as vscode from 'vscode'
 import { byId } from '../app'
 import { Node, order } from '../sidebar/nodes'
-import { Note } from '../store'
-import { noteTitle, rangeLabel } from '../text'
+import { Note } from './store'
+import { noteTitle, rangeLabel } from '../core/text'
 import { notesAtLine } from './location'
 import { noteOfThread, revealed } from '../threads/sync'
 

@@ -1,7 +1,7 @@
-// 35 journeys over several areas (the size of a real team's list), as list items (src/journeyList.ts ListItem), for
+// 35 journeys over several areas (the size of a real team's list), as list items (src/core/list/journeyList.ts ListItem), for
 // the list's unit tests (test/journeyList.test.ts) and the Journeys home harness (test/journey-list/shoot.mjs, which
 // loads the built out/test/fixtures/journeyList.js).
-import type { ListItem } from '../../src/journeyList'
+import type { ListItem } from '../../src/core/list/journeyList'
 
 /** The topics of each area: one journey per topic, "How <topic> work". */
 const AREAS: Record<string, string[]> = {

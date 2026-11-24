@@ -1,10 +1,10 @@
 // Where a journey's steps are (src/journeys/steps.ts): carried over a reload, captured anchors, placed in new lines.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseJourney, Journey } from '../src/journeyModel'
-import { compactOf } from '../src/compact'
+import { parseJourney, Journey } from '../src/core/format/journeyModel'
+import { compactOf } from '../src/core/anchors/compact'
 import { LoadedJourney, StepAt, captureStepAnchor, carryPositions, fileOf, isEmptyAnchor, journeyById, placeStep, posKey, sameStepAt, writtenAt } from '../src/journeys/steps'
-import { dirPath, pathIn } from '../src/paths'
+import { dirPath, pathIn } from '../src/core/paths'
 
 const code = ['import x', '', 'function f() {', '  a()', '  x()', '  y()', '  b()', '}', '', 'function g() {}']
 const journey = (steps: object[]) => parseJourney(JSON.stringify({ version: 2, nodes: [{ id: 'n', label: 'N' }], steps }), 'j') as Journey

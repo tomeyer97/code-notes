@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { staleKind } from '../src/staleDiff'
-import { Journey, parseJourney, readValues } from '../src/journeyModel'
+import { staleKind } from '../src/core/anchors/staleDiff'
+import { Journey, parseJourney, readValues } from '../src/core/format/journeyModel'
 import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
 
 const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')

@@ -6,7 +6,7 @@
 //   node test/journey-scene/check.mjs <journey.json> [<dir for screenshots>]
 // Needs Playwright with Chromium: `playwright` is imported from node_modules unless PLAYWRIGHT is set to another
 // install's playwright/index.mjs; CHROME, when set, is the Chromium or Chrome binary to launch (else Playwright's own).
-// The panel's harness (test/journey-map/harness.html) loads out/vendor/elk.bundled.js: run `npm run vendor` first.
+// The panel's harness (test/journey-map/harness.html) loads out/vendor/elk.bundled.js: run `npm run build` first.
 // Try it on the bundled sample: node test/journey-scene/check.mjs test/journey-scene/sample.json /tmp/shots
 import fs from 'node:fs'
 import path from 'node:path'

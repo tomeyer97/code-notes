@@ -1,8 +1,8 @@
 // Webview pages, in one place: text escaped for HTML, a nonce for their scripts, and the page around a view's own files
 // (webviewPage), with its Content-Security-Policy (contentSecurityPolicy: the extension's styles and fonts, only the
 // scripts carrying the nonce). A page's markup may be kept as a .html file next to this one (copied to out/ by
-// `npm run pages`) and filled in where it says {{name}} (pageBody). cli/understanding.mjs builds no webview, so it
-// needs none of this.
+// scripts/build/pages.mjs) and filled in where it says {{name}} (pageBody). cli/understanding.mjs builds no webview,
+// so it needs none of this.
 
 import * as fs from 'fs'
 import * as path from 'path'

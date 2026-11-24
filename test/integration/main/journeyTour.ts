@@ -1,6 +1,6 @@
 // Walking a journey (format v2): it loads (steps are never notes), opens as a map with step cards in the editor,
 // follows edits, takes questions, survives reloads and edits of its file, and leaves "◇ Step n" lenses behind.
-// Source: src/journeys/ (loading, where the steps are), src/journeyModel.ts (parsing), src/tour/ (the walk, cards,
+// Source: src/journeys/ (loading, where the steps are), src/core/format/journeyModel.ts (parsing), src/tour/ (the walk, cards,
 // lenses, commands).
 import * as vscode from 'vscode'
 import * as fs from 'fs'

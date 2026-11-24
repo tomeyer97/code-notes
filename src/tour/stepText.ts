@@ -5,10 +5,10 @@
 // where it is now (`relocate`), drop the refs already on screen (`onScreen`), and say each as a link or a struck-out
 // name (`label`). `stepText` composes them.
 import { fileOf, LoadedJourney } from '../journeys/steps'
-import type { JStep } from '../journeyModel'
-import { readLinks } from '../journeyModel'
+import type { JStep } from '../core/format/journeyModel'
+import { readLinks } from '../core/format/journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeys/textFormat'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }

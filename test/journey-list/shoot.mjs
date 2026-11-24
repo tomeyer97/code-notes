@@ -4,7 +4,7 @@
 // Checks), "In <file>" capped with "Show n more", a row click selects and previews (stale steps marked, Refresh),
 // the keyboard (↓ from the search into the rows, a visible focus ring, the focused row in view, chips one Tab stop
 // with ← →), Enter walks, Esc clears then goes back, "‹ Journeys" from a walk selects that journey, the heading is the
-// short title. The extension's part (the model) is out/src/journeyList.js, run here.
+// short title. The extension's part (the model) is out/src/core/list/journeyList.js, run here.
 // Usage (after `npm run build`): node test/journey-list/shoot.mjs [screenshot-dir]   (PLAYWRIGHT=…, CHROME=… as in journey-map)
 import fs from 'node:fs'
 import path from 'node:path'
@@ -15,7 +15,7 @@ const pw = await import(process.env.PLAYWRIGHT ? pathToFileURL(path.resolve(proc
 const chromium = pw.chromium ?? pw.default.chromium
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(import.meta.url)
-const { buildList } = require(path.join(ROOT, 'out/src/journeyList.js'))
+const { buildList } = require(path.join(ROOT, 'out/src/core/list/journeyList.js'))
 const { items, NOW } = require(path.join(ROOT, 'out/test/fixtures/journeyList.js'))
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })

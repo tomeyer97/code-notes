@@ -5,7 +5,7 @@ import { notes, state } from '../app'
 import { refreshAll } from '../refresh'
 import { Node, sessionOf } from '../sidebar/nodes'
 import { HIDDEN_KEY, hiddenSessions, setSessionHidden } from '../sidebar/notesFilter'
-import { folderName } from '../store'
+import { folderName } from './store'
 import { resolve, trash } from './status'
 
 /** The session a command is about: its row's, the only one, or the one picked ('' is the notes without a session). */

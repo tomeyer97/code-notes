@@ -1,7 +1,7 @@
 // A journey's files changing under it: the journey file deleted mid-walk, a step's file renamed (on disk, with git mv),
 // changed on disk with no editor open, refreshed by the journey writer; and a long file: the map follows the step,
 // cards stay in view after jumps, arriving at a step reads no note, leaving for another journey says so, a step whose
-// file is gone opens no stand-in tab. Source: src/journeys/, src/gitRenames.ts, src/anchor.ts, src/compact.ts.
+// file is gone opens no stand-in tab. Source: src/journeys/, src/platform/gitRenames.ts, src/core/anchors/anchor.ts, src/core/anchors/compact.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'

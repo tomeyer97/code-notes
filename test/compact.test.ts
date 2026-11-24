@@ -3,8 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { blockHash, compactOf, CompactAnchor, findCompact, toCompact } from '../src/compact'
-import { parseJourney } from '../src/journeyModel'
+import { blockHash, compactOf, CompactAnchor, findCompact, toCompact } from '../src/core/anchors/compact'
+import { parseJourney } from '../src/core/format/journeyModel'
 
 const file = [
   'package main',                     // 0

@@ -2,14 +2,14 @@
 // the small helpers about workspace paths and a document's lines that go with that.
 
 import * as vscode from 'vscode'
-import { anchor, Loc } from '../anchor'
+import { anchor, Loc } from '../core/anchors/anchor'
 import { log, notes, store } from '../app'
-import { commitInfo, otherBranch } from '../checkout'
+import { commitInfo, otherBranch } from '../platform/checkout'
 import { refreshAll } from '../refresh'
-import { captureAnchor, NoteData } from '../noteModel'
-import { folderName, Note } from '../store'
-import { diskLines, docLines } from '../documents'
-import { wfs } from '../workspaceFs'
+import { captureAnchor, NoteData } from '../core/format/noteModel'
+import { folderName, Note } from './store'
+import { diskLines, docLines } from '../platform/documents'
+import { wfs } from '../platform/workspaceFs'
 import { folderPage } from './pages'
 
 type Anchor = NoteData['anchor']

@@ -4,7 +4,7 @@
 import * as vscode from 'vscode'
 import { gstate, KEY, log, mapPanel } from '../app'
 import { MAP_VIEW } from '../journeys/mapPanel'
-import { listeningShare, panelShare } from '../panelWidth'
+import { listeningShare, panelShare } from '../core/panelWidth'
 import { walk } from './instances'
 
 /** The panel's width as the reader left it (a share of the editor area), every journey. */

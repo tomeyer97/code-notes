@@ -8,8 +8,8 @@
 //      ancestors(byId, id), titleEl(n), leafEl(n, nums), samples(edge), pathD(points), curveD(bez), verb(label) }
 ;(function () {
   const { el, overlapArea, edgesOf } = window.common
-  // out/src/journeyModel.js is a CommonJS module the page loads as a plain script: it fills the `exports` object the
-  // page declares, also named JourneyModel (src/journeys/mapPanel.ts, test/journey-map/harness.html).
+  // out/src/core/format/journeyModel.js is a CommonJS module the page loads as a plain script: it fills the `exports`
+  // object the page declares, also named JourneyModel (src/journeys/mapPanel.ts, test/journey-map/harness.html).
   const JourneyModel = window.JourneyModel
 
   // ---------- an arrow's label: a plain verb phrase ----------

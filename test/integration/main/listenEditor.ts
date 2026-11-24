@@ -1,4 +1,4 @@
-// The editor while it plays (src/tour/card.ts, instances.ts, src/beats.ts, src/podcast/marks.ts, src/notes/decorations.ts):
+// The editor while it plays (src/tour/card.ts, instances.ts, src/codeLinks/beats.ts, src/podcast/marks.ts, src/notes/decorations.ts):
 // the step card is its header line only, above the function the step is in; the marks are the only coloured thing on
 // the code (no step tint, no beat box, no note bars, no value hints, no ruler ticks). On pause all of it comes back and
 // the card is the full one above the step's first line. CODE_NOTES_SHOTS: pictures, playing and paused, dark and light.

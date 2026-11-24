@@ -31,7 +31,7 @@ import { calmViews, clock, Episode, LatestWins, markTimes, planMarks, podcastFil
 import { MarkLights, PlannedMark } from './marks'
 import { Camera, CUE_LEAD_S, cueText } from './camera'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 import { podcastReports, PodcastRead, readPodcast, strayPodcasts } from './load'
 import { afterStep, remapTime, resumeTime } from './resume'
 import { brokenLinks, playNotice } from './validate'

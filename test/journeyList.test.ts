@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, seeAlso } from '../src/journeyList'
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, seeAlso } from '../src/core/list/journeyList'
 import { NOW, items } from './fixtures/journeyList'
-// The word-level rules the list's search uses (queryWords, stem, matchScore: src/match.ts) are tested in match.test.ts.
+// The word-level rules the list's search uses (queryWords, stem, matchScore: src/core/list/match.ts) are tested in match.test.ts.
 
 /** A journey item titled `title` whose steps (all in api/x.js) have these titles. */
 const journeyItem = (key: string, title: string, steps: string[], summary = ''): ListItem => ({

@@ -7,7 +7,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { statusBranch, statusPaths } from '../git'
+import { statusBranch, statusPaths } from '../platform/git'
 import { importCli } from './importCli'
 import type { RefreshResult } from './types'
 

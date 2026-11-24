@@ -2,11 +2,11 @@
 // recorded, then everything refreshed and the notes re-anchored.
 
 import { log, notes, store } from '../app'
-import { isAgent, mine } from '../identity'
-import { Message, NoteEvent } from '../noteModel'
+import { isAgent, mine } from './identity'
+import { Message, NoteEvent } from '../core/format/noteModel'
 import { refreshAll } from '../refresh'
 import { lastMessage } from '../sidebar/nodes'
-import { Note } from '../store'
+import { Note } from './store'
 import { card, tourState, walk } from '../tour/instances'
 import { reanchorAll } from './location'
 import { addEvent, statusEvent } from './status'

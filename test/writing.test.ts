@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clock, journeyPrompt, minutes, phaseOf } from '../src/writing'
+import { clock, journeyPrompt, minutes, phaseOf } from '../src/core/writing'
 import { bashCall } from './toolCalls'
 
 test('elapsed time and a plain phase from journey.py commands', () => {

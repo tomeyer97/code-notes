@@ -2,13 +2,13 @@
 
 import * as vscode from 'vscode'
 import { notes } from '../app'
-import { unread } from '../seen'
+import { unread } from './seen'
 import { lastMessage, order } from '../sidebar/nodes'
-import { Note } from '../store'
-import { noteTitle, plain } from '../text'
+import { Note } from './store'
+import { noteTitle, plain } from '../core/text'
 import { reveal } from './reveal'
-import { pickOne } from '../quickPick'
-import { baseName } from '../paths'
+import { pickOne } from '../platform/quickPick'
+import { baseName } from '../core/paths'
 
 /** What a note's words are searched in: its file, session, and every message's author and text. */
 const haystack = (n: Note) => [n.data.file, n.data.session ?? '', ...n.data.messages.flatMap((m) => [m.author, m.body])].join('\n').toLowerCase()

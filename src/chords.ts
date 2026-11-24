@@ -5,7 +5,7 @@ import { gstate, KEY, mapPanel, notes, PREFIX_KEY, setKey, understanding } from 
 import { resolve } from './notes/status'
 import { stepUnread } from './notes/unread'
 import { pickNotes } from './notes/which'
-import { unread } from './seen'
+import { unread } from './notes/seen'
 import { checkStepping } from './check/wiring'
 import { walk } from './tour/instances'
 

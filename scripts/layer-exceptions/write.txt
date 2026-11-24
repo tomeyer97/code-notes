@@ -1,0 +1,10 @@
+# Imports from src/write/ that break the layer rule today; remove a line when you fix it.
+src/write/clarify.ts -> src/app.ts
+src/write/clarify.ts -> src/webview/page.ts
+src/write/claudeRun.ts -> src/app.ts
+src/write/rank.ts -> src/app.ts
+src/write/refreshJourney.ts -> src/app.ts
+src/write/refreshJourney.ts -> src/sidebar/journeysTree.ts
+src/write/refreshJourney.ts -> src/sidebar/listModel.ts
+src/write/requests.ts -> src/app.ts
+src/write/writeJourney.ts -> src/app.ts

@@ -1,5 +1,5 @@
 // A guest in this suite: the Journeys view ("In this file", the search) is not part of the check, but this workspace
-// (examples/shop) is the one with a journey in the repository (journeys/place-order.json). Source: src/journeyList.ts.
+// (examples/shop) is the one with a journey in the repository (journeys/place-order.json). Source: src/core/list/journeyList.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'

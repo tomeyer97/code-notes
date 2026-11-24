@@ -4,17 +4,17 @@
 import * as vscode from 'vscode'
 import { notes, store } from '../app'
 import { askErrors, asking } from '../ask/run'
-import { mine } from '../identity'
-import { unread } from '../seen'
-import { Note } from '../store'
-import { ago, isolate, plain, plural, rangeLabel } from '../text'
+import { mine } from '../notes/identity'
+import { unread } from '../notes/seen'
+import { Note } from '../notes/store'
+import { ago, isolate, plain, plural, rangeLabel } from '../core/text'
 import { missing } from '../notes/location'
 import { tourState, walk } from '../tour/instances'
 import { badJourneyItem, journeyItem, journeyOfNote, questionsItem, showIntro, stepLinkOf } from './journeyRows'
 import { listState } from './listModel'
 import { lastMessage, Node, sessionOf, SEV_ICON } from './nodes'
 import { hiddenSessions, ownRow } from './notesFilter'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 
 /** The row of each kind of node. */
 const ITEMS: { [K in Node['kind']]: (node: Extract<Node, { kind: K }>) => vscode.TreeItem } = {

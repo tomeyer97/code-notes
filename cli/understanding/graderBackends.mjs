@@ -13,7 +13,7 @@ const GRADER_MAX_TOKENS = 4000
 const GRADER_TIMEOUT_MS = 300_000
 
 /**
- * The `claude` to run: UNDERSTANDING_CLAUDE, else `claude` on PATH. The extension finds its own (src/claudeCli.ts:
+ * The `claude` to run: UNDERSTANDING_CLAUDE, else `claude` on PATH. The extension finds its own (src/platform/agent/claudeCli.ts:
  * the codeNotes.claude.path setting, else the newest install on PATH and the usual places) and grades with it; this one
  * is for `grade` in a terminal, so the two can differ when several are installed. This file has no dependencies and
  * reads no VS Code setting, so it doesn't share the extension's search.

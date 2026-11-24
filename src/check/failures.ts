@@ -1,6 +1,6 @@
 // What went wrong, in the Check view's plain words: writing the questions, grading an answer (by cause), a check file
 // that isn't JSON (where). No vscode API here (unit-tested in test/checkModel.test.ts).
-import type { AskErrorKind } from '../claude'
+import type { AskErrorKind } from '../platform/agent/claude'
 
 /** Where the engine's JSON error is, when it says so: "… (line 3 column 5)" (newer V8) or "… at position 42". */
 const JSON_LINE_COL = /line (\d+) column (\d+)/

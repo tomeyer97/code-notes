@@ -1,8 +1,8 @@
 // What Claude is told when it answers a note: the note and its conversation, the rules, and the hints for a step's
 // question, an understanding check and the skills it may use. Only text: ask/run.ts sends it.
 
-import { me } from '../identity'
-import { Note } from '../store'
+import { me } from '../notes/identity'
+import { Note } from '../notes/store'
 import { UPDATE_ASK } from '../tour/askStep'
 
 /** How Claude works on a note and answers. */

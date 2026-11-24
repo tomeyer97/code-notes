@@ -1,7 +1,7 @@
 // A question's thread as text: the question (with the code it also depends on), the grader's replies, the code links
 // of each message, and the messages a thread is missing. No vscode API here (unit-tested in test/checkModel.test.ts).
 import type { Attempt, Link, Question, Range } from './types'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 
 /** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {

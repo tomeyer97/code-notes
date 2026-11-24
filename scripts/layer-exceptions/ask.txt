@@ -1,0 +1,6 @@
+# Imports from src/ask/ that break the layer rule today; remove a line when you fix it.
+src/ask/commands.ts -> src/app.ts
+src/ask/run.ts -> src/app.ts
+src/ask/run.ts -> src/refresh.ts
+src/ask/settings.ts -> src/app.ts
+src/ask/trust.ts -> src/app.ts

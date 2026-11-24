@@ -3,9 +3,9 @@
 import * as vscode from 'vscode'
 import { journeys } from '../app'
 import { LoadedJourney } from '../journeys/steps'
-import { scoreJourney } from '../match'
-import { pickOne } from '../quickPick'
-import { shortQ } from '../text'
+import { scoreJourney } from '../core/list/match'
+import { pickOne } from '../platform/quickPick'
+import { shortQ } from '../core/text'
 import { questionBesidesTitle } from '../tour/pick'
 import { journeyModel, modelLabel } from './claudeRun'
 

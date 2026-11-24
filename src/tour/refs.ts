@@ -3,10 +3,10 @@
 
 import * as vscode from 'vscode'
 import { showError } from '../app'
-import { setDecorations } from '../decorations'
+import { setDecorations } from '../platform/decorations'
 import { fileOf, LoadedJourney } from '../journeys/steps'
 import { clampLines } from '../notes/location'
-import { wfs } from '../workspaceFs'
+import { wfs } from '../platform/workspaceFs'
 import { cardLine } from './stepPlace'
 import { card, tourState, walk } from './instances'
 

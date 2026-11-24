@@ -1,7 +1,7 @@
 // What Claude is asked when it writes the check: the prompt for the questions, the prompt for the tour, and the
 // phase shown while it works (from its last tool call). No vscode API here (unit-tested in test/checkModel.test.ts).
-import { READ_ONLY_TOOLS } from '../claude'
-import type { ToolCall } from '../claude'
+import { READ_ONLY_TOOLS } from '../platform/agent/claude'
+import type { ToolCall } from '../platform/agent/claude'
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
 export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean; head?: string }): string {

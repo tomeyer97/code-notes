@@ -3,10 +3,10 @@
 
 import * as vscode from 'vscode'
 import { journeys, notes } from '../app'
-import { Group } from '../journeyList'
+import { Group } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
-import { Severity } from '../noteModel'
-import { Note } from '../store'
+import { Severity } from '../core/format/noteModel'
+import { Note } from '../notes/store'
 import { matchesFilter } from './notesFilter'
 
 export type Node =
