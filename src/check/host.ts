@@ -1,5 +1,5 @@
-// What the understanding check needs from the rest of the extension (src/check/wiring.ts provides it), and the parts
-// of VS Code's git extension API it listens to.
+// What the understanding check needs from the rest of the extension (src/check/wiring.ts provides it). Inside the
+// check each part takes only its slice of it (its own ports, next to the part), never the controller.
 import * as vscode from 'vscode'
 import type { Note, Store } from '../notes/store'
 import type { Check } from './types'
@@ -7,7 +7,7 @@ import type { StateStore } from '../platform/state'
 
 /**
  * What the check needs from the rest of the extension, by role. One object has them all: src/check/wiring.ts
- * createUnderstanding builds it from the notes, the threads, the tour and the settings.
+ * checkHost builds it from the notes, the threads, the tour and the settings.
  */
 export type CheckHost = NotesHost & ClaudeHost & EditorHost & TourHost
 
@@ -34,7 +34,7 @@ export interface NotesHost {
 
 /** Claude Code (writer.ts, grading.ts). */
 export interface ClaudeHost {
-  /** The `claude` CLI (Claude Code; the agent runner, src/platform/agent/runner.ts), or undefined. Not the understanding CLI (controller's `cli`). */
+  /** The `claude` CLI (Claude Code; the agent runner, src/platform/agent/runner.ts), or undefined. Not the understanding CLI (CheckCore's `cli`). */
   cli(): string | undefined
   /** Claude may run here (a trusted folder); says why not otherwise. */
   allowed(what: string): boolean
@@ -55,7 +55,7 @@ export interface EditorHost {
   codeColumn(): vscode.ViewColumn | undefined
 }
 
-/** The check's tour, walked like a journey, and the journeys list (controller.ts, writer.ts). */
+/** The check's tour, walked like a journey (controller.ts, writer.ts). */
 export interface TourHost {
   /** The check (or none) changed: its tour is shown and walked like a journey (absolute path of the check file). */
   tourChanged(check: Check | undefined, file: string | undefined, branch: string | undefined): Promise<void>
@@ -63,13 +63,4 @@ export interface TourHost {
   walkTour(): Promise<boolean>
   /** A question of the tour: its step, then its thread; false when it has no step (then it opens on its own). */
   openInTour(id: string): Promise<boolean>
-  /** The check's row in the journeys list changed (and what the editor shows around it: lenses). */
-  listChanged(): void
 }
-
-/** The parts of VS Code's git extension API used here. */
-export interface GitRepo {
-  rootUri: vscode.Uri
-  state: { HEAD?: { name?: string; commit?: string; upstream?: unknown; ahead?: number }; onDidChange: vscode.Event<void> }
-}
-export interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }

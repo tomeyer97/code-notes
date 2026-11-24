@@ -63,7 +63,16 @@
       ".gitattributes",
       ".ignore"
     ],
-    "BACKGROUND_SETTING": "understanding.background",
+    "VIEW_ID": "codeNotes.check",
+    "STATUS_ITEM_ID": "codeNotes.understanding",
+    "CHECK_OPEN_CONTEXT": "codeNotes.checkOpen",
+    "INSTALL_URL": "https://claude.com/claude-code",
+    "SETTINGS": {
+      "model": "understanding.model",
+      "claudePath": "claude.path",
+      "background": "understanding.background"
+    },
+    "settingId": "[function settingId]",
     "BG_KEY": "codeNotes.understanding.backgroundHeads",
     "TODO_KEY": "codeNotes.understanding.todoFiles",
     "FIX_KEY": "codeNotes.understanding.fixFiles",
@@ -78,7 +87,6 @@
       250,
       800
     ],
-    "RESTORED_OPEN_MS": 300,
     "PUSHED_MESSAGE_MS": 8000,
     "DEFAULT_MODEL_LABEL": "Claude Code default"
   },

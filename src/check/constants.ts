@@ -1,4 +1,5 @@
-// Names, stored keys and timings of the understanding check, in one place.
+// The understanding check's names, ids, setting keys, stored keys and timings: the literals it shares between files.
+// (Command ids are platform/commands.ts's; a code link key is platform/keys.ts's checkLinkKey.)
 import { STATE } from '../platform/state'
 
 export const SESSION = (branch: string) => `Check · ${branch}`
@@ -8,8 +9,22 @@ export const SKILL = 'understanding-check'
 /** Files `init` writes: committed with the check when someone ran it by hand. */
 export const REPO_FILES = ['.gitattributes', '.ignore']
 
-/** The setting (under codeNotes.) that turns background questions after a push on and off (background.ts). */
-export const BACKGROUND_SETTING = 'understanding.background'
+/** The Check view (package.json views) and the status bar item. */
+export const VIEW_ID = 'codeNotes.check'
+export const STATUS_ITEM_ID = 'codeNotes.understanding'
+/** The context key that is true while there is a check (package.json: an empty Code Notes view steps aside). */
+export const CHECK_OPEN_CONTEXT = 'codeNotes.checkOpen'
+/** Where the view's Install sends someone without Claude Code. */
+export const INSTALL_URL = 'https://claude.com/claude-code'
+
+/**
+ * The check's settings, under `codeNotes.` (package.json declares them; their names never change: a renamed setting
+ * loses what people set). `model`: the check's own model (read by platform/agent/runner.ts); `claudePath`: Claude
+ * Code's path; `background`: questions written after a push (background.ts).
+ */
+export const SETTINGS = { model: 'understanding.model', claudePath: 'claude.path', background: 'understanding.background' } as const
+/** A setting's full id, for the Settings editor. */
+export const settingId = (key: (typeof SETTINGS)[keyof typeof SETTINGS]) => `codeNotes.${key}`
 
 // ---------- per-workspace memory (declared in platform/state.ts; their key strings are named here too) ----------
 
@@ -22,8 +37,7 @@ export const WRITING_KEY = STATE.checkWriting.key
 export const BG_COMMITS_KEPT = 50
 
 // ---------- timings ----------
-// Tuned against VS Code's behaviour: REFRESH_SOON_MS, REVEAL_RETRY_MS, RESTORED_OPEN_MS (see each). The others are
-// plain choices.
+// Two debounces, two clocks, and one delay around VS Code's drawing that the check has no event for (REVEAL_RETRY_MS).
 
 /** A trigger (a file event, focus, a save) waits this long, so a burst of them is one refresh. */
 export const REFRESH_SOON_MS = 400
@@ -34,12 +48,11 @@ export const TICK_MS = 1000
 /** Questions being written by a window reloaded meanwhile: given up after this long (the writer is stuck or gone). */
 export const ORPHAN_MAX_MS = 10 * 60_000
 /**
- * After a question opens: its lines are revealed again at these delays if they are out of view (a tour's step card far
- * from them is drawn a moment later and scrolls there).
+ * After a question opens: its lines are revealed again at these delays if they are out of view. What it waits for is a
+ * tour's step card far from them, drawn a moment later by the tour (it scrolls there); the tour says nothing when it
+ * has drawn, so the check looks twice.
  */
 export const REVEAL_RETRY_MS = [250, 800]
-/** Questions put back from the cache: question 1 opens after the refresh that found them has drawn. */
-export const RESTORED_OPEN_MS = 300
 /** "Committed … and pushed" in the status bar, for this long. */
 export const PUSHED_MESSAGE_MS = 8000
 /** The model label passed to the skills' scripts when no model is set. */

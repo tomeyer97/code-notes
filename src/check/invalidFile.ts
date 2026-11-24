@@ -3,15 +3,15 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import { jsonErrorAt } from './failures'
-import type { CheckController } from './controller'
+import type { CheckCore } from './state'
 import type { Check, Question } from './types'
 
 export class InvalidFile {
-  constructor(private ctl: CheckController) {}
+  constructor(private ports: Pick<CheckCore, 'state' | 'cli' | 'log' | 'refresh'>) {}
 
   /** Where an invalid check file stops being JSON (not a conflict: that has its own words). */
   parseError(): { line: number; col: number; text: string } | undefined {
-    const st = this.ctl.st, abs = this.ctl.abs
+    const st = this.ports.state.st, abs = this.ports.state.abs
     if (st?.state.phase !== 'invalid' || st.conflict || !abs) return undefined
     let text: string | undefined
     try {
@@ -25,10 +25,10 @@ export class InvalidFile {
 
   /** The check file, at its first conflict marker when it has one (else where it stops being JSON). */
   async open(): Promise<void> {
-    const abs = this.ctl.abs
+    const abs = this.ports.state.abs
     if (!abs) return
     const pe = this.parseError()
-    const line = Math.max(0, (this.ctl.st?.conflict?.line ?? pe?.line ?? 1) - 1), col = Math.max(0, (pe?.col ?? 1) - 1)
+    const line = Math.max(0, (this.ports.state.st?.conflict?.line ?? pe?.line ?? 1) - 1), col = Math.max(0, (pe?.col ?? 1) - 1)
     const at = new vscode.Selection(line, col, line, col)
     const ed = await vscode.window.showTextDocument(vscode.Uri.file(abs), { preview: false, selection: at })
     ed.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter)
@@ -36,17 +36,17 @@ export class InvalidFile {
 
   /** Keep both answers: each question once, from the side with more graded answers. */
   async keepBoth(): Promise<void> {
-    const ctl = this.ctl, abs = ctl.abs
+    const ports = this.ports, abs = ports.state.abs
     if (!abs) return
     const text = fs.readFileSync(abs, 'utf8')
-    const c = ctl.cli.conflictOf(text)
+    const c = ports.cli.conflictOf(text)
     if (!c?.merged) { await this.open(); return }
-    const kept = keepFlags(c.merged, ctl.cli.conflictSides(text).map(parseCheck))
+    const kept = keepFlags(c.merged, ports.cli.conflictSides(text).map(parseCheck))
     // Not relocated (save() would): the merged questions keep the lines their sides gave them.
-    ctl.cli.writeCheck(abs, ctl.cli.stamp(c.merged, ctl.cli.loadConfig(ctl.repo!)))
-    ctl.said = `Both answers kept.${kept.length ? ` Question ${kept.join(', ')}: its concern stays flagged (one side flagged it).` : ''}`
-    ctl.log.info(`merge conflict in ${ctl.st?.file} resolved: both answers kept${kept.length ? `; flags kept on ${kept.join(', ')}` : ''}`)
-    await ctl.refresh()
+    ports.cli.writeCheck(abs, ports.cli.stamp(c.merged, ports.cli.loadConfig(ports.state.repo!)))
+    ports.state.say(`Both answers kept.${kept.length ? ` Question ${kept.join(', ')}: its concern stays flagged (one side flagged it).` : ''}`)
+    ports.log.info(`merge conflict in ${ports.state.st?.file} resolved: both answers kept${kept.length ? `; flags kept on ${kept.join(', ')}` : ''}`)
+    await ports.refresh()
   }
 }
 

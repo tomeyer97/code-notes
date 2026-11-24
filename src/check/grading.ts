@@ -7,11 +7,21 @@ import type { Note } from '../notes/store'
 import type { Attempt, ParsedVerdict, Question } from './types'
 import { sameQuestion } from './threadLink'
 import { costOf } from './log'
-import type { CheckController } from './controller'
+import type { CliThread } from './cliThread'
+import type { CheckHost } from './host'
+import type { CheckCore } from './state'
+import type { CheckThreads } from './threads'
 import { fireAndForget, showError } from '../platform/run'
 
 /** Why a grade failed: the error's words, and its kind when the extension knows it. */
 export interface GradeError { message: string; kind?: AskErrorKind }
+
+/** What the grader needs: the check's core, Claude, the notes, the CLI's worker (diffs) and the question threads. */
+export interface GraderPorts extends CheckCore {
+  host: Pick<CheckHost, 'addReply' | 'allowed' | 'cli' | 'model' | 'now' | 'refresh'>
+  worker: Pick<CliThread, 'api'>
+  threads: Pick<CheckThreads, 'noteOf' | 'graded'>
+}
 
 export class Grader {
   /** Questions being graded now (by id; the Ask once Claude runs). */
@@ -21,9 +31,9 @@ export class Grader {
   /** Questions whose answer is being taken: "Checking…" from the first moment. */
   readonly answering = new Set<string>()
 
-  constructor(private ctl: CheckController) {}
+  constructor(private ports: GraderPorts) {}
 
-  private get host() { return this.ctl.host }
+  private get host() { return this.ports.host }
 
   /** Being graded, or its answer being taken. */
   busy(id: string): boolean { return this.grading.has(id) || this.answering.has(id) }
@@ -38,24 +48,24 @@ export class Grader {
     // One answer at a time per question: a second Ctrl+Enter meanwhile is not a second answer.
     if (this.answering.has(link.q)) return false
     this.answering.add(link.q)
-    this.ctl.post()
+    this.ports.post()
     this.host.refresh()
     try {
       return await this.take(n, link, body)
     } finally {
       this.answering.delete(link.q)
-      this.ctl.post()
+      this.ports.post()
       this.host.refresh()
     }
   }
   private async take(n: Note, link: { file: string; q: string }, body: string): Promise<boolean> {
-    const ctl = this.ctl
+    const ports = this.ports
     // Gated: reads git again only if something changed (the check file is read below anyway).
-    await ctl.refresh(false)
-    const abs = path.join(ctl.repo!, link.file)
+    await ports.refresh(false)
+    const abs = path.join(ports.state.repo!, link.file)
     let check
     try {
-      check = ctl.cli.readCheck(abs)
+      check = ports.cli.readCheck(abs)
     } catch {
       fireAndForget(showError(`${link.file} can't be read.`), 'grading: showError')
       return false
@@ -64,17 +74,17 @@ export class Grader {
     // Only an answer to the question as it was shown: the file may have been rewritten since.
     if (!q || !sameQuestion(n, q)) {
       fireAndForget(vscode.window.showWarningMessage('This question changed: reopen it from the Check view.'), 'grading: window.showWarningMessage')
-      await ctl.refresh()
+      await ports.refresh()
       return false
     }
-    const state = ctl.cli.stateOf(q)
+    const state = ports.cli.stateOf(q)
     // Passed: a remark, not graded. Explained: a restatement, graded against the explanation.
     if (state === 'pass' || state === 'restated') return this.host.addReply(n, body)
     if (this.grading.has(q.id)) return false
     // The thread first: a refresh between the two then finds the answer there already (no second copy).
     if (!(await this.host.addReply(n, body))) return false
-    ctl.cli.addAttempt(check, q, body, ctl.who)
-    ctl.save(abs, check)
+    ports.cli.addAttempt(check, q, body, ports.state.who)
+    ports.save(abs, check)
     // Not awaited: the reply box clears once the answer is in (VS Code clears it when the command returns).
     fireAndForget(this.grade(q.id), 'grading: grade')
     return true
@@ -82,18 +92,18 @@ export class Grader {
 
   /** Grades a question's latest answer with Claude (read-only), writes the verdict, replies in the thread. */
   async grade(id: string): Promise<void> {
-    const ctl = this.ctl, repo = ctl.repo
-    if (!repo || !ctl.st?.exists || this.grading.has(id)) return
-    const abs = ctl.abs!
-    const n = ctl.threads.noteOf(id)
+    const ports = this.ports, repo = ports.state.repo
+    if (!repo || !ports.state.st?.exists || this.grading.has(id)) return
+    const abs = ports.state.abs!
+    const n = ports.threads.noteOf(id)
     if (n) {
       this.errors.delete(n.data.id)
-      ctl.threads.graded.add(n.data.id)
+      ports.threads.graded.add(n.data.id)
     }
     if (!this.host.allowed('grade answers')) return
     const fail = (e: GradeError) => {
       if (n) this.errors.set(n.data.id, e)
-      this.ctl.log.error(`${id}: ${e.message}`)
+      this.ports.log.error(`${id}: ${e.message}`)
     }
     const claude = this.host.cli()
     if (!claude) {
@@ -101,25 +111,25 @@ export class Grader {
       this.host.refresh()
       return
     }
-    const check = ctl.cli.readCheck(abs)
+    const check = ports.cli.readCheck(abs)
     const q = check.questions.find((x) => x.id === id)
     const last = q?.attempts?.at(-1)
     if (!q || !last) return
-    const mode = ctl.cli.gradeMode(q)
+    const mode = ports.cli.gradeMode(q)
     // Graded from here on (a second click while the diff is read starts nothing).
     this.grading.set(id, undefined)
     let diff = ''
     try {
-      diff = await ctl.worker.api.diffText(repo, check.base ?? check.head)
+      diff = await ports.worker.api.diffText(repo, check.base ?? check.head)
     } catch { /* no diff: the grader reads the code */ }
-    const prompt = ctl.cli.graderPrompt({
+    const prompt = ports.cli.graderPrompt({
       q, answer: last.answer ?? '', ...mode,
-      diff: ctl.cli.diffForGrader(diff, q.file), code: ctl.cli.codeWindow(repo, q), canRead: true,
-      tour: ctl.cli.tourText(check), others: ctl.cli.openOthers(check, q),
+      diff: ports.cli.diffForGrader(diff, q.file), code: ports.cli.codeWindow(repo, q), canRead: true,
+      tour: ports.cli.tourText(check), others: ports.cli.openOthers(check, q),
     })
     const ask = Ask.start({ cli: claude, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
-    ctl.post()
+    ports.post()
     this.host.refresh()
     const res = await ask.done
     this.grading.delete(id)
@@ -128,7 +138,7 @@ export class Grader {
       if (res.error) { fail({ message: res.error, kind: res.errorKind }); return }
       let v: ParsedVerdict
       try {
-        v = ctl.cli.parseVerdict(res.text, mode.attempt, { restate: mode.explanation !== undefined })
+        v = ports.cli.parseVerdict(res.text, mode.attempt, { restate: mode.explanation !== undefined })
       } catch (e) {
         fail({ message: (e as Error).message })
         return
@@ -136,9 +146,9 @@ export class Grader {
       if (!this.applyVerdict(abs, id, last, v, res)) return
       // The grade reaches the thread through the threads' sync. The editor stays on this question: the feedback is
       // the lesson. Moving on is the person's: "Next question ›" under the grade, or Ctrl+' D.
-      await ctl.refresh()
+      await ports.refresh()
     } finally {
-      ctl.post()
+      ports.post()
       this.host.refresh()
     }
   }
@@ -148,17 +158,17 @@ export class Grader {
    * again, and the verdict goes only to the same answer, still ungraded and still the latest. False when it is gone.
    */
   private applyVerdict(abs: string, id: string, last: Attempt, v: ParsedVerdict, res: AskResult): boolean {
-    const ctl = this.ctl
-    const check = ctl.cli.readCheck(abs)
+    const ports = this.ports
+    const check = ports.cli.readCheck(abs)
     const q: Question | undefined = check.questions.find((x) => x.id === id)
     const latest = q?.attempts?.at(-1)
     const a = latest?.answer === last.answer && !latest?.verdict ? latest : undefined
     if (!q || !a) return false
     // As the CLI records a grade: links to lines that are really there (the words stay either way), the time, the hash,
     // one concern per question kept on it (its flag survives a later grade).
-    ctl.cli.recordGrade(ctl.repo!, q, a, v, this.host.now())
-    ctl.save(abs, check)
-    this.ctl.log.info(`${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${costOf(res)}`)
+    ports.cli.recordGrade(ports.state.repo!, q, a, v, this.host.now())
+    ports.save(abs, check)
+    this.ports.log.info(`${id} ${v.verdict}${v.concern ? ' (concern)' : ''}${costOf(res)}`)
     return true
   }
 }

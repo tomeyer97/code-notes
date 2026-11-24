@@ -10,27 +10,33 @@ import { Attempt, Check, notDone, Question } from './types'
 import { gradeBody, missingMessages, questionBody, showsGrade } from './threadText'
 import { AUTHOR, SESSION } from './constants'
 import { linkOf, sameQuestion, textHash } from './threadLink'
-import type { CheckController } from './controller'
+import type { CheckHost } from './host'
+import type { CheckCore } from './state'
 
 type Messages = NoteData['messages']
+
+/** What the threads need: the state, the CLI's question states, and the notes. */
+export interface ThreadsPorts extends Pick<CheckCore, 'state' | 'cli'> {
+  host: Pick<CheckHost, 'changed' | 'me' | 'newId' | 'now' | 'refresh' | 'store'>
+}
 
 export class CheckThreads {
   /** Check threads graded in this window: they stay open where they are (the reply is read next to the code). */
   readonly graded = new Set<string>()
 
-  constructor(private ctl: CheckController) {}
+  constructor(private ports: ThreadsPorts) {}
 
-  private get host() { return this.ctl.host }
+  private get host() { return this.ports.host }
 
   /** The thread of question `id` of the check checked out now. */
   noteOf(id: string): Note | undefined {
-    const file = this.ctl.st?.file
+    const file = this.ports.state.st?.file
     return this.host.store.all().find((n) => linkOf(n)?.q === id && linkOf(n)?.file === file)
   }
 
   /** Brings every thread of `check` in line with it (see the top of this file). */
   async sync(check: Check): Promise<void> {
-    const file = this.ctl.st!.file
+    const file = this.ports.state.st!.file
     for (const n of this.host.store.all().filter((x) => linkOf(x)?.file === file)) {
       const q = check.questions.find((x) => x.id === linkOf(n)!.q)
       if (!q || !sameQuestion(n, q)) {
@@ -49,7 +55,7 @@ export class CheckThreads {
       if (!missing.length) continue
       n.data.messages.push(...missing.map((m) => ({ ...m, at: m.at ?? this.host.now() })))
       // Done: resolved quietly (the ✓ in the thread says it; no "Resolved" line under it).
-      if (!notDone(this.ctl.cli.stateOf(q)) && n.data.status === 'open') n.data.status = 'resolved'
+      if (!notDone(this.ports.cli.stateOf(q)) && n.data.status === 'open') n.data.status = 'resolved'
       if (await this.host.store.save(n)) await this.host.changed(n, false)
     }
   }
@@ -106,7 +112,7 @@ export class CheckThreads {
 
   /** A new thread for question `q` on its lines (found again by its anchor when the code moved). */
   private async create(q: Question, messages: Messages): Promise<void> {
-    const ctl = this.ctl, folder = ctl.folder!
+    const ports = this.ports, folder = ports.state.folder!
     let lines: string[]
     try { lines = fs.readFileSync(path.join(folder.uri.fsPath, q.file), 'utf8').split(/\r?\n/) } catch { return /* its file is gone */ }
     let start = q.start ?? 1, end = q.end ?? start
@@ -118,16 +124,16 @@ export class CheckThreads {
     end = clamp(end, start, lines.length)
     const at = this.host.now()
     const id = this.host.newId()
-    const done = !notDone(ctl.cli.stateOf(q))
+    const done = !notDone(ports.cli.stateOf(q))
     const n: Note = {
       folder, uri: this.host.store.uriFor(folder, id),
       data: {
         id, file: q.file, range: { start, end },
         anchor: q.target ? { text: '', before: '', after: '' } : captureAnchor(lines, start - 1, end - 1),
-        session: SESSION(ctl.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
+        session: SESSION(ports.state.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
         messages: messages.map((m) => ({ ...m, at: m.at ?? at })),
         ...(q.target ? { target: 'file' as const } : {}),
-        extra: { check: { file: ctl.st!.file, q: q.id, h: textHash(q) } },
+        extra: { check: { file: ports.state.st!.file, q: q.id, h: textHash(q) } },
       },
     }
     if (await this.host.store.save(n)) await this.host.changed(n, true)

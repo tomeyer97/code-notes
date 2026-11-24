@@ -2,6 +2,17 @@
 // in it (who flagged it, who fixed it). No vscode API here (unit-tested in test/checkModel.test.ts).
 import type { Question, Who } from './types'
 
+/** What can be done about a concern: Suggest a fix, Add a TODO, Flag for review, Dismiss, and marked fixed (a push). */
+export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'
+/** The actions the Check view's buttons send. */
+export const VIEW_CONCERN_ACTIONS: readonly ConcernAction[] = ['fix', 'todo', 'flag', 'dismiss']
+/** Every ConcernAction (the codeNotes.checkConcern command takes any of them). */
+const CONCERN_ACTIONS: readonly ConcernAction[] = [...VIEW_CONCERN_ACTIONS, 'fixed']
+/** A command's argument read as a ConcernAction. */
+export const isConcernAction = (a: unknown): a is ConcernAction => CONCERN_ACTIONS.includes(a as ConcernAction)
+/** One of the Check view's concern buttons. */
+export const isViewConcernAction = (a: unknown): a is ConcernAction => VIEW_CONCERN_ACTIONS.includes(a as ConcernAction)
+
 /**
  * A question's concern: the one stored on it (found while grading), else the question's own "may be a bug", shown
  * only once it has been answered (before, it would give the answer away).

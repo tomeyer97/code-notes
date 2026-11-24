@@ -9,7 +9,8 @@ import { Ask, AskResult } from '../platform/agent/claude'
 import { gitOut, statusPaths } from '../platform/git'
 import { clock } from '../core/writing'
 import { DEFAULT_MODEL_LABEL, ORPHAN_MAX_MS, SKILL, TICK_MS, WRITING_KEY } from './constants'
-import type { CheckController } from './controller'
+import type { CheckHost } from './host'
+import type { CheckCore } from './state'
 import { writeFailure } from './failures'
 import { costOf } from './log'
 import { checkPhase, checkPrompt, tourPrompt } from './prompts'
@@ -22,6 +23,24 @@ import { STATE } from '../platform/state'
 interface Run { started: number; phase: string; branch: string; ask?: Ask }
 /** Claude Code (`claude`) asked `prompt` with a model, for run `run` (its phase follows what Claude does). */
 interface SkillRun { claude: string; prompt: string; model: string | undefined; run: Run }
+
+/** What the writer needs: the check's core, Claude, and the controller's and the other parts' few calls. */
+export interface WriterPorts extends Pick<CheckCore, 'state' | 'cli' | 'log' | 'refresh' | 'post'> {
+  host: Pick<CheckHost, 'allowed' | 'cli' | 'extUri' | 'journeySkill' | 'model' | 'stored' | 'walkTour'>
+  /** cli/understanding.mjs's path (the skills' scripts get it as UNDERSTANDING_CLI). */
+  cliPath: string
+  refreshSoon(ms: number): void
+  /** The status bar says the questions are being written. */
+  showWritingItem(): void
+  /** The Check view shown. */
+  show(): void
+  /** The first question not done yet opened. */
+  openNext(): Promise<void>
+  /** Commit & push is running. */
+  pushing(): boolean
+  /** The questions written for `branch` moved out of a working tree that has another branch now (park.ts). */
+  park(branch: string): Promise<boolean>
+}
 
 export class Writer {
   /** The questions being written now. */
@@ -39,25 +58,25 @@ export class Writer {
   /** One line about what the questions left out, for this branch. */
   notice: { branch: string; text: string } | undefined
   /** Nothing of the change was committed when Start was asked for (Commit…): the check starts once it is (branch). */
-  startAfterCommit: string | undefined
+  private startAfterCommit: string | undefined
   /** Ticks the view while questions written before a reload are still being written. */
   private orphanTimer: NodeJS.Timeout | undefined
 
-  constructor(private ctl: CheckController) {}
+  constructor(private ports: WriterPorts) {}
 
-  private get host() { return this.ctl.host }
+  private get host() { return this.ports.host }
 
   /** Claude writes the questions with the skill, for the branch checked out now; then question 1 opens. */
   async write(topUp: boolean, o: { background?: boolean } = {}): Promise<boolean> {
-    const ctl = this.ctl, st = ctl.st!
+    const ports = this.ports, st = ports.state.st!
     const bg = !!o.background
-    if (this.writing) { if (!bg) ctl.show(); return false }
+    if (this.writing) { if (!bg) ports.show(); return false }
     const ask = await this.preflight(st, topUp, bg)
     if (!ask) return false
     const w: Run = (this.writing = { started: Date.now(), phase: 'starting', branch: st.branch })
-    ctl.showWritingItem()
+    ports.showWritingItem()
     const how = `${topUp ? 'topping up' : 'writing'} the questions for ${st.branch}${bg ? ' in the background' : ''}`
-    ctl.log.info(`Claude (${ask.model ?? 'default model'}) is ${how}`)
+    ports.log.info(`Claude (${ask.model ?? 'default model'}) is ${how}`)
     let res: AskResult
     try {
       const run = { ...ask, run: w }
@@ -68,7 +87,7 @@ export class Writer {
     }
     const before = st.check?.questions.length ?? 0
     if (await this.branchSwitched(w, bg)) return false
-    await ctl.refresh()
+    await ports.refresh()
     if (res.cancelled) return false
     return this.finish(res, { w, topUp, bg, before, model: ask.model })
   }
@@ -93,7 +112,7 @@ export class Writer {
       // Said in the view (install it, or set its path); the prompt is on the clipboard for another agent.
       await vscode.env.clipboard.writeText(prompt)
       this.failed = { branch: st.branch, topUp, text: "Claude Code wasn't found.", path: true }
-      this.ctl.post()
+      this.ports.post()
       return undefined
     }
     return { claude, prompt, dir, model: this.host.model() }
@@ -105,14 +124,14 @@ export class Writer {
    * nothing opens, nothing is written to the branch checked out now.
    */
   private async branchSwitched(w: Run, bg: boolean): Promise<boolean> {
-    const ctl = this.ctl, repo = ctl.repo!
+    const ports = this.ports, repo = ports.state.repo!
     const now = await gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
     if (!now || now === w.branch) return false
-    await ctl.parking.park(w.branch)
-    const kept = fs.existsSync(path.join(repo, ctl.cli.cachedFor(w.branch)))
+    await ports.park(w.branch)
+    const kept = fs.existsSync(path.join(repo, ports.cli.cachedFor(w.branch)))
     if (kept && !bg) fireAndForget(vscode.window.showInformationMessage(`Questions for ${w.branch} are ready: switch back to answer them.`), 'writer: window.showInformationMessage')
-    ctl.log.info(`the branch changed to ${now} while writing for ${w.branch}${kept ? '; kept for it' : ''}`)
-    await ctl.refresh()
+    ports.log.info(`the branch changed to ${now} while writing for ${w.branch}${kept ? '; kept for it' : ''}`)
+    await ports.refresh()
     return true
   }
 
@@ -121,32 +140,32 @@ export class Writer {
    * else question 1 opens (in the background: the status bar counts them) and the tour is written next.
    */
   private async finish(res: AskResult, o: { w: Run; topUp: boolean; bg: boolean; before: number; model: string | undefined }): Promise<boolean> {
-    const ctl = this.ctl, { w, topUp, bg, before } = o
+    const ports = this.ports, { w, topUp, bg, before } = o
     const fail = (f: { text: string; setting?: boolean }, detail: string) => {
-      ctl.log.error(`no questions for ${w.branch}: ${detail}`)
+      ports.log.error(`no questions for ${w.branch}: ${detail}`)
       if (!bg) {
         this.failed = { branch: w.branch, topUp, ...f }
-        ctl.post()
+        ports.post()
       }
       return false
     }
     if (res.error) return fail(writeFailure({ error: res.error, errorKind: res.errorKind, model: o.model }), res.error)
-    const after = ctl.st?.check?.questions.length ?? 0
+    const after = ports.state.st?.check?.questions.length ?? 0
     if (after <= before) return fail(writeFailure({ text: res.text }), res.text.trim().split('\n').slice(-1)[0] ?? '')
     this.failed = undefined
-    ctl.log.info(`${after - before} questions written${took(w, res)}`)
+    ports.log.info(`${after - before} questions written${took(w, res)}`)
     // Then the tour, in the same session (the change is read already); the questions can be answered meanwhile. It
     // starts once question 1 is open (its thread has the keyboard before anything else is drawn).
     const tour = () => fireAndForget(this.writeTour(topUp, { session: res.sessionId, background: bg }), 'writer: writeTour')
     // In the background: the status bar says so; nothing opens until the person clicks.
     if (bg) {
       this.ready = after - before
-      await ctl.refresh()
+      await ports.refresh()
       tour()
       return true
     }
     // Only the first question opens: its code and its thread. The list is in the Check view.
-    await ctl.openNext()
+    await ports.openNext()
     tour()
     return true
   }
@@ -162,24 +181,24 @@ export class Writer {
    * the Check view says "Writing the tour · 1:20"; the questions stay open meanwhile. `topUp`: steps for the new part.
    */
   async writeTour(topUp: boolean, o: { session?: string; background?: boolean } = {}): Promise<boolean> {
-    const ctl = this.ctl, repo = ctl.repo, check = ctl.st?.check
+    const ports = this.ports, repo = ports.state.repo, check = ports.state.st?.check
     if (!repo || !check || this.touring) return false
     if (!this.trusted(o.background, 'write the tour of your change')) return false
     const claude = this.host.cli()
     const js = this.host.journeySkill()
     if (!claude || !js) {
-      ctl.log.info(`no tour (${!claude ? 'no claude CLI' : 'no code-journey skill'})`)
+      ports.log.info(`no tour (${!claude ? 'no claude CLI' : 'no code-journey skill'})`)
       return false
     }
     const { dir, bundled } = this.skill()
     const model = this.host.model()
     const before = check.journey?.steps.length ?? 0
-    const branch = ctl.st!.branch
+    const branch = ports.state.st!.branch
     const t: NonNullable<Writer['touring']> = (this.touring = { started: Date.now(), phase: 'starting', branch, session: o.session, topUp })
     this.tourFailed = undefined
-    ctl.post()
-    const timer = setInterval(() => ctl.post(), TICK_MS)
-    this.ctl.log.info(`Claude (${model ?? 'default model'}) is writing the tour of ${branch}${o.session ? ' (same session)' : ''}`)
+    ports.post()
+    const timer = setInterval(() => ports.post(), TICK_MS)
+    this.ports.log.info(`Claude (${model ?? 'default model'}) is writing the tour of ${branch}${o.session ? ' (same session)' : ''}`)
     let res: AskResult
     try {
       const ask = this.askSkill({
@@ -193,25 +212,25 @@ export class Writer {
       clearInterval(timer)
       this.touring = undefined
     }
-    await ctl.refresh()
+    await ports.refresh()
     if (res.cancelled || t.paused) return false
-    const after = ctl.st?.check?.journey?.steps.length ?? 0
+    const after = ports.state.st?.check?.journey?.steps.length ?? 0
     // Documentation that describes no code: no tour, on purpose.
-    if (!res.error && !before && ctl.st?.check?.noTour) {
-      this.ctl.log.info(`no tour for ${branch}: the text describes no code`)
-      ctl.post()
+    if (!res.error && !before && ports.state.st?.check?.noTour) {
+      this.ports.log.info(`no tour for ${branch}: the text describes no code`)
+      ports.post()
       return true
     }
     if (res.error || after <= before) {
       // A short reason; Claude's own reply (it may talk to someone who isn't there) only in the debug log.
-      this.ctl.log.error(`no tour for ${branch}: ${res.error ? res.error.split('\n')[0].slice(0, 160) : 'Claude wrote none'}`)
-      if (!res.error) this.ctl.log.debug(`the tour writer said: ${res.text.trim().slice(-400)}`)
+      this.ports.log.error(`no tour for ${branch}: ${res.error ? res.error.split('\n')[0].slice(0, 160) : 'Claude wrote none'}`)
+      if (!res.error) this.ports.log.debug(`the tour writer said: ${res.text.trim().slice(-400)}`)
       this.tourFailed = branch
-      ctl.post()
+      ports.post()
       return false
     }
-    ctl.log.info(`tour written (${after - before} steps)${took(t, res)}`)
-    if (!o.background && ctl.st?.state.phase !== 'done') {
+    ports.log.info(`tour written (${after - before} steps)${took(t, res)}`)
+    if (!o.background && ports.state.st?.state.phase !== 'done') {
       const offer = vscode.window.showInformationMessage('The tour of your change is ready.', 'Walk it')
       fireAndForget(offer.then((b) => { if (b) fireAndForget(this.host.walkTour(), 'writer: host.walkTour') }), 'writer: offer.then')
     }
@@ -224,9 +243,9 @@ export class Writer {
    */
   private askSkill(o: SkillRun & { dirs: string[]; resume?: string; env?: Record<string, string>; onPhase?: () => void }): Ask {
     const ask = Ask.start({
-      cli: o.claude, cwd: this.ctl.repo!, prompt: o.prompt, model: o.model, resume: o.resume,
+      cli: o.claude, cwd: this.ports.state.repo!, prompt: o.prompt, model: o.model, resume: o.resume,
       extraTools: o.dirs.map((d) => `Bash(${d}/scripts/*)`), addDirs: o.dirs,
-      env: { UNDERSTANDING_CLI: this.ctl.cliPath, UNDERSTANDING_MODEL_LABEL: o.model ?? DEFAULT_MODEL_LABEL, ...o.env },
+      env: { UNDERSTANDING_CLI: this.ports.cliPath, UNDERSTANDING_MODEL_LABEL: o.model ?? DEFAULT_MODEL_LABEL, ...o.env },
       onProgress: (p) => {
         const ph = checkPhase(p.tool, o.run.phase)
         if (ph === o.run.phase) return
@@ -250,7 +269,7 @@ export class Writer {
     return Promise.resolve(vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
       const tick = () => {
         progress.report({ message: `${clock(Date.now() - w.started)} · ${w.phase}` })
-        this.ctl.post()
+        this.ports.post()
       }
       const ask = this.askSkill({ ...o, dirs: [o.dir], onPhase: tick })
       this.remember(w)
@@ -266,7 +285,7 @@ export class Writer {
   /** Questions for this branch still being written by a Claude Code started before the window was reloaded. */
   orphan(): { started: number } | undefined {
     const o = this.host.stored.get(STATE.checkWriting)
-    const st = this.ctl.st
+    const st = this.ports.state.st
     if (!o || !st || o.branch !== st.branch || !o.pid || Date.now() - o.started > ORPHAN_MAX_MS) return undefined
     try {
       process.kill(o.pid, 0)
@@ -279,21 +298,21 @@ export class Writer {
   private watchOrphan(): void {
     if (this.orphanTimer) return
     this.orphanTimer = setInterval(() => {
-      if (this.orphan()) { this.ctl.post(); return }
+      if (this.orphan()) { this.ports.post(); return }
       clearInterval(this.orphanTimer)
       this.orphanTimer = undefined
-      this.ctl.refreshSoon(0)
+      this.ports.refreshSoon(0)
     }, TICK_MS)
   }
 
   /** "Writing questions · 0:42 · reading the change" (or for another branch, or an orphan's), else "Pushing…". */
   busy(): string | undefined {
-    const st = this.ctl.st!, w = this.writing
+    const st = this.ports.state.st!, w = this.writing
     if (w && w.branch === st.branch) return `${busyLabel('Writing questions', w.started)} · ${w.phase}`
     // Writing for another branch (switched meanwhile): said with its name, never as this branch's progress.
     if (w) return busyLabel(`Writing questions for ${w.branch}`, w.started)
     const orphan = st.state.phase === 'none' ? this.watchedOrphan() : undefined
-    if (this.ctl.push.pushing) return 'Pushing…'
+    if (this.ports.pushing()) return 'Pushing…'
     return orphan ? busyLabel('Writing questions', orphan.started) : undefined
   }
   /** The orphan (see orphan()), if any; while there is one, the view ticks until it is gone (watchOrphan). */
@@ -305,29 +324,37 @@ export class Writer {
   /** "Writing the tour · 1:20", while the tour of this branch is written. */
   tourBusy(): string | undefined {
     const t = this.touring
-    return t && t.branch === this.ctl.st?.branch ? busyLabel('Writing the tour', t.started) : undefined
+    return t && t.branch === this.ports.state.st?.branch ? busyLabel('Writing the tour', t.started) : undefined
   }
 
   /** The tour reads the code checked out: another branch stops it (its check is left as it was); back, it goes on. */
   followBranch(): void {
-    const st = this.ctl.st, t = this.touring
+    const st = this.ports.state.st, t = this.touring
     if (t && st && st.branch !== t.branch && !t.paused) {
       t.paused = true
       this.tourPaused = { branch: t.branch, session: t.session, topUp: t.topUp }
-      this.ctl.log.info(`tour paused: the branch changed to ${st.branch}`)
+      this.ports.log.info(`tour paused: the branch changed to ${st.branch}`)
       t.ask?.cancel()
     }
     const p = this.tourPaused
     if (p && !this.touring && st?.branch === p.branch && st.check) {
       this.tourPaused = undefined
-      this.ctl.log.info(`back on ${p.branch}: the tour goes on`)
+      this.ports.log.info(`back on ${p.branch}: the tour goes on`)
       setTimeout(() => fireAndForget(this.writeTour(p.topUp, { session: p.session }), 'writer: writeTour'), 0)
     }
   }
+  /** Commit… asked for while nothing of the change on `branch` is committed: the questions are written once it is. */
+  startOnceCommitted(branch: string): void { this.startAfterCommit = branch }
+  /** Retry after writing the questions failed: the same kind of run (a top-up or a start). */
+  retry(): Promise<boolean> {
+    const topUp = !!this.failed?.topUp
+    this.failed = undefined
+    return this.write(topUp)
+  }
   /** Commit… was asked for before the start: once the change is committed (no check yet), the questions are written. */
   startIfCommitted(): void {
-    const st = this.ctl.st
-    if (this.startAfterCommit && this.startAfterCommit === st?.branch && st.state.phase === 'none' && !this.ctl.uncommittedOnly && !this.writing) {
+    const st = this.ports.state.st
+    if (this.startAfterCommit && this.startAfterCommit === st?.branch && st.state.phase === 'none' && !this.ports.state.uncommittedOnly && !this.writing) {
       this.startAfterCommit = undefined
       setTimeout(() => fireAndForget(this.write(false), 'writer: write'), 0)
     }
@@ -336,7 +363,7 @@ export class Writer {
   /** The skill: the repository's copy, the home folder's, else the one inside the extension. */
   private skill(): { dir: string; bundled: boolean } {
     const bundled = vscode.Uri.joinPath(this.host.extUri, 'skills', SKILL).fsPath
-    const dirs = [path.join(this.ctl.repo!, '.claude/skills', SKILL), path.join(os.homedir(), '.claude/skills', SKILL), bundled]
+    const dirs = [path.join(this.ports.state.repo!, '.claude/skills', SKILL), path.join(os.homedir(), '.claude/skills', SKILL), bundled]
     const dir = dirs.find((d) => fs.existsSync(path.join(d, 'scripts', 'questions.mjs')))!
     return { dir, bundled: dir === bundled }
   }
@@ -351,8 +378,8 @@ export class Writer {
    * about (uncommitted): refunds.js, scratch.js". The check's own files don't count.
    */
   private async loose(): Promise<string | undefined> {
-    const out = await gitOut(this.ctl.repo!, ['status', '--porcelain=v2', '-z', '--untracked-files=all'], true)
-    const files = statusPaths(out ?? '').filter((f) => !this.ctl.cli.own(f))
+    const out = await gitOut(this.ports.state.repo!, ['status', '--porcelain=v2', '-z', '--untracked-files=all'], true)
+    const files = statusPaths(out ?? '').filter((f) => !this.ports.cli.own(f))
     return files.length ? `Not asked about (uncommitted): ${files.map((f) => path.basename(f)).join(', ')}` : undefined
   }
 }

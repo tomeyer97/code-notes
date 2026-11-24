@@ -4,32 +4,35 @@
 import * as vscode from 'vscode'
 import type { Note } from '../notes/store'
 import { Check, Question } from './types'
-import { concernOf, samePerson, settledConcern, whoOf } from './concernState'
+import { concernOf, samePerson, settledConcern, whoOf, type ConcernAction } from './concernState'
 import { commentMark, todoLines, todoPlace } from './todoComment'
 import { gitOut } from '../platform/git'
 import { docLines } from '../platform/documents'
-import type { CheckController } from './controller'
+import type { CheckHost } from './host'
+import type { Pusher } from './push'
+import type { CheckCore } from './state'
 
-export type ConcernAction = 'fix' | 'todo' | 'flag' | 'dismiss' | 'fixed'
-/** The actions the Check view's buttons send. */
-export const VIEW_CONCERN_ACTIONS: ConcernAction[] = ['fix', 'todo', 'flag', 'dismiss']
-/** Every ConcernAction (the codeNotes.checkConcern command takes any of them). */
-const CONCERN_ACTIONS: readonly ConcernAction[] = [...VIEW_CONCERN_ACTIONS, 'fixed']
-export const isConcernAction = (a: unknown): a is ConcernAction => CONCERN_ACTIONS.includes(a as ConcernAction)
+export { isConcernAction, VIEW_CONCERN_ACTIONS, type ConcernAction } from './concernState'
 
 /** A concern as shown: its question and what concernOf says. */
 type Shown = { q: Question; c: NonNullable<ReturnType<typeof concernOf>> }
 
-export class Concerns {
-  constructor(private ctl: CheckController) {}
+/** What the concerns need: the check's core, the notes (Suggest a fix asks Claude), and Commit & push's plan. */
+export interface ConcernsPorts extends Pick<CheckCore, 'state' | 'cli' | 'refresh' | 'save'> {
+  host: Pick<CheckHost, 'askAbout' | 'now' | 'refresh'>
+  push: Pick<Pusher, 'commit'>
+}
 
-  private get host() { return this.ctl.host }
+export class Concerns {
+  constructor(private ports: ConcernsPorts) {}
+
+  private get host() { return this.ports.host }
 
   /** `action` on the concern of thread `n`'s question; `given`: a dismissal's reason (no prompt). */
   async act(n: Note, action: ConcernAction, given?: string): Promise<void> {
-    const q = this.ctl.questionOf(n)
+    const q = this.ports.state.questionOf(n)
     const c = q && concernOf(q)
-    if (!q || !c || !this.ctl.repo) return
+    if (!q || !c || !this.ports.state.repo) return
     const shown = { q, c }
     if (action === 'fix') return this.suggestFix(n, shown)
     if (action === 'todo') return this.addTodo(n, shown)
@@ -41,13 +44,13 @@ export class Concerns {
   /** A note on the code the concern names, asked to Claude for a short fix that Apply puts in. */
   private async suggestFix(n: Note, { q, c }: Shown): Promise<void> {
     const at = await this.concernAt(q, n)
-    await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id, ...this.ctl.branchOf(n) })
+    await this.host.askAbout(at.file, at.start, at.end, `Suggest a fix: ${c.suspect ? q.text : c.text}`, { checkFix: q.id, ...this.ports.state.branchOf(n) })
   }
 
   /** Above the code the concern names (else the question's first line); the whole concern, wrapped; said in the thread. */
   private async addTodo(n: Note, { q, c }: Shown): Promise<void> {
     const at = await this.concernAt(q, n)
-    const uri = vscode.Uri.joinPath(this.ctl.folder!.uri, at.file)
+    const uri = vscode.Uri.joinPath(this.ports.state.folder!.uri, at.file)
     const doc = await vscode.workspace.openTextDocument(uri)
     // Above the line, at its indentation (inside the block a "} catch {" line opens).
     const place = todoPlace(docLines(doc), Math.min(doc.lineCount - 1, Math.max(0, at.start - 1)))
@@ -56,7 +59,7 @@ export class Concerns {
     edit.insert(uri, new vscode.Position(place.line, 0), text)
     if (!(await vscode.workspace.applyEdit(edit))) return
     await doc.save()
-    await this.ctl.todos.set(this.ctl.st!.branch, q.id, { file: at.file, line: place.line + 1 })
+    await this.ports.state.todos.set(this.ports.state.st!.branch, q.id, { file: at.file, line: place.line + 1 })
     this.host.refresh()
   }
 
@@ -83,7 +86,7 @@ export class Concerns {
   /** Writes a dismissal (`reason`) or a fix (`fixed`) into the check file: by whom, when; no longer flagged. */
   private async settle(shown: Shown, how: { reason: string } | { fixed: true }): Promise<void> {
     await this.update(shown, (fq, text) => {
-      fq.concern = settledConcern(fq.concern, text, how, this.ctl.who, this.host.now())
+      fq.concern = settledConcern(fq.concern, text, how, this.ports.state.who, this.host.now())
     })
   }
 
@@ -92,7 +95,7 @@ export class Concerns {
     await this.update(shown, (fq, text, check) => {
       fq.concern = { ...(fq.concern ?? { text }), text: fq.concern?.text ?? text, flagged: !shown.c.flagged }
       // Flagged by someone other than the check's author: the merge request says who.
-      const me = this.ctl.who, author = check.answeredBy
+      const me = this.ports.state.who, author = check.answeredBy
       if (fq.concern.flagged && me && author && !samePerson(me, author)) fq.concern.by = whoOf(me)
       else delete fq.concern.by
     })
@@ -100,13 +103,13 @@ export class Concerns {
 
   /** Reads the check file, lets `change` edit the concern's question there (`text`: its words), saves, refreshes. */
   private async update({ q, c }: Shown, change: (fq: Question, text: string, check: Check) => void): Promise<void> {
-    const abs = this.ctl.abs!
-    const check = this.ctl.cli.readCheck(abs)
+    const abs = this.ports.state.abs!
+    const check = this.ports.cli.readCheck(abs)
     const fq = check.questions.find((x) => x.id === q.id)
     if (!fq) return
     change(fq, c.suspect ? q.text : c.text, check)
-    this.ctl.save(abs, check)
-    await this.ctl.refresh()
+    this.ports.save(abs, check)
+    await this.ports.refresh()
     this.host.refresh()
   }
 
@@ -116,7 +119,7 @@ export class Concerns {
    */
   private async concernAt(q: Question, n: Note): Promise<{ file: string; start: number; end: number }> {
     const thread = { file: n.data.file, start: n.data.range.start, end: n.data.range.end }
-    const l = this.ctl.cli.concernLink(q)
+    const l = this.ports.cli.concernLink(q)
     if (!l) return thread
     let start = l.start
     try {
@@ -131,7 +134,7 @@ export class Concerns {
 
   /** A file of the repository as an open document (unsaved edits included). */
   private document(file: string): Thenable<vscode.TextDocument> {
-    return vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.ctl.folder!.uri, file))
+    return vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.ports.state.folder!.uri, file))
   }
 
   /**
@@ -140,13 +143,13 @@ export class Concerns {
    * concernChanged, looks only at the named line, at a commit.)
    */
   private async changedSinceRaised(q: Question, n: Note): Promise<boolean> {
-    if (this.ctl.push.commit?.applied?.includes(q.id) || q.id in this.ctl.fixes.get(this.ctl.st?.branch)) return true
-    const l = this.ctl.cli.concernLink(q)
+    if (this.ports.push.commit?.applied?.includes(q.id) || q.id in this.ports.state.fixes.get(this.ports.state.st?.branch)) return true
+    const l = this.ports.cli.concernLink(q)
     try {
       if (l?.text && !docLines(await this.document(l.file)).includes(l.text)) return true
       const at = await this.concernAt(q, n)
-      const diff = await gitOut(this.ctl.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
-      return this.ctl.cli.hunksOf(diff ?? '').some((h) => h.start <= at.end && h.end >= at.start)
+      const diff = await gitOut(this.ports.state.repo!, ['diff', '-U0', 'HEAD', '--', at.file], true)
+      return this.ports.cli.hunksOf(diff ?? '').some((h) => h.start <= at.end && h.end >= at.start)
     } catch {
       return false
     }

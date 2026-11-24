@@ -8,35 +8,37 @@ import { registerCommands } from '../platform/registerCommands'
 import { hideNotes } from '../notes/visible'
 import { handleAsks } from '../ask/handlers'
 import { CheckController } from './controller'
-import { CheckPorts, useCheckPorts } from './ports'
-import { answerCheck, backToQuestion, checkAskHandler, checkConcern, checkHost, checkLinkNote, checkStepping, gradeCheck } from './wiring'
+import type { CheckPorts } from './ports'
+import { checkAskHandler, checkCommands, checkHost, checkLinks, checkStepping, followCheck } from './wiring'
 
 export interface CheckFeature {
   controller: CheckController
   /** A code link key of a check thread: its note and links; the way back to the question. */
-  links: { noteOf: typeof checkLinkNote; backToQuestion: typeof backToQuestion }
+  links: ReturnType<typeof checkLinks>
   /** The check's git work, watchers and first refresh (once everything else is shown). */
   start(): Promise<void>
 }
 
 export function activateCheck(context: vscode.ExtensionContext, ports: CheckPorts, steppers: Steppers): CheckFeature {
   const controller = new CheckController(checkHost(context.extensionUri, ports))
-  useCheckPorts({ ...ports, controller })
+  const commands = checkCommands(controller)
   context.subscriptions.push(
     controller,
+    // The journeys list, the map and the lenses follow the check.
+    controller.onDidChange(followCheck(ports)),
     // Another branch's questions are not listed (their lines belong to that branch).
     hideNotes((n) => controller.offBranch(n)),
     // Ask Claude on a check question asks about its code instead.
     handleAsks(checkAskHandler(controller)),
     // D / A outside a walk, while the check has open questions.
-    steppers.register(STEP_PRIORITY.check, { step: (dir) => checkStepping() && controller.step(dir) }),
+    steppers.register(STEP_PRIORITY.check, { step: (dir) => checkStepping(controller) && controller.step(dir) }),
   )
   registerCommands(context, {
     [Cmd.checkUnderstanding]: () => controller.run(),
     [HiddenCmd.nextCheckQuestion]: () => controller.step(1),
-    [Cmd.answerCheck]: answerCheck,
-    [Cmd.checkConcern]: checkConcern,
-    [Cmd.gradeCheck]: gradeCheck,
+    [Cmd.answerCheck]: commands.answerCheck,
+    [Cmd.checkConcern]: commands.checkConcern,
+    [Cmd.gradeCheck]: commands.gradeCheck,
   })
-  return { controller, links: { noteOf: checkLinkNote, backToQuestion }, start: () => controller.init() }
+  return { controller, links: checkLinks(controller, ports.tour), start: () => controller.init() }
 }
