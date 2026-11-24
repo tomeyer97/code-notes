@@ -12,13 +12,13 @@ import { Note } from './store'
 import { Anchor, anchorAt, docUri, neverAnchored, pathUri, placement, saveIfClean } from './location'
 import { locOf, range1Of, sameRange, withinLines } from './model/lines'
 import { notesChanged, notesModel } from './model'
-import { suggestionUndone, swapToUndone } from './suggestion'
+import { foundByAlternate, swapToAlternate } from './alternateAnchor'
 
 /** Where anchor `a` is in `lines` now, near `tracked` (0-based). */
 export const findAnchor = (lines: string[], a: Anchor, tracked: Loc, hint?: number) => anchor(lines, a.text, a.before, a.after, tracked, hint)
 
-/** Where a line note is now: its lines and whether stale; `missing`: its file is gone; `undone`: an applied
- *  suggestion was undone (or redone), and the anchor from before found it. */
+/** Where a line note is now: its lines and whether stale; `missing`: its file is gone; `undone`: its own anchor was
+ *  not found but its alternate one was (alternateAnchor.ts: a suggestion undone or redone, a typo undone). */
 export interface Found { loc: Loc; stale: boolean; missing: boolean; undone?: Anchor }
 
 /** Where the note is in `lines` (undefined: its file is gone), near `tracked`. Changes nothing. */
@@ -26,7 +26,7 @@ export function locate(n: Note, lines: string[] | undefined, tracked = locOf(n.d
   if (!lines) return { loc: tracked, stale: true, missing: true }
   const { loc, stale } = findAnchor(lines, n.data.anchor, tracked, hint)
   if (stale) {
-    const back = suggestionUndone(n, (a) => findAnchor(lines, a, tracked, hint))
+    const back = foundByAlternate(n, (a) => findAnchor(lines, a, tracked, hint))
     if (back) return { loc: back.loc, stale: false, missing: false, undone: back.anchor }
   }
   return { loc, stale, missing: false }
@@ -35,7 +35,7 @@ export function locate(n: Note, lines: string[] | undefined, tracked = locOf(n.d
 /** Puts the note where `f` says; true if its lines or its stale flag changed. */
 export function applyFound(n: Note, f: Found): boolean {
   if (f.missing) placement.setMissing(n.data.id); else placement.found(n.data.id, true)
-  if (f.undone) swapToUndone(n, f.undone)
+  if (f.undone) swapToAlternate(n, f.undone)
   const range = range1Of(f.loc)
   if (sameRange(range, n.data.range) && !!n.data.stale === f.stale) return false
   logMove(n, range, f.stale, !f.missing)

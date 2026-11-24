@@ -11,11 +11,18 @@ import { cfg } from '../platform/settings'
 import { exists } from '../platform/exists'
 import { wfs } from '../platform/workspaceFs'
 
+/** A folder setting as read: the folder used, and when the one set can't be used, what was set and why. */
+export interface FolderSetting { folder: string; refused?: { set: string; problem: string } }
+
 /** A folder setting (`codeNotes.<key>`), trimmed; `fallback` when it is empty or can't be used (folderProblem). */
-export function folderSetting(key: string, fallback: string): string {
+export function readFolderSetting(key: string, fallback: string): FolderSetting {
   const v = cfg().get<string>(key) || fallback
-  return folderProblem(v) ? fallback : v.trim()
+  const problem = folderProblem(v)
+  return problem ? { folder: fallback, refused: { set: v, problem } } : { folder: v.trim() }
 }
+
+/** A folder setting's folder (readFolderSetting). */
+export const folderSetting = (key: string, fallback: string): string => readFolderSetting(key, fallback).folder
 
 /** The notes folder when the setting names none (or one that can't be used). */
 export const DEFAULT_FOLDER = '.code-notes'

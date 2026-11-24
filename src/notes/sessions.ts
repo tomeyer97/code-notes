@@ -2,9 +2,10 @@
 
 import * as vscode from 'vscode'
 import { byId, visibleNotes } from './visible'
-import { notesModel, selection, sessionOf } from './model'
-import { setCollapse } from '../threads/settle'
-import { threads } from '../threads/sync'
+import { notesModel, sessionOf } from './model'
+import { forgetRevealed, revealedId } from './revealed'
+import { foldThread } from './threadView'
+import { hint } from './hint'
 import { isRow, SessionRow } from './model/rows'
 import { folderName } from './notesFolder'
 import { resolve, trash } from './status'
@@ -16,12 +17,11 @@ export async function setSessionHidden(names: string[], hidden: boolean, only = 
   if (!only) for (const name of names) hidden ? h.add(name) : h.delete(name)
   await model.setHiddenSessions(h, () => {
     // The note just opened from the list is folded when its session is hidden now.
-    const id = selection().revealed
+    const id = revealedId()
     const r = id ? byId(id) : undefined
     if (!r || !h.has(sessionOf(r))) return
-    selection().revealed = undefined
-    const t = threads.get(r.data.id)
-    if (t) setCollapse(t, vscode.CommentThreadCollapsibleState.Collapsed, r.data.id)
+    forgetRevealed(r.data.id)
+    foldThread(r.data.id)
   })
 }
 
@@ -31,7 +31,8 @@ const sessionArg = async (node?: unknown): Promise<string | undefined> => {
   const names = [...new Set(visibleNotes().map(sessionOf))]
   if (names.length <= 1) return names[0]
   const count = (session: string) => visibleNotes().filter((x) => sessionOf(x) === session).length
-  const items = names.map((session) => ({ label: session || 'Notes', name: session, description: `${count(session)} notes` }))
+  const item = (session: string) => ({ label: session || 'Notes', name: session, description: `${count(session)} notes` })
+  const items = names.map(item)
   const pick = await vscode.window.showQuickPick(items, { title: 'Which session?' })
   return pick?.name
 }
@@ -52,13 +53,14 @@ export const showOnlySession = withSession((session) => setSessionHidden([sessio
 export const showAllSessions = () => notesModel().setHiddenSessions([])
 
 export const resolveSession = withSession(async (session) => {
-  await resolve(visibleNotes().filter((n) => sessionOf(n) === session && n.data.status === 'open'), session ? ` in "${session}"` : '')
+  const open = visibleNotes().filter((n) => sessionOf(n) === session && n.data.status === 'open')
+  await resolve(open, session ? ` in "${session}"` : '')
   // "Show only" this session, and it is done: show the others again.
   const h = notesModel().hiddenSessions()
   const rest = new Set(visibleNotes().filter((n) => n.data.status === 'open').map(sessionOf))
   if (!rest.has(session) && rest.size && [...rest].every((s) => h.has(s))) {
     await notesModel().setHiddenSessions([])
-    vscode.window.setStatusBarMessage('$(eye) Showing all sessions again', 3000)
+    hint('Showing all sessions again', 'eye')
   }
 })
 
@@ -66,6 +68,7 @@ export const deleteSession = withSession(async (session) => {
   const list = visibleNotes().filter((n) => sessionOf(n) === session)
   const name = session || 'Notes'
   const detail = `They move to ${folderName()}/.trash and can be restored with Undo.`
-  const ok = await vscode.window.showWarningMessage(`Delete the session "${name}" (${list.length} notes)?`, { modal: true, detail }, 'Delete')
+  const question = `Delete the session "${name}" (${list.length} notes)?`
+  const ok = await vscode.window.showWarningMessage(question, { modal: true, detail }, 'Delete')
   if (ok === 'Delete') await trash(list, `the session "${name}"`)
 })

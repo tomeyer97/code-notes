@@ -14,30 +14,30 @@ import { openBroken, restoreBroken } from './broken'
 import { followNotesOnDisk } from './changedOnDisk'
 import { rangeProvider } from './commentRanges'
 import { followContextKeys } from './contextKeys'
-import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS } from './create'
+import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS, onDidCreateNote } from './create'
 import { followCursor } from './cursor'
-import { createDecorations, deco, followNotes as decorationsFollow } from './decorations'
+import { createDecorations, followNotes as decorationsFollow } from './decorations'
 import { findNote } from './find'
 import { applyIgnoreInGit, changeFolder, rememberFolder, rewriteReadmes } from './folder'
 import { followEdits } from './followEdits'
 import { authorChanged, initIdentity, me, rememberMe } from './identity'
 import { NotesApi, notesModel, startNotesModel } from './model'
 import { NOTES_CTX } from './model/contextKeys'
-import { acceptCode, cancelMove, completeMove, createMoveItem, moveItem, moveToSelection } from './move'
+import { acceptCode, cancelMove, completeMove, createMoveMode, moveToSelection } from './move'
 import { followNoteFiles } from './moves'
 import { registerPages } from './pages'
-import { NotesFeaturePorts, useNotes } from './ports'
+import { NotesFeaturePorts, NotesLayout, useNotes } from './ports'
 import { copyAgentPrompt, copyNotePrompt } from './prompt'
 import { replyAndResolve, replyTo } from './reply'
-import { openAt, openNoteFile, openNoteId, revealCommand } from './reveal'
-import { markJourneysSeen, reloadSeen, unread } from './seen'
+import { LineLink, openAt, openNoteFile, openNoteId, revealCommand, takeLinks } from './reveal'
+import { markJourneysSeen, reloadSeen, setSeen, unread } from './seen'
 import { deleteNotes, deleteResolved, offerRestore, reopenNotes, resolve, resolveAll, resolveChecked } from './status'
 import { Store } from './store'
 import { applySuggestion } from './suggestion'
 import { undo } from './undo'
 import { markAllRead, markUnread, stepUnread } from './unread'
 import { byId, visibleNotes } from './visible'
-import { pickNotes } from './which'
+import { CommandArg, pickNotes } from './which'
 
 export type { NotesFeaturePorts } from './ports'
 /** A file in the notes folder (the store watches it: no note or step is on it). */
@@ -84,13 +84,16 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
   // box (Ctrl+' C, the command); VS Code asks again when the provider is set.
   controller.commentingRangeProvider = rangeProvider
   controller.options = NOTE_OPTIONS
-  createMoveItem()
-  createDecorations()
   fireAndForget(setCtx(NOTES_CTX.showResolved, false), 'notes: setCtx codeNotes.showResolved')
   rememberMe()
   registerPages(context)
   const drafting = new vscode.EventEmitter<boolean>()
-  context.subscriptions.push(store, model, controller, moveItem, ...Object.values(deco), drafting)
+  context.subscriptions.push(
+    store, model, controller, createMoveMode(), createDecorations(), drafting,
+    // A note you made is read (its first message is yours): stored in the background (a round trip to the window).
+    onDidCreateNote((n) => fireAndForget(setSeen([[n.data.id, 1]]), 'seen')),
+    takeLinks((link) => stepLink(ports.layout, link)),
+  )
   registerCommands(context, {
     // Adding, replying, asking from a thread. A note being written pauses what plays (its code stays put under it).
     [Cmd.add]: chord(() => { drafting.fire(true); return addNote() }),
@@ -105,7 +108,7 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     [Cmd.replyResolve]: replyAndResolve,
     [Cmd.applySuggestion]: (id: string, mi: number, k: number) => applySuggestion(id, mi, k),
     // Resolving, deleting, moving, reading.
-    [Cmd.resolve]: async (arg?: unknown, many?: unknown[]) => resolve(await pickNotes(arg, many)),
+    [Cmd.resolve]: async (arg?: CommandArg, many?: readonly CommandArg[]) => resolve(await pickNotes(arg, many)),
     [Cmd.reopen]: reopenNotes,
     [Cmd.delete]: deleteNotes,
     [Cmd.resolveChecked]: resolveChecked,
@@ -163,6 +166,14 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
       model.changed({ kind: 'loaded' })
     },
   }
+}
+
+/** A link to a step's line while that step's journey is walked: opened under the step card. */
+async function stepLink(layout: NotesLayout, link: LineLink): Promise<boolean> {
+  const lj = layout.walking()
+  if (!link.step || !lj || lj.folder.uri.toString() !== link.folderUri) return false
+  await layout.openRef(lj, link.file, link.line, link.end ?? link.line, link.step)
+  return true
 }
 
 /** R: resolve the note at the cursor, then on to the next unread one. */

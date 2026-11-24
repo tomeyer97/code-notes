@@ -11,8 +11,11 @@ import { NoteEvent } from '../core/format/noteModel'
 import { Note } from './store'
 import { folderName } from './notesFolder'
 import { describeNotes, noteTitle, plural } from '../core/text'
-import { offerUndo, snapshot } from './undo'
-import { pickNotes } from './which'
+import { offerUndo } from './undo'
+import { CommandArg, pickNotes } from './which'
+import { forgetRevealed } from './revealed'
+import { withRollback } from './rollback'
+import { hint } from './hint'
 
 /** Records a status change in the note's history. */
 export function addEvent(n: Note, type: NoteEvent['type'], by = me(), role: NoteEvent['role'] = 'human'): void {
@@ -26,29 +29,41 @@ export const statusEvent = (status: string): NoteEvent['type'] => (status === 'r
 export async function setStatus(list: Note[], status: 'open' | 'resolved', record = true): Promise<void> {
   await notesModel().batch(async () => {
     for (const n of list) {
-      const before = snapshot(n)
-      if (record && n.data.status !== status) addEvent(n, statusEvent(status))
-      n.data.status = status
       selection().checked.delete(n.data.id)
       // Not saved (a file another user wrote): the note stays as the file says; the error says why.
-      if (!(await store().save(n))) n.data = before
+      await withRollback(n, ['status', 'events'], () => {
+        if (record && n.data.status !== status) addEvent(n, statusEvent(status))
+        n.data.status = status
+        return store().save(n)
+      })
     }
     notesChanged({ kind: 'saved', ids: list.map((n) => n.data.id) })
   })
 }
 
-export async function resolve(list: Note[], scope = ''): Promise<void> {
+/** How many titles a confirmation lists. */
+const TITLES_SHOWN = 5
+
+/** Asks (modal) before `question`'s action on `list`: the first titles, and how many have replies not read. True: go
+ *  on. `after`: a last line under the titles (where deleted notes go). */
+async function confirmWithUnread(list: Note[], question: string, button: string, after?: string): Promise<boolean> {
+  const u = list.filter((n) => unread(n) > 0).length
+  const titles = list.slice(0, TITLES_SHOWN).map((n) => `• ${noteTitle(n, 60)}`).join('\n')
+  const more = list.length > TITLES_SHOWN ? `\n… and ${list.length - TITLES_SHOWN} more` : ''
+  const detail = titles + more + (after ? `\n\n${after}` : '')
+  return (await vscode.window.showWarningMessage(`${question}${u ? ` ${u} unread.` : ''}`, { modal: true, detail }, button)) === button
+}
+
+/**
+ * Resolves the open (or unread) notes of `list`, with Undo (their seen counts too). Several with unread replies, or
+ * `ask` 'always': asked first. `scope` follows the count in the question (` in "session"`).
+ */
+export async function resolve(list: Note[], scope = '', ask: 'unread' | 'always' = 'unread'): Promise<void> {
   list = list.filter((n) => n.data.status === 'open' || unread(n) > 0)
   if (!list.length) return
-  const withUnread = list.filter((n) => unread(n) > 0)
-  if (list.length > 1 && withUnread.length) {
-    const titles = list.slice(0, 5).map((n) => `• ${noteTitle(n, 60)}`).join('\n')
-    const more = list.length > 5 ? `\n… and ${list.length - 5} more` : ''
-    const question = `Resolve ${list.length} notes${scope}? ${withUnread.length} unread.`
-    const ok = await vscode.window.showWarningMessage(question, { modal: true, detail: titles + more }, 'Resolve')
-    if (ok !== 'Resolve') return
-  }
-  if (selection().revealed && list.some((n) => n.data.id === selection().revealed)) selection().revealed = undefined
+  const asks = ask === 'always' || (list.length > 1 && list.some((n) => unread(n) > 0))
+  if (asks && !(await confirmWithUnread(list, `Resolve ${plural(list.length, 'note')}${scope}?`, 'Resolve'))) return
+  for (const n of list) forgetRevealed(n.data.id)
   const seenBefore = Object.fromEntries(list.map((n) => [n.data.id, seenCount(n)]))
   await markRead(list)
   await setStatus(list, 'resolved')
@@ -60,8 +75,11 @@ export async function resolve(list: Note[], scope = ''): Promise<void> {
 
 /** Undoing a resolve: the resolve leaves no trace in the history. */
 export function undoResolveEvent(n: Note): Note {
-  const last = n.data.events?.[n.data.events.length - 1]
-  if (last?.type === 'resolved' && evMine(last)) { n.data.events = n.data.events!.slice(0, -1); if (!n.data.events.length) delete n.data.events }
+  const events = n.data.events
+  const last = events?.[events.length - 1]
+  if (!events || last?.type !== 'resolved' || !evMine(last)) return n
+  n.data.events = events.slice(0, -1)
+  if (!n.data.events.length) delete n.data.events
   return n
 }
 
@@ -77,15 +95,15 @@ export function offerRestore(n: Note): void {
 }
 
 /** codeNotes.reopen */
-export const reopenNotes = async (arg?: any, many?: any[]) => {
+export const reopenNotes = async (arg?: CommandArg, many?: readonly CommandArg[]) => {
   const list = await pickNotes(arg, many)
   if (!list.length) return
   await setStatus(list, 'open')
-  vscode.window.setStatusBarMessage(`$(issue-reopened) Reopened ${describeNotes(list)}`, 3000)
+  hint(`Reopened ${describeNotes(list)}`, 'issue-reopened')
 }
 
 /** codeNotes.delete */
-export const deleteNotes = async (arg?: any, many?: any[]) => {
+export const deleteNotes = async (arg?: CommandArg, many?: readonly CommandArg[]) => {
   const list = await pickNotes(arg, many)
   if (list.length) return trash(list, describeNotes(list))
 }
@@ -95,28 +113,18 @@ export const resolveChecked = () => {
   const { checked, selected } = selection()
   const sel = selected.map(byId).filter((n): n is Note => !!n)
   const list = checked.size ? [...checked].map(byId).filter((n): n is Note => !!n && matchesFilter(n)) : sel
-  if (!list.length) { vscode.window.setStatusBarMessage('$(info) Select the notes to resolve (Ctrl+click for several)', 2500); return }
+  if (!list.length) { hint('Select the notes to resolve (Ctrl+click for several)'); return }
   return resolve(list)
 }
 
-/** codeNotes.resolveAll: every open note, after asking. */
-export const resolveAll = async () => {
-  const open = visibleNotes().filter((n) => n.data.status === 'open')
-  if (!open.length) return
-  const u = open.filter((n) => unread(n) > 0).length
-  const question = open.length === 1 ? 'Resolve 1 note?' : `Resolve all ${open.length} notes?`
-  const unreadPart = u ? ` ${u} ${u === 1 ? 'has' : 'have'} replies you haven't read.` : ''
-  const ok = await vscode.window.showWarningMessage(`${question}${unreadPart} Journeys stay.`, { modal: true }, 'Resolve All')
-  if (ok === 'Resolve All') { await markRead(open); await setStatus(open, 'resolved') }
-}
+/** codeNotes.resolveAll: every open note, after asking (with Undo, as any resolve). */
+export const resolveAll = () => resolve(visibleNotes().filter((n) => n.data.status === 'open'), ' (every open note)', 'always')
 
 /** codeNotes.deleteResolved: every resolved note to the trash, after asking. */
 export const deleteResolved = async () => {
   const done = visibleNotes().filter((n) => n.data.status === 'resolved')
-  if (!done.length) { vscode.window.setStatusBarMessage('$(info) No resolved notes', 2500); return }
-  const u = done.filter((n) => unread(n) > 0).length
-  const detail = `${u ? `${u} unread. ` : ''}They go to ${folderName()}/.trash; Undo brings them back.`
-  const ok = await vscode.window.showWarningMessage(`Purge ${plural(done.length, 'resolved note')}?`, { modal: true, detail }, 'Purge')
-  if (ok === 'Purge') await trash(done, plural(done.length, 'resolved note'))
+  if (!done.length) { hint('No resolved notes'); return }
+  const what = plural(done.length, 'resolved note')
+  const where = `They go to ${folderName()}/.trash; Undo brings them back.`
+  if (await confirmWithUnread(done, `Purge ${what}?`, 'Purge', where)) await trash(done, what)
 }
-

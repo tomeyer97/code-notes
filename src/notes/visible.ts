@@ -3,6 +3,7 @@
 import * as vscode from 'vscode'
 import { hiddenBy, store } from './ports'
 import type { Note } from './store'
+import { order } from './model'
 
 /** The notes every view and list shows. */
 export const visibleNotes = (): Note[] => {
@@ -22,3 +23,6 @@ export function hideNotes(hides: (n: Note) => boolean): vscode.Disposable {
     if (i >= 0) list.splice(i, 1)
   })
 }
+
+/** The notes in list order: by file, then by line (find and D/A step through them so). */
+export const byFileThenLine = (a: Note, b: Note) => a.data.file.localeCompare(b.data.file) || order(a, b)

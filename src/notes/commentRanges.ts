@@ -1,9 +1,10 @@
 // When VS Code may open a comment box: no commenting range on any line (no "+" bar in the gutter), except for a moment
-// while Add Note opens one. And waiting for the window's comment widgets, which follow the extension a little later.
+// while Add Note opens one.
 
 import * as vscode from 'vscode'
 import { controller } from './ports'
 import { inNotesFolder } from './notesFolder'
+import { Poll, sleep, waitUntil } from './timing'
 
 /** Commenting ranges: none, except until this time (a note box being opened). */
 let addingUntil = 0
@@ -25,15 +26,11 @@ const ADDING_MS = 1500
 const ADDING_OFF_AFTER_MS = 50
 /** At least this long before the box is asked for: the comment widgets settle. */
 const SETTLE_MS = 120
+/** The window asks for the file's ranges again within a round trip: looked for often (it is usually quick), for at
+ *  most a second (a slow remote link). */
+const RANGES_ASKED: Poll = { tries: 100, everyMs: 10 }
 
 let rangesOff: NodeJS.Timeout | undefined
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-/** Checks `done` up to `tries` times, `stepMs` apart, until it is true. */
-export async function waitUntil(done: () => boolean, tries: number, stepMs: number): Promise<void> {
-  for (let k = 0; k < tries && !done(); k++) await sleep(stepMs)
-}
 
 /** The whole file commentable for a moment; resolves once the window has the ranges and a box may be opened. */
 export async function allowComments(ms = ADDING_MS): Promise<void> {
@@ -45,7 +42,7 @@ export async function allowComments(ms = ADDING_MS): Promise<void> {
   // At least SETTLE_MS, and until the window has asked for the file's ranges again: over a slow link that round trip
   // takes longer, and the box would not open.
   const u = vscode.window.activeTextEditor?.document.uri.toString()
-  if (u) await waitUntil(() => (rangesAskedAt.get(u) ?? 0) >= t0, 100, 10)
+  if (u) await waitUntil(() => (rangesAskedAt.get(u) ?? 0) >= t0, RANGES_ASKED)
   const left = SETTLE_MS - (Date.now() - t0)
   if (left > 0) await sleep(left)
 }

@@ -6,6 +6,7 @@ import { setCtx } from '../platform/context'
 import { NoteData } from '../core/format/noteModel'
 import { Note } from './store'
 import { fireAndForget } from '../platform/run'
+import { hint } from './hint'
 
 /** The last undoable action: the toast's Undo, and "Code Notes: Undo" after the toast is gone. */
 let lastUndo: { what: string; run: () => Promise<void> } | undefined
@@ -23,11 +24,11 @@ async function undoLast(entry = lastUndo): Promise<void> {
   lastUndo = undefined
   fireAndForget(setCtx('codeNotes.canUndo', false), 'undo: setCtx codeNotes.canUndo')
   await entry.run()
-  vscode.window.setStatusBarMessage(`$(discard) Undone: ${entry.what}`, 3000)
+  hint(`Undone: ${entry.what}`, 'discard')
 }
 
 /** codeNotes.undo */
-export const undo = () => (lastUndo ? undoLast() : vscode.window.setStatusBarMessage('$(info) Nothing to undo', 2500))
+export const undo = () => (lastUndo ? undoLast() : hint('Nothing to undo'))
 
 /** A copy of a note's data, to put back (a failed save, an undo). */
 export const snapshot = (n: Note): NoteData => structuredClone(n.data)

@@ -9,7 +9,7 @@ import { selection } from './model'
 import { Note } from './store'
 import { folderName } from './notesFolder'
 import { plural, rangeLabel } from '../core/text'
-import { notesFrom } from './which'
+import { CommandArg, notesFrom } from './which'
 import { fileName } from '../platform/jsonFolder'
 import { fireAndForget } from '../platform/run'
 
@@ -50,7 +50,7 @@ export const copyAgentPrompt = async () => {
   fireAndForget(vscode.window.showInformationMessage(`Copied a prompt for ${plural(k, `${ticked.length ? 'selected' : 'waiting'} note`)}.`), 'prompt: window.showInformationMessage')
 }
 
-export const copyNotePrompt = async (arg?: any) => {
+export const copyNotePrompt = async (arg?: CommandArg) => {
   const [n] = notesFrom(arg)
   if (!n) return
   await vscode.env.clipboard.writeText(agentPrompt([n]))
