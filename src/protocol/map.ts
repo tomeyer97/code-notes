@@ -1,13 +1,14 @@
 // The journey panel's messages, both ways: what media/journey-map.js (and the modules it imports: journey-home.js,
 // journey-tutorial.js, journey-scene.js, journey-podcast.js) posts, and what src/journeys/mapPanel.ts sends it.
+// Each feature of the panel registers handlers for its messages (src/journeys/panel/) and gives its part of TourInfo.
 import type { Journey } from '../core/format/journeyModel'
-import type { ListKind, ListModel, Sort } from '../core/list/journeyList'
+import type { ListKind, ListModel, ListRow, Sort } from '../core/list/journeyList'
 import type { FromPlayer, ToPlayer } from './podcast'
 
 /**
  * What the page posts. Handled in src/journeys/mapPanel.ts (ready, rendered, story, error, legend, view, and home with
- * `on`), src/tour/mapMessages.ts (the rest) and src/tour/tutorial.ts (`tutorial`). `closed` is the panel's own, when
- * it is disposed.
+ * `on`); the rest by the feature that registered it on the panel's controller (src/journeys/panel/features/). `closed`
+ * is the panel's own, when it is disposed.
  */
 export type FromMap =
   // The page itself: drawn, its errors, what it shows (tests read these).
@@ -67,32 +68,63 @@ export interface PanelCard {
   paths: string[]
 }
 
-/** What the map needs about the tour: the step shown (0: none), stale steps, where it was left (to resume), the legend. */
-export interface TourInfo {
-  current: number; marks: Record<number, string>; resume: number; legendHidden: boolean; problems: string[]
-  /** The map column's width in a wide panel, dragged by the reader (0.21.1); unset: the default. */
-  mapWidth?: number
-  /** Rule breaks only an author can fix: a count and a link to the Output channel, not shown to readers. */
-  authors?: number
-  /** The chord prefix to show in hints; offer the tutorial bar. */
-  key: string; tutorial: boolean
-  /** Every journey, for the panel's home list (0.21): title, steps, where it was left. */
-  list?: PanelListRow[]
-  /** The home's list model (journeyList.ts): sections, rows, chips, with the home's own search. */
-  home?: ListModel
-  /** The walk was just finished: the panel says Done, the summary, and offers the list. */
-  done?: boolean
+/** The walk as the map draws it: the step shown (0: none), stale steps, where it was left (to resume), the card. */
+export interface WalkInfo {
+  current: number; marks: Record<number, string>; resume: number
+  /** The chord prefix to show in hints. */
+  key: string
   /** Files the steps followed through a rename (old -> new path): box paths say where the code went. */
   moved: Record<string, string>
   /** The step card, when it lives in the map ("panel"). */
   card?: PanelCard
+  /** The walk was just finished: the panel says Done, the summary, and offers the list. */
+  done?: boolean
   /** One muted line under the question: "Written by AI · 2 days ago · 3 commits behind"; `changed` stale steps. */
   prov?: { text: string; tip: string; changed: number }
-  /** Steps someone asked about. */
-  asked?: Record<number, { id: string; state: 'q' | 'a'; unread: boolean }>
-  /** A check's tour: its questions, each a row after the step that shows its answer; `cur`: the walk is at it. */
+  /** Steps someone asked about: the step's latest question (`count` in all, `answered` of them; `update`: one asks for
+   *  the step's update). */
+  asked?: Record<number, { id: string; state: 'q' | 'a'; unread: boolean; count: number; answered: number; update: boolean }>
+}
+
+/** The panel itself: the legend, the map column's width, the tutorial's bar. */
+export interface PanelViewInfo {
+  legendHidden: boolean
+  /** The map column's width in a wide panel, dragged by the reader (0.21.1); unset: the default. */
+  mapWidth?: number
+  /** Offer the tutorial bar. */
+  tutorial: boolean
+}
+
+/** What is wrong with the journey: for readers (why it can't be read) and for its author. */
+export interface ProblemsInfo {
+  problems: string[]
+  /** Rule breaks only an author can fix (author mode): a count and a link to the Output channel. */
+  authors?: number
+}
+
+/** A check's tour: its questions, each a row after the step that shows its answer; `cur`: the walk is at it. */
+export interface CheckInfo {
   stops?: { id: string; n: number; step: number; text: string; state: string; cur?: boolean }[]
 }
+
+/** A home row's podcast (journey-home.js marks the row): its length; listening, or where it was paused. */
+export interface RowPodcast { duration: number; playing: boolean; at?: number }
+
+/** The home's list model, its rows with their podcast. */
+export interface HomeListModel extends ListModel {
+  rows: Record<string, ListRow & { podcast?: RowPodcast }>
+}
+
+/** The Journeys list (the panel's home). Sent only when it changed: the page keeps the last one it was sent. */
+export interface HomeInfo {
+  /** Every journey, for the panel's home list (0.21): title, steps, where it was left. */
+  list?: PanelListRow[]
+  /** The home's list model (journeyList.ts): sections, rows, chips, with the home's own search. */
+  home?: HomeListModel
+}
+
+/** What the map needs besides the journey: each feature's part. */
+export type TourInfo = WalkInfo & PanelViewInfo & ProblemsInfo & CheckInfo & HomeInfo
 
 /** The lines of a beat's code, under its animation's caption. */
 export interface BeatCode { file: string; line: number; from: number; lines: string[] }

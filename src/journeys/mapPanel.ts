@@ -12,7 +12,8 @@ import { fireAndForget } from '../platform/run'
 import { STATE, StateStore } from '../platform/state'
 
 // The journey panel: one journey's map and storyline (or the Journeys list) in a webview beside the editor. Its
-// messages both ways are src/protocol/map.ts.
+// messages both ways are src/protocol/map.ts; the panel keeps its own (ready, rendered, …) and gives the rest to its
+// controller (`onMessage`: panel/controller.ts, where each feature registers its handlers).
 
 /** What the podcast player gives the panel (src/podcast/player.ts registers it: MapPanel.setPodcast). */
 export interface PanelPodcast {
@@ -36,27 +37,56 @@ function mapColumn(alone: boolean, last: number | undefined, codeCol: vscode.Vie
   return vscode.ViewColumn.Beside
 }
 
+/** What the integration tests read of the page, as it reported it (never read by the extension itself). */
+class PanelProbe {
+  /** Boxes in the last render (the webview really draws); -1: no panel. */
+  rendered = -1
+  /** The storyline as drawn last: step rows, question rows, the current question, what is cut. */
+  story: { steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | undefined
+  /** The box the map last centred on ('': the whole map). */
+  focus = ''
+}
+
+/** One open panel: made when a panel is adopted, dropped when it closes (so "open" is this one field). */
+interface PanelSession {
+  readonly panel: vscode.WebviewPanel
+  readonly subs: vscode.Disposable[]
+  /** What the page was last sent, per part (the home list apart: it is sent only when it changed). */
+  sent: { walk: string; home: string }
+  /** It is closing (what it tells the extension then must not read the closed panel: VS Code throws). */
+  closing: boolean
+}
+
 /** The map of one journey at a time, in a webview beside the editor. */
 export class MapPanel implements vscode.Disposable {
-  private panel: vscode.WebviewPanel | undefined
+  private session: PanelSession | undefined
   private shown: LoadedJourney | undefined
-  private lastTour = ''
-  private subs: vscode.Disposable[] = []
-  /** Boxes in the last render (for the integration test: the webview really draws). */
-  rendered = -1
-  /** The storyline as drawn last (integration test): step rows, question rows, the current question, what is cut. */
-  story: { steps: number; stops: string[]; cur?: string; overflow: string[]; width: number } | undefined
-  /** The box the map last centred on ('': the whole map), as the webview reported it (for the integration test). */
-  focus = ''
+  private readonly probe = new PanelProbe()
   /** The page's messages: what it is sent waits until it is ready. */
   private channel: WebviewChannel<FromMap, ToMap>
   /** The podcast player's side of the panel (setPodcast), if one is registered. */
   private podcast: PanelPodcast | undefined
-  /** The editor groups may have changed size (the panel drawn, groups opened or closed): tour/panelLayout.ts checks
-   *  notes the widths to keep (noteLayout). */
-  layoutChanged: (() => void) | undefined
-  /** The panel became the active editor: tour/panelLayout.ts undoes VS Code widening it (keepWidthOnFocus). */
-  activated: (() => void) | undefined
+  private readonly layoutEvents = new vscode.EventEmitter<void>()
+  private readonly activateEvents = new vscode.EventEmitter<void>()
+  private readonly viewEvents = new vscode.EventEmitter<void>()
+  /** The editor groups may have changed size (the panel drawn, groups opened or closed): the layout notes the widths
+   *  to keep. */
+  readonly onDidChangeLayout = this.layoutEvents.event
+  /** The panel became the active editor (VS Code may have widened it: the layout undoes that). */
+  readonly onDidActivate = this.activateEvents.event
+  /** The panel came on screen, went off it (a tab in front of it, its group hidden) or closed. */
+  readonly onDidChangeView = this.viewEvents.event
+  private readonly slots = new Map<string, vscode.Disposable>()
+
+  /** Older way to hear onDidChangeLayout (one listener: setting it again replaces it). */
+  set layoutChanged(f: (() => void) | undefined) { this.slot('layout', this.onDidChangeLayout, f) }
+  /** Older way to hear onDidActivate (one listener: setting it again replaces it). */
+  set activated(f: (() => void) | undefined) { this.slot('activate', this.onDidActivate, f) }
+  private slot(name: string, event: vscode.Event<void>, f: (() => void) | undefined): void {
+    this.slots.get(name)?.dispose()
+    this.slots.delete(name)
+    if (f) this.slots.set(name, event(f))
+  }
 
   /** The podcast player draws its bar in the panel and hears when the panel comes and goes, until disposed. */
   setPodcast(p: PanelPodcast): vscode.Disposable {
@@ -69,18 +99,19 @@ export class MapPanel implements vscode.Disposable {
     this.channel = new WebviewChannel('journey map', log, { onReady: () => this.onReady() })
   }
 
+  private get panel(): vscode.WebviewPanel | undefined { return this.session?.panel }
+
   get journey(): LoadedJourney | undefined { return this.panel ? this.shown : undefined }
 
   /** What the integration tests read of the panel: what it shows and where, as the page reported it. */
   snapshot() {
-    return { story: this.story, map: this.journey?.j.id, mapTitle: this.tabTitle, mapBoxes: this.rendered, mapFocus: this.focus, mapColumn: this.viewColumn }
+    const { story, rendered, focus } = this.probe
+    return { story, map: this.journey?.j.id, mapTitle: this.tabTitle, mapBoxes: rendered, mapFocus: focus, mapColumn: this.viewColumn }
   }
   /** The tab's title (for the integration test). */
   get tabTitle(): string | undefined { return this.panel?.title }
   /** The map is on screen (not a hidden tab). Not while it closes (asked from its own `closed`: VS Code throws then). */
-  get visible(): boolean { return !!this.panel && !this.closing && this.panel.visible }
-  /** The panel is closing (disposed(): what it tells the extension then must not read the closed panel). */
-  private closing = false
+  get visible(): boolean { return !!this.session && !this.session.closing && this.session.panel.visible }
   /** The map's group, while it is open (visible or not). */
   get viewColumn(): vscode.ViewColumn | undefined { return this.panel?.viewColumn }
 
@@ -115,7 +146,12 @@ export class MapPanel implements vscode.Disposable {
       if (switched) this.post(true)
     }
     this.panel!.title = this.title()
+    this.viewChanged()
+  }
+
+  private viewChanged(): void {
     this.podcast?.viewChanged()
+    this.viewEvents.fire()
   }
 
   private options(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -147,15 +183,19 @@ export class MapPanel implements vscode.Disposable {
     if (!paged) panel.webview.html = this.html(panel.webview, this.shown ? `${this.shown.j.question} · Loading…` : undefined)
     if (this.shown) panel.title = this.title()
     this.paged.add(panel)
-    this.panel = panel
     const remember = () => { if (panel.viewColumn) fireAndForget(this.stored.set(STATE.mapColumn, panel.viewColumn), 'mapPanel: store mapColumn') }
     remember()
-    this.subs.push(
-      this.channel.attach(panel.webview, (m) => this.receive(panel, m)),
-      panel.onDidChangeViewState((e) => { remember(); this.podcast?.viewChanged(); if (e.webviewPanel.active) this.activated?.() }),
-      panel.onDidDispose(() => this.disposed()),
-      vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutChanged?.() }),
-    )
+    this.session = {
+      panel,
+      sent: { walk: '', home: '' },
+      closing: false,
+      subs: [
+        this.channel.attach(panel.webview, (m) => this.receive(panel, m)),
+        panel.onDidChangeViewState((e) => { remember(); this.viewChanged(); if (e.webviewPanel.active) this.activateEvents.fire() }),
+        panel.onDidDispose(() => this.disposed(panel)),
+        vscode.window.tabGroups.onDidChangeTabGroups((e) => { if (e.opened.length || e.closed.length) this.layoutEvents.fire() }),
+      ],
+    }
     // A page set before we listened (a restored panel): its 'ready' may have gone already; it answers this with another.
     if (paged) this.channel.sendNow({ type: 'hello' })
   }
@@ -172,10 +212,10 @@ export class MapPanel implements vscode.Disposable {
       case 'ready': // the channel ran onReady
         return true
       case 'rendered':
-        this.rendered = m.boxes
+        this.probe.rendered = m.boxes
         return true
       case 'story':
-        this.story = { steps: m.steps, stops: m.stops, cur: m.cur, overflow: m.overflow, width: m.width }
+        this.probe.story = { steps: m.steps, stops: m.stops, cur: m.cur, overflow: m.overflow, width: m.width }
         return true
       case 'error': // the webview's errors: the channel logged it
         return true
@@ -183,7 +223,7 @@ export class MapPanel implements vscode.Disposable {
         fireAndForget(this.stored.set(STATE.legendHidden, m.hidden), 'mapPanel: store legendHidden')
         return true
       case 'view':
-        this.focus = m.node
+        this.probe.focus = m.node
         return true
       case 'home':
         if (m.on === undefined) return false
@@ -196,8 +236,7 @@ export class MapPanel implements vscode.Disposable {
 
   /** The page is ready: the journey to it (the queue follows). */
   private onReady(): void {
-    this.layoutChanged?.()
-    this.lastTour = ''
+    this.layoutEvents.fire()
     this.post(true)
   }
 
@@ -209,19 +248,20 @@ export class MapPanel implements vscode.Disposable {
     this.homeAsked = false
   }
 
-  private disposed(): void {
+  private disposed(panel: vscode.WebviewPanel): void {
+    const s = this.session
+    if (s?.panel !== panel) return
     // The panel closed mid-animation: its beat's line is no longer lit.
-    this.closing = true
+    s.closing = true
     try {
       if (this.shown) this.onMessage(this.shown, { type: 'closed' })
-    } finally { this.closing = false }
-    this.panel = undefined
-    this.rendered = -1
-    this.lastTour = ''
-    this.channel.detach()
-    for (const s of this.subs) s.dispose()
-    this.subs = []
-    this.podcast?.viewChanged()
+    } finally {
+      this.session = undefined
+      this.probe.rendered = -1
+      this.channel.detach()
+      for (const d of s.subs) d.dispose()
+    }
+    this.viewChanged()
   }
 
   /** A message for the webview itself (tutorial, tests): sent once it is ready. */
@@ -235,8 +275,8 @@ export class MapPanel implements vscode.Disposable {
 
   /** The journey shown was deleted: the map says so, without Start. */
   markDeleted(key: string): void {
-    if (!this.panel || this.shown?.key !== key) return
-    this.lastTour = ''
+    if (!this.session || this.shown?.key !== key) return
+    this.session.sent = { walk: '', home: '' }
     this.send({ type: 'deleted', file: fileName(this.shown.uri) })
   }
 
@@ -252,13 +292,18 @@ export class MapPanel implements vscode.Disposable {
     this.post(false)
   }
 
+  /** The journey (`all`) or where the walk is, to the page. The home list goes only when it changed (the page keeps
+   *  the last one); the rest only when something in it did. */
   private post(all: boolean): void {
-    if (!this.panel || !this.shown) return
-    const t = this.tourOf(this.shown)
-    const sig = JSON.stringify(t)
-    if (!all && sig === this.lastTour) return
-    this.lastTour = sig
-    this.channel.sendNow(all ? { type: 'journey', journey: this.shown.j, ...t } : { type: 'tour', ...t })
+    const s = this.session
+    if (!s || !this.shown) return
+    const { list, home, ...rest } = this.tourOf(this.shown)
+    const sent = { walk: JSON.stringify(rest), home: JSON.stringify([list, home]) }
+    const homeChanged = all || sent.home !== s.sent.home
+    if (!all && !homeChanged && sent.walk === s.sent.walk) return
+    s.sent = sent
+    const homePart = homeChanged ? { list, home } : {}
+    this.channel.sendNow(all ? { type: 'journey', journey: this.shown.j, ...rest, ...homePart } : { type: 'tour', ...rest, ...homePart })
     if (all) this.sendPodcast()
   }
 
@@ -283,6 +328,9 @@ export class MapPanel implements vscode.Disposable {
     })
   }
 
-  dispose(): void { this.panel?.dispose() }
+  dispose(): void {
+    this.panel?.dispose()
+    for (const d of [...this.slots.values(), this.layoutEvents, this.activateEvents, this.viewEvents]) d.dispose()
+  }
 }
 
