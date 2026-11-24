@@ -117,7 +117,7 @@ export class Grader {
       diff: ctl.cli.diffForGrader(diff, q.file), code: ctl.cli.codeWindow(repo, q), canRead: true,
       tour: ctl.cli.tourText(check), others: ctl.cli.openOthers(check, q),
     })
-    const ask = new Ask({ cli: claude, cwd: repo, prompt, model: this.host.model() })
+    const ask = Ask.start({ cli: claude, cwd: repo, prompt, model: this.host.model() })
     this.grading.set(id, ask)
     ctl.post()
     this.host.refresh()

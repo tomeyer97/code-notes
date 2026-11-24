@@ -1,5 +1,5 @@
 // The vscode://<publisher>.code-notes/link URI (for a terminal, an agent's answer): its query read as the lines to light.
-// write/requests.ts handles the URI; claudeChatLinks.ts lights the lines. No vscode API here (unit-tested in
+// write/uriRoutes.ts handles the URI; claudeChatLinks.ts lights the lines. No vscode API here (unit-tested in
 // test/answerLinks.test.ts).
 
 /** vscode://…/link?file=<path, absolute or workspace-relative>&start=<1-based>&end=<1-based>: the lines, lit. */

@@ -3,11 +3,11 @@
 
 import * as vscode from 'vscode'
 import { byId, visibleNotes } from '../notes/visible'
-import { cfg } from '../platform/settings'
 import { log, now, stored } from '../platform/host'
 import { askAbout } from '../ask/run'
+import type { AskHandler } from '../ask/handlers'
 import { claudeCli } from '../ask/settings'
-import { claudeAllowed } from '../ask/trust'
+import { agentRunner } from '../platform/agent/runner'
 import { me } from '../notes/identity'
 import { newId } from '../notes/create'
 import { addReply } from '../notes/reply'
@@ -18,6 +18,7 @@ import { Note } from '../notes/store'
 import { noteOfThread } from '../threads/sync'
 import { journeySkill } from '../write/claudeRun'
 import { isConcernAction } from './concern'
+import { checkAskHint } from './prompts'
 import { CheckController } from './controller'
 import type { CheckHost } from './host'
 import { CheckPorts, checkPorts, controller, started } from './ports'
@@ -31,7 +32,7 @@ export function checkHost(extUri: vscode.Uri, { store, tour }: CheckPorts): Chec
     focusReply,
     askAbout,
     cli: claudeCli,
-    allowed: (what) => claudeAllowed(what),
+    allowed: (what) => agentRunner().allowed(what),
     model: checkModel,
     changed: noteChanged,
     addReply: (n, text) => addReply(n, text),
@@ -47,7 +48,7 @@ export function checkHost(extUri: vscode.Uri, { store, tour }: CheckPorts): Chec
 }
 
 /** The model the check grades with: its own setting, else Claude's. */
-const checkModel = () => cfg().get<string>('understanding.model') || cfg().get<string>('claude.model') || undefined
+const checkModel = () => agentRunner().model('check')
 
 /** A note the check created or changed: read if just made (its question is the check's, not news) or shown now. */
 async function noteChanged(n: Note, created: boolean): Promise<void> {
@@ -83,6 +84,22 @@ async function openInTour(id: string): Promise<boolean> {
   return lj ? checkPorts().tour.openCheckpoint(lj, id) : false
 }
 
+/**
+ * Ask Claude on a check question: what do you want to know? The answer goes in a note of its own about the question's
+ * code, never in the check's thread, and Claude is told not to give the check's answer away.
+ */
+export const checkAskHandler = (check: CheckController): AskHandler => ({
+  owns: (n) => check.isCheck(n),
+  hint: checkAskHint,
+  ask: async (n, text) => {
+    const q = check.questionOf(n)
+    const box = { title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' }
+    const ask = text?.trim() || await vscode.window.showInputBox(box)
+    if (!ask?.trim()) return
+    const extra = { ...(q ? { checkAsk: q.text } : {}), ...check.branchOf(n) }
+    await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), extra)
+  },
+})
 
 /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
 export const answerCheck = async (r: vscode.CommentReply) => {

@@ -1,170 +1,142 @@
-// Runs Claude Code headless (`claude -p`, read-only unless a skill's scripts are allowed), streaming its text as it
-// writes: a note's answer, a journey, the check's questions and grades. Finding the binary: claudeCli.ts.
+// Claude Code, the agent behind every run (agent.ts says what an agent is): `claude -p`, read-only unless a skill's
+// scripts are allowed, its stream-json read as it comes (stream.ts). Finding the binary: claudeCli.ts.
 // No vscode API here (unit-tested in test/claude.test.ts with a fake CLI).
 import { spawn, ChildProcess } from 'child_process'
+import type { Agent, AgentRunOptions } from './agent'
+import { AskResult, foldEvent, FoldState } from './stream'
 
-export interface AskOptions {
+export type { AskErrorKind, AskResult, ToolCall } from './stream'
+export { foldEvent } from './stream'
+
+/** A run of Claude Code: `cli`, the program found by claudeCli.ts, and what the agent is asked. */
+export interface AskOptions extends AgentRunOptions {
   cli: string
-  cwd: string
-  prompt: string
-  /** Continue this Claude session (follow-ups on the same note keep their context). */
-  resume?: string
-  model?: string
-  /** More tools to allow (e.g. "Skill", "Bash(/path/to/skill/scripts/*)") and directories Claude may read. */
-  extraTools?: string[]
-  addDirs?: string[]
-  /** More environment for the CLI (and the commands it runs), e.g. JOURNEY_MODEL for journey.py. */
-  env?: Record<string, string>
-  /** Called as text arrives (the whole text so far) and when Claude starts using a tool; `tool`: the last finished call. */
-  onProgress?: (p: { text: string; activity?: string; tool?: ToolCall }) => void
 }
 
-export interface ToolCall { name: string; input: Record<string, unknown> }
+/** Claude Code's model aliases (`claude --help`, `--model`); any `claude-*` id is taken as it is. */
+export const MODEL_ALIASES = ['sonnet', 'opus', 'haiku', 'fable']
+
+/** "a, b, c or d" */
+const orList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}` : xs.join(''))
+/** An alias, or a full model id; either may ask for the long context window (`[1m]`). */
+const ALIAS = new RegExp(`^(${MODEL_ALIASES.join('|')})(\\[1m\\])?$`, 'i')
+const MODEL_ID = /^claude-[a-z0-9][\w.-]*(\[1m\])?$/i
 
 /**
- * Why a run failed, when the extension knows it (not from Claude's own words): `no-cli`, Claude Code couldn't be run at
- * all (not installed, or not where the setting says).
+ * A model Claude Code knows (an alias or a claude-* id), else the message to show; nothing runs then. The aliases
+ * are a list (not any word of the right shape) so that a typo like "sonet" is caught before a paid run.
  */
-export type AskErrorKind = 'no-cli'
-
-export interface AskResult { text: string; sessionId?: string; costUsd?: number; error?: string; errorKind?: AskErrorKind; cancelled?: boolean }
-
-/** A model Claude Code knows (an alias or a claude-* id), else the message to show; nothing runs then. */
 export function modelProblem(m: string | undefined): string | undefined {
-  if (!m) return undefined
-  if (/^(sonnet|opus|haiku|fable)(\[1m\])?$/i.test(m) || /^claude-[a-z0-9][\w.-]*(\[1m\])?$/i.test(m)) return undefined
-  return `Unknown model '${m}'. Use sonnet, opus, haiku or fable.`
+  if (!m || ALIAS.test(m) || MODEL_ID.test(m)) return undefined
+  return `Unknown model '${m}'. Use ${orList(MODEL_ALIASES)}.`
 }
 
 /** Read-only: Claude can look at the code but not change it. */
 export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob']
-/** What the activity line says while Claude uses a read-only tool ("Reading src/a.ts"); other tools: their name. */
-const TOOL_VERB: Record<string, string> = { Read: 'Reading', Grep: 'Searching for', Glob: 'Looking for' }
+/** Never allowed: edits (and Bash, unless `extraTools` allows some of it). */
+const BLOCKED_TOOLS = ['Edit', 'Write', 'NotebookEdit']
 /** How often the text streamed so far is reported (a tool starting is reported at once). */
 const PROGRESS_MS = 250
 /** How much of Claude Code's stderr is kept (the last lines are said when it fails). */
 const STDERR_KEPT = 4000
 
-/** A line of `claude -p --output-format stream-json` (only the fields read here; events and content as Claude sends them). */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-interface StreamLine {
-  type?: string
-  event?: any
-  message?: { content?: any[] }
-  result?: unknown
-  session_id?: string
-  total_cost_usd?: number
-  is_error?: boolean
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
-
-/** What a run has read so far: the text, what Claude is doing, its last tool call, the result once it came. */
-type FoldState = { text: string; activity?: string; tool?: ToolCall; result?: AskResult }
-
-/** Folds one stream-json line into the running state. Exported for tests. */
-export function foldEvent(state: FoldState, line: string): boolean {
-  let e: StreamLine
-  try { e = JSON.parse(line) } catch { return false }
-  if (e.type === 'stream_event') {
-    const ev = e.event
-    if (ev?.type === 'message_start' && state.text && !state.text.endsWith('\n\n')) {
-      state.text += '\n\n'
-      return true
-    }
-    if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-      state.text += ev.delta.text
-      state.activity = undefined
-      return true
-    }
-    if (ev?.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
-      state.activity = `Using ${ev.content_block.name}…`
-      return true
-    }
-    return false
-  }
-  if (e.type === 'assistant') {
-    // A finished tool call: say what it is looking at.
-    for (const c of e.message?.content ?? []) {
-      if (c.type !== 'tool_use') continue
-      const i = c.input ?? {}
-      state.tool = { name: String(c.name), input: i }
-      const target = String(i.file_path ?? i.pattern ?? i.path ?? '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, '')
-      state.activity = `${Object.hasOwn(TOOL_VERB, c.name) ? TOOL_VERB[c.name] : c.name} ${target}`.trim()
-      return true
-    }
-    return false
-  }
-  if (e.type === 'result') {
-    state.result = {
-      text: typeof e.result === 'string' ? e.result : state.text,
-      sessionId: e.session_id,
-      costUsd: e.total_cost_usd,
-      ...(e.is_error ? { error: typeof e.result === 'string' ? e.result : 'Claude reported an error' } : {}),
-    }
-    return true
-  }
-  return false
-}
-
-export class Ask {
-  private proc?: ChildProcess
-  private cancelled = false
-  readonly done: Promise<AskResult>
-
-  constructor(o: AskOptions) {
-    this.done = new Promise((resolve) => {
-      const state: FoldState = { text: '' }
-      let err = ''
-      const env = o.env ? { ...process.env, ...o.env } : process.env
-      const p = (this.proc = spawn(o.cli, argsFor(o), { cwd: o.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }))
-      let last = 0
-      // What arrived so far, at most every PROGRESS_MS (`force`: now, e.g. a tool starting).
-      const progress = (force = false) => {
-        if (!o.onProgress || (!force && Date.now() - last < PROGRESS_MS)) return
-        last = Date.now()
-        o.onProgress({ text: state.text, activity: state.activity, tool: state.tool })
-      }
-      const lines = lineSplitter((line) => { if (foldEvent(state, line)) progress(!!state.activity) })
-      p.stdout!.on('data', (b: Buffer) => lines.push(b.toString()))
-      p.stderr!.on('data', (b: Buffer) => { if (err.length < STDERR_KEPT) err += b.toString() })
-      p.on('error', (e) => resolve({ text: state.text, error: `couldn't start Claude Code (${o.cli}): ${e.message}`, errorKind: 'no-cli' }))
-      p.on('close', (code) => {
-        const rest = lines.rest()
-        if (rest) foldEvent(state, rest)
-        if (this.cancelled) return resolve({ text: state.text, cancelled: true, sessionId: state.result?.sessionId })
-        if (state.result) return resolve(state.result)
-        const said = err ? `: ${err.trim().split('\n').slice(-3).join(' ')}` : ''
-        resolve({ text: state.text, error: `Claude Code exited (${code})${said}` })
-      })
-    })
-  }
-
-  /** The process id of the running `claude` (a window reloaded meanwhile can tell it is still at work). */
-  get pid(): number | undefined { return this.proc?.pid }
-
-  cancel(): void {
-    this.cancelled = true
-    this.proc?.kill('SIGTERM')
-  }
-}
-
 /**
  * `claude -p`'s arguments: the prompt, streamed JSON events, the tools allowed (read-only, and `extraTools`) and
- * blocked, the folders it may read, the model, a session to resume.
+ * blocked, the folders it may read, the model, a session to resume. The understanding CLI runs the same program.
  */
-function argsFor(o: AskOptions): string[] {
+export function claudeArgs(o: AgentRunOptions): string[] {
   // Edits and any other command stay blocked; Bash only as allowed by extraTools (a skill's own scripts).
   const bash = o.extraTools?.some((t) => t.startsWith('Bash(')) ? [] : ['Bash']
   const args = [
-    '-p', o.prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '-p', o.prompt,
+    '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     '--allowedTools', ...READ_ONLY_TOOLS, ...(o.extraTools ?? []),
-    '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', ...bash,
+    '--disallowedTools', ...BLOCKED_TOOLS, ...bash,
   ]
   for (const d of o.addDirs ?? []) args.push('--add-dir', d)
   if (o.model) args.push('--model', o.model)
   if (o.resume) args.push('--resume', o.resume)
   return args
 }
+
+/** The four ways a run ends. */
+const outcome = {
+  /** Cancel was pressed: what was written so far, and the session (a follow-up can go on with it). */
+  cancelled: (s: FoldState): AskResult => ({ text: s.text, cancelled: true, sessionId: s.result?.sessionId }),
+  /** Claude Code said it was done (with its answer, or its error). */
+  finished: (s: FoldState & { result: AskResult }): AskResult => s.result,
+  /** The process ended without a result: its exit code and the last lines it printed on stderr. */
+  exited: (s: FoldState, code: number | null, stderr: string): AskResult => {
+    const said = stderr ? `: ${stderr.trim().split('\n').slice(-3).join(' ')}` : ''
+    return { text: s.text, error: `Claude Code exited (${code})${said}` }
+  },
+  /** The program could not be started at all. */
+  noCli: (s: FoldState, cli: string, e: Error): AskResult => ({
+    text: s.text,
+    error: `couldn't start Claude Code (${cli}): ${e.message}`,
+    errorKind: 'no-cli',
+  }),
+}
+
+/** A running `claude -p`: its result in `done`, `cancel()` stops it. Started with `Ask.start`. */
+export class Ask {
+  private readonly state: FoldState = { text: '' }
+  private stderr = ''
+  private cancelled = false
+  private lastProgress = 0
+  private resolve!: (r: AskResult) => void
+  readonly done = new Promise<AskResult>((r) => { this.resolve = r })
+
+  private constructor(private readonly o: AskOptions, private readonly proc: ChildProcess) {}
+
+  /** Claude Code started on `o`. */
+  static start(o: AskOptions): Ask {
+    const env = o.env ? { ...process.env, ...o.env } : process.env
+    const proc = spawn(o.cli, claudeArgs(o), { cwd: o.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const ask = new Ask(o, proc)
+    const lines = lineSplitter((line) => ask.read(line))
+    proc.stdout!.on('data', (b: Buffer) => lines.push(b.toString()))
+    proc.stderr!.on('data', (b: Buffer) => { if (ask.stderr.length < STDERR_KEPT) ask.stderr += b.toString() })
+    proc.on('error', (e) => ask.resolve(outcome.noCli(ask.state, o.cli, e)))
+    proc.on('close', (code) => {
+      const rest = lines.rest()
+      if (rest) foldEvent(ask.state, rest)
+      ask.finish(code)
+    })
+    return ask
+  }
+
+  /** The process id of the running `claude` (a window reloaded meanwhile can tell it is still at work). */
+  get pid(): number | undefined { return this.proc.pid }
+
+  cancel(): void {
+    this.cancelled = true
+    this.proc.kill('SIGTERM')
+  }
+
+  /** One line of output: folded in, and reported (a tool starting at once, text at most every PROGRESS_MS). */
+  private read(line: string): void {
+    if (!foldEvent(this.state, line) || !this.o.onProgress) return
+    if (!this.state.activity && Date.now() - this.lastProgress < PROGRESS_MS) return
+    this.lastProgress = Date.now()
+    this.o.onProgress({ text: this.state.text, activity: this.state.activity, tool: this.state.tool })
+  }
+
+  /** The process closed with `code`: how the run ended. */
+  private finish(code: number | null): void {
+    const s = this.state
+    if (this.cancelled) this.resolve(outcome.cancelled(s))
+    else if (s.result) this.resolve(outcome.finished({ ...s, result: s.result }))
+    else this.resolve(outcome.exited(s, code, this.stderr))
+  }
+}
+
+/** Claude Code as the agent (agent.ts): runs with the program found for it. */
+export const claudeCode = (cli: string): Agent => ({
+  name: 'Claude Code',
+  modelProblem,
+  start: (o) => Ask.start({ ...o, cli }),
+})
 
 /** A stream cut into lines: `push(chunk)` calls `onLine` with each whole line (trimmed, not empty); `rest()`: the rest. */
 function lineSplitter(onLine: (line: string) => void): { push(chunk: string): void; rest(): string } {

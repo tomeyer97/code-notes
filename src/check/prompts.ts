@@ -2,6 +2,8 @@
 // phase shown while it works (from its last tool call). No vscode API here (unit-tested in test/checkModel.test.ts).
 import { READ_ONLY_TOOLS } from '../platform/agent/claude'
 import type { ToolCall } from '../platform/agent/claude'
+import type { Note } from '../notes/store'
+import { isClaudeAnswer, lines, paragraph } from '../ask/prompts'
 
 /** The prompt for `claude -p` that writes (or tops up) the questions with the understanding-check skill. */
 export function checkPrompt(o: { skill: string; branch: string; baseRef: string; base: string; topUp: boolean; bundled: boolean; head?: string }): string {
@@ -55,4 +57,43 @@ export function checkPhase(tool: ToolCall | undefined, prev: string): string {
   if (/journey\.py/.test(cmd)) return 'writing the tour'
   const m = /questions\.mjs\s+([a-z-]+)/.exec(cmd)
   return m && Object.hasOwn(PHASE_OF, m[1]) ? PHASE_OF[m[1]] : prev
+}
+
+/** "Suggest a fix" on a check's concern, for lines `start`-`end`: the smallest change, as one suggestion block. */
+const FIX_HINT = (start: number, end: number) => lines(
+  'Suggest the smallest change that fixes it, and one that fits the problem:',
+  'it must not rely on the thing that failed (no retry through the connection that just broke),',
+  'and needs no new setting or environment variable unless there is no other way.',
+  `Reply with one sentence (at most 25 words), then one ${'```'}suggestion block holding the new text of lines ${start}-${end}`,
+  '(the lines of this note: the block replaces exactly those lines, so repeat the ones that stay as they are).',
+  'Nothing more: no headings, no lists, no other code blocks, no tests.',
+  'If the fix is not in these lines, say in one sentence where it is instead, without a block.',
+)
+
+/** A question about the code of a check question `q`: explain the code, never the check's answer. */
+const CHECK_ASK_HINT = (q: string) => lines(
+  `The person is answering an understanding check about this code. Its question: "${q}".`,
+  'Explain the code they ask about; never write, or hint at, the answer to that check question: they answer it themselves.',
+)
+
+/** `extra.checkAsk` / `extra.checkFix` (the check question a note asks about, or suggests a fix for), when set. */
+function checkExtra(n: Note): { checkAsk?: string; checkFix?: string } {
+  const x = n.data.extra ?? {}
+  return {
+    ...(typeof x.checkAsk === 'string' ? { checkAsk: x.checkAsk } : {}),
+    ...(typeof x.checkFix === 'string' ? { checkFix: x.checkFix } : {}),
+  }
+}
+
+/**
+ * What Ask Claude adds to a note's prompt for the check (its AskHandler's hint): a question about the code of a check
+ * question: explain the code, never write that answer. "Suggest a fix" on a concern (until Claude has answered): the
+ * smallest change, as one suggestion block (Apply puts it in; Undo takes it back).
+ */
+export function checkAskHint(n: Note): string {
+  const x = checkExtra(n)
+  if (x.checkFix && !n.data.target && !n.data.messages.some(isClaudeAnswer)) {
+    return paragraph(FIX_HINT(n.data.range.start, n.data.range.end))
+  }
+  return x.checkAsk ? paragraph(CHECK_ASK_HINT(x.checkAsk)) : ''
 }

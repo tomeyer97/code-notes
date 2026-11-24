@@ -223,7 +223,7 @@ export class Writer {
    * the understanding CLI and the model's name in the environment. `run.phase` follows what Claude does.
    */
   private askSkill(o: SkillRun & { dirs: string[]; resume?: string; env?: Record<string, string>; onPhase?: () => void }): Ask {
-    const ask = new Ask({
+    const ask = Ask.start({
       cli: o.claude, cwd: this.ctl.repo!, prompt: o.prompt, model: o.model, resume: o.resume,
       extraTools: o.dirs.map((d) => `Bash(${d}/scripts/*)`), addDirs: o.dirs,
       env: { UNDERSTANDING_CLI: this.ctl.cliPath, UNDERSTANDING_MODEL_LABEL: o.model ?? DEFAULT_MODEL_LABEL, ...o.env },

@@ -34,7 +34,7 @@ export interface NotesHost {
 
 /** Claude Code (writer.ts, grading.ts). */
 export interface ClaudeHost {
-  /** The `claude` CLI (Claude Code; src/platform/agent/claudeCli.ts findCli), or undefined. Not the understanding CLI (controller's `cli`). */
+  /** The `claude` CLI (Claude Code; the agent runner, src/platform/agent/runner.ts), or undefined. Not the understanding CLI (controller's `cli`). */
   cli(): string | undefined
   /** Claude may run here (a trusted folder); says why not otherwise. */
   allowed(what: string): boolean

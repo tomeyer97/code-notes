@@ -7,7 +7,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { log } from '../platform/host'
 import { showError } from '../platform/run'
-import { claudeAllowed } from '../ask/trust'
+import { agentRunner } from '../platform/agent/runner'
 import { AskResult } from '../platform/agent/claude'
 import { LoadedJourney } from '../journeys/steps'
 import { pickOne } from '../platform/quickPick'
@@ -45,7 +45,7 @@ export async function refreshJourney(arg?: unknown): Promise<LoadedJourney | und
   const task = refreshTask(lj, slug, stale)
   const cli = await cliOrClipboard(`Use the code-journey skill. ${task}`, `Copied a prompt for your agent to refresh “${lj.j.title}”`)
   if (!cli) return undefined
-  if (!claudeAllowed('refresh journeys')) return undefined
+  if (!agentRunner().allowed('refresh journeys')) return undefined
   const ready = skillAndModel(lj.folder, NO_SKILL)
   if (!ready) return undefined
   const { skill, model } = ready

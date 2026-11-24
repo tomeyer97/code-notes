@@ -4,13 +4,20 @@
 import * as vscode from 'vscode'
 import { cfg } from '../platform/settings'
 import { setCtx } from '../platform/context'
-import { findCli, findCliAsync } from '../platform/agent/claudeCli'
+import { agentRunner } from '../platform/agent/runner'
 import { fireAndForget } from '../platform/run'
 
-export const claudeMode = () => cfg().get<string>('claude.mode', 'button')
+/** codeNotes.claude.mode (package.json): Claude answers on a button press, every note on its own, or never. */
+export type ClaudeMode = 'button' | 'always' | 'off'
+const MODES: readonly ClaudeMode[] = ['button', 'always', 'off']
 
-/** The claude CLI (setting codeNotes.claude.path, else PATH), or undefined. */
-export const claudeCli = () => findCli(cfg().get<string>('claude.path') || undefined)
+export const claudeMode = (): ClaudeMode => {
+  const m = cfg().get<string>('claude.mode', 'button')
+  return (MODES as readonly string[]).includes(m) ? (m as ClaudeMode) : 'button'
+}
+
+/** The claude CLI as found so far (the agent runner's one search: setting codeNotes.claude.path, else PATH). */
+export const claudeCli = () => agentRunner().knownCli()
 
 /** Claude answers every new note and reply on its own (mode "always"). */
 export const askAlways = () => claudeMode() === 'always'
@@ -20,16 +27,14 @@ export const askOnQuestion = () => claudeMode() !== 'off' && !!claudeCli()
 
 /** Whether the claude CLI is there (the context key codeNotes.claudeFound), asked again when its setting or the trust changes. */
 export function watchClaudeCli(context: vscode.ExtensionContext): void {
-  // In Restricted Mode `codeNotes.claude.path` comes from the user's settings only (package.json:
-  // restrictedConfigurations), so a folder's own settings never pick the program run here.
-  // Off the extension host's path: each candidate's `claude --version` runs as its own process (findCli then answers
-  // from the cache). Only the latest probe's answer is kept.
+  // Each candidate's `claude --version` runs as its own process, off the extension host's path. Only the latest
+  // probe's answer is kept.
   let probes = 0
   const probeClaude = () => {
     const n = ++probes
-    fireAndForget(findCliAsync(cfg().get<string>('claude.path') || undefined).then((c) => {
+    fireAndForget(agentRunner().cli().then((c) => {
       if (n === probes) fireAndForget(setCtx('codeNotes.claudeFound', !!c), 'settings: setCtx codeNotes.claudeFound')
-    }), 'settings: findCliAsync')
+    }), 'settings: find claude')
   }
   probeClaude()
   context.subscriptions.push(

@@ -5,7 +5,8 @@ import { registerCommands } from '../platform/registerCommands'
 import { writingChanged } from './inProgress'
 import { useWritePorts, WritePorts } from './ports'
 import { refreshJourney } from './refreshJourney'
-import { askQuestion, watchRequests } from './requests'
+import { askQuestion, watchRequestFiles } from './requests'
+import { registerUriRoutes } from './uriRoutes'
 
 export interface WriteFeature {
   /** Requests left for the extension (a file, a link) are taken from now on: once everything is shown. */
@@ -19,5 +20,5 @@ export function activateWrite(context: vscode.ExtensionContext, ports: WritePort
     [Cmd.askQuestion]: askQuestion,
     [Cmd.refreshJourney]: refreshJourney,
   })
-  return { takeRequests: () => watchRequests(context) }
+  return { takeRequests: () => { context.subscriptions.push(registerUriRoutes(), watchRequestFiles()) } }
 }

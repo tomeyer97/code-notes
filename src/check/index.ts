@@ -6,9 +6,10 @@ import { STEP_PRIORITY, Steppers } from '../platform/chordKey'
 import { Cmd, HiddenCmd } from '../platform/commands'
 import { registerCommands } from '../platform/registerCommands'
 import { hideNotes } from '../notes/visible'
+import { handleAsks } from '../ask/handlers'
 import { CheckController } from './controller'
 import { CheckPorts, useCheckPorts } from './ports'
-import { answerCheck, backToQuestion, checkConcern, checkHost, checkLinkNote, checkStepping, gradeCheck } from './wiring'
+import { answerCheck, backToQuestion, checkAskHandler, checkConcern, checkHost, checkLinkNote, checkStepping, gradeCheck } from './wiring'
 
 export interface CheckFeature {
   controller: CheckController
@@ -25,6 +26,8 @@ export function activateCheck(context: vscode.ExtensionContext, ports: CheckPort
     controller,
     // Another branch's questions are not listed (their lines belong to that branch).
     hideNotes((n) => controller.offBranch(n)),
+    // Ask Claude on a check question asks about its code instead.
+    handleAsks(checkAskHandler(controller)),
     // D / A outside a walk, while the check has open questions.
     steppers.register(STEP_PRIORITY.check, { step: (dir) => checkStepping() && controller.step(dir) }),
   )

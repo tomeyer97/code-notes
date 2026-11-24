@@ -1,0 +1,68 @@
+===== first
+Pat left a note on src/a.ts lines 2-3 in this repository:
+
+```
+line two
+line three
+```
+
+It is about this exact text: `read`
+
+The conversation so far:
+
+Pat (human): Why is this read twice?
+
+Answer Pat's latest message. Read whatever code you need (Read, Grep, Glob); do not modify files. Reply in concise markdown; reference code as path:line (relative to the repository root) so it becomes a link. Your reply is posted into the note thread as is.
+===== stale
+Pat left a note on src/a.ts lines 2-3 in this repository (the code there has changed since; the note was about the lines under "Originally"):
+
+```
+line two
+line three
+```
+
+Originally:
+```
+old line two
+old line three
+```
+
+The conversation so far:
+
+Pat (human): Why is this read twice?
+
+Answer Pat's latest message. Read whatever code you need (Read, Grep, Glob); do not modify files. Reply in concise markdown; reference code as path:line (relative to the repository root) so it becomes a link. Your reply is posted into the note thread as is.
+===== file
+Pat left a note on the whole file src/a.ts in this repository:
+
+The conversation so far:
+
+Pat (human): Why is this read twice?
+
+Answer Pat's latest message. Read whatever code you need (Read, Grep, Glob); do not modify files. Reply in concise markdown; reference code as path:line (relative to the repository root) so it becomes a link. Your reply is posted into the note thread as is.
+===== followUp
+Follow-up on the same note (now on src/a.ts lines 2-3):
+
+Reviewer: Twice, see b.ts.
+
+Pat: Which?
+
+Answer it. Read whatever code you need (Read, Grep, Glob); do not modify files. Reply in concise markdown; reference code as path:line (relative to the repository root) so it becomes a link. Your reply is posted into the note thread as is.
+===== step
+
+
+Start with a one-line answer (yes or no first, for a yes/no question), then at most 2-4 sentences. No headings, no lists unless asked; more only if asked.
+===== update
+
+===== fix
+
+
+Suggest the smallest change that fixes it, and one that fits the problem: it must not rely on the thing that failed (no retry through the connection that just broke), and needs no new setting or environment variable unless there is no other way. Reply with one sentence (at most 25 words), then one ```suggestion block holding the new text of lines 2-3 (the lines of this note: the block replaces exactly those lines, so repeat the ones that stay as they are). Nothing more: no headings, no lists, no other code blocks, no tests. If the fix is not in these lines, say in one sentence where it is instead, without a block.
+===== fixAnswered
+
+===== checkAsk
+
+
+The person is answering an understanding check about this code. Its question: "What does allow() return?". Explain the code they ask about; never write, or hint at, the answer to that check question: they answer it themselves.
+===== skills
+If the note asks for something one of these skills does, use it: code-journey, review. Run a skill's scripts by their full path (/opt/agent/.claude/skills/<skill>/scripts/…), one command per call: no shell variables, no && or pipes (anything else is refused). When you are done, reply with a short summary; findings you wrote as notes don't need repeating.

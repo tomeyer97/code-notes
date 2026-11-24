@@ -6,10 +6,9 @@ import { execFile } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cfg } from '../platform/settings'
 import { extUri } from '../platform/host'
 import { showError } from '../platform/run'
-import { claudeCli } from '../ask/settings'
+import { agentRunner } from '../platform/agent/runner'
 import { Ask, AskOptions, AskResult, modelProblem } from '../platform/agent/claude'
 import { folderName } from '../notes/notesFolder'
 import { clock, phaseOf } from '../core/writing'
@@ -17,7 +16,7 @@ import { Writing, writingChanged, writingNow } from './inProgress'
 import { fireAndForget } from '../platform/run'
 
 /** The model a journey is written with (a request's `model`, the settings), and how it is named. */
-export const journeyModel = (override?: string) => override || cfg().get<string>('journeys.model') || cfg().get<string>('claude.model') || undefined
+export const journeyModel = (override?: string) => agentRunner().model('journey', override)
 export const modelLabel = (m?: string) => m || 'Claude Code default'
 
 /**
@@ -64,7 +63,7 @@ export async function runWriter(w: Writing, title: string, o: Omit<AskOptions, '
   try {
     return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
       const tick = () => { progress.report({ message: `${clock(Date.now() - w.started)} · ${w.phase}` }); writingChanged.fire() }
-      const ask = new Ask({
+      const ask = Ask.start({
         ...o,
         onProgress: (p) => {
           const phase = phaseOf(p.tool, w.phase)
@@ -88,7 +87,7 @@ export async function runWriter(w: Writing, title: string, o: Omit<AskOptions, '
  * is returned.
  */
 export async function cliOrClipboard(prompt: string, notice: string): Promise<string | undefined> {
-  const cli = claudeCli()
+  const cli = await agentRunner().cli()
   if (cli) return cli
   await vscode.env.clipboard.writeText(prompt)
   fireAndForget(vscode.window.showInformationMessage(notice), 'claudeRun: window.showInformationMessage')

@@ -8,7 +8,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { log } from '../platform/host'
 import { showError } from '../platform/run'
-import { claudeAllowed } from '../ask/trust'
+import { agentRunner } from '../platform/agent/runner'
 import { AskResult } from '../platform/agent/claude'
 import { LoadedJourney } from '../journeys/steps'
 import { journeysFolderName } from '../journeys/journeys'
@@ -36,7 +36,7 @@ const LOAD_WAIT = 100
 export async function writeJourney(question: string, o: WriteOptions = {}): Promise<LoadedJourney | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0]
   if (!folder) return undefined
-  if (!claudeAllowed('write journeys')) return undefined
+  if (!agentRunner().allowed('write journeys')) return undefined
   const ownAgent = `Use the code-journey skill to answer: ${question}`
   const cli = await cliOrClipboard(ownAgent, `Copied a prompt for your agent: "${ownAgent}"`)
   if (!cli) return undefined

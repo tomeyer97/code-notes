@@ -5,7 +5,7 @@ import { registerCommands } from '../platform/registerCommands'
 import type { NotesApi } from '../notes/model'
 import { askClaudeCommand, cancelClaudeCommand } from './commands'
 import { AskPorts, useAskPorts } from './ports'
-import { askStatusItem, createAskStatusItem, followNotes, loadAskErrors } from './run'
+import { announceAskChanges, askStatusItem, createAskQueue } from './run'
 import { watchClaudeCli } from './settings'
 
 export interface AskFeature {
@@ -15,14 +15,13 @@ export interface AskFeature {
 
 export function activateAsk(context: vscode.ExtensionContext, ports: AskPorts): AskFeature {
   useAskPorts(ports)
-  loadAskErrors()
+  const queue = createAskQueue()
+  context.subscriptions.push(queue, announceAskChanges(queue))
   // No claude CLI: no Ask Claude anywhere; the setting's description says how to get it.
   watchClaudeCli(context)
-  createAskStatusItem()
-  context.subscriptions.push(askStatusItem)
   registerCommands(context, {
     [Cmd.askClaude]: askClaudeCommand,
     [Cmd.cancelClaude]: cancelClaudeCommand,
   })
-  return { follow: (model) => followNotes(model) }
+  return { follow: (model) => askStatusItem(model) }
 }
