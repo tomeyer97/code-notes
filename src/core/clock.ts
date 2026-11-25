@@ -1,4 +1,5 @@
-// A time in seconds as people read it: on the player ("12:47") and in messages ("0:04.4"). Pure.
+// Times as people read them: on the podcast player ("12:47", "0:04.4", in seconds) and while an agent works
+// ("1:05", "2 min", elapsed milliseconds). Pure.
 
 /** m:ss (h:mm:ss past an hour). */
 export function clock(t: number): string {
@@ -14,4 +15,16 @@ export function clockMs(t: number): string {
   const whole = Math.floor(tenths)
   const frac = Math.round((tenths - whole) * 10)
   return frac ? `${clock(whole)}.${frac}` : clock(whole)
+}
+
+/** Elapsed milliseconds as minutes and seconds, "1:05" (minutes keep counting past an hour). */
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** "2 min" / "under a minute", for the notice when an agent is done. */
+export function minutes(ms: number): string {
+  const m = Math.round(ms / 60000)
+  return m < 1 ? 'under a minute' : `${m} min`
 }

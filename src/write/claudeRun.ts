@@ -1,92 +1,107 @@
-// Claude Code at work on a journey (writing one, or refreshing one): the code-journey skill and its journey.py, a
-// staging folder, the model, what must be in place before Claude may run, and the run itself, with a notification.
+// Claude Code at work on a journey (writing one, or refreshing one): what must be in place before it may run (the
+// folder trusted, the CLI, the code-journey skill, the model), a staging folder, journey.py, and the run itself in a
+// notification. writeJourney.ts and refreshJourney.ts keep only their prompts and what they do with the result.
 
 import * as vscode from 'vscode'
-import { execFile } from 'child_process'
+import { execFile, ExecFileException } from 'child_process'
 import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
-import { extUri } from '../platform/host'
-import { showError } from '../platform/run'
+import { fireAndForget, showError } from '../platform/run'
 import { agentRunner } from '../platform/agent/runner'
-import { Ask, AskOptions, AskResult, modelProblem } from '../platform/agent/claude'
+import { AskResult, modelProblem } from '../platform/agent/claude'
+import { skillCacheDir } from '../platform/agent/claudeHome'
+import { withRunProgress } from '../platform/agentProgress'
+import { findSkill, missingSkill, type SkillLookup } from '../platform/skillDir'
+import { extUri } from '../platform/host'
+import { modelLabel } from '../core/agentRun'
 import { folderName } from '../notes/notesFolder'
-import { clock, phaseOf } from '../core/writing'
-import { Writing, writingChanged, writingNow } from './inProgress'
-import { fireAndForget } from '../platform/run'
+import { phaseOf } from './journeyPhases'
+import { JourneyJob, journeyRun } from './journeyJobs'
+import { Staging, stagingFolder } from './staging'
+import { journeyRunOptions } from './runOptions'
 
-/** The model a journey is written with (a request's `model`, the settings), and how it is named. */
+export { modelLabel } from '../core/agentRun'
+
+const SKILL = 'code-journey'
+
+/** How long writing a journey takes, about: said before the run is started. */
+export const WRITE_ESTIMATE = 'about 3 min'
+
+/** The model a journey is written with (a request's `model`, the settings). */
 export const journeyModel = (override?: string) => agentRunner().model('journey', override)
-export const modelLabel = (m?: string) => m || 'Claude Code default'
 
-/**
- * The code-journey skill: the repository's own copy (a team can pin and adapt it), else the home folder's, else the one
- * that ships with the extension (so writing a journey works with nothing installed).
- */
-export function journeySkill(folder: vscode.WorkspaceFolder): string | undefined {
-  const home = os.homedir()
-  return [`${folder.uri.fsPath}/.claude/skills/code-journey`, `${home}/.claude/skills/code-journey`, bundledSkill()].find((d) => fs.existsSync(`${d}/scripts`))
-}
-/** The copy inside the extension: Claude Code does not know it as a skill, so the prompt names its SKILL.md instead. */
-export const bundledSkill = () => `${extUri().fsPath}/skills/code-journey`
+/** Where the code-journey skill is looked for, for the repository at `repo` (platform/skillDir.ts). */
+const lookup = (repo: string): SkillLookup => ({ repo, bundled: vscode.Uri.joinPath(extUri(), 'skills').fsPath })
+
+/** A copy of the skill is a folder with its scripts. */
+const MARKER = 'scripts'
+
+/** The code-journey skill for `folder` (platform/skillDir.ts says where it is looked for). */
+export const journeySkill = (folder: vscode.WorkspaceFolder): string | undefined =>
+  findSkill(SKILL, { ...lookup(folder.uri.fsPath), marker: MARKER })?.dir
 
 /** How long journey.py may take (ms), and how much it may print. */
 const JOURNEY_PY_TIMEOUT = 120_000
 const JOURNEY_PY_MAX_OUTPUT = 8 << 20
+/** The Python that runs journey.py: Windows installs it as `python`. */
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3'
+
+/** A finished command's exit code: 0, its own, or 1 when it has none (killed, not started). */
+const exitCode = (err: ExecFileException | null) => (!err ? 0 : typeof err.code === 'number' ? err.code : 1)
 
 /** journey.py with a staging folder; never throws. */
 export function journeyPy(skill: string, repo: string, stage: string, args: string[]): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     const opts = { cwd: repo, timeout: JOURNEY_PY_TIMEOUT, maxBuffer: JOURNEY_PY_MAX_OUTPUT }
-    execFile('python3', [`${skill}/scripts/journey.py`, '--dir', stage, ...args], opts, (err, out, errOut) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0
-      resolve({ code, out: `${out ?? ''}${errOut ?? ''}`.trim() })
+    execFile(PYTHON, [`${skill}/scripts/journey.py`, '--dir', stage, ...args], opts, (err, out, errOut) => {
+      resolve({ code: exitCode(err), out: `${out ?? ''}${errOut ?? ''}`.trim() })
     })
   })
 }
 
-/** A staging folder in the notes folder (`stage`, relative to the repository; `dir`, absolute) Claude writes into. */
-export interface Staging { id: string; stage: string; dir: string; cleanup: () => void }
-export function stagingFolder(repo: string): Staging {
-  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-  const stage = `${folderName()}/.writing/${id}`
-  const dir = path.join(repo, stage)
-  fs.mkdirSync(dir, { recursive: true })
-  return { id, stage, dir, cleanup: () => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* gone */ } } }
+/** Everything a journey run needs, once it may start. */
+export interface JourneyRunReady {
+  cli: string
+  repo: string
+  skill: string
+  /** The skill is the extension's own copy (its SKILL.md is read as a file). */
+  bundled: boolean
+  model?: string
+  staging: Staging
 }
 
-/**
- * Claude at work on a journey (`w`, listed in writingNow by the caller), in a notification titled `title`: the elapsed
- * time and a plain phase (not the tool's name); Cancel stops it. `w` leaves the list when it is done.
- */
-export async function runWriter(w: Writing, title: string, o: Omit<AskOptions, 'onProgress'>): Promise<AskResult> {
-  try {
-    return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
-      const tick = () => { progress.report({ message: `${clock(Date.now() - w.started)} · ${w.phase}` }); writingChanged.fire() }
-      const ask = Ask.start({
-        ...o,
-        onProgress: (p) => {
-          const phase = phaseOf(p.tool, w.phase)
-          if (phase !== w.phase) { w.phase = phase; tick() }
-        },
-      })
-      w.ask = ask
-      tick()
-      const timer = setInterval(tick, 1000)
-      token.onCancellationRequested(() => ask.cancel())
-      try { return await ask.done } finally { clearInterval(timer) }
-    })
-  } finally {
-    writingNow.delete(w.id)
-    writingChanged.fire()
-  }
-}
+/** Why a journey run can't start: said by `prepareJourneyRun`'s caller (reportNotReady). */
+export type NotReady = { ok: false; reason?: string }
 
 /**
- * The claude CLI; without it, `prompt` for your own agent goes on the clipboard (said with `notice`) and undefined
- * is returned.
+ * What a journey run needs in `folder`, in order: a trusted folder (`what` Claude would do, for the trust message), the
+ * claude CLI (without it, `ownAgent.prompt` goes on the clipboard, said with `ownAgent.notice`), the skill, a usable
+ * model; then a staging folder. `reason` is what to say when there is one.
  */
-export async function cliOrClipboard(prompt: string, notice: string): Promise<string | undefined> {
+export async function prepareJourneyRun(
+  folder: vscode.WorkspaceFolder,
+  o: { what: string; ownAgent: { prompt: string; notice: string }; model?: string },
+): Promise<({ ok: true } & JourneyRunReady) | NotReady> {
+  if (!agentRunner().allowed(o.what)) return { ok: false }
+  const cli = await cliOrClipboard(o.ownAgent.prompt, o.ownAgent.notice)
+  if (!cli) return { ok: false }
+  const repo = folder.uri.fsPath
+  const skill = findSkill(SKILL, { ...lookup(repo), marker: MARKER })
+  if (!skill) return { ok: false, reason: `${missingSkill(SKILL, lookup(repo))}, so Claude can't ${o.what} here.` }
+  const model = journeyModel(o.model)
+  const bad = modelProblem(model)
+  if (bad) return { ok: false, reason: bad }
+  const staging = stagingFolder(repo, folderName())
+  return { ok: true, cli, repo, skill: skill.dir, bundled: skill.bundled, model, staging }
+}
+
+/** Says why a journey run didn't start, when there is something to say. */
+export function reportNotReady(r: NotReady): undefined {
+  if (r.reason) fireAndForget(showError(r.reason), 'claudeRun: showError')
+  return undefined
+}
+
+/** The claude CLI; without it, `prompt` for your own agent goes on the clipboard (said with `notice`). */
+async function cliOrClipboard(prompt: string, notice: string): Promise<string | undefined> {
   const cli = await agentRunner().cli()
   if (cli) return cli
   await vscode.env.clipboard.writeText(prompt)
@@ -94,35 +109,34 @@ export async function cliOrClipboard(prompt: string, notice: string): Promise<st
   return undefined
 }
 
-/**
- * The code-journey skill and the model a journey is written with (`model`: a request's, else the settings'); undefined
- * when either can't be used, said (`noSkill`: what is said when the skill is missing).
- */
-export function skillAndModel(folder: vscode.WorkspaceFolder, noSkill: string, model?: string): { skill: string; model?: string } | undefined {
-  const skill = journeySkill(folder)
-  if (!skill) {
-    fireAndForget(showError(noSkill), 'claudeRun: showError')
-    return undefined
-  }
-  const m = journeyModel(model)
-  const bad = modelProblem(m)
-  if (bad) {
-    fireAndForget(showError(bad), 'claudeRun: showError')
-    return undefined
-  }
-  return { skill, model: m }
+/** A new job for `r`: listed (with its row) while Claude runs. */
+export function journeyJob(r: JourneyRunReady, kind: JourneyJob['kind'], question: string, journey?: string): JourneyJob {
+  return { id: r.staging.id, kind, question, journey, started: Date.now(), phase: 'starting', model: modelLabel(r.model) }
 }
 
-/** Claude with the code-journey skill in `repo`: read-only tools, Bash only for the skill's own scripts; the skill's
- *  folder readable when it is the bundled copy, and `extraDirs`. */
-export function runJourneySkill(
-  w: Writing, title: string,
-  o: { cli: string; repo: string; prompt: string; skill: string; model?: string; resume?: string; extraDirs?: string[] },
+/**
+ * Claude with the code-journey skill in the repository (what it may do: runOptions.ts), on job `job`, in a
+ * notification titled `title`; with `cache`, the skill's cache folder is readable when there is one (claudeHome.ts
+ * skillCacheDir, the same rule as a note's skills). Listed in the runner's runs in progress until it ends.
+ */
+export async function runJourneySkill(
+  job: JourneyJob, title: string, r: JourneyRunReady, o: { prompt: string; resume?: string; cache?: boolean },
 ): Promise<AskResult> {
-  const bundled = o.skill === bundledSkill()
-  return runWriter(w, title, {
-    cli: o.cli, cwd: o.repo, prompt: o.prompt, model: o.model, resume: o.resume,
-    extraTools: ['Skill', `Bash(${o.skill}/scripts/*)`], addDirs: [...(o.extraDirs ?? []), ...(bundled ? [o.skill] : [])],
-    env: { JOURNEY_MODEL: w.model },
+  const cache = skillCacheDir(SKILL)
+  const cached = !!o.cache && (await fs.promises.access(cache).then(() => true, () => false))
+  const options = journeyRunOptions({
+    repo: r.repo, prompt: o.prompt, skill: r.skill, bundled: r.bundled, model: r.model, modelLabel: job.model,
+    resume: o.resume, cache: cached ? cache : undefined,
   })
+  // The notification says the phase again as soon as it changes.
+  const start = (tick: () => void) => agentRunner().start(r.cli, journeyRun(job), {
+    ...options,
+    onProgress: (p) => {
+      const phase = phaseOf(p.tool, job.phase)
+      if (phase === job.phase) return
+      job.phase = phase
+      tick()
+    },
+  })
+  return withRunProgress(job, title, start)
 }

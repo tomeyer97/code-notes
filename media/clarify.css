@@ -1,37 +1,38 @@
-/* "Claude asks" (src/webview/clarify.html, src/write/clarify.ts). */
+/* "Claude asks" (src/webview/clarify.html, src/write/clarify.ts): the colours are media/common.css's tokens, linked
+   before this sheet; VS Code has no token there for a filled button, so the Send button reads the theme's own. */
 body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  color: var(--fg);
+  background: var(--bg);
   max-width: 720px;
   padding: 8px 16px;
 }
 .q {
-  color: var(--vscode-descriptionForeground);
+  color: var(--muted);
 }
 .answer {
   margin: 12px 0;
 }
-textarea {
+#answer {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
+  color: var(--input-fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
   padding: 6px;
 }
-button {
+#send {
   font: inherit;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground, var(--bg));
+  background: var(--vscode-button-background, var(--accent));
   border: 0;
   padding: 4px 12px;
   margin-top: 6px;
   cursor: pointer;
 }
 .hint {
-  color: var(--vscode-descriptionForeground);
+  color: var(--muted);
   margin-left: 8px;
 }
