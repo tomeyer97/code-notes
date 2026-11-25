@@ -1,23 +1,35 @@
 // The main suite's window: the workspace run.ts made (src/app.ts and nothing else at first), the extension's test API,
-// and short ways to read its state. Every test file of the main suite imports these; suite.ts fills `ctx` once.
+// and short ways to read its state. Every test file of the main suite imports these; suite.ts fills `ctx` once, from
+// `createSuiteContext` (helpers.ts), before any test runs.
 import * as vscode from 'vscode'
 import * as path from 'path'
 import type { TestApi } from '../../../src/testApi'
+import type { SuiteContext } from '../helpers'
 import { waiter } from '../helpers'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+let suite: SuiteContext | undefined
+/** The suite context, or a clear error when a test file uses it before suite.ts has set it up. */
+const ready = (): SuiteContext => {
+  if (!suite) throw new Error('main/context.ts: ctx used before suite.ts set it up (setMainContext)')
+  return suite
+}
+
+/** Sets `ctx` from the suite's context (suite.ts, once the extension is active). */
+export function setMainContext(context: SuiteContext): void { suite = context }
+
 export const ctx = {
   /** The extension's test API (src/testApi.ts: what `activate` returns). */
-  api: undefined as unknown as TestApi,
-  folder: undefined as unknown as vscode.WorkspaceFolder,
+  get api(): TestApi { return ready().api },
+  get folder(): vscode.WorkspaceFolder { return ready().folder },
   /** The workspace folder on disk. */
-  ws: '',
+  get ws(): string { return ready().ws },
   /** <ws>/.code-notes */
-  notesDir: '',
+  get notesDir(): string { return ready().notesDir },
 }
 
 /** The main suite's wait (6 s by default): on a timeout it prints the tour's state (most waits are on it). */
-export const until = waiter({ dump: () => { try { const s = ctx.api?.snapshot(); return s && { journeys: s.journeys.map((j: { id: string }) => j.id), tour: s.tour && { ...s.tour, story: undefined } } } catch { return undefined } } })
+export const until = waiter({ dump: () => { try { const s = suite?.api.snapshot(); return s && { journeys: s.journeys.map((j: { id: string }) => j.id), tour: s.tour && { ...s.tour, story: undefined } } } catch { return undefined } } })
 
 /** Everything the extension shows, as data (notes, journeys, the tour, counts). */
 export const snap = () => ctx.api.snapshot()
@@ -63,12 +75,19 @@ export async function lenses(uri: vscode.Uri): Promise<string[]> {
   return (await codeLenses(uri)).map((l) => `${l.range.start.line + 1}:${l.command?.title ?? ''}`)
 }
 
+/** The fake claude CLI (test/fixtures/fake-claude.js). */
+const FAKE_CLAUDE = path.join(__dirname, '../../../../test/fixtures/fake-claude.js')
+
 /**
- * The fake claude CLI (test/fixtures/fake-claude.js) as codeNotes.claude.path, logging its runs to a file of this
- * workspace's (other test runs on this machine share the temp folder), which `fakeCalls` reads. Called by the first
- * test that asks Claude (main/notes.ts); every test after it runs this fake.
+ * The fake claude CLI as codeNotes.claude.path, logging its runs to a file of this workspace's (other test runs on
+ * this machine share the temp folder), which `fakeCalls` reads. The notes chapter wires it up in its own test (the
+ * notes it creates before must not be asked to Claude: src/notes/create.ts); every chapter after it calls this in its
+ * setup (suite.ts), so it runs alone too. Calling it again changes nothing.
  */
 export async function useFakeClaude(): Promise<void> {
-  process.env.FAKE_CLAUDE_LOG = path.join(ctx.ws, '..', `fake-claude-${path.basename(ctx.ws)}.log`)
-  await setting('claude.path', path.join(__dirname, '../../../../test/fixtures/fake-claude.js'))
+  const log = path.join(ctx.ws, '..', `fake-claude-${path.basename(ctx.ws)}.log`)
+  const config = vscode.workspace.getConfiguration('codeNotes').inspect<string>('claude.path')?.workspaceValue
+  if (process.env.FAKE_CLAUDE_LOG === log && config === FAKE_CLAUDE) return
+  process.env.FAKE_CLAUDE_LOG = log
+  await setting('claude.path', FAKE_CLAUDE)
 }
