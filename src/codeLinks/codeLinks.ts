@@ -1,12 +1,13 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/editorDecorations'
 import { fileLines } from '../platform/documents'
 import type { StepLink } from '../core/format/journeyModel'
-import { findLine } from '../core/anchors/lineFollow'
 import { TrackedLine, TrackedLines } from '../platform/followEdits'
 import { showInCodeGroup, stepFileUri } from '../journeys/codeGroup'
 import { fireAndForget } from '../platform/run'
 import { HiddenCmd } from '../platform/commands'
+import { Latest } from './latest'
+import { lineChanged, locateStepLine, sameLinks } from './lines'
+import { BackRow, LitLines, LitRange, outside, revealAround } from './litLines'
 
 // Code links: a click on a linked phrase of the step's card lights that phrase's lines and brings them
 // into view. Nothing is marked before a click (VS Code tells an extension nothing about hovering a link in a comment,
@@ -15,8 +16,16 @@ import { HiddenCmd } from '../platform/commands'
 /** Where the step's card hangs (its file, its 0-based line): a link into that file stays near it. */
 export interface CardAt { uri: string; line: number }
 
-/** Where a link's lines are now: 0-based, inclusive. */
-type LinkLines = { uri: string; start: number; end: number }
+/** How a click shows its lines. */
+export interface OpenOptions {
+  /** The Back row's words and tooltip; none: nowhere to go back to, no Back row. */
+  back?: { title: string; tip?: string }
+  /** Where the card is: a link into its file scrolls as little as it can, with no way back while the card shows. */
+  card?: CardAt
+  /** The lines are only lit: the caret and the keyboard stay where they are. */
+  keepFocus?: boolean
+}
+
 /** Link `i`'s lines as followed through edits: they start at `line` and run `len` lines further. */
 interface FoundLink extends TrackedLine { i: number; len: number }
 
@@ -28,47 +37,37 @@ const OWN_AFTER_SHOW_MS = 150
 const SCROLL_WAIT_MS = 1000
 /** Lines kept in view above and below the lit lines. */
 const REVEAL_MARGIN = 3
+/** How long the status bar says a link's code is gone. */
+const GONE_MESSAGE_MS = 4000
 
 export class CodeLinks implements vscode.Disposable {
   /** `visible`: the links whose phrase is on the card now (those behind "More" only while it is open). */
   private step: { key: string; folder: vscode.Uri; links: StepLink[]; renames: Map<string, string>; visible: Set<number> } | undefined
   /** Where each found link's lines are now; a link not found has none. They follow edits to their file. */
-  private readonly found = new TrackedLines<FoundLink>(() => this.paint(), {
+  private readonly found = new TrackedLines<FoundLink>(() => this.lit.paint(), {
     onFound: (f, doc) => { f.len = Math.min(doc.lineCount - 1, f.line + f.len) - f.line },
     onLost: (f) => { if (this.active === f.i) this.unlit() },
   })
   /** The clicked link (-1: none). */
   private active = -1
   /** The way back, above the lit lines: "← Back to step 4"; only when the card is not on screen with them. */
-  private backRow: { title: string; tip: string } | undefined
-  /** One look per meaning: a clicked link's lines carry a fill; the beat's line a bar (beats.ts), the step a tint. */
-  private readonly strong = vscode.window.createTextEditorDecorationType({
-    isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
-    overviewRulerColor: new vscode.ThemeColor('symbolIcon.functionForeground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
-  })
+  private backRow: BackRow | undefined
+  private readonly lit = new LitLines(() => this.linesOf(this.active), () => this.backRow)
   private readonly subs: vscode.Disposable[]
   /** The newest step presented wins (its links are looked for while the next may come). */
-  private seq = 0
-  private readonly lens = new vscode.EventEmitter<void>()
-  /** Something lit or the way back changed (value hints leave the Back row to it:). */
-  readonly onDidChange = this.lens.event
-  /** What the lenses showed last: they are asked for again only when it changes. */
-  private lensSig = ''
-  /** Selections this class makes itself, until this time, do not count as the reader moving away. */
-  private own = 0
+  private readonly latest = new Latest()
+  /** Something lit or the way back changed (the one lens provider asks again: lenses.ts). */
+  readonly onDidChange = this.lit.onDidChange
 
   constructor(private log: vscode.LogOutputChannel) {
-    const backLenses = { onDidChangeCodeLenses: this.lens.event, provideCodeLenses: (doc: vscode.TextDocument) => this.backLens(doc) }
-    this.subs = [this.strong, this.lens, this.found,
-      vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
-      vscode.languages.registerCodeLensProvider({ scheme: 'file' }, backLenses),
+    this.subs = [this.lit, this.found,
       vscode.window.onDidChangeTextEditorSelection((e) => this.onSelection(e)),
       vscode.window.onDidChangeActiveTextEditor((ed) => this.onActiveEditor(ed)),
     ]
   }
 
   /** Link `i`'s lines, when it was found. */
-  private linesOf(i: number): LinkLines | undefined {
+  private linesOf(i: number): LitRange | undefined {
     const f = this.found.items.find((x) => x.i === i)
     return f && { uri: f.uri, start: f.line, end: f.line + f.len }
   }
@@ -86,54 +85,29 @@ export class CodeLinks implements vscode.Disposable {
     this.backRow = undefined
   }
 
-  /** The Back row, above the lit lines. */
-  private backLens(doc: vscode.TextDocument): vscode.CodeLens[] {
-    const b = this.backAt
-    if (!b || !this.backRow || b.uri !== doc.uri.toString() || b.line >= doc.lineCount) return []
-    const { title, tip } = this.backRow
-    const command = { title, command: HiddenCmd.codeLinkBack, ...(tip ? { tooltip: tip } : {}) }
-    return [new vscode.CodeLens(new vscode.Range(b.line, 0, b.line, 0), command)]
-  }
+  /** The Back row in `doc`, above the lit lines. */
+  lenses(doc: vscode.TextDocument): vscode.CodeLens[] { return this.lit.lenses(doc) }
 
   /** VS Code's Go Back (or any move of the caret out of the lit lines, or to another file) ends the link. */
   private onSelection(e: vscode.TextEditorSelectionChangeEvent): void {
     const a = this.linesOf(this.active)
-    if (!a || Date.now() < this.own || e.textEditor.document.uri.scheme !== 'file') return
-    const line = e.selections[0]?.active.line ?? -1
-    if (e.textEditor.document.uri.toString() !== a.uri || line < a.start || line > a.end) this.unlight()
+    if (!a || this.lit.own.ours() || e.textEditor.document.uri.scheme !== 'file') return
+    if (outside(a, e.textEditor.document.uri.toString(), e.selections[0]?.active.line ?? -1)) this.unlight()
   }
 
   private onActiveEditor(ed: vscode.TextEditor | undefined): void {
     const a = this.linesOf(this.active)
-    if (!a || !ed || Date.now() < this.own) return
+    if (!a || !ed || this.lit.own.ours()) return
     if (ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== a.uri) this.unlight()
   }
 
   /** The Back row's place, while it is shown: the lit lines' first line. */
-  get backAt(): { uri: string; line: number } | undefined {
-    const a = this.linesOf(this.active)
-    return a && this.backRow ? { uri: a.uri, line: a.start } : undefined
-  }
+  get backAt(): { uri: string; line: number } | undefined { return this.lit.backAt }
 
   /** For tests. */
-  get state(): { key?: string; active: number; at: Record<number, LinkLines>; visible: number[]; back: boolean } {
+  get state(): { key?: string; active: number; at: Record<number, LitRange>; visible: number[]; back: boolean } {
     const at = Object.fromEntries(this.found.items.map((f) => [f.i, this.linesOf(f.i)!]))
     return { key: this.step?.key, active: this.active, at, visible: [...(this.step?.visible ?? [])].sort(), back: !!this.backAt }
-  }
-
-  private paint(): void {
-    // Only the clicked phrase's lines (nothing is marked passively; too much was lit).
-    const a = this.linesOf(this.active)
-    for (const e of vscode.window.visibleTextEditors) {
-      const on = a && a.uri === e.document.uri.toString()
-      setDecorations(e, this.strong, on ? [new vscode.Range(a.start, 0, a.end, 0)] : [])
-    }
-    // The lenses only when what they show changed (each change makes the window ask every visible editor again).
-    const sig = JSON.stringify([this.backAt, this.backRow?.title, this.active, a])
-    if (sig !== this.lensSig) {
-      this.lensSig = sig
-      this.lens.fire()
-    }
   }
 
   /** Where link `i`'s lines are in its file now, read without opening it. */
@@ -144,93 +118,106 @@ export class CodeLinks implements vscode.Disposable {
     // Its lines without opening it (an open is a round trip to the window; the click's show opens it anyway).
     const lines = await fileLines(uri)
     if (!lines) return undefined
-    // No text to go by: the lines as written.
-    const start = l.text.trim() ? findLine(lines, l.start - 1, l.text) : Math.min(l.start, lines.length) - 1
+    const start = locateStepLine(lines, { line: l.start, text: l.text })
     if (start < 0) return undefined
     return { uri, start, end: Math.min(lines.length - 1, start + (l.end - l.start)) }
   }
 
   /** The step shown (its card is being drawn): which of its phrases are on the card. The same step again changes nothing else. */
   present(key: string, folder: vscode.Uri, links: StepLink[], renames: Map<string, string>, visible: number[]): void {
-    if (this.step?.key === key && JSON.stringify(this.step.links) === JSON.stringify(links)) {
+    if (this.step?.key === key && sameLinks(this.step.links, links)) {
       // The same step, drawn again (More opened or closed): only which phrases are on the card changed.
       this.step.visible = new Set(visible)
       if (this.active >= 0 && !this.step.visible.has(this.active)) this.unlit()
-      this.paint()
+      this.lit.paint()
       return
     }
-    const mine = ++this.seq
+    const run = this.latest.begin()
     this.step = { key, folder, links, renames, visible: new Set(visible) }
     this.found.set([])
     this.unlit()
-    this.paint()
+    this.lit.paint()
     fireAndForget(Promise.all(links.map((_l, i) => this.locate(i))).then((found) => {
-      if (mine !== this.seq) return
+      if (!run.current) return
       found.forEach((a, i) => {
-        if (a) this.setFound(i, a, links[i].text)
-        else this.log.info(`code link "${links[i].phrase}": its lines at ${links[i].file}:${links[i].start} changed; not marked`)
+        const l = links[i]
+        if (a) this.setFound(i, a, l.text)
+        else this.log.info(lineChanged(`code link "${l.phrase}"`, `its lines at ${l.file}:${l.start}`, 'not marked'))
       })
-      this.paint()
+      this.lit.paint()
     }), 'codeLinks: Promise.all')
   }
 
   /** Phrase `i` is the one lit now (a second click turns it off:). */
   isLit(key: string, i: number): boolean { return this.step?.key === key && this.active === i && i >= 0 }
 
+  /** Phrase `i` of step `key` is still the one lit (a newer click or step may have come during an await). */
+  private stillCurrent(key: string, i: number): boolean { return this.active === i && this.step?.key === key }
+
   /**
-   * A click on phrase `i`: its lines lit and in view, in the code group. A link into the card's own file scrolls as
-   * little as it can, and needs no way back while the card is on screen with it. `keepFocus`: the lines are only
-   * lit, the caret and the keyboard stay where they are (a link in a thread being answered: typing must never land in
-   * the code).
+   * A click on phrase `i`: its lines lit and in view, in the code group, then the way back decided. A link into the
+   * card's own file scrolls as little as it can, and needs no way back while the card is on screen with it.
    */
-  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, backTitle: string, card?: CardAt, o: { keepFocus?: boolean; backTip?: string } = {}): Promise<void> {
+  async open(key: string, i: number, column: () => vscode.ViewColumn | undefined, o: OpenOptions = {}): Promise<void> {
     if (this.step?.key !== key) return
-    const text = this.step.links[i]?.text ?? ''
+    const shown = await this.lightAndShow(i, column, o)
+    if (!shown) return
+    // Decided once the scroll has landed: a row that came and went while reading would push the code about.
+    if (shown.scrolled) await shown.scrolled
+    if (!this.stillCurrent(key, i)) return
+    this.backRow = this.decideBackRow(shown.ed, o)
+    this.lit.paint()
+  }
+
+  /** Phrase `i`'s lines lit and shown; `scrolled`: settles once a scroll the card's file needs has landed. */
+  private async lightAndShow(i: number, column: () => vscode.ViewColumn | undefined, o: OpenOptions): Promise<{ ed: vscode.TextEditor; scrolled?: Promise<void> } | undefined> {
+    const text = this.step?.links[i]?.text ?? ''
     const a = await this.locate(i)
     if (!a) {
-      void vscode.window.setStatusBarMessage('The code this phrase points at changed.', 4000)
-      return
+      void vscode.window.setStatusBarMessage('The code this phrase points at changed.', GONE_MESSAGE_MS)
+      return undefined
     }
     this.setFound(i, a, text)
     this.active = i
     this.backRow = undefined
-    this.own = Date.now() + OWN_OPEN_MS
+    this.lit.own.set(OWN_OPEN_MS)
     const keepFocus = !!o.keepFocus
     // On screen already and the keyboard stays where it is: nothing to show (no wait for the window), only lit and
     // scrolled. Otherwise the caret goes with the show (one call, not a show and then a caret).
     const selection = keepFocus ? undefined : new vscode.Selection(a.start, 0, a.start, 0)
     const ed = await showInCodeGroup(a.uri, column, { keepFocus, reuseVisible: keepFocus, selection })
-    this.own = Date.now() + OWN_AFTER_SHOW_MS
-    const same = !!card && card.uri === a.uri.toString()
+    this.lit.own.set(OWN_AFTER_SHOW_MS)
+    const same = o.card?.uri === a.uri.toString()
     const want = new vscode.Range(Math.max(0, a.start - REVEAL_MARGIN), 0, Math.min(ed.document.lineCount - 1, a.end + REVEAL_MARGIN), 0)
     // Will the editor scroll? Only then is there anything to wait for before the way back is decided.
     const scrolls = !ed.visibleRanges.some((r) => r.contains(want))
     const scrolled = same && scrolls ? waitForScroll(ed) : undefined
-    ed.revealRange(want, same ? vscode.TextEditorRevealType.Default : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
-    this.paint()
-    // The way back only when the card is not on screen with the lit lines (decided once the scroll has landed; a row
-    // that came and went while reading would push the code about). Another file: the card is out of sight. No title:
-    // nowhere to go back to, no Back row.
-    if (scrolled) await scrolled
-    if (this.active !== i || this.step?.key !== key) return
-    const cardShown = same && cardInView(ed, card!)
-    this.backRow = backTitle && !cardShown ? { title: backTitle, tip: o.backTip ?? '' } : undefined
-    this.paint()
+    revealAround(ed, a.start, a.end, REVEAL_MARGIN, same ? vscode.TextEditorRevealType.Default : vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+    this.lit.paint()
+    return { ed, scrolled }
+  }
+
+  /** The Back row only when the card is not on screen with the lit lines (another file: out of sight). */
+  private decideBackRow(ed: vscode.TextEditor, o: OpenOptions): BackRow | undefined {
+    const card = o.card
+    const cardShown = !!card && card.uri === ed.document.uri.toString() && cardInView(ed, card)
+    if (!o.back?.title || cardShown) return undefined
+    return { title: o.back.title, command: HiddenCmd.codeLinkBack, tooltip: o.back.tip ?? '' }
   }
 
   /** Back at the step: no phrase is lit (nothing stays marked). */
   unlight(): void {
     if (this.active < 0) return
     this.unlit()
-    this.paint()
+    this.lit.paint()
   }
 
   clear(): void {
-    this.seq++
+    this.latest.cancel()
     this.step = undefined
     this.found.set([])
     this.unlit()
-    this.paint()
+    this.lit.paint()
   }
 
   dispose(): void { for (const s of this.subs) s.dispose() }

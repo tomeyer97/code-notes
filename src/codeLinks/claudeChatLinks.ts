@@ -1,40 +1,17 @@
 import * as vscode from 'vscode'
-import { setDecorations } from '../platform/editorDecorations'
 import { fireAndForget } from '../platform/run'
 import { HiddenCmd } from '../platform/commands'
+import { isLinkSelection, SelectionKind } from './chatLinkGuess'
+import { BackRow, LitLines, LitRange, outside, OwnTime } from './litLines'
 
 // Links from a chat with Claude Code to code ("[names what it commits](src/check.ts#L812-L830)"): the lines they open
-// are lit the way a journey's code links are, with "← Back" above them to where the reader was.
-//
-// Claude Code's VS Code extension opens such a link by showing the file and selecting its lines from the API: start
-// line, column 0, to the end line, column 0 (a single line: the caret at its start). VS Code reports a selection set by
-// an extension with no kind, unlike the keyboard, the mouse or a command, so that shape with no kind is taken as a
-// link. A single line is taken only right after its editor came to the front (a caret put at a line start by another
-// extension, in an editor already in front, is too common to light).
+// are lit the way a journey's code links are, with "← Back" above them to where the reader was. Which selections are
+// such links: chatLinkGuess.ts.
 //
 // The other way in: vscode://<publisher>.code-notes/link?file=<path>&start=<n>&end=<n> (for a terminal; its query is read by
 // linkUri.ts linkTarget).
 
 interface Spot { uri: vscode.Uri; line: number; character: number }
-
-/**
- * A stretch of time in which selections are the extension's own doing. There are two, with different reach:
- * - `extensionSelects` (this module): any part of the extension (a step's caret, a note opened) is about to select
- *   (ownSelection); such a selection is never taken as a chat link, but it still moves "where the reader was".
- * - `ClaudeLinks.moving`: this class moves the caret itself (lighting lines, going Back); every selection and editor
- *   change meanwhile is ignored altogether.
- */
-class OwnTime {
-  private until = 0
-  /** Ours for `ms` from now. */
-  set(ms: number): void { this.until = Date.now() + ms }
-  /** Ours for at least `ms` from now (a longer stretch already set stands). */
-  extend(ms: number): void { this.until = Math.max(this.until, Date.now() + ms) }
-  /** Still ours. */
-  ours(): boolean { return Date.now() < this.until }
-  /** Over (past its end). */
-  over(): boolean { return Date.now() > this.until }
-}
 
 /** How long a selection after ownSelection() is the extension's own. */
 const OWN_SELECTION_MS = 800
@@ -45,77 +22,71 @@ const REVEAL_IGNORE_MS = 150
 /** A single-line selection counts as a link only this soon after its editor came to the front. */
 const FRONT_FRESH_MS = 1000
 
+/**
+ * Any part of the extension (a step's caret, a note opened) is about to select: such a selection is never taken as a
+ * chat link, but it still moves "where the reader was". (ClaudeLinks' own moves are ignored altogether: LitLines.own.)
+ */
 const extensionSelects = new OwnTime()
 /** The extension is about to put the caret somewhere itself. */
 export function ownSelection(ms = OWN_SELECTION_MS): void { extensionSelects.extend(ms) }
 
+const kindOf = (k: vscode.TextEditorSelectionChangeKind | undefined): SelectionKind =>
+  k === undefined ? 'none' : k === vscode.TextEditorSelectionChangeKind.Command ? 'command' : 'other'
+
 export class ClaudeLinks implements vscode.Disposable {
-  private lit: { uri: string; start: number; end: number } | undefined
+  private litNow: LitRange | undefined
   private back: Spot | undefined
   /** Where the reader was, per editor, before anything a link did. */
   private last: Spot | undefined
   private frontAt = 0
-  /** This class is moving the caret: every selection and editor change is its own doing (see OwnTime). */
-  private readonly moving = new OwnTime()
-  private readonly fill = vscode.window.createTextEditorDecorationType({
-    isWholeLine: true, backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
-    overviewRulerColor: new vscode.ThemeColor('symbolIcon.functionForeground'), overviewRulerLane: vscode.OverviewRulerLane.Center,
-  })
-  private readonly lens = new vscode.EventEmitter<void>()
-  private lensSig = ''
+  /** Selection events seen (tests wait for one instead of a fixed time). */
+  private selections = 0
+  private readonly lit = new LitLines(() => this.litNow, (): BackRow => ({ title: this.back ? '$(arrow-left) Back' : '$(close) Clear', command: HiddenCmd.claudeLinkBack }))
+  /** The Back row changed (the one lens provider asks again: lenses.ts). */
+  readonly onDidChange = this.lit.onDidChange
   private readonly subs: vscode.Disposable[]
 
   constructor(private log: vscode.LogOutputChannel, private enabled: () => boolean) {
-    this.subs = [this.fill, this.lens,
-      vscode.window.onDidChangeVisibleTextEditors(() => this.paint()),
+    this.subs = [this.lit,
       vscode.window.onDidChangeActiveTextEditor((ed) => {
         this.frontAt = Date.now()
-        const elsewhere = !!this.lit && !!ed && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== this.lit.uri
-        if (elsewhere && this.moving.over()) this.unlight()
+        const elsewhere = !!this.litNow && !!ed && ed.document.uri.scheme === 'file' && ed.document.uri.toString() !== this.litNow.uri
+        if (elsewhere && this.lit.own.over()) this.unlight()
       }),
       vscode.window.onDidChangeTextEditorSelection((e) => this.selected(e)),
-      vscode.languages.registerCodeLensProvider({ scheme: 'file' }, {
-        onDidChangeCodeLenses: this.lens.event,
-        provideCodeLenses: (doc) => {
-          const l = this.lit
-          if (!l || l.uri !== doc.uri.toString() || l.start >= doc.lineCount) return []
-          return [new vscode.CodeLens(new vscode.Range(l.start, 0, l.start, 0), { title: this.back ? '$(arrow-left) Back' : '$(close) Clear', command: HiddenCmd.claudeLinkBack })]
-        },
-      }),
-      vscode.commands.registerCommand(HiddenCmd.claudeLinkBack, () => this.goBack()),
     ]
   }
 
+  /** The Back (or Clear) row in `doc`, above the lit lines. */
+  lenses(doc: vscode.TextDocument): vscode.CodeLens[] { return this.lit.lenses(doc) }
+
   private selected(e: vscode.TextEditorSelectionChangeEvent): void {
+    this.selections++
     const doc = e.textEditor.document, s = e.selections[0]
-    if (doc.uri.scheme !== 'file' || !s || this.moving.ours()) return
-    // Claude Code's shape: one selection from column 0 to column 0.
-    const shape = e.selections.length === 1 && s.start.character === 0 && s.end.character === 0
-    const fresh = Date.now() - this.frontAt < FRONT_FRESH_MS
-    const lines = s.end.line > s.start.line
-    // VS Code up to 1.14x reports a selection set by another extension with no kind: several lines, or a caret in an
-    // editor that has just come to the front.
-    const oldVsCode = e.kind === undefined && (lines || (s.isEmpty && fresh))
-    // Newer ones say Command (as for Go to Definition): only several whole lines of an editor just come to the front.
-    const newVsCode = e.kind === vscode.TextEditorSelectionChangeKind.Command && lines && fresh
-    const notOurs = !extensionSelects.ours()
-    const linkLike = this.enabled() && shape && notOurs && (oldVsCode || newVsCode)
-    if (linkLike) {
+    if (doc.uri.scheme !== 'file' || !s || this.lit.own.ours()) return
+    const link = this.enabled() && isLinkSelection({
+      kind: kindOf(e.kind),
+      shape: e.selections.length === 1 && s.start.character === 0 && s.end.character === 0,
+      lines: s.end.line > s.start.line,
+      caret: s.isEmpty,
+      fresh: Date.now() - this.frontAt < FRONT_FRESH_MS,
+      ours: extensionSelects.ours(),
+    })
+    if (link) {
       // Claude Code selects up to column 0 of the end line: the end line is the link's last line.
       fireAndForget(this.light(doc.uri, s.start.line, s.end.line, true), 'claudeChatLinks: light')
       return
     }
     // The reader moved: out of the lit lines ends them; anywhere, it is where Back returns to next time.
-    const l = this.lit
-    if (l && (doc.uri.toString() !== l.uri || s.active.line < l.start || s.active.line > l.end)) this.unlight()
-    if (!this.lit) this.last = { uri: doc.uri, line: s.active.line, character: s.active.character }
+    if (this.litNow && outside(this.litNow, doc.uri.toString(), s.active.line)) this.unlight()
+    if (!this.litNow) this.last = { uri: doc.uri, line: s.active.line, character: s.active.character }
   }
 
   /** Lights lines start..end (0-based, inclusive) of `uri`; `opened`: the editor already shows them. */
   async light(uri: vscode.Uri, start: number, end: number, opened = false): Promise<void> {
     const prev = this.last
     this.back = prev && !(prev.uri.toString() === uri.toString() && prev.line >= start && prev.line <= end) ? prev : undefined
-    this.ignoreSelectionsFor(MOVE_IGNORE_MS)
+    this.lit.own.set(MOVE_IGNORE_MS)
     // The caret at the first line, nothing selected: the fill shows the lines, and typing never replaces them. (With
     // the show when it is needed: one call into the window, not a show and then a caret.)
     const caret = new vscode.Selection(start, 0, start, 0)
@@ -123,40 +94,33 @@ export class ClaudeLinks implements vscode.Disposable {
       : await vscode.window.showTextDocument(uri, { preview: true, selection: caret })
     if (!ed) return
     end = Math.max(start, Math.min(end, ed.document.lineCount - 1))
-    this.lit = { uri: uri.toString(), start, end }
+    this.litNow = { uri: uri.toString(), start, end }
     if (opened) ed.selection = caret
     ed.revealRange(new vscode.Range(start, 0, end, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
-    this.ignoreSelectionsFor(REVEAL_IGNORE_MS)
+    this.lit.own.set(REVEAL_IGNORE_MS)
     this.log.info(`claude link: ${vscode.workspace.asRelativePath(uri)}:${start + 1}-${end + 1}`)
-    this.paint()
+    this.lit.paint()
   }
 
-  private async goBack(): Promise<void> {
+  /** codeNotes.claudeLinkBack: back to where the reader was (or only out, with nowhere to go back to). */
+  async goBack(): Promise<void> {
     const b = this.back
     this.unlight()
     if (!b) return
-    this.ignoreSelectionsFor(MOVE_IGNORE_MS)
+    this.lit.own.set(MOVE_IGNORE_MS)
     const ed = await vscode.window.showTextDocument(b.uri, { preview: false, selection: new vscode.Selection(b.line, b.character, b.line, b.character) })
     ed.revealRange(new vscode.Range(b.line, 0, b.line, 0), vscode.TextEditorRevealType.InCenterIfOutsideViewport)
   }
 
-  /** This class moves the caret itself: what it causes for `ms` is not the reader's. */
-  private ignoreSelectionsFor(ms: number): void { this.moving.set(ms) }
+  unlight(): void { if (this.litNow) { this.litNow = undefined; this.back = undefined; this.lit.paint() } }
 
-  unlight(): void { if (this.lit) { this.lit = undefined; this.back = undefined; this.paint() } }
-
-  private paint(): void {
-    for (const e of vscode.window.visibleTextEditors) {
-      const l = this.lit
-      setDecorations(e, this.fill, l && l.uri === e.document.uri.toString() ? [new vscode.Range(l.start, 0, l.end, 0)] : [])
+  /** For tests: what is lit, whether Back has somewhere to go, and what the guess reads right now. */
+  get state(): { lit?: LitRange; back: boolean; enabled: boolean; fresh: boolean; moving: boolean; selections: number } {
+    return {
+      lit: this.litNow && { ...this.litNow }, back: !!this.back, enabled: this.enabled(),
+      fresh: Date.now() - this.frontAt < FRONT_FRESH_MS, moving: this.lit.own.ours(), selections: this.selections,
     }
-    // The lens only when it changed (each change makes the window ask every visible editor again).
-    const sig = JSON.stringify([this.lit, !!this.back])
-    if (sig !== this.lensSig) { this.lensSig = sig; this.lens.fire() }
   }
-
-  /** For tests. */
-  get state(): { lit?: { uri: string; start: number; end: number }; back: boolean } { return { lit: this.lit && { ...this.lit }, back: !!this.back } }
 
   dispose(): void { for (const s of this.subs) s.dispose() }
 }

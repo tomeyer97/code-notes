@@ -2,6 +2,11 @@
 // is in the journey file (StepLink, readLinks) is journeyModel.ts.
 import type { StepLink } from './format/journeyModel'
 import { baseName } from './paths'
+import { commandUri } from './commandUri'
+
+/** The command a code link runs: HiddenCmd.codeLink of platform/commands.ts, which core can't import
+ *  (test/codeLinkText.test.ts checks they agree). */
+export const CODE_LINK_COMMAND = `codeNotes.codeLink`
 
 /** A markdown link (`[text](target)`) or a code span: a phrase inside one is left alone. */
 const LINK_OR_CODE = /\[[^\]]*\]\([^)]*\)|`[^`]*`/g
@@ -47,12 +52,23 @@ export function linkPhrases(text: string, links: StepLink[], used: Set<number>, 
  * (its space inside, so the tint has no gaps) and a <wbr> between them to break at (a zero-width space was copied
  * with the text: copied words no longer matched a search).
  */
-export function codeLinkMarkup(key: string, i: number, l: { file: string; start: number; end: number }, phrase: string, tint = 'var(--vscode-toolbar-hoverBackground)', what = 'show the code that does this'): string {
+export function codeLinkMarkup(
+  key: string, i: number, l: { file: string; start: number; end: number }, phrase: string,
+  tint = 'var(--vscode-toolbar-hoverBackground)', what = 'show the code that does this',
+): string {
   const tip = `${baseName(l.file)}:${l.start}${l.end > l.start ? `-${l.end}` : ''} · ${what}`
   const words = String(phrase).split(/ +/).filter(Boolean)
-  const tinted = words.map((w, k) => `<span style="color:var(--vscode-foreground);background-color:${tint};">${w}${k < words.length - 1 ? ' ' : ''}</span>`).join('<wbr>')
-  return `[${tinted}](command:codeNotes.codeLink?${encodeURIComponent(JSON.stringify([key, i]))} "${tip}")`
+  const tinted = words.map((w, k) => tintedWord(k < words.length - 1 ? `${w} ` : w, tint)).join('<wbr>')
+  return `[${tinted}](${commandUri(CODE_LINK_COMMAND, key, i)} "${tip}")`
 }
-/** A phrase marked as code link i in text that is escaped next; PH_RE finds the marks again to put the markup in. */
+
+/** One word of a code link: the text's own colour on the tint. */
+const tintedWord = (w: string, tint: string) => `<span style="color:var(--vscode-foreground);background-color:${tint};">${w}</span>`
+
+/**
+ * A phrase marked as code link i in text that is escaped next; PH_RE finds the marks again to put the markup in. The
+ * phrase stays inside the marks so it is escaped with the text (unlike linkifyAnswer.ts, which keeps finished links
+ * out of the text until its passes are done). Brackets no step text uses, so a mark is never mistaken for text.
+ */
 export const PH = (i: number, phrase: string) => `\u27E6${i}\u27E7${phrase}\u27E6/\u27E7`
 export const PH_RE = /\u27E6(\d+)\u27E7([\s\S]*?)\u27E6\/\u27E7/g
