@@ -5,7 +5,7 @@
 // test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
 // journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
 import { Chapter, createSuiteContext, runChapters } from './helpers'
-import { setMainContext, useFakeClaude } from './main/context'
+import { notesFolderWatched, setMainContext, useFakeClaude } from './main/context'
 import { notesTests } from './main/notes'
 import { journeyTourTests } from './main/journeyTour'
 import { keysAndMapTests } from './main/keysAndMap'
@@ -30,7 +30,8 @@ const fakeClaude = { setup: useFakeClaude }
 export const chapters: Chapter[] = [
   { name: 'notes', file: 'main/notes.ts', tests: notesTests,
     covers: 'notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask/, claude.ts' },
-  { name: 'journeyTour', file: 'main/journeyTour.ts', tests: journeyTourTests, ...fakeClaude,
+  { name: 'journeyTour', file: 'main/journeyTour.ts', tests: journeyTourTests,
+    setup: async () => { await notesFolderWatched(); await useFakeClaude() },
     covers: 'walking a journey, step cards, lenses   journeys/, journeyModel.ts, tour/' },
   { name: 'keysAndMap', file: 'main/keysAndMap.ts', tests: keysAndMapTests, ...fakeClaude,
     covers: 'chord keys, the tutorial, the whole map   package.json keybindings, tutorialSpot.ts' },

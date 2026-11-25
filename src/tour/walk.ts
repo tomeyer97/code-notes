@@ -483,8 +483,9 @@ export class Walk {
   private async revealStep(lj: LoadedJourney, n: number, editor: vscode.TextEditor, uri: vscode.Uri): Promise<void> {
     const { tour, card } = this
     // The editor just opened on this file: the card is made once it has settled (see editorSettling).
-    const settle = editorSettling(uri)
-    if (settle) {
+    // Until it has: a timer may fire a moment before the clock says the wait is over, and the card then came after
+    // the step's command had resolved.
+    for (let settle = editorSettling(uri); settle > 0; settle = editorSettling(uri)) {
       await new Promise((r) => setTimeout(r, settle))
       if (!tour.isAt(lj, n)) return
     }

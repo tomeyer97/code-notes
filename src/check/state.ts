@@ -99,6 +99,10 @@ export class CheckState {
     const f = linkOf(n)?.file ?? checkExtra(n).checkFile
     return !!f && !!this.st && (f !== this.st.file || !this.st.exists)
   }
+  /** What offBranch reads of the state, as one string: when it changes, other notes are hidden. */
+  get offBranchKey(): string {
+    return this.st ? `${this.st.file}\0${this.st.exists}` : ''
+  }
 }
 
 /** What every part of the check gets: the state, the understanding CLI, the log, and the ways to show a change. */

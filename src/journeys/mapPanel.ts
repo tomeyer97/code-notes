@@ -26,6 +26,8 @@ export interface PanelPodcast {
 }
 
 export const MAP_VIEW = 'codeNotes.journey'
+/** How long opening a journey waits for the window to place a new panel (it says within a moment). */
+const PLACED_WAIT_MS = 3000
 
 /**
  * The group a new map opens in: the whole group when there is nothing to read beside it (`alone`); else the one it
@@ -267,6 +269,20 @@ export class MapPanel implements vscode.Disposable {
   /** A message for the webview itself (tutorial, tests): sent once it is ready. */
   send(m: ToMap): void {
     if (this.panel) this.channel.send(m)
+  }
+
+  /**
+   * Resolves once the window has said which group the panel is in. A panel made beside the editor or in the active
+   * group has no column in the extension host until then, and code shown meanwhile could not keep off its group.
+   */
+  placed(): Promise<void> {
+    const p = this.panel
+    if (!p || p.viewColumn !== undefined) return Promise.resolve()
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(t); subs.forEach((x) => x.dispose()); resolve() }
+      const subs = [p.onDidChangeViewState(() => { if (p.viewColumn !== undefined) done() }), p.onDidDispose(done)]
+      const t = setTimeout(done, PLACED_WAIT_MS)
+    })
   }
 
   close(): void { this.panel?.dispose() }

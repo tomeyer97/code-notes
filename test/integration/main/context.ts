@@ -2,6 +2,7 @@
 // and short ways to read its state. Every test file of the main suite imports these; suite.ts fills `ctx` once, from
 // `createSuiteContext` (helpers.ts), before any test runs.
 import * as vscode from 'vscode'
+import * as fs from 'fs'
 import * as path from 'path'
 import type { TestApi } from '../../../src/testApi'
 import type { SuiteContext } from '../helpers'
@@ -28,8 +29,18 @@ export const ctx = {
   get notesDir(): string { return ready().notesDir },
 }
 
-/** The main suite's wait (6 s by default): on a timeout it prints the tour's state (most waits are on it). */
-export const until = waiter({ dump: () => { try { const s = suite?.api.snapshot(); return s && { journeys: s.journeys.map((j: { id: string }) => j.id), tour: s.tour && { ...s.tour, story: undefined } } } catch { return undefined } } })
+/** The editor groups as "column: tab, tab" (* the active tab, ! the active group): where the code and the map are. */
+const groupsNow = () => vscode.window.tabGroups.all.map((g) =>
+  `${g.isActive ? '!' : ''}${g.viewColumn}: ${g.tabs.map((t) => `${t.isActive ? '*' : ''}${t.label}`).join(', ')}`)
+
+/** The main suite's wait (6 s by default): on a timeout it prints the tour's state (most waits are on it), where the
+ *  active editor is and the editor groups. */
+export const until = waiter({ dump: () => {
+  try {
+    const s = suite?.api.snapshot()
+    return s && { at: suite ? at() : '', groups: groupsNow(), journeys: s.journeys.map((j: { id: string; steps: number }) => `${j.id} (${j.steps} steps)`), tour: s.tour && { ...s.tour, story: undefined } }
+  } catch { return undefined }
+} })
 
 /** Everything the extension shows, as data (notes, journeys, the tour, counts). */
 export const snap = () => ctx.api.snapshot()
@@ -90,4 +101,29 @@ export async function useFakeClaude(): Promise<void> {
   if (process.env.FAKE_CLAUDE_LOG === log && config === FAKE_CLAUDE) return
   process.env.FAKE_CLAUDE_LOG = log
   await setting('claude.path', FAKE_CLAUDE)
+}
+
+/**
+ * The notes folder there and watched by the window, as the notes chapter leaves it: a chapter run alone starts from
+ * it. A folder made together with its parent (mkdir -p .code-notes/journeys) can be missed by the window's file
+ * watcher for good (it watches a new folder once it has seen it, and the inner one came first); then no change in it
+ * is ever reported. A probe file in it is written until the watcher reports it.
+ */
+export async function notesFolderWatched(): Promise<void> {
+  if (fs.existsSync(ctx.notesDir)) return
+  fs.mkdirSync(ctx.notesDir)
+  const probe = path.join(ctx.notesDir, '.watched')
+  const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(ctx.folder, path.relative(ctx.ws, probe)))
+  let seen = false
+  w.onDidCreate(() => { seen = true })
+  w.onDidChange(() => { seen = true })
+  try {
+    await until('the notes folder watched by the window', () => {
+      if (!seen) fs.writeFileSync(probe, String(Date.now()))
+      return seen
+    })
+  } finally {
+    w.dispose()
+    fs.rmSync(probe, { force: true })
+  }
 }
