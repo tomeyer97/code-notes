@@ -95,6 +95,8 @@ export class CheckController implements CheckQuery, vscode.Disposable {
   /** Refreshes done in full and skipped as unchanged (integration test). */
   private counts = { full: 0, same: 0 }
   private timer: NodeJS.Timeout | undefined
+  /** The state offBranch read when the notes last followed it (CheckState.offBranchKey). */
+  private hidesShown = ''
   /** A refreshSoon meanwhile asked for a full refresh (not gated). */
   private soonForce = false
   /** Run once the current refresh has published (a check put back from the cache opens its first question). */
@@ -274,6 +276,13 @@ export class CheckController implements CheckQuery, vscode.Disposable {
   /** What the window shows follows: the status bar, the threads, the context key, the tour, the view, the journeys list. */
   private async publish(): Promise<void> {
     const st = this.state.st
+    // Another branch's notes hidden (or back): the notes' threads and lists follow. The branch watcher's own pass may
+    // have run before this refresh read the branch, and hidden nothing.
+    const hides = this.state.offBranchKey
+    if (hides !== this.hidesShown) {
+      this.hidesShown = hides
+      this.host.refresh()
+    }
     if (!this.writer.writing) this.status.show(this.statusLook())
     if (st?.check) await this.threads.sync(st.check)
     // While there is a check, an empty Code Notes view steps aside: the Check view gets its room (package.json).

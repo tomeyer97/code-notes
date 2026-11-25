@@ -55,6 +55,15 @@ export function checkFrame(): Promise<import('playwright').Frame> {
   return webviewFrame('script[src*="/pages/check.js"]', 'the Check view frame')
 }
 
+/** Where the keyboard is inside the Check view's page (for a failing wait's log): whether the page has it, and the
+ *  element that has it there. */
+export async function checkViewFocus(): Promise<string> {
+  return (await checkFrame()).evaluate(() => {
+    const d = (globalThis as any).document, a = d.activeElement
+    return `page focused: ${d.hasFocus()}, active: ${a ? `${a.tagName}.${[...a.classList].join('.')}${a.closest?.('.answer') ? ` in ${a.closest('.answer').dataset.id}` : ''}` : 'none'}`
+  })
+}
+
 /** Which answer box in the Check view has the keyboard: its question id, '' for none. */
 export async function boxFocused(): Promise<string> {
   return (await checkFrame()).evaluate(() => { const d = (globalThis as any).document; const a = d.activeElement; return d.hasFocus() && a?.classList?.contains('box') ? a.closest('.answer').dataset.id : '' })

@@ -82,6 +82,20 @@ test('another branch\'s check thread, or a note made from one, is off the branch
   assert.deepEqual(s.branchOf(note({ check: { file: 'understanding/feat.json', q: 'q1' } })), { checkFile: 'understanding/feat.json' })
 })
 
+test('offBranchKey changes exactly when offBranch can answer otherwise: another check file, or its file gone', () => {
+  const s = new CheckState(folder, records())
+  const keys = [s.offBranchKey]
+  s.read(status({}), undefined)
+  keys.push(s.offBranchKey)
+  s.read(status({ branch: 'feat', head: 'other commit' } as Partial<BranchStatus>), undefined)
+  assert.equal(s.offBranchKey, keys[1], 'the same check file: nothing hidden changes')
+  s.read(status({ branch: 'main', file: 'understanding/main.json', exists: false }), undefined)
+  keys.push(s.offBranchKey)
+  s.read(status({ exists: false }), undefined)
+  keys.push(s.offBranchKey)
+  assert.equal(new Set(keys).size, keys.length, `each a key of its own: ${JSON.stringify(keys)}`)
+})
+
 test('a branch left: nothing selected, nothing said', () => {
   const s = new CheckState(folder, records())
   s.select('q1')

@@ -6,8 +6,8 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
-import { quiet, settle, test, untilEqual } from '../helpers'
-import { boxFocused, checkFrame, focusedElement, pageShot, ui } from '../devtools'
+import { quiet, settle, test, untilAll, untilEqual } from '../helpers'
+import { boxFocused, checkFrame, checkViewFocus, focusedElement, pageShot, ui } from '../devtools'
 import { CHECK_WAIT_MS, api, answer, codeEditor, commentBody, devtools, inLines, lastBody, left, limitsEditor, limitsPath, noteById, noteOf, readCheck, threadComments, typeAnswer, until, view, ws } from './context'
 import { linksOf, withoutDevtools } from './support'
 
@@ -166,7 +166,11 @@ export const answersTests = [
     await vscode.commands.executeCommand('codeNotes.next')
     await until('on q3', () => view().answer?.id === 'q3')
     await vscode.commands.executeCommand('codeNotes.previous')
-    await until('back on q2 with its draft', async () => view().answer?.id === 'q2' && /my answer goes here/.test(view().answer!.draft) && (await boxFocused()) === 'q2')
+    await untilAll('back on q2 with its draft', {
+      'q2 in the view': () => view().answer?.id === 'q2',
+      'its draft': () => /my answer goes here/.test(view().answer?.draft ?? ''),
+      'the keyboard in its box': async () => { const b = await boxFocused(); if (b !== 'q2') console.log('focus back on q2:', b, await focusedElement(), '|', await checkViewFocus()); return b === 'q2' },
+    }, CHECK_WAIT_MS)
     // Esc: back to the code.
     await (await ui()).keyboard.press('Escape')
     await until('Esc: the editor has the keyboard', async () => (await boxFocused()) === '' && (await (await ui()).evaluate(() => !!(globalThis as any).document.activeElement?.closest?.('.monaco-editor'))))

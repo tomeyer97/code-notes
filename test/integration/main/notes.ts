@@ -75,8 +75,8 @@ export const notesTests = [
   test('replies unread whatever their timestamps; a missing "at" is not invented', async () => {
     // Stamped EARLIER than anything (clock skew): still unread.
     appendMessage(firstNotePath(), { author: 'claude', role: 'agent', body: 'It is read once in `main`.', at: '2001-01-01T00:00:00Z' })
-    await until('past-dated reply unread', () => first()?.unread === 1)
-    assert.equal(snap().badge, 1)
+    // The badge follows the notes' change event, a moment after the store has the reply.
+    await until('past-dated reply unread, the badge says 1', () => first()?.unread === 1 && snap().badge === 1)
     appendMessage(firstNotePath(), { author: 'claude', role: 'agent', body: 'And no timestamp on this one.' })
     await until('second reply unread', () => first()?.unread === 2)
     await vscode.commands.executeCommand('codeNotes.refresh')

@@ -118,7 +118,10 @@ export const journeyTourTests = [
     await settle(500, 'the panel group taking its size')
     const settled = await editorLayout()
     if (settled.groups.length === 2) {
-      const panelShare = settled.groups[1].size / (settled.groups[0].size + settled.groups[1].size)
+      // The panel's own group: beside the code, or the first one when nothing was open (this chapter run alone).
+      const panel = settled.groups[(tour().mapColumn ?? 0) - 1]
+      assert.ok(panel, `the map's group in the layout: ${JSON.stringify(settled)}`)
+      const panelShare = panel.size / (settled.groups[0].size + settled.groups[1].size)
       assert.ok(panelShare <= 0.41, `the panel takes ${JSON.stringify(settled)}`)
     }
     const card1 = tour().card!

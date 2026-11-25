@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import { settle, test } from '../helpers'
-import { boxFocused, checkFrame, focusedElement, pageShot, ui } from '../devtools'
+import { boxFocused, checkFrame, checkViewFocus, focusedElement, pageShot, ui } from '../devtools'
 import { api, checkFile, checkNotes, chk, devtools, git, inLines, left, limitsPath, noteById, noteOf, readCheck, until, view, ws } from './context'
 import { setFakeScenario } from './fakeGrader'
 import { clickInCheckView, withWindowSize } from './support'
@@ -63,7 +63,7 @@ export const startTests = [
   test('the keyboard is in q1\'s answer box on open, not in the code; a draft is kept in the workspace; VS Code\'s shortcuts work from the box', async () => {
     // Typing in the code would edit limits.js.
     const page = await ui()
-    await until('focus in the answer box, not the code', async () => { const b = await boxFocused(); if (b !== 'q1') console.log('focus at start:', b, await focusedElement()); return b === 'q1' })
+    await until('focus in the answer box, not the code', async () => { const b = await boxFocused(); if (b !== 'q1') console.log('focus at start:', b, await focusedElement(), '|', await checkViewFocus()); return b === 'q1' })
     await page.keyboard.type('typed')
     assert.equal(fs.readFileSync(limitsPath, 'utf8').includes('typed'), false)
     assert.ok(!vscode.window.activeTextEditor?.document.isDirty, 'the code is untouched')

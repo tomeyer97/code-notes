@@ -86,13 +86,18 @@ function isHere(lj: LoadedJourney): boolean {
  */
 async function openMapIfRoom(lj: LoadedJourney): Promise<boolean> {
   const room = !!mapPanel().journey || (await panelFits())
-  await openMap(lj, room)
+  // A step opens next and takes the keyboard: the map doesn't take it first (a slow window gave it the map after).
+  await openMap(lj, room, true)
   if (!room) cardOnly()
   return room
 }
 
-/** Shows a journey's map (`show`: false when there is no room for it). Another journey's tour ends first, keeping its place. */
-export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
+/**
+ * Shows a journey's map (`show`: false when there is no room for it; `preserveFocus`: the keyboard stays where it is).
+ * Another journey's tour ends first, keeping its place. Resolves once the map's group is known, so code shown next
+ * goes beside it.
+ */
+export async function openMap(lj: LoadedJourney, show = true, preserveFocus = false): Promise<void> {
   // Another journey's map is only a look: the running tour goes on until Start there, or End.
   await markJourneysSeen(lj)
   if (showIntro()) await stored().set(STATE.journeyOpened, true)
@@ -100,8 +105,9 @@ export async function openMap(lj: LoadedJourney, show = true): Promise<void> {
   // for Resume); its status item and code marker go with it.
   if (lj.key !== tourState().key && walk().touring()) await walk().end()
   if (lj.key !== tourState().key) walk().browse(lj)
-  if (show) walk().showMap(lj)
+  if (show) walk().showMap(lj, preserveFocus)
   walk().updateTour()
+  if (show) await mapPanel().placed()
 }
 
 /** Finish on the last step (walk.finish). */
