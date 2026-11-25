@@ -326,10 +326,14 @@ export class Walk {
    * stack size exceeded"; the card or thread then stays collapsed). See SETTLE_MS.
    */
   columnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
+    return this.shownOutsideMap(uri)?.viewColumn ?? this.claimCodeColumn()
+  }
+
+  /** The visible editor showing `uri`, outside the map's group. */
+  private shownOutsideMap(uri: vscode.Uri): vscode.TextEditor | undefined {
     const mapCol = mapPanel().viewColumn
-    const showing = vscode.window.visibleTextEditors.find((e) =>
+    return vscode.window.visibleTextEditors.find((e) =>
       e.document.uri.toString() === uri.toString() && e.viewColumn !== undefined && e.viewColumn !== mapCol)
-    return showing?.viewColumn ?? this.claimCodeColumn()
   }
 
   showMap(lj: LoadedJourney, preserveFocus = false): void {
@@ -433,7 +437,9 @@ export class Walk {
     const column = this.columnFor(uri)
     ownSelection(OWN_MOVE_MS) // the file's caret and the step's: not a chat link
     const shown = { preview: true, preserveFocus: opts.focus === false, ...(column ? { viewColumn: column } : {}) }
-    const editor = await vscode.window.showTextDocument(uri, shown)
+    // Already on screen and the keyboard stays where it is: nothing to show. Its column may be about to change (a
+    // group closing renumbers those after it), and a show by an old number would open a new group.
+    const editor = (opts.focus === false ? this.shownOutsideMap(uri) : undefined) ?? await vscode.window.showTextDocument(uri, shown)
     if (this.superseded(token, lj, n)) return undefined
     if (editor.viewColumn) {
       tour.doc = { uri, column: editor.viewColumn }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { shownOutside } from './codeColumn'
+import { openDoc } from '../platform/documents'
 
 // A step's code in the editor group beside the panel (the code group): where a file a step names is now, and showing
 // it there. Used by code links (codeLinks.ts), the beat's line (beats.ts), value hints (valueHints.ts) and the podcast.
@@ -54,8 +55,37 @@ export class CodeGroup {
       ...(col ? { viewColumn: col } : {}),
       ...(o.selection ? { selection: o.selection } : {}),
     }
-    return target instanceof vscode.Uri ? vscode.window.showTextDocument(target, options) : vscode.window.showTextDocument(target, options)
+    return target instanceof vscode.Uri ? showUri(target, options) : vscode.window.showTextDocument(target, options)
   }
+}
+
+/** How long to wait for the window to report the editor `vscode.open` made, before showing it the usual way. */
+const OPENED_EDITOR_WAIT_MS = 1000
+
+/**
+ * Shows `uri` in one call into the window. showTextDocument with a file the extension host has not opened yet first
+ * opens it (a round trip), then shows it (another); `vscode.open` does both in the window, and the editor and its
+ * document reach the extension host with the window's own update.
+ */
+async function showUri(uri: vscode.Uri, options: vscode.TextDocumentShowOptions): Promise<vscode.TextEditor> {
+  if (openDoc(uri)) return vscode.window.showTextDocument(uri, options)
+  await vscode.commands.executeCommand('vscode.open', uri, options)
+  return (await openedEditor(uri, options.viewColumn)) ?? vscode.window.showTextDocument(uri, options)
+}
+
+/** The visible editor showing `uri` (in `column` when given), now or once the window reports it; undefined: not seen. */
+function openedEditor(uri: vscode.Uri, column: vscode.ViewColumn | undefined): Promise<vscode.TextEditor | undefined> {
+  const find = () => {
+    const eds = vscode.window.visibleTextEditors.filter((e) => e.document.uri.toString() === uri.toString())
+    return eds.find((e) => column === undefined || e.viewColumn === column) ?? eds[0]
+  }
+  const now = find()
+  if (now) return Promise.resolve(now)
+  return new Promise((resolve) => {
+    const done = (ed: vscode.TextEditor | undefined) => { clearTimeout(t); sub.dispose(); resolve(ed) }
+    const sub = vscode.window.onDidChangeVisibleTextEditors(() => { const ed = find(); if (ed) done(ed) })
+    const t = setTimeout(() => done(undefined), OPENED_EDITOR_WAIT_MS)
+  })
 }
 
 /** Shows a document in the code group whose column is `column()` (CodeGroup.show). */
