@@ -1,5 +1,5 @@
 // A step animation's web-app actor (type `app`): a web app's window and its screens, in its own dark colours so it
-// reads as an app in any editor theme. Importing it adds it to journey-scene.js's actor types.
+// reads as an app in any editor theme. Importing it registers it with journey-scene.js.
 //
 // Everything it shows is data: `brand`, `logo` (1-2 letters), `tabs` (≤ 3, each screen marks its own) and three
 // built-in screens, few and large items on each:
@@ -8,73 +8,47 @@
 //             beat can switch to: a live picture (`picture`) and a chat;
 //   `signin`: a title, a notice, one button (`provider`).
 // Any other page is one of `pages`. A beat's `click` presses the button of the screen that is shown. Each screen is
-// built by its own function below: { el, cursor?, apply(st, click) }.
-//
-// Older journeys name the type `console` and its screens `run-dialog`, `run-page`, `login`, with flat fields (test,
-// env, status, findings, timeline, chat, provider) and older beat state (findings, newFinding, desktop): all still
-// read, turned into today's names once, as they come in (upgradeAppActor, upgradeAppState).
+// built by its own function below: { el, cursor?, apply(st, click) }. Older journeys' names for all of this are read
+// as today's once, when the scene is shown (journey-scene-model.js upgradeScene): this file knows today's only.
 import { el } from './common.js'
-import { parts } from './journey-scene.js'
+import { parts, registerActor, WINDOW_BOX } from './journey-scene.js'
+import { statusTone } from './journey-scene-model.js'
 
-const { frame, cursorEl, showLast, obj, ACTORS } = parts
+const { frame, windowEl, cursorEl, showLast, kvRow, chatList, obj } = parts
 
-const SCREEN_ALIAS = { 'run-dialog': 'dialog', 'run-page': 'detail', login: 'signin' }
-/** A status chip's tone (journey-scene.css `.ap-chip`): from its status word, or as given when it is one of TONES. */
-const TONE_OF = { running: 'active', passed: 'good', failed: 'bad' }
+/** A status chip's tones (journey-scene.css `.ap-chip`): a tone given wins when it is one of these. */
 const TONES = ['neutral', 'active', 'good', 'bad']
+/** The chip's tone for each status tone (journey-scene-model.js statusTone); any other is neutral. */
+const CHIP_TONE = { live: 'active', good: 'good', bad: 'bad' }
 /** The detail page's chat: the last two messages in view. */
 const APP_CHAT_ROWS = 2
 
-/** The tone status word `status` reads as (undefined: none). */
+/** The chip tone status word `status` reads as (undefined: none). */
 const toneOf = (status) => {
-  const s = String(status).toLowerCase()
-  return Object.hasOwn(TONE_OF, s) ? TONE_OF[s] : undefined
+  const t = statusTone(status)
+  return Object.hasOwn(CHIP_TONE, t) ? CHIP_TONE[t] : undefined
 }
 /** `tone` when it is one of TONES, else 'neutral'. */
 const knownTone = (tone) => (TONES.includes(tone) ? tone : 'neutral')
-/** A screen's name, old ones as today's. */
-const screenName = (name) => (Object.hasOwn(SCREEN_ALIAS, name) ? SCREEN_ALIAS[name] : name)
 
-// ---------- old data in today's names ----------
-
-/** Actor `a` with its old flat fields moved into its screens (`dialog`, `detail`, `signin`) and its screen named as
- *  today. */
-function upgradeAppActor(a) {
-  const dialog = obj(a.dialog), detail = obj(a.detail), signin = obj(a.signin)
-  const lines = Array.isArray(dialog.lines) ? dialog.lines : a.env ? [['Environment', a.env]] : []
+/** A status chip: a dot and a word, in its tone's colour; `set(text, tone)` changes both. */
+function chip() {
+  const c = el('span', 'ap-chip')
+  const text = el('span')
+  c.append(el('i'), text)
   return {
-    ...a,
-    screen: a.screen && screenName(a.screen),
-    dialog: { ...dialog, item: dialog.item || a.test, lines },
-    detail: {
-      ...detail,
-      status: detail.status || a.status,
-      cards: detail.cards || a.findings,
-      timeline: detail.timeline || a.timeline,
-      chat: detail.chat || a.chat,
+    el: c,
+    set(word, tone) {
+      text.textContent = word
+      c.className = `ap-chip ${tone}`
     },
-    signin: { ...signin, provider: signin.provider || a.provider },
-  }
-}
-
-/** A beat's state `st` of the app with its old fields as today's: `findings` / `newFinding` are `cards` /
- *  `newCard`, the `desktop` pane and text are the `picture`'s, the screen named as today. */
-function upgradeAppState(st) {
-  return {
-    ...st,
-    screen: st.screen && screenName(st.screen),
-    cards: st.cards !== undefined ? st.cards : st.findings || 0,
-    newCard: st.newCard !== undefined ? st.newCard : st.newFinding,
-    pane: st.pane === 'desktop' ? 'picture' : st.pane,
-    picture: st.picture || st.desktop,
   }
 }
 
 // ---------- the window ----------
 
 /** The app actor: its window, its screens, the one a beat shows. */
-function appActor(old) {
-  const a = upgradeAppActor(old)
+function appActor(a) {
   const brand = String(a.brand || 'App')
   const tabs = (Array.isArray(a.tabs) ? a.tabs : []).slice(0, 3).map(String)
   const e = frame({ ...a, type: 'app', label: a.label || 'Web app' })
@@ -93,7 +67,7 @@ function appActor(old) {
       return top
     },
     screen(name, cls) {
-      const s = el('div', `ap-win scn-screen${cls ? ` ${cls}` : ''}`)
+      const s = windowEl(`ap-win scn-screen${cls ? ` ${cls}` : ''}`)
       s.dataset.screen = name
       return s
     },
@@ -108,8 +82,7 @@ function appActor(old) {
   e.append(...screens.map((s) => s.el))
   return {
     el: e,
-    apply(oldSt, fwd, beat) {
-      const st = upgradeAppState(oldSt)
+    apply(st, fwd, beat) {
       const shown = st.screen || a.screen || 'dialog'
       const click = fwd && beat.click
       for (const s of screens) {
@@ -148,15 +121,10 @@ function dialogScreen(app, dg, item) {
   dialog.append(el('div', 'ap-dh', dg.title || 'Confirm'))
   const pick = el('div', 'ap-radio')
   pick.append(el('i'), el('span', '', item))
-  const line = ([k, v]) => {
-    const r = el('div', 'ap-line')
-    r.append(el('b', '', String(k)), el('span', '', String(v)))
-    return r
-  }
   const foot = el('div', 'ap-foot')
   const start = clickable('ap-start', 'ap-startwrap', dg.button || 'OK')
   foot.append(start.wrap)
-  dialog.append(pick, ...dg.lines.slice(0, 2).filter((l) => Array.isArray(l)).map(line), foot)
+  dialog.append(pick, ...dg.lines.slice(0, 2).filter((l) => Array.isArray(l)).map(([k, v]) => kvRow('ap-line', k, v)), foot)
   const pad = el('div', 'ap-pad')
   pad.append(table)
   s.append(pad)
@@ -176,10 +144,8 @@ function detailScreen(app, dt, item) {
   const s = app.screen('detail')
   s.append(app.chrome(dt.tab))
   const head = el('div', 'ap-title')
-  const chip = el('span', 'ap-chip')
-  const chipText = el('span')
-  chip.append(el('i'), chipText)
-  head.append(el('b', '', dt.title || item), chip)
+  const status = chip()
+  head.append(el('b', '', dt.title || item), status.el)
   const body = el('div', 'ap-body')
   const none = el('div', 'ap-none', String(dt.empty || 'Nothing yet'))
   body.append(none)
@@ -205,11 +171,7 @@ function detailScreen(app, dt, item) {
   const pictureNote = el('span', 'ap-picnote', pictureText)
   picture.append(pictureWin, pictureNote)
   const chat = el('div', 'ap-chat')
-  const msgs = (dt.chat || []).map((m) => {
-    const d = el('div', `ap-msg ${m.from === 'me' || m.from === 'you' ? 'me' : 'them'}`, m.text)
-    chat.append(d)
-    return d
-  })
+  const msgs = chatList(chat, dt.chat, 'ap-msg')
   const placeholder = String(dt.placeholder || 'Write a message…')
   const box = el('div', 'ap-box', placeholder)
   chat.append(box)
@@ -219,16 +181,16 @@ function detailScreen(app, dt, item) {
     apply(st) {
       // Its status (a tone given wins over the status word's), how many cards and timeline rows are there, which
       // one just arrived.
-      const status = String(st.status || dt.status || 'New')
-      chipText.textContent = status
-      chip.className = `ap-chip ${knownTone(st.tone || dt.tone || toneOf(status) || 'neutral')}`
-      none.classList.toggle('off', st.cards > 0)
+      const word = String(st.status || dt.status || 'New')
+      status.set(word, knownTone(st.tone || dt.tone || toneOf(word) || 'neutral'))
+      const shownCards = st.cards || 0
+      none.classList.toggle('off', shownCards > 0)
       cards.forEach((c, i) => {
-        c.classList.toggle('on', i < st.cards)
+        c.classList.toggle('on', i < shownCards)
         c.classList.toggle('new', st.newCard === i)
       })
       // The last rows that are there (a longer timeline scrolls in the app): three, two under two cards.
-      const keep = st.cards >= 2 && cards.length >= 2 ? 2 : 3
+      const keep = shownCards >= 2 && cards.length >= 2 ? 2 : 3
       showLast(events, st.events || 0, keep, (i) => st.newEvent === i, 'new')
       s.dataset.pane = st.pane || ''
       pictureNote.textContent = st.picture || pictureText
@@ -268,16 +230,15 @@ function pageScreen(app, name, p) {
   const head = el('div', 'ap-title')
   head.append(el('b', '', p.title || name))
   if (p.chip) {
-    const c = el('span', `ap-chip ${toneOf(p.chip) || knownTone(p.tone)}`)
-    c.append(el('i'), el('span', '', p.chip))
-    head.append(c)
+    const c = chip()
+    c.set(p.chip, toneOf(p.chip) || knownTone(p.tone))
+    head.append(c.el)
   }
   const body = el('div', 'ap-pagebody')
   const banner = el('div', 'ap-banner', p.banner || '')
   body.append(banner)
   const rows = (p.rows || []).slice(0, 4).map(([k, v]) => {
-    const r = el('div', 'ap-row')
-    r.append(el('b', '', k), el('span', '', v))
+    const r = kvRow('ap-row', k, v)
     body.append(r)
     return r
   })
@@ -303,6 +264,5 @@ function pageScreen(app, name, p) {
   }
 }
 
-// The app's box is the same for every journey; `console` is its old name.
-ACTORS.app = { make: appActor, size: () => [320, 250] }
-ACTORS.console = ACTORS.app
+// The app's box is the same for every journey: a window's.
+registerActor('app', { make: appActor, size: () => WINDOW_BOX })

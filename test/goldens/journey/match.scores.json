@@ -564,7 +564,8 @@
         "any": {
           "score": 2.25,
           "hits": [
-            "charges"
+            "charges",
+            "charge"
           ]
         }
       },
@@ -610,14 +611,19 @@
       {
         "q": "api/store.js",
         "all": {
-          "score": 0,
-          "hits": []
-        },
-        "any": {
-          "score": 3.75,
+          "score": 5.25,
           "hits": [
             "api",
-            "stores"
+            "stores",
+            "js"
+          ]
+        },
+        "any": {
+          "score": 5.25,
+          "hits": [
+            "api",
+            "stores",
+            "js"
           ]
         }
       },

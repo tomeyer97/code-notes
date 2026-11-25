@@ -5,7 +5,7 @@
       {
         "id": "add",
         "beats": 4,
-        "file": "web/cart.ts",
+        "file": "web/src/checkout/placeOrder.ts",
         "beatFiles": [
           null,
           null,
@@ -16,7 +16,7 @@
       {
         "id": "confirm",
         "beats": 5,
-        "file": "api/orders.ts",
+        "file": "api/orders.js",
         "beatFiles": [
           null,
           null,
@@ -28,7 +28,7 @@
       {
         "id": "live",
         "beats": 4,
-        "file": "web/order.ts",
+        "file": "web/src/checkout/OrderStatus.ts",
         "beatFiles": [
           null,
           null,
@@ -39,7 +39,7 @@
       {
         "id": "queue",
         "beats": 4,
-        "file": "worker/queue.ts",
+        "file": "worker/worker.js",
         "beatFiles": [
           null,
           null,
@@ -50,7 +50,7 @@
       {
         "id": "deploy",
         "beats": 3,
-        "file": "deploy/worker.yaml",
+        "file": "config/shop.yaml",
         "beatFiles": [
           null,
           null,
@@ -60,7 +60,7 @@
       {
         "id": "receipt",
         "beats": 4,
-        "file": "worker/receipt.ts",
+        "file": "worker/charge.js",
         "beatFiles": [
           null,
           null,
@@ -71,7 +71,7 @@
       {
         "id": "session",
         "beats": 4,
-        "file": "api/session.ts",
+        "file": "web/src/checkout/placeOrder.ts",
         "beatFiles": [
           null,
           null,

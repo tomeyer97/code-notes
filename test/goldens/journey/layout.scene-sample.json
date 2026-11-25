@@ -1,5 +1,5 @@
 {
-  "signature": "[[[\"web\",\"system\",\"Web app\",\"\"],[\"api\",\"system\",\"API\",\"\"],[\"db\",\"system\",\"Database\",\"\"],[\"worker\",\"system\",\"Worker\",\"\"],[\"cartpage\",\"function\",\"addToCart\",\"web\"],[\"checkout\",\"function\",\"placeOrder\",\"api\"],[\"orders\",\"store\",\"Orders\",\"db\"],[\"job\",\"function\",\"processOrder\",\"worker\"],[\"signin\",\"function\",\"requireSession\",\"api\"]],[[\"cartpage\",\"checkout\",\"place order\",false],[\"checkout\",\"orders\",\"store pending\",false],[\"job\",\"orders\",\"polls\",true]],[\"cartpage\",\"checkout\",\"checkout\",\"job\",\"job\",\"job\",\"signin\"]]",
+  "signature": "[[[\"web\",\"system\",\"Web app\",\"\"],[\"api\",\"system\",\"API\",\"\"],[\"db\",\"system\",\"Order store\",\"\"],[\"worker\",\"system\",\"Worker\",\"\"],[\"cartpage\",\"function\",\"wireShop\",\"web\"],[\"checkout\",\"function\",\"createOrder\",\"api\"],[\"orders\",\"store\",\"Orders\",\"db\"],[\"job\",\"function\",\"pollOnce\",\"worker\"],[\"signin\",\"function\",\"showNotice\",\"web\"]],[[\"cartpage\",\"checkout\",\"place order\",false],[\"checkout\",\"orders\",\"store pending\",false],[\"job\",\"orders\",\"polls\",true]],[\"cartpage\",\"checkout\",\"checkout\",\"job\",\"job\",\"job\",\"signin\"]]",
   "stepsOf": [
     [
       "cartpage",
@@ -73,7 +73,7 @@
     [
       "signin",
       [
-        "api"
+        "web"
       ]
     ]
   ],

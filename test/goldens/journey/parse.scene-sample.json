@@ -23,9 +23,10 @@
     {
       "id": "db",
       "kind": "system",
-      "label": "Database",
+      "label": "Order store",
       "summary": "",
-      "blurb": "Orders, carts and sessions"
+      "blurb": "The API's orders, kept in memory",
+      "path": "api/store.js"
     },
     {
       "id": "worker",
@@ -38,14 +39,14 @@
     {
       "id": "cartpage",
       "kind": "function",
-      "label": "addToCart",
+      "label": "wireShop",
       "summary": "",
       "parent": "web"
     },
     {
       "id": "checkout",
       "kind": "function",
-      "label": "placeOrder",
+      "label": "createOrder",
       "summary": "",
       "parent": "api"
     },
@@ -60,16 +61,16 @@
     {
       "id": "job",
       "kind": "function",
-      "label": "processOrder",
+      "label": "pollOnce",
       "summary": "",
       "parent": "worker"
     },
     {
       "id": "signin",
       "kind": "function",
-      "label": "requireSession",
+      "label": "showNotice",
       "summary": "",
-      "parent": "api"
+      "parent": "web"
     }
   ],
   "edges": [
@@ -96,10 +97,10 @@
       "n": 1,
       "title": "The shopper adds a lamp to the cart",
       "node": "cartpage",
-      "file": "web/cart.ts",
+      "file": "web/src/checkout/placeOrder.ts",
       "range": {
         "start": 12,
-        "end": 20
+        "end": 26
       },
       "lead": "The button posts the product id; the API keeps the cart in the database.",
       "refs": [],
@@ -227,10 +228,10 @@
       "n": 2,
       "title": "The shopper confirms the order in a dialog",
       "node": "checkout",
-      "file": "api/orders.ts",
+      "file": "api/orders.js",
       "range": {
-        "start": 30,
-        "end": 41
+        "start": 8,
+        "end": 18
       },
       "lead": "The API stores the order as pending and answers at once.",
       "refs": [],
@@ -373,10 +374,10 @@
       "n": 3,
       "title": "The order page shows the packing live",
       "node": "checkout",
-      "file": "web/order.ts",
+      "file": "web/src/checkout/OrderStatus.ts",
       "range": {
-        "start": 50,
-        "end": 58
+        "start": 32,
+        "end": 47
       },
       "lead": "The page streams a camera picture and a support chat.",
       "refs": [],
@@ -463,10 +464,10 @@
       "n": 4,
       "title": "A worker takes the order from the queue",
       "node": "job",
-      "file": "worker/queue.ts",
+      "file": "worker/worker.js",
       "range": {
-        "start": 8,
-        "end": 19
+        "start": 25,
+        "end": 33
       },
       "lead": "Jobs wait in a bounded queue; a full queue drops the newest.",
       "refs": [],
@@ -573,10 +574,10 @@
       "n": 5,
       "title": "Each worker runs in its own namespace",
       "node": "job",
-      "file": "deploy/worker.yaml",
+      "file": "config/shop.yaml",
       "range": {
-        "start": 1,
-        "end": 12
+        "start": 13,
+        "end": 19
       },
       "lead": "A deploy script starts a fresh worker; the old one stops.",
       "refs": [],
@@ -680,10 +681,10 @@
       "n": 6,
       "title": "The worker writes the receipt and tells the shopper",
       "node": "job",
-      "file": "worker/receipt.ts",
+      "file": "worker/charge.js",
       "range": {
-        "start": 22,
-        "end": 30
+        "start": 6,
+        "end": 27
       },
       "lead": "The receipt is a text file; an assistant answers questions about it.",
       "refs": [],
@@ -784,10 +785,10 @@
       "n": 7,
       "title": "An expired session sends the shopper to sign in",
       "node": "signin",
-      "file": "api/session.ts",
+      "file": "web/src/checkout/placeOrder.ts",
       "range": {
-        "start": 5,
-        "end": 14
+        "start": 36,
+        "end": 37
       },
       "lead": "The API answers 401; the web app shows the sign-in page.",
       "refs": [],
