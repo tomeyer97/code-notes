@@ -1,0 +1,104 @@
+{
+  "one": {
+    "flat": true,
+    "groups": [
+      {
+        "id": "all",
+        "label": "All",
+        "keys": [
+          "k1"
+        ]
+      }
+    ]
+  },
+  "few": {
+    "flat": true,
+    "groups": [
+      {
+        "id": "all",
+        "label": "All",
+        "keys": [
+          "k3",
+          "k2",
+          "k1",
+          "k7",
+          "k4",
+          "k5",
+          "k6"
+        ]
+      }
+    ]
+  },
+  "nine": {
+    "flat": false,
+    "groups": [
+      {
+        "id": "all",
+        "label": "All",
+        "keys": [],
+        "children": [
+          {
+            "id": "area:api",
+            "label": "api",
+            "keys": [
+              "k3",
+              "k2",
+              "k9",
+              "k1",
+              "k7",
+              "k4",
+              "k8",
+              "k5",
+              "k6"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "oneWalked": {
+    "flat": false,
+    "groups": [
+      {
+        "id": "continue",
+        "label": "Continue",
+        "keys": [
+          "k1"
+        ]
+      }
+    ]
+  },
+  "nineOneWalked": {
+    "flat": false,
+    "groups": [
+      {
+        "id": "continue",
+        "label": "Continue",
+        "keys": [
+          "k1"
+        ]
+      },
+      {
+        "id": "all",
+        "label": "All",
+        "keys": [],
+        "children": [
+          {
+            "id": "area:api",
+            "label": "api",
+            "keys": [
+              "k3",
+              "k2",
+              "k9",
+              "k7",
+              "k4",
+              "k8",
+              "k5",
+              "k6"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

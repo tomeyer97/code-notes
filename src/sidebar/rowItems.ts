@@ -3,7 +3,7 @@
 
 import * as vscode from 'vscode'
 import { tour } from './ports'
-import { badJourneyItem, journeyItem, questionsItem, showIntro } from './journeyRows'
+import { badJourneyItem, journeyItem, questionsItem, showIntro, writingItem } from './journeyRows'
 import { listState } from './listModel'
 import { JourneyNode, Node } from './nodes'
 import { notesRowItem } from './notesRows'
@@ -20,6 +20,7 @@ export function itemOf(node: Node): vscode.TreeItem {
     case 'questions': return questionsItem(node)
     case 'jgroup': return jgroupItem(node)
     case 'jmore': return jmoreItem(node)
+    case 'writing': return writingItem(node)
     default: return notesRowItem(node, notesRowFacts())
   }
 }

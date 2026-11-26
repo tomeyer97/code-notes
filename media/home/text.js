@@ -22,11 +22,12 @@ export function staleTip(r) {
   return `${r.stale} step${r.stale === 1 ? '' : 's'} changed since it was written`
 }
 
-/** The preview's button: back to where the walk is, on from where it was left, or from the start. */
+/** Whether a journey is in progress: being walked, or left past step 1. */
+export const inProgress = (r) => !!r.walking || r.resume > 1
+
+/** The preview's button, one verb per state: on from where the walk is or was left ("Resume · 3/10"), else Walk. */
 export function walkLabel(r) {
-  if (r.walking) return `Back to step ${r.resume}`
-  if (r.resume > 1) return `Resume at ${r.resume}`
-  return 'Walk'
+  return inProgress(r) ? `Resume · ${r.resume}/${r.steps}` : 'Walk'
 }
 
 /**
