@@ -16,6 +16,8 @@ import { journeyJob, journeyPy, JourneyRunReady, prepareJourneyRun, reportNotRea
 import { isRefreshing } from './journeyJobs'
 import { refreshPrompt, refreshTask } from './prompts'
 import { beforeCopies } from './beforeCopies'
+import { problemsIn, stepProblems, stepsOf } from './questions'
+import { notify, sayInStatusBar, warn } from './told'
 
 /** Journeys being refreshed (by key): their Refresh says so. */
 export const refreshing: Pick<ReadonlySet<string>, 'has'> = { has: isRefreshing }
@@ -32,11 +34,11 @@ export async function refreshJourney(arg?: unknown): Promise<LoadedJourney | und
   if (!lj) return undefined
   const stale = staleSteps(lj)
   if (!stale.length) {
-    vscode.window.setStatusBarMessage('$(check) Every step matches the code', 3000)
+    sayInStatusBar('$(check) Every step matches the code')
     return undefined
   }
   if (isRefreshing(lj.key)) {
-    vscode.window.setStatusBarMessage('$(sync~spin) Already refreshing this journey', 3000)
+    sayInStatusBar('$(sync~spin) Already refreshing this journey')
     return undefined
   }
   const slug = path.basename(lj.uri.fsPath, '.json')
@@ -59,7 +61,7 @@ export async function refreshJourney(arg?: unknown): Promise<LoadedJourney | und
   const prompt = refreshPrompt(skill, staging.stage, task, ready.bundled)
   const res = await runJourneySkill(job, `Refreshing: ${shortQ(lj.j.title)}`, ready, { prompt })
   try {
-    const outcome = await applyRefresh(lj, { ...ready, slug, before, was, res })
+    const outcome = await applyRefresh(lj, { ...ready, slug, before, was, res, stale })
     return said(lj, outcome, { slug, stage: staging.stage, took: Date.now() - job.started })
   } finally {
     refreshJourneyList()
@@ -78,9 +80,11 @@ function journeyKeyOf(arg: unknown): string | undefined {
 /** Which stale journey to refresh: the one in front (the walk, the panel's) preselected, else none (Enter never
  *  refreshes a journey by chance). Undefined: none is stale (said), or Esc. */
 async function pickStaleJourney(): Promise<LoadedJourney | undefined> {
-  const stale = journeys().all().filter((x) => staleCount(x))
+  const all = journeys().all()
+  const stale = all.filter((x) => staleCount(x))
   if (!stale.length) {
-    vscode.window.setStatusBarMessage('$(check) Every journey matches the code', 3000)
+    // No journeys at all is not "all fresh".
+    sayInStatusBar(all.length ? '$(check) Every journey matches the code' : NO_JOURNEYS, all.length ? 3000 : 6000)
     return undefined
   }
   const near = tour().tourJourney() ?? mapPanel().journey
@@ -94,12 +98,11 @@ async function pickStaleJourney(): Promise<LoadedJourney | undefined> {
   return p && journeys().list.get(p.key)
 }
 
-/** journey.py check's PROBLEM lines, numbers masked (a moved line is not a new problem). */
-function problemsIn(out: string): Set<string> {
-  return new Set(out.split('\n').filter((l) => l.startsWith('PROBLEM')).map((l) => l.replace(/\d+/g, '#')))
-}
+/** Refresh Journey in a folder with no journeys. */
+export const NO_JOURNEYS = 'No journeys in this folder yet. Find or Write a Journey… to write one.'
 
-interface RefreshRun extends JourneyRunReady { slug: string; before: string; was: Set<string>; res: AskResult }
+/** `stale`: the steps Claude was asked to rewrite (1-based). */
+interface RefreshRun extends JourneyRunReady { slug: string; before: string; was: Set<string>; res: AskResult; stale: number[] }
 
 /** How a refresh ended. The refreshed copy stays in the staging folder when it broke a rule or the file changed. */
 type Outcome =
@@ -108,7 +111,8 @@ type Outcome =
   | { kind: 'broke-a-rule' }
   | { kind: 'unchanged'; reply: string }
   | { kind: 'edited-meanwhile' }
-  | { kind: 'refreshed'; done?: LoadedJourney; diff: vscode.Uri }
+  /** `failing`: check's lines saying the rewritten steps still point at code that is gone (said, never hidden). */
+  | { kind: 'refreshed'; done?: LoadedJourney; diff: vscode.Uri; failing: string[] }
 
 /**
  * After Claude's run: the refreshed copy replaces the journey file when its check adds no problem and the file was
@@ -137,13 +141,13 @@ async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<Outcome> 
   const diff = beforeCopies.keep(staging.id, `${slug}.before.json`, before)
   await fs.promises.writeFile(lj.uri.fsPath, after)
   staging.cleanup()
-  return { kind: 'refreshed', done: await journeys().reload(lj.uri), diff }
+  return { kind: 'refreshed', done: await journeys().reload(lj.uri), diff, failing: stepProblems(chk.out, r.stale) }
 }
 
 /** Each outcome said: an error, a notice, or nothing (cancelled). The journey after it. */
 function said(lj: LoadedJourney, o: Outcome, run: { slug: string; stage: string; took: number }): LoadedJourney | undefined {
   const title = lj.j.title
-  const info = (text: string, ...items: string[]) => vscode.window.showInformationMessage(text, ...items)
+  const info = notify
   const shownBy = 'refreshJourney: window.showInformationMessage'
   switch (o.kind) {
     case 'cancelled':
@@ -168,8 +172,13 @@ function said(lj: LoadedJourney, o: Outcome, run: { slug: string; stage: string;
       const left = o.done ? staleCount(o.done) : 0
       log().info(`journey ${run.slug}: refreshed in ${clock(run.took)}${left ? `; ${left} step(s) still out of date` : ''}`)
       const stillStale = left ? ` · ${plural(left, 'step')} still out of date` : ''
-      const shown = info(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
-        if (!b) return
+      const failing = stepsOf(o.failing)
+      if (failing.length) log().warn(`journey ${run.slug}: the refreshed step(s) still fail journey.py check:\n${o.failing.join('\n')}`)
+      const shown = (failing.length
+        ? warn(`Refreshed “${title}” · ${failing.length > 1 ? 'steps' : 'step'} ${failing.join(', ')} still ${failing.length > 1 ? 'fail' : 'fails'} its check`, 'Show changes', 'Show Output')
+        : info(`Refreshed “${title}”${stillStale}`, 'Show changes')).then((b) => {
+        if (b === 'Show Output') log().show(true)
+        if (b !== 'Show changes') return
         const diff = vscode.commands.executeCommand('vscode.diff', o.diff, lj.uri, `${title}: before ↔ refreshed`)
         fireAndForget(diff, 'refreshJourney: command vscode.diff')
       })
