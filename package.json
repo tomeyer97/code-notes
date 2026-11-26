@@ -51,7 +51,10 @@
     "skills/understanding-check/SKILL.md",
     "skills/understanding-check/scripts/questions.mjs",
     "cli/understanding.mjs",
+    "docs/agent-protocol.md",
+    "docs/journey-format.md",
     "docs/podcast-format.md",
+    "docs/understanding-check.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -1643,7 +1646,6 @@
     ],
     "configurationDefaults": {
       "comments.openView": "never",
-      "comments.maxHeight": false,
       "editor.smoothScrolling": true
     }
   },
