@@ -164,9 +164,44 @@ async function oddIdRedraw(page, view, fail) {
   await page.waitForTimeout(50)
 }
 
+/** Warnings (a flag, a concern, a failure, a warning title) are read in the text colour: ≥ 4.5:1 on what is behind
+ *  them; only their ⚠ is in the warning colour. */
+async function warningContrast(page, view, fail) {
+  const low = await page.evaluate(() => {
+    const rgb = (c) => (c.match(/[\d.]+/g) || []).map(Number)
+    const lum = ([r, g, b]) => {
+      const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    }
+    const behind = (e) => {
+      for (let x = e; x; x = x.parentElement) {
+        const c = rgb(getComputedStyle(x).backgroundColor)
+        if (c.length >= 3 && (c[3] ?? 1) > 0) return c
+      }
+      return [255, 255, 255]
+    }
+    const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05) }
+    const out = []
+    for (const e of document.querySelectorAll('.flag, .answer .concern p:first-child, .failed, .tone-warn .title')) {
+      const r = ratio(rgb(getComputedStyle(e).color), behind(e))
+      if (r < 4.5) out.push(`"${e.textContent.slice(0, 30)}" ${r.toFixed(1)}:1`)
+    }
+    for (const e of document.querySelectorAll('.flag, .answer .concern p:first-child')) {
+      if (!e.querySelector('.warn-mark')) out.push(`"${e.textContent.slice(0, 30)}" has no ⚠ mark`)
+    }
+    // One ⚠ per warning: in its text, or drawn before it by the CSS.
+    for (const e of document.querySelectorAll('.flag, .answer .concern p:first-child, .failed, .tone-warn .title')) {
+      const marks = (e.textContent.match(/⚠/g) || []).length + (getComputedStyle(e, '::before').content.includes('⚠') ? 1 : 0)
+      if (marks !== 1) out.push(`"${e.textContent.slice(0, 30)}" has ${marks} ⚠`)
+    }
+    return out
+  })
+  if (low.length) fail(`warnings hard to read: ${low.join('; ')}`)
+}
+
 /** In the order they run on each drawn view; what the page posted is forgotten before each, so a check passes only on
  *  what its own actions posted. */
-const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions, oddIdRedraw]
+const CHECKS = [arrowDown, rowClick, answerBox, concernAction, nextQuestion, alsoTick, tourLink, mergeRequest, notFoundLinks, gradeRetry, mainButton, clampedQuestions, warningContrast, oddIdRedraw]
 
 // ---------- main ----------
 

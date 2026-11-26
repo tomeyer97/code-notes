@@ -36,7 +36,8 @@ export function checkHost(extUri: vscode.Uri, { store, tour }: CheckPorts): Chec
     allowed: (what) => agentRunner().allowed(what),
     model: checkModel,
     changed: noteChanged,
-    addReply: (n, text) => addReply(n, text),
+    // The thread's status as it is: the check resolves and opens its threads itself (no "Reopened" by the person).
+    addReply: (n, text) => addReply(n, text, n.data.status),
     reveal: (n, col, keep) => reveal(n, col ?? tour.codeColumn(), keep),
     refresh: () => notesChanged({ kind: 'activity' }),
     codeColumn: () => tour.codeColumn(),

@@ -5,7 +5,9 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 .check header p { margin: 0; overflow-wrap: anywhere; }
 .check .title { font-weight: 600; }
 .check .tone-ok .title { color: var(--ok); }
-.check .tone-warn .title { color: var(--warn); }
+/* Warnings: text in the foreground, only a ⚠ in the warning colour (amber text is ≈3:1 on light themes). */
+.check .tone-warn .title::before, .check > header .failed::before { content: '⚠ ' / ''; color: var(--warn); }
+.check .warn-mark { color: var(--warn); }
 .check .line, .check .who, .check .notice, .check .muted, .check .busy { color: var(--muted); }
 .check .who { font-style: italic; }
 .check .busy { margin: 0 0 6px; font-style: italic; }
@@ -21,7 +23,7 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 .check .text { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .check .row.pass .text, .check .row.explained .text, .check .row.restated .text { color: var(--muted); }
 .check .meta { font-size: 0.9em; color: var(--muted); overflow-wrap: anywhere; }
-.check .flag { font-size: 0.9em; color: var(--warn); }
+.check .flag { font-size: 0.9em; }
 .check footer { margin: 0 0 8px; }
 .check .commits { margin: 0 0 4px; color: var(--muted); overflow-wrap: anywhere; }
 .check .also { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; overflow-wrap: anywhere; }
@@ -34,7 +36,7 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 .check .tour { display: block; margin: 0 0 6px; max-width: 100%; overflow-wrap: anywhere; }
 .check .setup { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .check .mr { margin: 2px 0 0; overflow-wrap: anywhere; }
-.check .failed { margin: 2px 0 0; color: var(--warn); overflow-wrap: anywhere; }
+.check .failed { margin: 2px 0 0; overflow-wrap: anywhere; }
 .check .failed .link { display: inline; }
 .check .failed .waive { color: var(--muted); }
 .check .text code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }

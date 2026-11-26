@@ -212,6 +212,9 @@ export const answersTests = [
     assert.ok(noteOf('q2').messages.some((m: any) => /^It retries with backoff/.test(m.body)), 'the explanation stays after saying it back')
     assert.deepEqual(readCheck().questions[1].attempts.map((a: any) => a.verdict), ['retry', 'explained', 'restated'])
     assert.equal(view().rows[1].word, 'in your words')
+    // Saying it back changed no thread status: no "Reopened" row by the person in the question's thread.
+    assert.ok(!(noteOf('q2').events ?? []).some((e: any) => e.type === 'reopened'), 'no reopened event')
+    assert.ok(!threadComments(noteOf('q2').id).some((c) => commentBody(c) === '_Reopened_'), 'no "Reopened" row in the thread')
     await pageShot('check-2-restated')
   }),
 
