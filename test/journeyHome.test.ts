@@ -6,7 +6,8 @@ import { SORTS as LIST_SORTS } from '../src/core/list/journeyList'
 interface HomeText {
   SORTS: [string, string][]
   staleTip(r: { stale: number; staleSteps?: number[] }): string
-  walkLabel(r: { walking?: boolean; resume: number }): string
+  walkLabel(r: { walking?: boolean; resume: number; steps: number }): string
+  inProgress(r: { walking?: boolean; resume: number }): boolean
   podcastBadge(p: { duration: number; playing: boolean; at?: number }): { text: string; tip: string }
   escapeRegExp(s: string): string
 }
@@ -25,10 +26,13 @@ test('a stale row says which steps changed', () => {
   assert.equal(H.staleTip({ stale: 1 }), '1 step changed since it was written')
 })
 
-test('the preview\'s Walk button says where the walk goes', () => {
-  assert.equal(H.walkLabel({ walking: true, resume: 3 }), 'Back to step 3')
-  assert.equal(H.walkLabel({ resume: 4 }), 'Resume at 4')
-  assert.equal(H.walkLabel({ resume: 1 }), 'Walk')
+test('the preview\'s button: one verb per state, Resume with where, or Walk', () => {
+  assert.equal(H.walkLabel({ walking: true, resume: 1, steps: 10 }), 'Resume · 1/10')
+  assert.equal(H.walkLabel({ walking: true, resume: 3, steps: 10 }), 'Resume · 3/10')
+  assert.equal(H.walkLabel({ resume: 4, steps: 13 }), 'Resume · 4/13')
+  assert.equal(H.walkLabel({ resume: 1, steps: 10 }), 'Walk')
+  assert.equal(H.walkLabel({ resume: 0, steps: 10 }), 'Walk')
+  assert.deepEqual([{ walking: true, resume: 1 }, { resume: 2 }, { resume: 1 }, { resume: 0 }].map(H.inProgress), [true, true, false, false])
 })
 
 test('a row\'s podcast mark: its length, listening, or paused where', () => {

@@ -1,15 +1,16 @@
-// The Journeys view: the journey lists by group (In this file, Continue, All by area), sorting them, and revealing
-// rows in it. Its rows are drawn by rowItems.ts (a journey's: journeyRows.ts); its model is listModel.ts; searching
-// is journeySearch.ts.
+// The Journeys view: the journeys Claude is writing, the journey lists by group (In this file, Continue, All by area;
+// a few journeys: one flat list), sorting them, and revealing rows in it. Its rows are drawn by rowItems.ts (a
+// journey's: journeyRows.ts); its model is listModel.ts; searching is journeySearch.ts.
 
 import * as vscode from 'vscode'
 import { journeys, tour } from './ports'
 import { stored } from '../platform/host'
 import { Group, ListModel, SORTS } from '../core/list/journeyList'
+import { agentRunner } from '../platform/agent/runner'
 import type { Journeys } from '../journeys/journeys'
 import type { LoadedJourney } from '../journeys/steps'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
-import { journeyQuestionRows, questionRows } from './journeyRows'
+import { drawnWritingNodes, journeyQuestionRows, questionRows, writingNodes } from './journeyRows'
 import { nestsQuestions } from './journeyRowText'
 import { activeRel as activeFile, capHere, followCursor, listModel, listSort, onDidChangeListState, showAllHere, sortChanged, useDrawnModel } from './listModel'
 import { itemOf } from './rowItems'
@@ -20,6 +21,8 @@ import { STATE } from '../platform/state'
  *  editor's "In this file" once the editor stayed (the cursor's follow, listModel.ts, redraws before it). */
 const REVEAL_WALK_MS = 300
 const REVEAL_EDITOR_MS = 700
+/** While Claude writes a journey, its row's clock is drawn again this often. */
+const WRITING_TICK_MS = 1000
 
 class JourneysTree implements vscode.TreeDataProvider<Node> {
   /** Each row's parent, set while the rows are made and read back by getParent (rows are one object each: nodes.ts). */
@@ -64,12 +67,13 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
     return all.children?.find((c) => c.keys.includes(key))?.id
   }
 
-  private rowsOf(g: Group, parent: Node): Node[] {
+  /** Group `g`'s rows; `parent`: its row (none: they are the view's top rows). */
+  private rowsOf(g: Group, parent?: Node): Node[] {
     const rows: Node[] = g.keys.map((k) => journeyRowNode(journeys().list.get(k)!, g.id))
       .filter((n) => n.kind !== 'journey' || !!n.lj)
     // "Show all": the rest of a capped group (In this file).
     if (g.more) rows.push(jmoreNode(g))
-    for (const r of rows) this.parents.set(r, parent)
+    if (parent) for (const r of rows) this.parents.set(r, parent)
     return rows
   }
 
@@ -77,10 +81,13 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
     if (!node) {
       const m = this.drawn = listModel()
       this.parents.clear()
+      const writing = writingNodes()
       const bad = badJourneyNodes()
-      if (!m.total) return bad
-      return [...m.groups.map(jgroupNode), ...bad]
+      if (!m.total) return [...writing, ...bad]
+      // A few journeys, none in progress or here: one row each, no "All" above them (journeyList.ts `flat`).
+      return [...writing, ...(m.flat ? this.rowsOf(m.groups[0]) : m.groups.map(jgroupNode)), ...bad]
     }
+    if (node.kind === 'writing') return []
     if (node.kind === 'jgroup') {
       if (!node.g.children) return this.rowsOf(node.g, node)
       const groups = node.g.children.map(jgroupNode)
@@ -121,7 +128,12 @@ export async function sortJourneys(): Promise<void> {
 
 /** The Journeys view; its "In this file" follows the editor (capped again), ranked by the cursor's function, and in view. */
 export function createJourneysView(context: vscode.ExtensionContext): void {
-  const view = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree.sync.provider(journeysTree), showCollapseAll: true })
+  // The provider's changes: the whole tree's (ViewSync's redraws), or only the writing rows' clocks (followWriting).
+  const changed = new vscode.EventEmitter<Node | Node[] | undefined>()
+  const synced = journeysTree.sync.provider(journeysTree)
+  const redraws = synced.onDidChangeTreeData!((e) => changed.fire(e as Node | Node[] | undefined))
+  const provider: vscode.TreeDataProvider<Node> = { ...synced, onDidChangeTreeData: changed.event }
+  const view = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: provider, showCollapseAll: true })
   journeysTree.attach(view)
   const editorChanged = vscode.window.onDidChangeActiveTextEditor(() => {
     capHere()
@@ -135,7 +147,21 @@ export function createJourneysView(context: vscode.ExtensionContext): void {
     journeysTree.refresh()
     if (e.editorChanged) revealHereGroup()
   })
-  context.subscriptions.push(view, editorChanged, selectionChanged, listChanged, ...journeysTree.sync.watch(view))
+  context.subscriptions.push(view, editorChanged, selectionChanged, listChanged, ...journeysTree.sync.watch(view), changed, redraws,
+    followWriting(view, (rows) => changed.fire(rows)))
+}
+
+/** The journeys Claude is writing: their rows come and go with the runs (the whole tree drawn again), and their clocks
+ *  tick while the view shows (only those rows drawn again, by `redrawRows`). */
+function followWriting(view: vscode.TreeView<Node>, redrawRows: (rows: Node[]) => void): vscode.Disposable {
+  let tick: NodeJS.Timeout | undefined
+  const runs = agentRunner().inProgress.onDidChange((r) => {
+    if (r.purpose !== 'journey') return
+    journeysTree.refresh()
+    clearInterval(tick)
+    tick = writingNodes().length ? setInterval(() => { if (view.visible) redrawRows(drawnWritingNodes()) }, WRITING_TICK_MS) : undefined
+  })
+  return vscode.Disposable.from(runs, { dispose: () => clearInterval(tick) })
 }
 
 /** "Show all" under "In this file". */

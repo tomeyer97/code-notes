@@ -18,6 +18,8 @@ export const SORTS: { id: Sort; label: string }[] = [
 ]
 /** "In this file" lists this many, then "Show all". */
 export const HERE_CAP = 5
+/** The sidebar lists fewer journeys than this in one flat list (no areas): grouping only helps a long list. */
+export const FLAT_UNDER = 8
 
 /** What the extension knows about one entry. */
 export interface ListItem {
@@ -81,8 +83,11 @@ export interface ListModel {
   fallback?: { note: string; missing: string[] }
   /** The panel's sections (a search: one, "results", best first). */
   sections: Section[]
-  /** The sidebar's groups: In this file · Continue · All (by area, or flat). */
+  /** The sidebar's groups: In this file · Continue · All (the rest: by area, or flat). */
   groups: Group[]
+  /** The sidebar draws All's rows as its top rows, no heading: fewer than FLAT_UNDER journeys and All is the only
+   *  group (a lone Continue or In this file keeps its heading: it says why the row is there). */
+  flat: boolean
   /** Rows shown after filtering (search, kind, area). */
   count: number
   total: number
@@ -265,8 +270,10 @@ function panelSections(p: ListRows, area: string, results?: ListRow[]): Section[
   return out.filter((s) => s.keys.length)
 }
 
-/** The sidebar's groups: In this file (but the walk's journey) and Continue when they have rows, then All (by area, or flat). */
-function sidebarGroups(p: ListRows): Group[] {
+/** The sidebar's groups: In this file (but the walk's journey) and Continue when they have rows, then All: the rest,
+ *  by area or flat (flat while the workspace has fewer than FLAT_UNDER journeys, `total`); each journey once in
+ *  Continue or All. */
+function sidebarGroups(p: ListRows, total: number): Group[] {
   const out: Group[] = []
   // The journey being walked (or listened to) is in Continue: not again in "In this file", which would come and go as
   // the walk changes files.
@@ -275,8 +282,11 @@ function sidebarGroups(p: ListRows): Group[] {
   const hereAll = p.inFileRows.filter((r) => !walking.has(r.key))
   if (hereAll.length) out.push(part('here', 'In this file', hereShown, hereAll.length - hereShown.length))
   if (p.continueRows.length) out.push(part('continue', 'Continue', p.continueRows))
-  if (p.sort === 'area') out.push({ id: 'all', label: 'All', keys: [], children: areaParts(p.sorted) })
-  else out.push(part('all', 'All', p.sorted))
+  const continued = new Set(keys(p.continueRows))
+  const rest = p.sorted.filter((r) => !continued.has(r.key))
+  if (!rest.length) return out
+  if (p.sort === 'area' && total >= FLAT_UNDER) out.push({ id: 'all', label: 'All', keys: [], children: areaParts(rest) })
+  else out.push(part('all', 'All', rest))
   return out
 }
 
@@ -307,6 +317,7 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
   const searchSort = o.searchSort ?? (sort === 'area' ? 'best' : sort)
   const best = (x: ListRow, y: ListRow) => (hits.get(y.key)!.score - hits.get(x.key)!.score) || ORDER[sort](x, y)
   const results = query ? [...shown].sort(searchSort === 'best' ? best : ORDER[searchSort]) : undefined
+  const groups = sidebarGroups(list, all.length)
   return {
     rows, query, sort, searchSort, kind, area,
     ...(all.some((r) => r.here) ? { file: o.activeFile } : {}),
@@ -315,7 +326,8 @@ export function buildList(items: ListItem[], o: ListOptions = {}): ListModel {
     staleCount: all.filter((r) => r.stale > 0).length,
     ...(fallback ? { fallback } : {}),
     sections: panelSections(list, area, results),
-    groups: sidebarGroups(list),
+    groups,
+    flat: all.length < FLAT_UNDER && groups.length === 1 && groups[0].id === 'all' && !groups[0].children,
     count: shown.length,
     total: all.length,
   }
