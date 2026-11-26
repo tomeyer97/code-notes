@@ -1,7 +1,7 @@
 // What a feature adds to a note's thread (Claude answering, the check's grading, a step question's link back), and
 // the rows themselves: comments.ts renders a thread from these without knowing the features.
 import * as vscode from 'vscode'
-import { SYSTEM_COMMANDS } from '../platform/commands'
+import { HiddenCmd, shortLinks, SYSTEM_COMMANDS } from '../platform/commands'
 import type { Note } from '../notes/store'
 import { COMMENT_CONTEXT, type ThreadWord } from './context'
 import { Links } from './links'
@@ -79,11 +79,12 @@ export class ThreadContributions {
   }
 }
 
-/** Markdown that may run what `links` says (nothing to run: untrusted). */
+/** Markdown that may run what `links` says (nothing to run: untrusted). Links with arguments get a short key: a
+ *  comment's Markdown is what a screen reader reads. */
 export function linkedMarkdown(text: string, links: Links): vscode.MarkdownString {
-  const md = new vscode.MarkdownString(text)
   const commands = links.commands
-  if (commands.length) md.isTrusted = { enabledCommands: commands }
+  const md = new vscode.MarkdownString(commands.length ? shortLinks(text, commands) : text)
+  if (commands.length) md.isTrusted = { enabledCommands: [...commands, HiddenCmd.link] }
   return md
 }
 

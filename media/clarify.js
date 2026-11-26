@@ -22,3 +22,5 @@ answer.addEventListener('keydown', (e) => {
   }
 })
 answer.focus()
+// Brought forward by the notification's Answer: straight into the box.
+window.addEventListener('focus', () => answer.focus())

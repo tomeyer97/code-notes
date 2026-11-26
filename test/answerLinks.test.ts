@@ -15,6 +15,8 @@ test('references in answers are links, inside parentheses and lists, never with 
   assert.equal(L('[x](src/x.ts#L4)'), '[x](cmd:src/x.ts:4)')
   assert.equal(L('lines src/a.ts:12-20.'), 'lines [src/a.ts:12-20](cmd:src/a.ts:12).')
   assert.equal(L('outside /home/me/other/b.ts:2'), 'outside ~/other/b.ts:2', 'outside the repo: no link, no home path')
+  assert.equal(L('See package.json:3.'), 'See [package.json:3](cmd:package.json:3).', 'a root file, as the agents\' README says')
+  assert.equal(L('e.g:3'), 'e.g:3', 'two single letters are not a file')
   assert.equal(L('[docs](https://example.com/a/b.md:3)'), '[docs](https://example.com/a/b.md:3)')
   assert.equal(L('![shot](img/a.png)'), '[image: shot](img/a.png)')
 })
@@ -55,8 +57,11 @@ test('the reference patterns, case by case: the bare reference assembled, and wh
   const P = ANSWER_LINK_PATTERNS
   // The bare reference as a reader would have to assemble it: not after a word, "/", "~", ".", "-" or a kept link;
   // an optional backtick; the path (folders, then a file name); its line.
+  // A path is folders then a file name, or a file at the root (not two single letters, not a host name).
   assert.equal(P.BARE_REF.source,
-    String.raw`(?<![\w/~.\-\u0000])` + '`?((?:[\\w.-]+\\/)+[\\w.-]+\\.[a-zA-Z]{1,6})' + String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))` + '`?')
+    String.raw`(?<![\w/~.\-\u0000])` + '`?((?:[\\w.-]+\\/)+[\\w.-]+\\.[a-zA-Z]{1,6}|' + P.ROOT_FILE + ')' +
+    String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))` + '`?')
+  assert.equal(P.ROOT_FILE, String.raw`(?![a-zA-Z]\.[a-zA-Z](?![\w.]))[\w-][\w.-]*\.(?!(?:com|org|net)\b)[a-zA-Z]{1,6}`)
   const all = (re: RegExp, s: string) => [...s.matchAll(new RegExp(re.source, 'g'))].map((m) => [...m])
   const table: [RegExp, string, (string | undefined)[][]][] = [
     [P.IMAGE, 'see ![chart](img/a.png "t")', [['![chart](img/a.png "t")', 'chart', 'img/a.png']]],
@@ -66,7 +71,12 @@ test('the reference patterns, case by case: the bare reference assembled, and wh
     [P.TARGET, 'src/a.ts#L12-L20', [['src/a.ts#L12-L20', 'src/a.ts', '12', undefined]]],
     [P.BARE_REF, 'at src/a.ts:12-20.', [['src/a.ts:12-20', 'src/a.ts', '12', undefined]]],
     [P.BARE_REF, '(`src/a.ts#L4`)', [['`src/a.ts#L4`', 'src/a.ts', undefined, '4']]],
-    [P.BARE_REF, 'a.ts:3 ~/x/b.ts:2 lib/src/c.ts:1', [['lib/src/c.ts:1', 'lib/src/c.ts', '1', undefined]]],
+    [P.BARE_REF, 'a.ts:3 ~/x/b.ts:2 lib/src/c.ts:1', [['a.ts:3', 'a.ts', '3', undefined], ['lib/src/c.ts:1', 'lib/src/c.ts', '1', undefined]]],
+    [P.BARE_REF, 'See package.json:3 and docs/agent-protocol.md#L5.', [
+      ['package.json:3', 'package.json', '3', undefined], ['docs/agent-protocol.md#L5', 'docs/agent-protocol.md', undefined, '5']]],
+    [P.BARE_REF, '`README.md#L2`, vite.config.ts:9, main.c:4', [
+      ['`README.md#L2`', 'README.md', undefined, '2'], ['vite.config.ts:9', 'vite.config.ts', '9', undefined], ['main.c:4', 'main.c', '4', undefined]]],
+    [P.BARE_REF, 'e.g:3 i.e:4 example.com:443 api.example.org:80 Makefile:2 package.json 1.5:3', []],
   ]
   for (const [re, text, want] of table) assert.deepEqual(all(re, text), want, `${text}`)
 })

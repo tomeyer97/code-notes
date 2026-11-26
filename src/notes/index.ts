@@ -14,7 +14,7 @@ import { openBroken, restoreBroken } from './broken'
 import { followNotesOnDisk } from './changedOnDisk'
 import { rangeProvider } from './commentRanges'
 import { followContextKeys } from './contextKeys'
-import { addNote, addPathNote, addQuickNote, askFromThread, createFromThread, NOTE_OPTIONS, onDidCreateNote } from './create'
+import { addNote, addPathNote, addQuickNote, askFromThread, closeNoteBox, createFromThread, NOTE_OPTIONS, onDidCreateNote } from './create'
 import { followCursor } from './cursor'
 import { createDecorations, followNotes as decorationsFollow } from './decorations'
 import { findNote } from './find'
@@ -42,6 +42,9 @@ import { CommandArg, pickNotes } from './which'
 export type { NotesFeaturePorts } from './ports'
 /** A file in the notes folder (the store watches it: no note or step is on it). */
 export { inNotesFolder } from './notesFolder'
+
+/** Closes a new note box, keeping its draft (create.ts closeNoteBox). */
+export const CLOSE_NOTE_BOX = 'codeNotes.closeNoteBox'
 
 /** The id VS Code knows the notes' comment threads by. */
 const CONTROLLER_ID = 'codeNotes'
@@ -80,8 +83,8 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     readHidden: () => stored().get(STATE.hiddenSessions),
     writeHidden: (names) => stored().set(STATE.hiddenSessions, names),
   })
-  // No commenting-range bar on every line (–): the whole file is commentable only while Add Note opens its
-  // box (Ctrl+' C, the command); VS Code asks again when the provider is set.
+  // No commenting-range bar on every line (–): a file is commentable only from Add Note (Ctrl+' C, the command)
+  // until its box is done with (commentRanges.ts); VS Code asks again when the provider is set.
   controller.commentingRangeProvider = rangeProvider
   controller.options = NOTE_OPTIONS
   fireAndForget(setCtx(NOTES_CTX.showResolved, false), 'notes: setCtx codeNotes.showResolved')
@@ -93,12 +96,16 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     // A note you made is read (its first message is yours): stored in the background (a round trip to the window).
     onDidCreateNote((n) => fireAndForget(setSeen([[n.data.id, 1]]), 'seen')),
     takeLinks((link) => stepLink(ports.layout, link)),
+    // Esc in a new note box (the key is the manifest's); not in the command table yet, so registered here.
+    vscode.commands.registerCommand(CLOSE_NOTE_BOX, async () => {
+      try { await closeNoteBox() } finally { drafting.fire(false) }
+    }),
   )
   registerCommands(context, {
     // Adding, replying, asking from a thread. A note being written pauses what plays (its code stays put under it).
     [Cmd.add]: chord(() => { drafting.fire(true); return addNote() }),
     [Cmd.addQuick]: addQuickNote,
-    [Cmd.addPathNote]: (uri?: vscode.Uri, text?: string) => addPathNote(uri, text),
+    [Cmd.addPathNote]: (uri?: vscode.Uri, text?: unknown) => addPathNote(uri, text),
     [Cmd.askFromThread]: askFromThread,
     [Cmd.createFromThread]: async (...a: Parameters<typeof createFromThread>) => {
       try { return await createFromThread(...a) } finally { drafting.fire(false) }

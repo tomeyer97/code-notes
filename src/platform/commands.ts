@@ -101,6 +101,14 @@ export const HiddenCmd = {
   openNoteId: 'codeNotes.openNoteId',
   openStepLink: 'codeNotes.openStepLink',
   podcastFollow: 'codeNotes.podcastFollow',
+  /** A thread's links run through this one with a short key (shortLinks below). */
+  link: 'codeNotes.link',
+  /** A check concern's actions on its thread (menus on the thread, not links in the text). */
+  concernFix: 'codeNotes.concernFix',
+  concernTodo: 'codeNotes.concernTodo',
+  concernFlag: 'codeNotes.concernFlag',
+  concernFixed: 'codeNotes.concernFixed',
+  concernDismiss: 'codeNotes.concernDismiss',
   notesFocus: 'codeNotes.notes.focus',
   journeysFocus: 'codeNotes.journeys.focus',
   checkFocus: 'codeNotes.check.focus',
@@ -130,3 +138,46 @@ export const cmdLink = (label: string, command: string, ...args: unknown[]) => `
 /** The same with a tooltip (`title`). */
 export const titledCmdLink = (label: string, title: string, command: string, ...args: unknown[]) =>
   `[${label}](${commandUri(command, ...args)} "${title}")`
+
+/** A link's command and arguments, by its short key (keys live as long as the window: threads are drawn anew). */
+const linkCalls = new Map<number, { command: string; args: unknown[] }>()
+const linkKeys = new Map<string, number>()
+/** Keys are random, so text an agent wrote can't guess one made for another thread. */
+const KEY_SPACE = 900_000
+
+/** The short key of a link that runs `command` with `args` (the same link keeps its key, so a redraw is a no-op). */
+export function linkKey(command: string, args: unknown[]): number {
+  const sig = JSON.stringify([command, args])
+  let key = linkKeys.get(sig)
+  if (key !== undefined) return key
+  do key = 100_000 + Math.floor(Math.random() * KEY_SPACE)
+  while (linkCalls.has(key))
+  linkKeys.set(sig, key)
+  linkCalls.set(key, { command, args })
+  return key
+}
+
+/** What the link with this key runs. */
+export const linkCall = (key: unknown) => (typeof key === 'number' ? linkCalls.get(key) : undefined)
+
+/** A link target `command:<id>?<query>` in Markdown (its title after a space). */
+const COMMAND_TARGET = /\]\(command:([\w.-]+)(?:\?([^\s)]+))?/g
+
+/**
+ * Markdown whose links to `allowed` commands run through HiddenCmd.link with a short key: screen readers read a
+ * comment's Markdown as is, and a JSON argument in a link is hundreds of percent-encoded characters.
+ */
+export function shortLinks(markdown: string, allowed: readonly string[]): string {
+  return markdown.replace(COMMAND_TARGET, (m, command: string, query?: string) => {
+    // Without arguments it is short already.
+    if (!query || !allowed.includes(command)) return m
+    let args: unknown
+    try { args = JSON.parse(decodeURIComponent(query)) } catch { return m }
+    return `](command:${HiddenCmd.link}?${linkKey(command, Array.isArray(args) ? args : [args])}`
+  })
+}
+
+/** What a clicked link runs: a short link's command and arguments, any other as it is. */
+export function clickedLink(command: string, args: unknown[]): { command: string; args: unknown[] } {
+  return (command === HiddenCmd.link && linkCall(args[0])) || { command, args }
+}

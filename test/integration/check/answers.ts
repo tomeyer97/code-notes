@@ -224,15 +224,21 @@ export const answersTests = [
     await until('D opens q3', () => codeEditor()?.document.uri.fsPath === limitsPath && noteById(noteOf('q3').id)?.threadExpanded)
     await answer('q3', 'GOOD CONCERN: they are in memory, so a restart forgets them.')
     await until('q3 passed with a concern', () => view()?.rows[2].flag === 'concern')
-    await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'flag')
+    // The concern's actions are the thread's menu: its words say which apply; a menu item gets the reply box's thread.
+    const words = () => String(api.thread(noteOf('q3').id)?.contextValue).split(';')
+    await until('the concern\'s menu', () => words().includes('concern') && !words().includes('flagged') && !words().includes('todo'))
+    await vscode.commands.executeCommand('codeNotes.concernFlag', { thread: api.thread(noteOf('q3').id), text: '' })
     await until('flagged in the file', () => readCheck().questions[2].concern?.flagged === true)
     await until('flagged on the row', () => view().rows[2].flag === 'flagged for review')
     // Add TODO next to the flag: one short line in the code, said in the thread; the flag stays.
-    await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'todo')
+    await until('Flag for reviewer leaves the menu', () => words().includes('flagged'))
+    await vscode.commands.executeCommand('codeNotes.concernTodo', api.thread(noteOf('q3').id))
     const todo = await until('a TODO in the code', () => { const ls = fs.readFileSync(limitsPath, 'utf8').split('\n'); const i = ls.findIndex((l) => l.includes('TODO')); return i >= 0 && ls.slice(i, i + 2) })
     // The whole concern (wrapped, nothing cut), at the line's indentation.
     assert.ok(todo.every((l) => l.length <= 100) && todo.map((l) => l.replace(/^\/\/( TODO:)?\s+/, '')).join(' ').includes('a restart lets everyone order again.'), `the whole concern: ${todo.join(' / ')}`)
     await until('said in the thread', () => threadComments(noteOf('q3').id).some((c) => /TODO added at limits\.js:1\b/.test(commentBody(c))))
     assert.equal(readCheck().questions[2].concern?.flagged, true, 'Add TODO keeps the flag')
+    await until('Add TODO leaves the menu', () => words().includes('todo'))
+    assert.ok(threadComments(noteOf('q3').id).every((c) => !/%5B|%22/.test(commentBody(c))), 'no percent-encoded JSON in the thread')
   }),
 ]

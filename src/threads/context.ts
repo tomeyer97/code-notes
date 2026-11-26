@@ -2,7 +2,7 @@
 // /stale/`, `comment == message`); test/threadContext.test.ts checks every word the menus use is one of these. No
 // vscode here.
 
-/** A note thread's words: "note;open;stale;asking;check" (the ones that apply). */
+/** A note thread's words: "note;open;stale;asking;check;concern" (the ones that apply). */
 export const THREAD_WORD = {
   note: 'note',
   open: 'open',
@@ -12,6 +12,12 @@ export const THREAD_WORD = {
   asking: 'asking',
   /** A question of the understanding check. */
   check: 'check',
+  /** The check's grader found a concern about the code (its actions are the thread's menu). */
+  concern: 'concern',
+  /** …a TODO is added for it already. */
+  todo: 'todo',
+  /** …it is flagged for the reviewer. */
+  flagged: 'flagged',
 } as const
 
 export type ThreadWord = (typeof THREAD_WORD)[keyof typeof THREAD_WORD]

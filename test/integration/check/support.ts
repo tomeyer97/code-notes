@@ -7,19 +7,21 @@ import * as path from 'path'
 import assert from 'assert'
 import { cdp, checkFrame, ui } from '../devtools'
 import { api, checkFile, readCheck } from './context'
+import { clickedLink } from '../../../src/platform/commands'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** A command link in a comment's markdown: its text (markup taken out), the command and its arguments. */
 export type CommandLink = { label: string; command: string; args: unknown[] }
 
-/** The command links in a comment's markdown, as VS Code runs them when clicked. */
+/** The command links in a comment's markdown, as VS Code runs them when clicked (a short link as its own command). */
 export function commandLinks(markdown: string): CommandLink[] {
   return [...markdown.matchAll(/\[([^\]]*)\]\(command:([\w.]+)(?:\?([^ )]+))?[^)]*\)/g)].map((m) => {
     let args: unknown = []
     try { if (m[3]) args = JSON.parse(decodeURIComponent(m[3])) } catch { assert.fail(`the arguments of the ${m[2]} link do not parse: ${m[3]}`) }
     const label = m[1].replace(/<[^>]*>/g, '').replace(/\\(.)/g, '$1').trim()
-    return { label, command: m[2], args: Array.isArray(args) ? args : [args] }
+    // A thread's short link (codeNotes.link?<key>) runs the command it stands for.
+    return { label, ...clickedLink(m[2], Array.isArray(args) ? args : [args]) }
   })
 }
 

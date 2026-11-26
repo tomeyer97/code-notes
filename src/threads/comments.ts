@@ -15,11 +15,11 @@ import { isAgent, mine } from '../notes/identity'
 import { docUri, placement } from '../notes/location'
 import { seenCount, visitFrom } from '../notes/seen'
 import type { Note } from '../notes/store'
-import { diffBlock, oldCodeBlock, staleText } from './banner'
+import { diffLines, oldLines, staleText } from './banner'
 import { COMMENT_CONTEXT } from './context'
 import { Links } from './links'
 import { linkedMarkdown, shownKey, systemRow, type MessageShape, type ThreadContributions, type ThreadRow } from './rows'
-import { messageText, verbatimText } from './text'
+import { appliedOf, appliedText, messageText, verbatimText } from './text'
 import { hiddenReplies, timeline, type TimelineEntry } from './timeline'
 
 export { suggestionOf } from './text'
@@ -73,9 +73,9 @@ function wasText(n: Note): string {
   const a = n.data.anchor.text
   if (!a.trim()) return ''
   const doc = openDoc(docUri(n))
-  if (!doc || placement.pastEnd(n.data.id) !== undefined) return oldCodeBlock(a.split('\n'))
+  if (!doc || placement.pastEnd(n.data.id) !== undefined) return oldLines(a.split('\n'))
   const ch = lineDiff(a.split('\n'), docLines(doc).slice(n.data.range.start - 1, n.data.range.end))
-  return ch.del.length || ch.ins.length ? diffBlock(ch.del, ch.ins) : ''
+  return ch.del.length || ch.ins.length ? diffLines(ch.del, ch.ins) : ''
 }
 
 function staleBanner(n: Note): ThreadRow[] {
@@ -117,8 +117,13 @@ function messageMarkdown(n: Note, i: number, shapes: MessageShape[]): vscode.Mar
   }
   const codeLinks = shapes.flatMap((s) => s.codeLinks ?? [])
   const key = checkLinkKey(n.data.id, i)
-  const apply = isAgent(n.data.messages[i]) && !n.data.target
-    ? (k: number) => links.titled('Apply suggestion', `Replace ${rangeLabel(n)} with this · Ctrl+Z undoes`, Cmd.applySuggestion, n.data.id, i, k)
+  const m = n.data.messages[i]
+  const applied = (k: number) => appliedOf(m.extra, k)
+  const apply = isAgent(m) && !n.data.target
+    ? (k: number) => {
+      const a = applied(k)
+      return a ? appliedText(a) : links.titled('Apply suggestion', `Replace ${rangeLabel(n)} with this · Ctrl+Z undoes`, Cmd.applySuggestion, n.data.id, i, k)
+    }
     : undefined
   const md = linkedMarkdown(messageText({
     body: text, suffix, apply, codeLinks,

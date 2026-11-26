@@ -10,6 +10,8 @@ import { WebviewChannel } from '../webview/channel'
 import { escapeHtml } from '../core/escape'
 import { writeJourney } from './writeJourney'
 import { fireAndForget } from '../platform/run'
+import { shortQ } from '../core/text'
+import { notify } from './told'
 
 /** The question Claude asked, and the session its answer resumes. */
 interface Asked { question: string; session: string; text: string; model?: string }
@@ -29,7 +31,7 @@ class ClarifyPanel implements Asked {
     this.text = a.text
     this.model = a.model
     this.panel = vscode.window.createWebviewPanel('codeNotes.claudeAsks', 'Claude asks',
-      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, retainContextWhenHidden: true })
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: true }, { enableScripts: true, retainContextWhenHidden: true })
     const media = (f: string) => vscode.Uri.joinPath(extUri(), 'media', f)
     // Claude's text is rendered Markdown: its images (https:, data:) and style attributes are let in.
     this.panel.webview.html = webviewPage(this.panel.webview, {
@@ -50,6 +52,9 @@ class ClarifyPanel implements Asked {
     })
   }
 
+  /** The page in front, with the reply box focused. */
+  reveal(): void { this.panel.reveal(undefined, false) }
+
   dispose(): void { this.panel.dispose() }
 }
 
@@ -62,8 +67,16 @@ export async function showClarify(question: string, session: string, text: strin
   let body: string
   try { body = await vscode.commands.executeCommand<string>('markdown.api.render', text) } catch { body = '' }
   if (!body) body = `<pre>${escapeHtml(text)}</pre>`
-  clarify = new ClarifyPanel({ question, session, text, model }, body)
+  const c = new ClarifyPanel({ question, session, text, model }, body)
+  clarify = c
+  // The job's progress has ended: the question must reach you wherever you are working (the page alone opens unnoticed).
+  const said = notify(asksLine(question, text), 'Answer').then((b) => { if (b && clarify === c) c.reveal() })
+  fireAndForget(said, 'clarify: notify')
 }
+
+/** The notification: Claude's question in one line (Markdown marks dropped). */
+export const asksLine = (question: string, text: string) =>
+  `Claude asks about “${shortQ(question, 40)}”: ${shortQ(text.replace(/[*_`#>]/g, ''), 120)}`
 
 /** Your answer to Claude's question: the same session goes on and writes the journey. */
 export async function answerClarify(reply: string): Promise<LoadedJourney | undefined> {

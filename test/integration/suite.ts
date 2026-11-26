@@ -11,6 +11,7 @@ import { journeyTourTests } from './main/journeyTour'
 import { keysAndMapTests } from './main/keysAndMap'
 import { journeyFilesTests } from './main/journeyFiles'
 import { notesReviewTests } from './main/notesReview'
+import { notesAddTests } from './main/notesAdd'
 import { writeJourneyTests } from './main/writeJourney'
 import { repoJourneysTests } from './main/repoJourneys'
 import { requestsTests } from './main/requests'
@@ -19,6 +20,7 @@ import { journeyMarksTests } from './main/journeyMarks'
 import { roundTripsTests } from './main/roundTrips'
 import { podcastTests } from './main/podcast'
 import { listenEditorTests } from './main/listenEditor'
+import { threadsTests } from './main/threads'
 
 /**
  * The fake claude CLI, wired up for a chapter that runs after the notes chapter. The notes chapter wires it up
@@ -39,6 +41,8 @@ export const chapters: Chapter[] = [
     covers: 'a journey\'s files changing under it   journeys/, gitRenames.ts, anchor.ts, compact.ts' },
   { name: 'notesReview', file: 'main/notesReview.ts', tests: notesReviewTests, ...fakeClaude,
     covers: 'findings: R, severity, history, suggestions, file and folder notes   notes/, sidebar/, noteModel.ts' },
+  { name: 'notesAdd', file: 'main/notesAdd.ts', tests: notesAddTests, ...fakeClaude,
+    covers: 'adding a note: the box keeps the keyboard, Esc, file and folder notes, untitled files   notes/create.ts, notes/commentRanges.ts' },
   { name: 'writeJourney', file: 'main/writeJourney.ts', tests: writeJourneyTests, ...fakeClaude,
     covers: 'the agent writes a journey   write/, writing.ts, claude.ts' },
   { name: 'repoJourneys', file: 'main/repoJourneys.ts', tests: repoJourneysTests, ...fakeClaude,
@@ -55,6 +59,8 @@ export const chapters: Chapter[] = [
     covers: 'a journey\'s podcast: the walk follows the audio, seeks, the audio while hidden   podcast/' },
   { name: 'listenEditor', file: 'main/listenEditor.ts', tests: listenEditorTests, ...fakeClaude,
     covers: 'the editor while a podcast plays: the card, the marks, what goes quiet   tour/card.ts, podcast/marks.ts' },
+  { name: 'threads', file: 'main/threads.ts', tests: threadsTests, ...fakeClaude,
+    covers: 'applied suggestions, short thread links, the stale tint and banner, Move with Enter   notes/suggestion.ts, threads/, notes/move.ts' },
 ]
 
 /** The entry point run.ts starts VS Code with (extensionTestsPath). */

@@ -3,16 +3,24 @@
 // Reading and writing the files themselves, and the README written for agents beside them, is notes/store.ts.
 import type { FullAnchor } from '../anchors/kinds'
 import { isAbsolutePath, slashPath } from '../paths'
-import { opt, optString } from './read'
+import { isObj, opt, optString } from './read'
 import { accepted, parseJson, Parsed, refused } from './result'
 import { VERSIONS } from './versions'
 
 export type Role = 'human' | 'agent'
-export interface Message { author: string; body: string; at?: string; role?: Role }
+export interface Message {
+  author: string; body: string; at?: string; role?: Role
+  /** Fields of the message this version doesn't know (an agent's attachments, ids): written back as they were. */
+  extra?: Record<string, unknown>
+}
 export const SEVERITIES = ['high', 'medium', 'low', 'nit'] as const
 export type Severity = typeof SEVERITIES[number]
 /** A status change: who resolved or reopened the note, and when (shown as a grey line in the thread). */
-export interface NoteEvent { type: 'resolved' | 'reopened'; by: string; role?: Role; at: string }
+export interface NoteEvent {
+  type: 'resolved' | 'reopened'; by: string; role?: Role; at: string
+  /** Fields of the event this version doesn't know: written back as they were. */
+  extra?: Record<string, unknown>
+}
 
 /** A note's anchor: the full text it was written on (core/anchors/anchor.ts follows it), and where it was written. */
 export interface NoteAnchor extends FullAnchor { commit?: string; branch?: string }
@@ -43,18 +51,27 @@ export interface NoteData {
   events?: NoteEvent[]
   /** A note on a whole file or folder: no lines (range is 1-1 in memory and not written). */
   target?: 'file' | 'folder'
+  /** Fields of the file's range and anchor this version doesn't know: written back inside them, after a move too. */
+  rangeExtra?: Record<string, unknown>
+  anchorExtra?: Record<string, unknown>
+  /** Events this version can't read (another type, or malformed), each with its place among the file's events:
+   *  written back where they were. */
+  otherEvents?: OtherEvent[]
   /** Fields of the file this version doesn't know (a newer extension or an agent wrote them): written back as they were. */
   extra?: Record<string, unknown>
 }
+
+/** An event kept as it was in the file, `index` its place in the file's "events". */
+export interface OtherEvent { index: number; event: unknown }
 
 /**
  * Every field of a note file this version knows: what `merge` does with it when the file changed on disk while we
  * changed the note (`ours`: ours if we changed it, else theirs; `theirs`: never changed here after it is made;
  * `append`: both sides' new entries), whether it is left out of the file when it is unset (`optional`), and whether it
- * is about lines (`lines`: not written for a note on a whole file or folder). Checked against NoteData: a field added
- * there must be added here.
+ * is about lines (`lines`: not written for a note on a whole file or folder), and whether it is written inside another
+ * field rather than as one of its own (`inside`). Checked against NoteData: a field added there must be added here.
  */
-type FieldRule = { merge: 'ours' | 'theirs' | 'append'; optional?: true; lines?: true }
+type FieldRule = { merge: 'ours' | 'theirs' | 'append'; optional?: true; lines?: true; inside?: true }
 const NOTE_FIELDS = {
   id: { merge: 'theirs' },
   file: { merge: 'ours' },
@@ -70,13 +87,17 @@ const NOTE_FIELDS = {
   severity: { merge: 'ours', optional: true },
   events: { merge: 'append' },
   target: { merge: 'ours', optional: true },
+  // Never changed here: theirs.
+  rangeExtra: { merge: 'ours', optional: true, lines: true, inside: true },
+  anchorExtra: { merge: 'ours', optional: true, lines: true, inside: true },
+  otherEvents: { merge: 'ours', optional: true, inside: true },
 } as const satisfies Record<Exclude<keyof NoteData, 'extra'>, FieldRule>
 
 type Field = keyof typeof NOTE_FIELDS
 const fieldsWhere = (rule: (r: FieldRule) => boolean) => (Object.keys(NOTE_FIELDS) as Field[]).filter((k) => rule(NOTE_FIELDS[k]))
 
 /** Fields this version knows: everything else in a note file is kept as is when the extension rewrites it. */
-const KNOWN = new Set<string>([...FILE_FIELDS, ...Object.keys(NOTE_FIELDS)])
+const KNOWN = new Set<string>([...FILE_FIELDS, ...fieldsWhere((r) => r.inside !== true)])
 const OURS_IF_CHANGED = fieldsWhere((r) => r.merge === 'ours')
 /** Left out of the file when unset (after a merge too). */
 const OPTIONAL = fieldsWhere((r) => r.optional === true)
@@ -133,10 +154,25 @@ export function titleOf(raw: string): string | undefined {
   try { const b = JSON.parse(raw)?.messages?.[0]?.body; return typeof b === 'string' && b.trim() ? b : undefined } catch { return undefined }
 }
 
-/** A note's file: its version first, then its fields in order, then the fields this version doesn't know. */
+/** A message or event as written: its fields, then the ones this version doesn't know. */
+const flat = <T extends { extra?: Record<string, unknown> }>({ extra, ...known }: T) => ({ ...known, ...extra })
+
+/** The file's events: the ones this version reads, with the others put back where they were. */
+function eventsOf(known: NoteEvent[], others: OtherEvent[]): unknown[] {
+  const out: unknown[] = known.map(flat)
+  for (const o of [...others].sort((a, b) => a.index - b.index)) out.splice(Math.min(o.index, out.length), 0, o.event)
+  return out
+}
+
+/** A note's file: its version first, then its fields in order, then the fields this version doesn't know (nested
+ *  ones inside the object they came in). */
 export function serialize(d: NoteData): string {
-  const { extra, ...rest } = d
+  const { extra, rangeExtra, anchorExtra, otherEvents, ...rest } = d
   const out: Record<string, unknown> = { version: VERSIONS.note, ...rest }
+  out.messages = d.messages.map(flat)
+  if (rangeExtra) out.range = { ...d.range, ...rangeExtra }
+  if (anchorExtra) out.anchor = { ...d.anchor, ...anchorExtra }
+  if (d.events?.length || otherEvents?.length) out.events = eventsOf(d.events ?? [], otherEvents ?? [])
   // A file or folder note has no lines: no range or anchor in its file.
   if (d.target) for (const k of LINE_FIELDS) delete out[k]
   return JSON.stringify({ ...out, ...extra }, null, 2) + '\n'
@@ -174,6 +210,16 @@ function noteProblem(v: any): string | undefined {
 
 const readRole = (r: unknown) => opt(r === 'human' || r === 'agent', 'role', r as Role)
 
+/** The keys of `v` (an object) other than `known`; empty when it is not an object. */
+const unknownKeys = (v: unknown, known: readonly string[]): Record<string, unknown> =>
+  (isObj(v) ? Object.fromEntries(Object.entries(v).filter(([k]) => !known.includes(k))) : {})
+const MESSAGE_KEYS = ['author', 'role', 'body', 'at']
+const EVENT_KEYS = ['type', 'by', 'role', 'at']
+const RANGE_KEYS = ['start', 'end']
+const ANCHOR_KEYS = ['text', 'before', 'after', 'commit', 'branch']
+/** `{ [k]: extra }` when it has something in it. */
+const optExtra = <K extends string>(k: K, extra: Record<string, unknown>) => opt(Object.keys(extra).length, k, extra)
+
 function readNoteAnchor(a: any): NoteAnchor {
   return {
     text: String(a?.text ?? ''), before: String(a?.before ?? ''), after: String(a?.after ?? ''),
@@ -189,12 +235,21 @@ function readSelection(s: any): Pick<NoteData, 'selection'> {
 }
 
 /** A missing "at" stays missing: unread state does not depend on it, and inventing one would be a lie. */
-const readMessage = (m: any): Message => ({ author: String(m.author ?? 'unknown'), ...readRole(m.role), body: m.body, ...optString('at', m.at) })
+const readMessage = (m: any): Message => ({
+  author: String(m.author ?? 'unknown'), ...readRole(m.role), body: m.body, ...optString('at', m.at),
+  ...optExtra('extra', unknownKeys(m, MESSAGE_KEYS)),
+})
 
-function readEvents(v: unknown): NoteEvent[] {
-  return (Array.isArray(v) ? v : [])
-    .filter((e: any) => e && (e.type === 'resolved' || e.type === 'reopened') && typeof e.at === 'string')
-    .map((e: any) => ({ type: e.type, by: String(e.by ?? 'unknown'), ...readRole(e.role), at: e.at }))
+const isEvent = (e: any) => isObj(e) && (e.type === 'resolved' || e.type === 'reopened') && typeof e.at === 'string'
+
+/** The events this version reads, and the others (kept as they are, with their place). */
+function readEvents(v: unknown): { events: NoteEvent[]; others: OtherEvent[] } {
+  const all: unknown[] = Array.isArray(v) ? v : []
+  const events = all.filter(isEvent).map((e: any): NoteEvent => ({
+    type: e.type, by: String(e.by ?? 'unknown'), ...readRole(e.role), at: e.at, ...optExtra('extra', unknownKeys(e, EVENT_KEYS)),
+  }))
+  const others = all.flatMap((event, index) => (isEvent(event) ? [] : [{ index, event }]))
+  return { events, others }
 }
 
 /** Checks a note file's content; returns the note or why it is not one. `id` is the file's name. */
@@ -210,7 +265,7 @@ export function parseNote(raw: string, id: string): Parsed<NoteData> {
   // An unknown severity ("critical") is not an error: it is kept in the file but shown as none.
   const severity = SEVERITIES.includes(v.severity) ? v.severity as Severity : undefined
   const extra = Object.fromEntries(Object.entries(v).filter(([k]) => !KNOWN.has(k) || (k === 'severity' && !severity)))
-  const events = readEvents(v.events)
+  const { events, others } = readEvents(v.events)
   const session = typeof v.session === 'string' ? v.session.trim() : ''
   return accepted({
     id,
@@ -227,6 +282,8 @@ export function parseNote(raw: string, id: string): Parsed<NoteData> {
     ...opt(severity, 'severity', severity!),
     ...opt(events.length, 'events', events),
     ...opt(target, 'target', target!),
+    ...(target ? {} : { ...optExtra('rangeExtra', unknownKeys(v.range, RANGE_KEYS)), ...optExtra('anchorExtra', unknownKeys(v.anchor, ANCHOR_KEYS)) }),
+    ...opt(others.length, 'otherEvents', others),
     ...opt(Object.keys(extra).length, 'extra', extra),
   })
 }

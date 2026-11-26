@@ -308,5 +308,127 @@
       "claudeSession": "[undefined]"
     },
     "written": "{\n  \"version\": 1,\n  \"id\": \"theirs\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ],\n  \"createdAt\": \"b\"\n}\n"
+  },
+  {
+    "name": "they added fields this version doesn't know, nested too, while we resolved",
+    "merged": {
+      "id": "n",
+      "file": "api/orders.js",
+      "range": {
+        "start": 3,
+        "end": 5
+      },
+      "anchor": {
+        "text": "",
+        "before": "",
+        "after": ""
+      },
+      "status": "resolved",
+      "stale": false,
+      "messages": [
+        {
+          "author": "ann",
+          "role": "human",
+          "body": "Why is this retried?",
+          "at": "2026-11-17T10:00:00Z",
+          "extra": {
+            "attachments": [
+              "a.png"
+            ]
+          }
+        },
+        {
+          "author": "Claude",
+          "role": "agent",
+          "body": "An answer.",
+          "at": "t2",
+          "extra": {
+            "tool": "Read"
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "resolved",
+          "by": "ann",
+          "at": "t1"
+        }
+      ],
+      "rangeExtra": {
+        "r": 1
+      },
+      "anchorExtra": {
+        "a": 1
+      },
+      "otherEvents": [
+        {
+          "index": 0,
+          "event": {
+            "type": "assigned",
+            "at": "t0"
+          }
+        }
+      ],
+      "session": "[undefined]",
+      "claudeSession": "[undefined]"
+    },
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5,\n    \"r\": 1\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\",\n    \"a\": 1\n  },\n  \"status\": \"resolved\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\",\n      \"attachments\": [\n        \"a.png\"\n      ]\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\",\n      \"tool\": \"Read\"\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"assigned\",\n      \"at\": \"t0\"\n    },\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
+  },
+  {
+    "name": "both have fields this version doesn't know in their new messages; we moved, they kept the range's",
+    "merged": {
+      "id": "n",
+      "file": "api/orders.js",
+      "range": {
+        "start": 9,
+        "end": 9
+      },
+      "anchor": {
+        "text": "",
+        "before": "",
+        "after": ""
+      },
+      "status": "open",
+      "stale": false,
+      "messages": [
+        {
+          "author": "ann",
+          "role": "human",
+          "body": "Why is this retried?",
+          "at": "2026-11-17T10:00:00Z"
+        },
+        {
+          "author": "Claude",
+          "role": "agent",
+          "body": "An answer.",
+          "at": "t2",
+          "extra": {
+            "theirs": 1
+          }
+        },
+        {
+          "author": "ann",
+          "role": "human",
+          "body": "Thanks.",
+          "at": "t3",
+          "extra": {
+            "ours": 1
+          }
+        }
+      ],
+      "events": [
+        {
+          "type": "resolved",
+          "by": "ann",
+          "at": "t1"
+        }
+      ],
+      "rangeExtra": {
+        "r": 1
+      },
+      "session": "[undefined]",
+      "claudeSession": "[undefined]"
+    },
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 9,\n    \"end\": 9,\n    \"r\": 1\n  },\n  \"anchor\": {\n    \"text\": \"\",\n    \"before\": \"\",\n    \"after\": \"\"\n  },\n  \"status\": \"open\",\n  \"stale\": false,\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"An answer.\",\n      \"at\": \"t2\",\n      \"theirs\": 1\n    },\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Thanks.\",\n      \"at\": \"t3\",\n      \"ours\": 1\n    }\n  ],\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"at\": \"t1\"\n    }\n  ]\n}\n"
   }
 ]

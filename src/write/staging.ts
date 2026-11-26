@@ -18,13 +18,18 @@ const remove = (dir: string) => {
   try { fs.rmSync(dir, { recursive: true, force: true }) } catch (e) { report(e, { what: `remove staging folder ${dir}` }) }
 }
 
-/** A new staging folder in `notesFolder` (relative to `repo`). */
+/** `dir` removed when it is empty: another run's folder in it keeps it. */
+const removeIfEmpty = (dir: string) => {
+  try { fs.rmdirSync(dir) } catch { /* not empty, or gone already */ }
+}
+
+/** A new staging folder in `notesFolder` (relative to `repo`); its cleanup leaves no empty `.writing` behind. */
 export function stagingFolder(repo: string, notesFolder: string): Staging {
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
   const stage = `${notesFolder}/${STAGING}/${id}`
   const dir = path.join(repo, stage)
   fs.mkdirSync(dir, { recursive: true })
-  return { id, stage, dir, cleanup: () => remove(dir) }
+  return { id, stage, dir, cleanup: () => { remove(dir); removeIfEmpty(path.dirname(dir)) } }
 }
 
 /** The staging folders under `root` (`<repo>/<notes folder>/.writing`) older than STAGING_MAX_AGE_MS, removed. */

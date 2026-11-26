@@ -13,6 +13,8 @@ import { STATE } from '../platform/state'
 import { chooseJourney, confirmWrite, matchJourneys } from './rank'
 import { writeJourney } from './writeJourney'
 import { journeyModel, modelLabel } from './claudeRun'
+import { notify } from './told'
+import { shortQ } from '../core/text'
 
 /** What answering a request did. */
 export type Outcome =
@@ -91,7 +93,9 @@ export async function answerQuestion(q: string, model: string | undefined, via: 
   }
   const bad = modelProblem(journeyModel(model))
   if (bad) {
-    fireAndForget(showError(bad), 'requests: showError')
+    // A script's mistake goes back to the script (its result) and the log, not to the person at the editor.
+    if (via === 'file') log().warn(`explain: ${bad}`)
+    else fireAndForget(showError(bad), 'requests: showError')
     return { kind: 'error', message: bad }
   }
   return confirmAndWrite(q, model, report)
@@ -106,15 +110,26 @@ function currentOrLastJourney(): LoadedJourney | undefined {
     ?? all[0]
 }
 
-/** The journey panel with its Journeys list in front, over currentOrLastJourney. */
-export async function showJourneysHome(): Promise<void> {
+/** What the Journeys list says over it: the question no journey answers, and asking it here. */
+export interface Unanswered { question: string; ask: () => Promise<void> }
+
+/** The one line for a question no journey answers. */
+export const notAnsweredLine = (q: string) => `No journey answers “${shortQ(q)}”`
+const WRITE_ONE = 'Write One…'
+
+/** The journey panel with its Journeys list in front, over currentOrLastJourney; `unanswered`: one line says so. */
+export async function showJourneysHome(unanswered?: Unanswered): Promise<void> {
   // The walk goes on: ending it right before a new card made VS Code's comment widgets loop ("Maximum call stack size
   // exceeded"). Choosing a journey switches as usual.
   const lj = currentOrLastJourney()
-  if (!lj) {
-    fireAndForget(vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'), 'requests: window.showInformationMessage')
-    return
+  if (lj) {
+    mapPanel().showHome(lj)
+    fireAndForget(stored().set(STATE.mapJourney, posKey(lj)), 'requests: store mapJourney')
   }
-  mapPanel().showHome(lj)
-  fireAndForget(stored().set(STATE.mapJourney, posKey(lj)), 'requests: store mapJourney')
+  if (unanswered) {
+    const said = notify(notAnsweredLine(unanswered.question), WRITE_ONE).then((b) => { if (b) return unanswered.ask() })
+    fireAndForget(said, 'requests: notify')
+  } else if (!lj) {
+    fireAndForget(vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'), 'requests: window.showInformationMessage')
+  }
 }
