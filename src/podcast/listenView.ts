@@ -2,8 +2,10 @@
 // (media/listen.js, with media/journey-podcast.js as the host; the panel's remote while the panel plays it:
 // audioHost.ts). VS Code keeps it alive while hidden (retainContextWhenHidden), so the episode goes on when the journey
 // panel closes, is behind another tab, or the side bar is closed; the panel's player is mostly a remote of this one
-// (audioHost.ts relays). The view is there only while a journey is listened to (`codeNotes.listening`, statusItem.ts); it is
-// made only once it has been shown: `ensure()` brings it in and shows it once, then gives the keyboard back.
+// (audioHost.ts relays). The view is there only while a journey is listened to and the panel does not have its audio
+// (`codeNotes.listening`, statusItem.ts): VS Code drops a view's page when its `when` turns false, so it goes only
+// while the audio is elsewhere. It is made only once it has been shown: `ensure()` brings it in and shows it once,
+// then gives the keyboard back.
 //
 // Why there and not in the bottom panel: the ▶ people press first is on a Journeys row, right above it, so the view is
 // usually already on screen (no panel pops up over the code), and it is small enough to stay open.
@@ -18,8 +20,10 @@ import { setCtx } from '../platform/context'
 import { fireAndForget } from '../platform/run'
 
 export const LISTEN_VIEW = 'codeNotes.listen'
-/** The context key that brings the view in (package.json: the view's and the transport commands' `when`). */
+/** The context key that brings the view in (package.json: the view's `when`). */
 export const LISTENING_CTX = 'codeNotes.listening'
+/** A journey is listened to, wherever its audio is (for the transport commands' `when`). */
+export const LISTEN_SESSION_CTX = 'codeNotes.listenSession'
 /** The command VS Code makes for the view: it shows the view (and makes it, the first time). */
 const LISTEN_FOCUS = 'codeNotes.listen.focus'
 /** How long a new view's page has to say it is ready (ms). */

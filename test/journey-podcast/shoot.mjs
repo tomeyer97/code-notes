@@ -13,7 +13,8 @@
 //   moves the walk once; the hover tip; the keys; a step clicked moves the audio; ▶ on a storyline row plays that step
 //   and stops at its end; the transcript; the speed; a step the podcast skips; the end; the panel's player going and
 //   coming back; the audio moving to the panel and back; the caption, the speaker when the voice changes; Media
-//   Session; a fetch that fails; an audio that can't play; a cut-off audio. No console errors from either page.
+//   Session; a fetch that fails; an audio that can't play; a cut-off audio; the speed said to the extension. No
+//   console errors from either page.
 //
 // Usage (after `npm run build`): node test/journey-podcast/shoot.mjs [screenshot-dir]
 // One scenario or group: node --test-name-pattern="drag" test/journey-podcast/shoot.mjs. WIDTHS=340,700: the layout
@@ -522,6 +523,18 @@ describe('edges', () => {
     assert.ok((await audioOf(P.listen)).paused, '▶ on an audio that can\'t play: paused')
     assert.ok(!P.st.playing, 'the extension is never told it plays')
     assert.match(await statusLine(P.map), /Can't play/, 'the panel says why')
+  })
+
+  // The speed is the reader's for every journey and the next window: the host says each change at once, paused, and
+  // before its audio is there (the extension keeps the speed it says).
+  scenario('a speed set while paused is said to the extension', { width: 700 }, async (P) => {
+    await playerOf(P.map).rate.click()
+    await eventually('the panel\'s 1.25× is said by the host', () => P.st.rates.includes(1.25))
+    assert.ok((await audioOf(P.listen)).paused, 'still paused')
+  })
+  scenario('a speed set before the audio is there is said to the extension', { width: 700, srcPath: 'missing/', loaded: false }, async (P) => {
+    P.ext.command('rate', { rate: 1.5 })
+    await eventually('1.5× said by the host with no audio loaded', () => P.st.rates.includes(1.5))
   })
 
   // A truncated mp3 whose header still says its full length can't be told apart in the player: the validator's length

@@ -37,8 +37,24 @@ export const commands = {
   },
 }
 
+/** A status bar item: what it shows, and whether it is shown. */
+export class StatusBarItem {
+  text = ''
+  tooltip: unknown = ''
+  name = ''
+  command: unknown
+  accessibilityInformation: unknown
+  shown = false
+  show(): void { this.shown = true }
+  hide(): void { this.shown = false }
+  dispose(): void { this.shown = false }
+}
+
+export const StatusBarAlignment = { Left: 1, Right: 2 }
+
 export const window = {
   registerWebviewViewProvider: () => new Disposable(),
+  createStatusBarItem: () => new StatusBarItem(),
 }
 
 export const workspace = {
@@ -49,7 +65,7 @@ export const workspace = {
 export class ThemeColor { constructor(readonly id: string) {} }
 export class ThemeIcon { constructor(readonly id: string) {} }
 
-const api = { Uri, Disposable, EventEmitter, commands, window, workspace, ThemeColor, ThemeIcon }
+const api = { Uri, Disposable, EventEmitter, commands, window, workspace, ThemeColor, ThemeIcon, StatusBarAlignment }
 
 /** `require('vscode')` gets this module from now on. */
 function install(): typeof api {

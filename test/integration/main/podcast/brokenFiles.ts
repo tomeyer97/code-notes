@@ -129,4 +129,29 @@ export const brokenFileTests = [
     fs.writeFileSync(podFile(), good)
     await podUntil('back to the fixture\'s one warning', () => pod().notices.pod === '1 problem' && problems().length === 1, MOVE_MS)
   }, { consoleClean: true }),
+
+  // An audio that can't be decoded (text named .mp3) is said in the panel, and in the Problems view on the podcast's
+  // "audio", as every other problem of a podcast is.
+  podTest('broken file › an audio that can\'t be decoded is in the Problems view', async () => {
+    writePodJourney()
+    await podUntil('its podcast is found', () => pod().journeys.includes('pod'), LOAD_MS)
+    const good = fs.readFileSync(podFile(), 'utf8')
+    const damaged = path.join(journeysDir(), 'pod-damaged.mp3')
+    fs.writeFileSync(damaged, 'not audio\n'.repeat(800))
+    fs.writeFileSync(podFile(), JSON.stringify({ ...JSON.parse(good), audio: 'pod-damaged.mp3' }, null, 2))
+    const isDamaged = (d: vscode.Diagnostic) => /pod-damaged\.mp3 .*looks cut off or damaged/.test(d.message)
+    try {
+      await podUntil('the podcast reads the other audio', () => pod().journeys.includes('pod') && !problems().some(isDamaged), MOVE_MS)
+      await vscode.commands.executeCommand('codeNotes.playPodcast', 'pod')
+      await podUntil('the panel says the audio looks damaged', () => /pod-damaged\.mp3 .*looks cut off or damaged/.test(pod().notices.pod ?? ''), LOAD_MS)
+      await podUntil('and the Problems view', () => problems().some(isDamaged), MOVE_MS)
+      const d = problems().find(isDamaged)!
+      assert.equal(d.range.start.line, lineOf(podFile(), '"audio"'), 'on the podcast\'s "audio"')
+      assert.equal(d.severity, vscode.DiagnosticSeverity.Warning, 'a warning')
+    } finally {
+      fs.writeFileSync(podFile(), good)
+      fs.rmSync(damaged, { force: true })
+    }
+    await podUntil('back to the fixture\'s one warning', () => problems().length === 1 && !problems().some(isDamaged), MOVE_MS)
+  }),
 ]
