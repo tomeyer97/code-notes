@@ -5,7 +5,6 @@ import { store } from './ports'
 import { Loc } from '../core/anchors/anchor'
 import { chordKey } from '../platform/chordKey'
 import { log, now } from '../platform/host'
-import { showError } from '../platform/run'
 import { askClaude } from '../ask/run'
 import { askAlways, askOnQuestion } from '../ask/settings'
 import { me } from './identity'
@@ -17,12 +16,13 @@ import { alternateAnchor } from './alternateAnchor'
 import { relPath } from '../platform/documents'
 import { diskLines } from '../platform/documents'
 import { wfs } from '../platform/workspaceFs'
-import { allowComments } from './commentRanges'
+import { allowComments, COMMENT_INPUT, endComments, endCommentsWhenBack } from './commentRanges'
 import { reveal } from './reveal'
-import { fireAndForget } from '../platform/run'
+import { openThread } from './threadView'
 import { linesAt } from './place'
 import { hint } from './hint'
 import { OncePerSubmit } from './submit'
+import { Poll, waitUntil } from './timing'
 
 /** The note box's words. */
 export const NOTE_OPTIONS: vscode.CommentOptions = { prompt: 'Reply', placeHolder: 'Note or reply…' }
@@ -62,7 +62,9 @@ async function newNote(folder: vscode.WorkspaceFolder, body: string, place: () =
 }
 
 const OWN_FILES = "No notes on Code Notes' own files"
-const SAVE_INSIDE = 'save the file inside the open folder to add notes to it.'
+/** A file not saved inside the open folder: no mistake, a limit (an offer to save it, not an error). */
+const SAVE_INSIDE = 'Save the file inside the open folder to add notes to it.'
+export const SAVE_AS = 'Save As…'
 
 /** Why no note can go on `uri` (undefined: one can): it is one of Code Notes' own files (the notes, their README),
  *  or not saved inside the open folder. */
@@ -72,11 +74,22 @@ function canAnnotate(uri: vscode.Uri, untitled = false): string | undefined {
   return undefined
 }
 
-/** Says why no note was made (canAnnotate): an error for a file outside the folder, else a short hint. */
+/** Says why no note was made on one of Code Notes' own files: a short hint. */
 function refuse(why: string): undefined {
-  if (why === SAVE_INSIDE) fireAndForget(showError(why), 'create: showError')
-  else hint(why)
+  hint(why)
   return undefined
+}
+
+/** A file not saved inside the folder (untitled, or outside): Save As…, then `then` on the saved file's editor, with
+ *  the same selection, once it is inside the folder (saved outside again: the same offer). */
+async function saveFirst<T>(doc: vscode.TextDocument, selection: vscode.Selection | undefined, then: (e: vscode.TextEditor) => Promise<T>): Promise<T | undefined> {
+  const pick = await vscode.window.showInformationMessage(SAVE_INSIDE, SAVE_AS)
+  if (pick !== SAVE_AS) return undefined
+  const saved = await vscode.workspace.saveAs(doc.uri)
+  if (!saved) return undefined
+  const e = await vscode.window.showTextDocument(saved, selection ? { selection } : {})
+  if (canAnnotate(e.document.uri, e.document.isUntitled)) return saveFirst(e.document, selection, then)
+  return then(e)
 }
 
 const created = new vscode.EventEmitter<Note>()
@@ -85,6 +98,8 @@ export const onDidCreateNote = created.event
 
 export async function createNote(doc: vscode.TextDocument, loc: Loc, body: string, selection?: NoteData['selection'], extra?: Record<string, unknown>): Promise<Note | undefined> {
   const why = canAnnotate(doc.uri)
+  // The note is kept until the file is saved: then it goes on the saved file's same lines.
+  if (why === SAVE_INSIDE) return saveFirst(doc, undefined, (e) => createNote(e.document, loc, body, selection, extra))
   if (why) return refuse(why)
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri)!
   const n = await newNote(folder, body, async () => ({ ...(await linesAt(doc, loc, folder)), ...(selection ? { selection } : {}) }), extra)
@@ -123,6 +138,8 @@ type Origin =
 /** What follows the making of a note, by where it came from (one place for these rules). */
 async function afterCreate(n: Note, origin: Origin): Promise<void> {
   if (origin === 'path') await reveal(n)
+  // The note just posted stays in view, with its Ask Claude, instead of folding at once.
+  if (origin === 'box') openThread(n)
   if (origin === 'question' ? askOnQuestion() : askAlways()) await askClaude(n)
 }
 
@@ -138,17 +155,23 @@ export async function addNote(): Promise<void> {
   const editor = vscode.window.activeTextEditor
   if (!editor) return noEditor()
   const why = canAnnotate(editor.document.uri, editor.document.isUntitled)
+  // Saved: the box opens on the same lines.
+  if (why === SAVE_INSIDE) { await saveFirst(editor.document, editor.selection, () => addNote()); return }
   if (why) return refuse(why)
   await allowComments()
   try {
     await vscode.commands.executeCommand('workbench.action.addComment')
   } catch (e) {
+    endComments()
     log().warn(`the comment box did not open (${e}): the one-line box instead`)
     await addQuickNote()
     return
   }
+  endCommentsWhenBack()
   // On a big block the box is off screen: bring the last line (and the box below it) into view.
   const end = selectedLines(editor).end
+  openBox = boxKey(editor.document.uri, end)
+  await restoreDraft(openBox)
   const showBox = () => {
     const vis = editor.visibleRanges[0]
     const roomBelow = vis ? vis.end.line - end : 0
@@ -167,7 +190,7 @@ async function noEditor(): Promise<void> {
 }
 
 /** A note on a whole file or folder: from the explorer, the editor tab, or the palette (the active file). */
-export async function addPathNote(uri?: vscode.Uri, text?: string): Promise<Note | undefined> {
+export async function addPathNote(uri?: vscode.Uri, text?: unknown): Promise<Note | undefined> {
   uri = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri
   const folder = uri && vscode.workspace.getWorkspaceFolder(uri)
   if (!uri || !folder) { hint('Pick a file or folder in the Explorer first'); return undefined }
@@ -184,7 +207,9 @@ export async function addPathNote(uri?: vscode.Uri, text?: string): Promise<Note
     return undefined
   }
   const title = `Note on ${isDir ? 'folder' : 'file'} ${file}${isDir ? '/' : ''}`
-  const body = text ?? (await vscode.window.showInputBox({ title, placeHolder: 'Your note or question', ignoreFocusOut: true }))?.trim()
+  // A menu passes its own argument here (the editor tab's {groupId, editorIndex}, the Explorer's selected uris): only
+  // a string is the note's text.
+  const body = typeof text === 'string' ? text.trim() : (await vscode.window.showInputBox({ title, placeHolder: 'Your note or question', ignoreFocusOut: true }))?.trim()
   if (!body) return undefined
   // No lines: range 1-1, no anchor (neither is written to the file).
   const noLines = { range: { start: 1, end: 1 }, anchor: { text: '', before: '', after: '' } }
@@ -225,12 +250,14 @@ const creating = new OncePerSubmit<vscode.CommentThread>()
 
 export const noteFromNewThread = async (reply: vscode.CommentReply): Promise<Note | undefined> => {
   const t = reply.thread
+  endComments()
   return creating.run(t, async () => {
     const body = reply.text.trim()
     if (!body) { t.dispose(); hint('Empty note: not saved'); return undefined } // no empty shell
     const doc = await vscode.workspace.openTextDocument(t.uri)
     const r = t.range ?? new vscode.Range(0, 0, 0, 0)
     t.dispose()
+    drafts.delete(boxKey(doc.uri, rangeLines(doc, r).end))
     return createNote(doc, rangeLines(doc, r), body, partialSelection(doc, r))
   })
 }
@@ -245,4 +272,40 @@ export const askFromThread = async (reply: vscode.CommentReply) => {
 export const createFromThread = async (reply: vscode.CommentReply) => {
   const n = await noteFromNewThread(reply)
   if (n) await afterCreate(n, 'box')
+}
+
+/** Drafts of closed note boxes, by file and line: VS Code deletes an empty box it folds, text and all. */
+const drafts = new Map<string, string>()
+/** Where Add Note last opened its box. */
+let openBox: string | undefined
+const boxKey = (uri: vscode.Uri, line: number) => `${uri.toString()}#${line}`
+
+/** A box's input is a text editor of its own (scheme 'comment') once it has the keyboard: up to a second. */
+const BOX_INPUT: Poll = { tries: 20, everyMs: 50 }
+const boxInput = () => {
+  const e = vscode.window.activeTextEditor
+  return e?.document.uri.scheme === COMMENT_INPUT ? e : undefined
+}
+
+/** The draft of a box closed on these lines, back in the box just opened there. */
+async function restoreDraft(key: string): Promise<void> {
+  const text = drafts.get(key)
+  if (text === undefined || !(await waitUntil(() => !!boxInput(), BOX_INPUT))) return
+  const input = boxInput()!
+  if (input.document.getText()) return
+  if (await input.edit((b) => b.insert(new vscode.Position(0, 0), text))) drafts.delete(key)
+}
+
+/** Esc in a new note box: closed, its draft kept in memory (Add Note on those lines puts it back). The box is emptied
+ *  first, so VS Code folds it without asking to discard the text. */
+export async function closeNoteBox(): Promise<void> {
+  const input = boxInput()
+  if (input) {
+    const text = input.document.getText()
+    if (openBox && text.trim()) drafts.set(openBox, text)
+    const all = new vscode.Range(0, 0, input.document.lineCount, 0)
+    if (text) await input.edit((b) => b.delete(all))
+  }
+  await vscode.commands.executeCommand('workbench.action.hideComment')
+  endComments()
 }
