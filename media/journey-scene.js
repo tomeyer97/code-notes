@@ -531,7 +531,8 @@ function playerEl() {
   cap.setAttribute('aria-live', 'polite')
   // No example under the caption (less clutter): a beat's example is at its code line, in the editor.
   // The beat's line with a few lines around it (the eyes stay on the animation): filled by `code()` once the
-  // extension has found the line; shown only where there is room (the stylesheet).
+  // extension has found the line; shown only where there is room (the stylesheet), and never while the step's code
+  // is open beside the panel (two copies of the same lines).
   const codeEl = el('div', 'scn-code')
   codeEl.hidden = true
   root.append(bar, view, cap, codeEl)
@@ -568,6 +569,8 @@ function create(opts) {
     hasNext: false,
     /** @type {{ w: number, h: number } | undefined} the view's size when last laid out */
     size: undefined,
+    /** the step's code is open beside the player: no lines of it under the caption */
+    codeBeside: false,
   }
   /** The scene shown; only called once there is one. */
   const shown = () => /** @type {Scene} */ (p.scene)
@@ -738,14 +741,17 @@ function create(opts) {
     el: root,
     get beat() { return p.beat },
     /** The current beat's line and the lines around it: { file, line, from, lines } (numbers 1-based), or nothing. */
-    code(c) { showCode(codeEl, c) },
+    code(c) { showCode(codeEl, p.codeBeside ? undefined : c) },
     get count() { return p.scene ? p.scene.beats.length : 0 },
     /** Shows a scene; the same key again keeps the beat (a re-render), another starts at `o.beat` (or its first).
      *  o: { file: the step's file (a beat in another file names it), next: there is a next step, beat, still: shown
-     *  without its flight }.
-     *  @param {Scene} s @param {string} k @param {{ file?: string, next?: boolean, beat?: number, still?: boolean }} [o] */
+     *  without its flight, codeBeside: the step's code is open beside the player (no lines under the caption) }.
+     *  @param {Scene} s @param {string} k
+     *  @param {{ file?: string, next?: boolean, beat?: number, still?: boolean, codeBeside?: boolean }} [o] */
     show(s, k, o) {
       o = o || {}
+      p.codeBeside = !!o.codeBeside
+      if (p.codeBeside) showCode(codeEl, undefined)
       const same = k === p.key && !!p.scene
       p.stepFile = o.file || ''
       const had = p.hasNext

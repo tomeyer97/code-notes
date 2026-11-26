@@ -73,6 +73,8 @@ export function JourneyGraph(host) {
   /** Far out: the names, at a size you can read, over the boxes (screen space, not scaled). */
   const names = el('div', 'gnames')
   names.setAttribute('aria-hidden', 'true')
+  // Hidden until a far view has placed them: unplaced, every name sits at the top left, over the others.
+  names.hidden = true
   stage.append(names)
   const ctl = el('div', 'gctl')
   const btn = (cls, text, title, fn) => {
@@ -109,6 +111,10 @@ export function JourneyGraph(host) {
   let anim = 0
   /** The step the map last followed (-1: none yet): a new one moves it (also back from wherever it was dragged). */
   let followed = -1
+  /** The view was placed on the layout drawn (until then it is no view at all: the tutorial does not stop that). */
+  let viewPlaced = false
+  /** The view is the whole map the journey opened on (kept over size changes until the walk or the reader moves). */
+  let openFit = false
   /** The view's size when the map last followed or was resized ({ w, h }; undefined: not yet). */
   let lastSize
   let legendHidden = true
@@ -172,6 +178,7 @@ export function JourneyGraph(host) {
     drawn.farNames = d.farNames
     drawn.measured = undefined
     drawn.ring = d.ring
+    viewPlaced = false
     mark()
     host.rendered(shown.journey.nodes.length)
   }
@@ -206,7 +213,8 @@ export function JourneyGraph(host) {
       if (!p) return []
       return [{ name, blockRect: onScreen(p), isCurrentBlock: name.id === holder, rank: farRank(name.id, name.kind, node, holder), size: p.w * p.h }]
     })
-    FarNames.place(items, taken, ring)
+    const { w, h } = port()
+    FarNames.place(items, taken, ring, { x: 0, y: 0, w, h })
   }
 
   /** The ring around box `p` (world px; none: hidden), on screen through `onScreen`; returns its rectangle. */
@@ -236,6 +244,7 @@ export function JourneyGraph(host) {
   // ---------- the view ----------
 
   function apply() {
+    viewPlaced = true
     world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`
     const far = view.zoom < FAR
     viewport.classList.toggle('far', far)
@@ -268,25 +277,31 @@ export function JourneyGraph(host) {
     }
     anim = requestAnimationFrame(tick)
   }
-  function zoomBy(f) { const p = port(); moveView(zoomedAt(view, f, p.w / 2, p.h / 2), true) }
+  function zoomBy(f) { openFit = false; const p = port(); moveView(zoomedAt(view, f, p.w / 2, p.h / 2), true) }
   function fit(animate) {
     const { layout } = shown
     if (layout) moveView(showing({ x: 0, y: 0, w: layout.w, h: layout.h }, port(), FIT_MAX_ZOOM), animate)
   }
   function fitBox(id) {
     const p = shown.layout && shown.layout.abs.get(id)
-    if (p) moveView(showing(p, port(), SHOW_MAX_ZOOM), true)
+    if (p) { openFit = false; moveView(showing(p, port(), SHOW_MAX_ZOOM), true) }
   }
 
-  /** The current step's box and its neighbourhood in view (graph/view.js following); no step: the whole map. */
+  /**
+   * The current step's box and its neighbourhood in view (graph/view.js following). A journey opens on the whole map
+   * (a step's neighbourhood would cut the boxes at the view's edge) and keeps it over size changes until the walk or
+   * the reader moves it. The tutorial keeps the view still, once it has one.
+   */
   function follow(animate) {
     const { layout, journey } = shown
-    if (!layout || !journey || host.isTutorialUp()) return
+    if (!layout || !journey || (host.isTutorialUp() && viewPlaced)) return
     const node = currentNode()
+    const stepMoved = followed !== shown.current
+    openFit = followed === -1 || (openFit && !stepMoved)
     followed = shown.current
     const p = node && layout.abs.get(node)
     host.view(p ? node : '')
-    if (!p) return fit(animate)
+    if (!p || openFit) return fit(animate)
     moveView(following(p, neighbours(node), port()), animate)
   }
 
@@ -315,10 +330,10 @@ export function JourneyGraph(host) {
     hasLayout: () => !!shown.layout,
     isTutorialUp: () => host.isTutorialUp(),
     clamped: (x, y) => clamped(x, y, view.zoom),
-    jumpTo: (x, y) => { view.x = x; view.y = y; apply() },
-    panTo: (x, y) => moveView({ x, y, zoom: view.zoom }, true),
+    jumpTo: (x, y) => { openFit = false; view.x = x; view.y = y; apply() },
+    panTo: (x, y) => { openFit = false; moveView({ x, y, zoom: view.zoom }, true) },
     stopAnimation: () => cancelAnimationFrame(anim),
-    zoomAt: (f, sx, sy) => moveView(zoomedAt(view, f, sx, sy), false),
+    zoomAt: (f, sx, sy) => { openFit = false; moveView(zoomedAt(view, f, sx, sy), false) },
     zoomBy,
     fit: () => fit(true),
   })
