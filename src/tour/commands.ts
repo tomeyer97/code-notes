@@ -81,10 +81,11 @@ function isHere(lj: LoadedJourney): boolean {
 
 /**
  * The journey's map, when there is room for it beside 80 columns of code; else the step card only. Decided before
- * anything opens (the panel never squeezes the code, not even for a moment), and only then: a panel that is open
- * stays (it shows this journey now), whatever its width. Returns whether the panel is shown.
+ * anything opens (the panel never squeezes the code, not even for a moment). A panel that is open stays (it shows
+ * this journey now); the step opened next gives the code its room (walk.ts keepCodeRoom). Returns whether the panel
+ * is shown.
  */
-async function openMapIfRoom(lj: LoadedJourney): Promise<boolean> {
+export async function openMapIfRoom(lj: LoadedJourney): Promise<boolean> {
   const room = !!mapPanel().journey || (await panelFits())
   // A step opens next and takes the keyboard: the map doesn't take it first (a slow window gave it the map after).
   await openMap(lj, room, true)

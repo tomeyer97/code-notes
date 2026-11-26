@@ -108,7 +108,7 @@ export class MapPanel implements vscode.Disposable {
   /** What the integration tests read of the panel: what it shows and where, as the page reported it. */
   snapshot() {
     const { story, rendered, focus } = this.probe
-    return { story, map: this.journey?.j.id, mapTitle: this.tabTitle, mapBoxes: rendered, mapFocus: focus, mapColumn: this.viewColumn }
+    return { story, map: this.journey?.j.id, mapKey: this.journey?.key, mapTitle: this.tabTitle, mapBoxes: rendered, mapFocus: focus, mapColumn: this.viewColumn }
   }
   /** The tab's title (for the integration test). */
   get tabTitle(): string | undefined { return this.panel?.title }
@@ -294,6 +294,14 @@ export class MapPanel implements vscode.Disposable {
     if (!this.session || this.shown?.key !== key) return
     this.session.sent = { walk: '', home: '' }
     this.send({ type: 'deleted', file: fileName(this.shown.uri) })
+  }
+
+  /** The journey shown is now read from another file (key `was` before): the panel shows it from there. */
+  follow(was: string, lj: LoadedJourney): void {
+    if (!this.panel || this.shown?.key !== was) return
+    this.shown = lj
+    this.panel.title = this.title()
+    this.post(true)
   }
 
   /** The journey file changed (or another one is shown): send it all again; otherwise only the tour position. */
