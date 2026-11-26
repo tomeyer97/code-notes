@@ -18,9 +18,10 @@ const isPanelTab = (input: unknown) => input instanceof vscode.TabInputWebview &
 export const playbackTests = [
   // VS Code lets a webview's audio play only after a click or a key in that webview (a click in the workbench or in
   // another webview does not count). Nothing has been clicked yet in this window, so this test runs first: the
-  // unlock it makes lasts for the window. ▶ from a command plays in the panel after Space there; the panel closed,
-  // the audio waits in the Listen view; a new panel plays after one real click on its ▶; one click in the Listen view
-  // unlocks it too. No webview runs a test script before its click (`quiet`).
+  // unlock it makes lasts for the window. ▶ from a command plays in the panel after Space there, and the Listen view
+  // goes (one player); the panel closed, the audio waits in the Listen view, back with the journey; a new panel plays
+  // after one real click on its ▶; one click in the Listen view unlocks it too. No webview runs a test script before
+  // its click (`quiet`).
   podTest('podcast › ▶ plays wherever it is pressed', async () => {
     writeAutoJourney()
     await podUntil('the podcast is found', () => pod().journeys.includes('podauto'), LOAD_MS)
@@ -48,6 +49,7 @@ export const playbackTests = [
     await audioMoves(pf, 'played in the panel')
     assert.equal(await pf.evaluate(() => { const e = (globalThis as any).document.querySelector('.pod-err'); return e.hidden ? '' : e.textContent }), '', 'no hint or error line')
     assert.ok(pod().unlocked.panel && !pod().unlocked.listen, `the panel unlocked, the Listen view not: ${JSON.stringify(pod().unlocked)}`)
+    await podUntil('the panel has the audio: the Listen view is not there (codeNotes.listening off)', () => pod().panelHosts && !pod().hostAlive && !pod().hostVisible, QUICK_MS)
 
     // 2. Closing the panel: the audio goes to the Listen view, which may not play yet: it waits there, paused, where
     // it was (the one start that still needs a click: the status item or ▶ opens the panel again).
@@ -55,8 +57,8 @@ export const playbackTests = [
     await closePanel()
     await podUntil('back in the Listen view, paused there', () => pod().hostIn === 'listen' && !pod().playing && pod().hostAlive, MOVE_MS)
     assert.ok(Math.abs(pod().t - tClose) < 2, `kept its place: ${tClose} → ${pod().t}`)
-    assert.ok(pod().listening && pod().itemShown, 'paused with the panel closed: the Listen view and the status item')
-    assert.match(pod().item, /^Paused · 0:\d\d$/, `the status item: ${pod().item}`)
+    assert.ok(pod().listening && pod().itemShown && pod().hostVisible, 'paused with the panel closed: the Listen view back, and the status item')
+    assert.match(pod().item, /^Paused: Pod auto · 0:\d\d$/, `the status item names the journey: ${pod().item}`)
     const paused = ctx.api.journeyRow('podauto')!
     assert.match(paused.description ?? '', /^♪ 0:40/, 'the row: its length')
     assert.doesNotMatch(paused.description ?? '', /Paused|Listening|step/, `the row says no more while paused: ${paused.description}`)
@@ -70,6 +72,7 @@ export const playbackTests = [
     const pf2 = await frameOf('journey', { quiet: true })
     await realClick(pf2, '.pod-b.play')
     await podUntil('the click on the panel\'s ▶: playing in the panel', () => pod().playing && pod().hostIn === 'panel', MOVE_MS)
+    await podUntil('the Listen view went: the panel\'s player is the one', () => !pod().hostAlive && !pod().hostVisible, QUICK_MS)
     await audioMoves(pf2, 'the panel\'s ▶')
     assert.ok(Math.abs(pod().t - tClose) < 4, `on from where it was: ${tClose} → ${pod().t}`)
 
@@ -79,15 +82,21 @@ export const playbackTests = [
     await podUntil('a command plays at once', () => pod().playing, 4000)
     await audioMoves(pf2, 'started by a command')
 
-    // 5. One click in the Listen view (its ▶, a remote now: it pauses) unlocks it for the window: the panel closing
-    // then hands it the audio, and later starts play there with no click.
-    await realClick(await frameOf('listen'), '.pod-b.play')
-    await podUntil('the Listen view\'s ▶ paused it; the Listen view unlocked', () => !pod().playing && pod().unlocked.listen, MOVE_MS)
+    // 5. The panel closed again: the Listen view back with the audio, paused. One click on its ▶ plays there and
+    // unlocks it for the window: a start from a command then plays there at once, and the panel opening for it
+    // leaves the audio there (the view stays: the audio is in it).
+    await pause()
     await closePanel()
-    await podUntil('the audio back in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive, MOVE_MS)
+    await podUntil('the audio back in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive && pod().hostVisible, MOVE_MS)
+    const lf = await frameOf('listen', { quiet: true })
+    await realClick(lf, '.pod-b.play')
+    await podUntil('the Listen view\'s ▶ plays there; the Listen view unlocked', () => pod().playing && pod().hostIn === 'listen' && pod().unlocked.listen, MOVE_MS)
+    assert.equal(await lf.evaluate(() => (globalThis as any).document.querySelector('.ls-title')?.textContent), 'Pod auto', 'the view names the journey')
+    await pause()
     await vscode.commands.executeCommand('codeNotes.playPodcast', 'podauto')
-    await podUntil('a command plays in the Listen view at once', () => pod().playing && pod().hostIn === 'listen', 6000)
+    await podUntil('a command plays in the Listen view at once', () => pod().playing && pod().hostIn === 'listen' && pod().mapVisible, 6000)
     await audioMoves(await frameOf('listen'), 'in the Listen view')
+    assert.ok(pod().hostVisible && !pod().panelHosts, 'the audio stays in the Listen view')
     await pause()
   }),
 
@@ -101,7 +110,7 @@ export const playbackTests = [
     await podUntil('the Listen view has its audio', () => pod().hostAlive && pod().hostKey !== undefined, LOAD_MS)
     await podUntil('playing, the time moving', () => pod().playing && pod().t > 0.6, LOAD_MS)
     assert.equal(tour().step, 0, 'the intro: no step open')
-    assert.match(pod().item, /^Listening · 0:0\d$/, `the status item's text: ${pod().item}`)
+    assert.match(pod().item, /^Listening: .+ · 0:0\d$/, `the status item's text: ${pod().item}`)
     assert.ok(!pod().itemShown, 'no status item while the panel (the player) is on screen')
     const row = ctx.api.journeyRow('pod')!
     assert.match(row.description ?? '', /^♪ 0:40/, 'the row: its length')
@@ -115,7 +124,7 @@ export const playbackTests = [
     await pause()
     await noChangeFor(500, 'the walk ending on a pause')
     assert.equal(tour().step, 1, 'pausing the podcast does not end the walk')
-    assert.match(pod().item, /^Paused · 0:0\d$/, `paused: ${pod().item}`)
+    assert.match(pod().item, /^Paused: .+ · 0:0\d$/, `paused: ${pod().item}`)
     assert.ok(!pod().itemShown && !tour().statusShown, 'paused, the panel on screen: no status item at all')
     await shots('listen-panel-open-paused', true)
   }),
@@ -305,7 +314,7 @@ export const playbackTests = [
     await podUntil('the panel closed', () => !pod().mapVisible && tour().map === undefined, QUICK_MS)
     const t0 = pod().t
     await podUntil(`still playing without the panel (from ${t0})`, () => pod().playing && pod().t > t0 + 0.8, QUICK_MS)
-    assert.ok(pod().itemShown && /^Listening · \d:\d\d$/.test(pod().item), `the status item, the panel closed: ${pod().item}`)
+    assert.ok(pod().itemShown && /^Listening: .+ · \d:\d\d$/.test(pod().item), `the status item, the panel closed: ${pod().item}`)
     await shots('listen-panel-closed-playing')
     assert.equal((await listenAudio()).paused, false, 'the audio itself plays on')
     // The status item's click: the map again, its player showing the audio's time and that it plays.
@@ -320,6 +329,35 @@ export const playbackTests = [
     // The panel's ▶ pauses the audio in the Listen view.
     await f.click('.pod-b.play')
     await podUntil('paused from the panel', () => !pod().playing, QUICK_MS)
+  }),
+
+  // The speed is kept for every journey and the next window (the global state a reload reads): set in the panel while
+  // paused, and in another journey's panel.
+  podTest('podcast › the speed is remembered', async () => {
+    await listenTo('podbeat', writeBeatJourney)
+    const f = await frameOf('journey')
+    const speedTo = async (r: number) => {
+      for (let i = 0; i < 5 && pod().rate !== r; i++) {
+        await f.click('.pod-rate')
+        await noChangeFor(300, 'the speed said')
+      }
+      await podUntil(`${r}× kept`, () => pod().rate === r, QUICK_MS)
+    }
+    try {
+      await speedTo(1.25)
+      assert.ok(!pod().playing, 'set while paused')
+      await play()
+      await podUntil('playing at 1.25×', async () => (await f.evaluate(() => (globalThis as any).document.querySelector('.pod-rate')?.textContent)) === '1.25×', QUICK_MS)
+      await pause()
+      // Another journey's panel: the speed asked there is kept too (also before its audio is loaded).
+      writePodJourney()
+      await podUntil('pod read', () => pod().journeys.includes('pod'), LOAD_MS)
+      await vscode.commands.executeCommand('codeNotes.startJourney', 'pod')
+      await podUntil('the panel shows pod', () => tour().map === 'pod' && pod().mapVisible, MOVE_MS)
+      await speedTo(1.5)
+    } finally {
+      await speedTo(1)
+    }
   }),
 
   // A journey panel closed while VS Code restores it after a reload: nothing throws (it threw "Webview is disposed"

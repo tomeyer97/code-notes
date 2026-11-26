@@ -36,8 +36,9 @@ export class PodcastLibrary {
   private broken = new Map<string, Broken>()
   /** The audio's real length as the host loaded it, by audioKey. */
   private audioLen = new Map<string, number>()
-  /** An audio file the host failed to play, by audioKey: what to say (it looks cut off or damaged). */
-  private audioFault = new Map<string, string>()
+  /** An audio file the host failed to play, by audioKey: what to say (it looks cut off or damaged), and the media
+   *  pipeline's own words (the output has them). */
+  private audioFault = new Map<string, { text: string; detail: string }>()
 
   constructor(private readonly journeys: () => Journeys, private readonly log: () => vscode.LogOutputChannel) {}
 
@@ -55,7 +56,7 @@ export class PodcastLibrary {
    */
   async scan(keepsLast: (key: string, last: Loaded) => boolean): Promise<Scanned> {
     const reads = await this.readAll()
-    podcastReports.report(reads.map((r) => r.read))
+    podcastReports.report(reads.map((r) => this.withFault(r.read)))
     const next = new Map<string, Loaded>()
     const broken = new Map<string, Broken>()
     for (const { lj, read } of reads) {
@@ -91,8 +92,16 @@ export class PodcastLibrary {
     return { file: r.file, reason: r.v.problems.find((p) => p.level === 'error')?.message ?? 'it has errors' }
   }
 
+  /** `r` as the Problems view and the output tell it: with its audio's failure to play, on "audio". */
+  private withFault(r: PodcastRead): PodcastRead {
+    const fault = r.audio && this.audioFault.get(audioKey(r.audio, r.audioSize))
+    if (!fault) return r
+    const problem: PodcastProblem = { level: 'warning', code: 'audio', message: `${fault.text} (${fault.detail})`, path: ['audio'] }
+    return { ...r, v: { ...r.v, problems: [...r.v.problems, problem] } }
+  }
+
   private loaded(r: PodcastRead, episode: Episode, audio: vscode.Uri): Loaded {
-    const notice = this.audioFault.get(audioKey(audio, r.audioSize)) ?? playNotice(r.v.problems)
+    const notice = this.audioFault.get(audioKey(audio, r.audioSize))?.text ?? playNotice(r.v.problems)
     return {
       file: r.file, audio, audioSize: r.audioSize, episode, problems: r.v.problems, notice,
       sig: `${r.raw.length}:${r.audioSize}:${JSON.stringify(episode.segments.map((s) => [s.start, s.step, s.beat]))}`,
@@ -116,11 +125,12 @@ export class PodcastLibrary {
     return true
   }
 
-  /** `pod`'s audio can't be decoded: `text` says so, on journey `key`'s podcast. True when it is new. */
-  fault(key: string, pod: Loaded, text: string): boolean {
+  /** `pod`'s audio can't be decoded: `text` says so, on journey `key`'s podcast (`detail`: the media pipeline's
+   *  words). True when it is new. */
+  fault(key: string, pod: Loaded, text: string, detail: string): boolean {
     const audio = audioKey(pod.audio, pod.audioSize)
-    if (this.audioFault.get(audio) === text) return false
-    this.audioFault.set(audio, text)
+    if (this.audioFault.get(audio)?.text === text) return false
+    this.audioFault.set(audio, { text, detail })
     this.playable.set(key, { ...pod, notice: text })
     return true
   }
