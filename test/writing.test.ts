@@ -1,11 +1,15 @@
 // Writing a journey with Claude, the parts without VS Code: the clock (core/clock.ts), the plain phase read from
 // journey.py's command lines (write/journeyPhases.ts), what Claude may run (write/runOptions.ts through claudeArgs),
 // the line of its reply that names a journey that already answers (write/prompts.ts), and the message when the
-// skill is nowhere (platform/skillDir.ts).
+// skill is nowhere (platform/skillDir.ts); a question too vague to write for, the job's name once Claude's question is
+// answered and the check's problems on refreshed steps (write/questions.ts); no empty staging root (write/staging.ts).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import { clarified, problemsIn, stepProblems, stepsOf, vagueQuestion } from '../src/write/questions'
+import { STAGING, stagingFolder } from '../src/write/staging'
 import { elapsed as clock, minutes } from '../src/core/clock'
 import { NO_PHASE, PHASES, phaseOf } from '../src/write/journeyPhases'
 import { answeredBy } from '../src/write/prompts'
@@ -67,4 +71,49 @@ test('missingSkill: names the places the lookup tried, in its order', () => {
   assert.equal(missingSkill('code-journey', { repo: '/r', bundled: '/ext/skills' }),
     "the code-journey skill isn't in this repository (.claude/skills/code-journey), in ~/.claude/skills or in the extension")
   assert.equal(missingSkill('s', { bundled: '/ext/skills' }), "the s skill isn't in ~/.claude/skills or in the extension")
+})
+
+test('a question under three words is asked again, with an example; a real one passes', () => {
+  const again = 'Ask how something works, e.g. How does a note get saved?'
+  assert.equal(vagueQuestion('stuff'), again)
+  assert.equal(vagueQuestion('  saving notes '), again)
+  assert.equal(vagueQuestion('How does saving work?'), undefined)
+  assert.equal(vagueQuestion('loadNote parses what?'), undefined)
+  assert.equal(vagueQuestion(''), undefined, 'an empty box is Esc, not a mistake')
+})
+
+test('the job answered: listed by the question with your answer', () => {
+  assert.equal(clarified('stuff', '  The saving\npart '), 'stuff: The saving part')
+})
+
+test('a refresh: new problems masked by number; code gone under the refreshed steps found even when it was before', () => {
+  const out = [
+    'PROBLEM: box validate: its code changed',
+    'PROBLEM: step 2 scene: beat 2 ("x"): api/validate.js:22 no longer reads "const product = CATALOG[item.sku]"',
+    'PROBLEM: step 2: link "total": api/validate.js:27 no longer reads "total += product.price"',
+    'PROBLEM: step 12: link "a": a.js:1 no longer reads "a"',
+    'PROBLEM: step 2: title "Saved" is a name, not a fact: say what happens',
+    'WARNING: step 2: no code links',
+    'ok: 3 steps, 4 problems',
+  ].join('\n')
+  assert.ok(problemsIn(out).has('PROBLEM: step # scene: beat # ("x"): api/validate.js:# no longer reads "const product = CATALOG[item.sku]"'))
+  assert.equal(problemsIn(out).size, 5)
+  const failing = stepProblems(out, [2])
+  assert.equal(failing.length, 2, 'step 2\'s code gone only (not step 12, the box, its title\'s wording or a warning)')
+  assert.deepEqual(stepsOf(failing), [2])
+  assert.deepEqual(stepsOf(stepProblems(out, [12, 2])), [2, 12])
+  assert.deepEqual(stepProblems(out, [1]), [])
+})
+
+test('a staging folder\'s cleanup leaves no empty staging root; another run\'s folder keeps it', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'staging-'))
+  const root = path.join(repo, '.code-notes', STAGING)
+  const a = stagingFolder(repo, '.code-notes')
+  const b = stagingFolder(repo, '.code-notes')
+  a.cleanup()
+  assert.deepEqual(fs.readdirSync(root), [b.id])
+  b.cleanup()
+  assert.ok(!fs.existsSync(root), 'no empty .writing left')
+  assert.ok(fs.existsSync(path.join(repo, '.code-notes')), 'the notes folder stays')
+  fs.rmSync(repo, { recursive: true })
 })

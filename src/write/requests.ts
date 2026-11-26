@@ -11,6 +11,7 @@ import {
   readEnvelope, readRequest, REQUEST_FILE, RequestResult, RESULT_FILE, resultText, ScriptRequest, Via,
 } from '../platform/agent/protocol'
 import { answerQuestion, Outcome, showJourneysHome } from './journeyAnswer'
+import { vagueQuestion } from './questions'
 
 /** The same request again within this long (an old script sends a link and a file) is handled once. */
 const DUPLICATE_MS = 30_000
@@ -130,7 +131,9 @@ async function handleRequest(req: ScriptRequest, via: Via, replyTo?: ReplyTo): P
   if (answered && answered.kind !== 'not-answered') { report(answered); return }
   // Overview: the panel's Journeys list (one marked "Start here"), not a picker; the sidebar is left as it was.
   report({ kind: 'overview' })
-  await showJourneysHome()
+  // A link's question no journey answers is said, with a way to ask it here (the person asks it; the link never does).
+  const ask = () => handleRequest({ action: 'ask', question: q }, 'command')
+  await showJourneysHome(answered?.kind === 'not-answered' ? { question: q, ask } : undefined)
 }
 
 /** vscode://<publisher>.code-notes/explain?action=…&q=…[&repo=<path>] (old scripts): `model` is ignored. */
@@ -168,7 +171,8 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
  * written for it.
  */
 export const askQuestion = async () => {
-  const box = { prompt: 'Ask a question about the code', placeHolder: 'How does … work?', ignoreFocusOut: true }
+  // A word or two would cost minutes of Claude for a guess: asked again before anything starts.
+  const box = { prompt: 'Ask a question about the code', placeHolder: 'How does … work?', ignoreFocusOut: true, validateInput: vagueQuestion }
   const q = (await vscode.window.showInputBox(box))?.trim()
   if (!q) return
   // The same path as a request with a question (matching, a pick of close matches, trust, model check, the confirm).
