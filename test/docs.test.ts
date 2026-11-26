@@ -29,3 +29,63 @@ test('the recipes pin each action to the commit this repository\'s CI uses', () 
     assert.equal(ref, ours.get(action), `${action}: the commit this repository's CI uses`)
   }
 })
+
+const readme = read('README.md')
+const pkg = JSON.parse(read('package.json'))
+
+test('the README lists every VS Code default the extension changes, with how to undo it', () => {
+  for (const key of Object.keys(pkg.contributes.configurationDefaults)) {
+    const row = readme.split('\n').find((l) => l.startsWith(`| \`${key}\``))
+    assert.ok(row, `${key}: a row in the README's Settings`)
+    assert.ok(row.split('|').at(-2)!.includes(`"${key}"`), `${key}: how to undo it`)
+  }
+})
+
+test('every docs/ file the README links ships in the package', () => {
+  const links = [...readme.matchAll(/\]\((docs\/[^)#\s]+)/g)].map((m) => m[1]).filter((l) => !l.startsWith('docs/images/'))
+  assert.ok(links.length >= 2, 'the README links docs')
+  for (const l of links) assert.ok(pkg.files.includes(l), l)
+})
+
+test('the README is for users: no Development section, no gutter +, no status bar bell', () => {
+  assert.doesNotMatch(readme, /^## Development/m)
+  assert.doesNotMatch(readme, /gutter `?\+/)
+  assert.doesNotMatch(readme, /\bbell\b/)
+})
+
+test('skipping is one rule: the label and an approval, never an approval alone', () => {
+  for (const text of [readme, doc]) {
+    assert.doesNotMatch(text, /any approval[^.]*waives/i)
+    assert.doesNotMatch(text, /approval waives the check/i)
+  }
+  const rule = /add the label `skip-understanding` and get an approval from someone other than the author/g
+  assert.equal([...doc.matchAll(rule)].length, 2, 'Using it and Skipping say the same')
+})
+
+/** The fenced yaml block that follows `heading` (a line starting with it). */
+function yamlAfter(heading: string): string {
+  const at = doc.split('\n').findIndex((l) => l.startsWith(heading))
+  assert.ok(at >= 0, heading)
+  const m = /```yaml\n([\s\S]*?)```/.exec(doc.split('\n').slice(at).join('\n'))
+  assert.ok(m, `a yaml block after ${heading}`)
+  return m[1]
+}
+
+test('the GitLab recipe is valid YAML in a regular stage, so it runs as a project\'s only job', () => {
+  const yaml = yamlAfter('GitLab (`.gitlab-ci.yml`)')
+  // A small structural check (no YAML parser among the dependencies): two-space indents, no tabs, every line a
+  // `key:` or a `- item` under a key.
+  const lines = yaml.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#'))
+  for (const l of lines) {
+    assert.doesNotMatch(l, /\t/, l)
+    assert.equal((l.length - l.trimStart().length) % 2, 0, l)
+    assert.match(l.trim(), /^(- .+|[\w$.-]+:( .*)?)$/, l)
+  }
+  assert.match(lines[0], /^understanding:$/)
+  const stage = /^ {2}stage: (\S+)/m.exec(yaml)?.[1]
+  assert.ok(stage, 'the job names its stage')
+  // GitLab creates no pipeline whose only jobs are in .pre/.post.
+  assert.ok(!['.pre', '.post'].includes(stage), stage)
+  assert.match(yaml, /^ {2}needs: \[\]/m)
+  assert.match(yaml, /merge_request_event/)
+})
