@@ -4,6 +4,7 @@ import {
   codeWidth, DEFAULT_SHARE, expandedOnFocus, GROUP_MIN_PX, grownSince, isFlatRow, layoutOfWidths, LISTENING_MAX_PX, LISTENING_MIN_PX,
   LISTENING_SHARE, listeningShare, MAP_ROOM_PX, MAX_SHARE, MEASURED_EDITOR, panelShare, widestOther, withRoomForMap,
 } from '../src/core/panelWidth'
+import { codeRoomMove } from '../src/journeys/panel/codeRoom'
 
 // What is measured (MEASURED_EDITOR, in src) against what the width model computes from it.
 
@@ -32,6 +33,22 @@ test('the panel: 35 % by default, never squeezing the code under 80 columns', ()
   assert.equal(panelShare(930, { fontSize: 14 }), 0)
   // Without the minimap the code needs less.
   assert.ok(panelShare(1090, { fontSize: 14, minimap: false }) > 0)
+})
+
+test('a step beside an open panel: the code keeps 80 columns (the panel narrower, else the step card alone)', () => {
+  const needPx = codeWidth(80, 14)
+  const move = (total: number, panelPx: number, readerChose = false) =>
+    codeRoomMove({ codePx: total - panelPx, needPx, share: panelShare(total, { fontSize: 14 }), readerChose })
+  // A 1440 px window with the sidebar (~1090 px of editors), the panel at 40 %: no room for both, the card alone.
+  assert.equal(move(1090, 436), 'cardOnly')
+  // A wider window, the panel squeezing the code: the panel gets the share that leaves the code its columns.
+  const wider = move(1300, 600)
+  assert.ok(typeof wider === 'object' && 1300 * (1 - wider.share) >= needPx - 1, JSON.stringify(wider))
+  // The code has its columns (a pixel short is rounding): nothing changes.
+  assert.equal(move(1600, 1600 - needPx), 'keep')
+  assert.equal(move(1600, 1600 - needPx + 1), 'keep')
+  // The reader asked for the map's room: theirs to keep.
+  assert.equal(move(1090, 436, true), 'keep')
 })
 
 test('the reader\'s width is kept (also above 40 %), within the code\'s 80 columns', () => {

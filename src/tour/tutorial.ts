@@ -7,7 +7,8 @@ import { stored } from '../platform/host'
 import { portsSlot } from '../platform/ports'
 import type { FromMap as MapMessage } from '../protocol/map'
 import { atOf, fileOf, LoadedJourney } from '../journeys/steps'
-import { openMap } from './commands'
+import { openMapIfRoom } from './commands'
+import { panelLayout } from './panelLayout'
 import { pickJourney } from './pick'
 import { fireAndForget } from '../platform/run'
 import { STATE } from '../platform/state'
@@ -41,12 +42,16 @@ export class Tutorial implements vscode.Disposable {
 
   dispose(): void { this.changed.dispose() }
 
-  /** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. */
+  /** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. With
+   *  no room for the panel beside 80 columns of code: the step card alone, as any walk (the status bar says so). */
   async start(): Promise<void> {
-    const lj = this.p.walk.tourJourney() ?? this.p.journeys.byPos(stored().get(STATE.mapJourney)) ?? (await pickJourney())
+    const { walk, journeys, mapPanel } = this.p
+    const lj = walk.tourJourney() ?? journeys.byPos(stored().get(STATE.mapJourney)) ?? (await pickJourney())
     if (!lj) return
-    await openMap(lj)
-    this.p.mapPanel.send({ type: 'tutorial' })
+    // A panel already open may squeeze the code: it gets its room first (or the panel goes).
+    if (await openMapIfRoom(lj)) await panelLayout().keepCodeRoom()
+    if (mapPanel.journey) mapPanel.send({ type: 'tutorial' })
+    else await walk.goToStep(lj, walk.startStep(lj))
   }
 
   /** A message from the map's tutorial: a card shown (and what it points at in the editor), skipped or done. */
