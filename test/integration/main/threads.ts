@@ -10,7 +10,7 @@ import { appendMessage, now, quiet, readJson, test } from '../helpers'
 import { agentNote, writeLines, writeNote } from '../fixtures'
 import { cdp, ui } from '../devtools'
 import { BARS, marksOf } from '../../../src/notes/decorations'
-import { HiddenCmd } from '../../../src/platform/commands'
+import { Cmd, HiddenCmd } from '../../../src/platform/commands'
 import { commandLinksIn, ctx, noteById, notePath, snap, until, wsPath } from './context'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -70,7 +70,7 @@ export const threadsTests = [
     await until('tool.json open at line 3', () => vscode.window.activeTextEditor?.document.uri.fsPath === wsPath('tool.json')
       && vscode.window.activeTextEditor.selection.active.line === 2)
     const all = await vscode.commands.getCommands(true)
-    for (const c of [HiddenCmd.link, HiddenCmd.concernFix, HiddenCmd.concernTodo, HiddenCmd.concernFlag, HiddenCmd.concernFixed, HiddenCmd.concernDismiss]) {
+    for (const c of [HiddenCmd.link, Cmd.concernFix, Cmd.concernTodo, Cmd.concernFlag, HiddenCmd.concernFixed, Cmd.concernDismiss]) {
       assert.ok(all.includes(c), `${c} is registered (the concern's actions on its thread)`)
     }
   }),

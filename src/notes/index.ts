@@ -43,9 +43,6 @@ export type { NotesFeaturePorts } from './ports'
 /** A file in the notes folder (the store watches it: no note or step is on it). */
 export { inNotesFolder } from './notesFolder'
 
-/** Closes a new note box, keeping its draft (create.ts closeNoteBox). */
-export const CLOSE_NOTE_BOX = 'codeNotes.closeNoteBox'
-
 /** The id VS Code knows the notes' comment threads by. */
 const CONTROLLER_ID = 'codeNotes'
 
@@ -96,15 +93,15 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     // A note you made is read (its first message is yours): stored in the background (a round trip to the window).
     onDidCreateNote((n) => fireAndForget(setSeen([[n.data.id, 1]]), 'seen')),
     takeLinks((link) => stepLink(ports.layout, link)),
-    // Esc in a new note box (the key is the manifest's); not in the command table yet, so registered here.
-    vscode.commands.registerCommand(CLOSE_NOTE_BOX, async () => {
+    // Esc in a new note box (the key is the manifest's): closes it, keeping its draft (create.ts closeNoteBox).
+    vscode.commands.registerCommand(HiddenCmd.closeNoteBox, async () => {
       try { await closeNoteBox() } finally { drafting.fire(false) }
     }),
   )
   registerCommands(context, {
     // Adding, replying, asking from a thread. A note being written pauses what plays (its code stays put under it).
     [Cmd.add]: chord(() => { drafting.fire(true); return addNote() }),
-    [Cmd.addQuick]: addQuickNote,
+    [HiddenCmd.addQuick]: addQuickNote,
     [Cmd.addPathNote]: (uri?: vscode.Uri, text?: unknown) => addPathNote(uri, text),
     [Cmd.askFromThread]: askFromThread,
     [Cmd.createFromThread]: async (...a: Parameters<typeof createFromThread>) => {
@@ -112,7 +109,7 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     },
     [Cmd.reply]: replyTo,
     [Cmd.replyReopen]: replyTo, // the same, labelled for resolved threads
-    [Cmd.replyResolve]: replyAndResolve,
+    [HiddenCmd.replyResolve]: replyAndResolve,
     [Cmd.applySuggestion]: (id: string, mi: number, k: number) => applySuggestion(id, mi, k),
     // Resolving, deleting, moving, reading.
     [Cmd.resolve]: async (arg?: CommandArg, many?: readonly CommandArg[]) => resolve(await pickNotes(arg, many)),
