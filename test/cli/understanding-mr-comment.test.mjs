@@ -114,7 +114,7 @@ test('answers, notes and concerns are literal text in the MR comment: no heading
   assert.doesNotMatch(body, /<img|<\/blockquote>|^#/m)
 })
 
-test('threads go on the nearest changed line of their hunk, one per question; the comment shows restatements and cuts long answers', () => {
+test('threads go on the nearest changed line of their hunk, one per question; the comment shows a restatement as the answer, no history, and cuts long answers', () => {
   const diff = dedent`
     diff --git a/w.js b/w.js
     --- a/w.js
@@ -149,7 +149,9 @@ test('threads go on the nearest changed line of their hunk, one per question; th
   const items = reviewItems(check, sum, { qa: true })
   assert.deepEqual(items.map((it) => [it.id, !!it.flagged, !!it.d]), [['q1', true, true]], 'concern and "Worth discussing" of one question: one item')
   const body = commentBody(check, sum, 'head', undefined, { qa: true })
-  assert.match(body, /\*\*What happens when sendMail throws\?\*\* · `w\.js:58-60` · restated after an explanation\n> It retries, then gives up with a log line\./)
+  // The restatement is shown as the answer; how many tries it took is not (the reviewer sees answers, not a record).
+  assert.match(body, /\*\*What happens when sendMail throws\?\*\* · `w\.js:58-60`\n> It retries, then gives up with a log line\./)
+  assert.doesNotMatch(body, /restated|after an explanation/)
   assert.doesNotMatch(body, /Check: |Worth discussing/)
   const quoted = body.split('\n').find((l) => l.startsWith('> word'))
   assert.ok(quoted.length < 345 && quoted.endsWith('… (full answer in the check file)'), quoted)

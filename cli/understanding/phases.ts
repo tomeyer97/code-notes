@@ -1,7 +1,7 @@
 // The check's phases (checkState's one word) and what every surface says in each: the status bar, the Check view and
 // `status` (`words`), and for the phases CI reports from a check file, the CI log and the merge request comment (`ci`).
 // One entry per phase, so adding a phase means filling in its entry here; the types make the table exhaustive.
-import { minutesFor, sizeText } from './size'
+import { minutesFor, sizeText, topUpQuestions } from './size'
 import type { BranchStatus, CheckPosition, Drift, Phase, Summary, Words } from './types'
 
 /** Every phase, in the order a branch usually goes through them. */
@@ -61,12 +61,16 @@ export const PHASE: { [P in Phase]: PhaseEntry<P> } = {
       }),
   },
   drift: {
-    words: (state) => ({
-      tone: 'warn',
-      bar: `Needs top-up: +${state.grew} lines`,
-      title: `Needs top-up: +${state.grew} lines`,
-      line: state.commitFirst ? 'Commit, then add 1–2 questions about the new lines.' : 'Add 1–2 questions about the new lines.',
-    }),
+    // New work, not a fault: the status bar counts the questions; the line count is in the title (the tooltip).
+    words: (state) => {
+      const n = questionsText(topUpQuestions(state.grew ?? 0))
+      return {
+        tone: 'todo',
+        bar: `Understanding: +${n}`,
+        title: `Your change grew by ${state.grew} code lines`,
+        line: `${state.commitFirst ? 'Commit, then add' : 'Add'} ${n} about the new lines.`,
+      }
+    },
     ci: {
       log: (w) => `Your change grew by ${w.drift.lines} code lines since the check${w.drift.approx ? ' (compared by size: the branch was rewritten)' : ''}. Run "Check my understanding" again: it adds 1–2 questions about the new part only. Then commit and push.`,
       comment: (w) => `**Understanding check: needs a top-up.** The change grew by ${w.drift.lines} code lines since the questions; 1–2 questions about the new part are missing.`,
@@ -109,6 +113,9 @@ export const PHASE: { [P in Phase]: PhaseEntry<P> } = {
     },
   },
 }
+
+/** "1 question", "2 questions". */
+const questionsText = (n: number): string => `${n} question${n === 1 ? '' : 's'}`
 
 /** How much room is left before a top-up is needed (the CI log's "done" line). */
 export const roomText = (drift: Drift, maxDrift: number): string => (drift.lines ? ` ${drift.lines} code line${drift.lines === 1 ? '' : 's'} since the check (top-up at ${maxDrift}).` : '')

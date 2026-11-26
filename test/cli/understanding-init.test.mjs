@@ -1,11 +1,11 @@
 // `understanding init` and the setup it writes: .gitattributes and .ignore lines, the skill (with the CLI beside it)
-// in .claude/skills; what is missing, said by ci as a tip.
+// in .claude/skills, also from a copied CLI; what is missing, said by ci as a tip; the setup never counts as the change.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { initRepo, installSkill, localStatus, main, own, setupMissing } from '../../cli/understanding.mjs'
-import { commitAll, gitIn, ID, repo, root, sh, verdicts } from './helpers/repos.mjs'
+import { CI_URL, initRepo, installSkill, localStatus, main, own, setupMissing, stateWords } from '../../cli/understanding.mjs'
+import { checkedRepo, commitAll, gitIn, grow, ID, repo, root, sh, verdicts } from './helpers/repos.mjs'
 import { answerAll, ci, EXIT, run, writeQuestions } from './helpers/cli.mjs'
 
 const ATTRIBUTES = ['.gitattributes: understanding/*.json gitlab-generated linguist-generated', '.gitattributes: understanding/config.json -gitlab-generated -linguist-generated']
@@ -17,7 +17,8 @@ test('init: .gitattributes and .ignore, the skill; what to commit and the CI rec
   const r = await run(d, ['init'])
   assert.equal(r.out.split('\n')[0], 'Added: .gitattributes: understanding/*.json gitlab-generated linguist-generated; .gitattributes: understanding/config.json -gitlab-generated -linguist-generated; .ignore: understanding/; the skill (.claude/skills/understanding-check: SKILL.md, questions.mjs, understanding.mjs).')
   assert.equal(r.out.split('\n')[1], 'Commit them: git add .gitattributes .ignore .claude/skills/understanding-check && git commit -m "Add understanding check setup"')
-  assert.match(r.out, /CI recipe: https:\/\/github\.com\/.*#in-ci/)
+  // The docs' section: the README has no "In CI".
+  assert.match(r.out, /^CI recipe: https:\/\/github\.com\/[^ ]*\/docs\/understanding-check\.md#in-ci$/m)
   // The settings file is not collapsed: a change to them stays in sight.
   assert.equal(read(d, '.gitattributes'), '*.png binary\nunderstanding/*.json gitlab-generated linguist-generated\nunderstanding/config.json -gitlab-generated -linguist-generated\n')
   assert.equal(read(d, '.ignore'), 'understanding/\n')
@@ -97,4 +98,52 @@ test('init in a repository that commits its own copy of the CLI (tools/understan
   assert.ok(!fs.existsSync(path.join(e, '.claude/skills/understanding-check/scripts/understanding.mjs')))
   assert.match(installedScript(e, 'start', '--base', 'main'), /^CHANGE: branch feat\/x/m)
   assert.match((await run(e, ['init'])).out, /^Already set up\./)
+})
+
+test('the CI link goes to a section that exists: docs/understanding-check.md "## In CI"', () => {
+  const [, file, anchor] = CI_URL.match(/\/blob\/main\/(.+)#(.+)$/)
+  const headings = read(root, file).split('\n').filter((l) => /^#+ /.test(l)).map((l) => l.replace(/^#+ /, '').toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-'))
+  assert.ok(headings.includes(anchor), `${file} has no heading for #${anchor}`)
+})
+
+/** `d` with the CLI copied into tools/, as the docs suggest (the extension's bundle, nothing beside it). */
+const copyCli = (d) => {
+  fs.mkdirSync(path.join(d, 'tools'))
+  fs.copyFileSync(path.join(root, 'cli/understanding.mjs'), path.join(d, 'tools/understanding.mjs'))
+  return path.join(d, 'tools/understanding.mjs')
+}
+
+test('init from a copied CLI (tools/understanding.mjs, not committed yet): installs the skill it carries, no second CLI copy', () => {
+  const d = repo()
+  const cli = copyCli(d)
+  const out = sh(d, 'node', [cli, 'init'])
+  const skill = path.join(d, '.claude/skills/understanding-check')
+  assert.equal(read(skill, 'SKILL.md'), read(root, 'skills/understanding-check/SKILL.md'))
+  assert.equal(read(skill, 'scripts/questions.mjs'), read(root, 'skills/understanding-check/scripts/questions.mjs'))
+  assert.ok(!fs.existsSync(path.join(skill, 'scripts/understanding.mjs')), 'the repository has its own copy')
+  assert.match(out, /^Added: .*; the skill \(\.claude\/skills\/understanding-check: SKILL\.md, questions\.mjs\)\.$/m)
+  assert.match(out, /^Without VS Code: type \/understanding-check in Claude Code\.$/m)
+  assert.doesNotMatch(out, /add the understanding-check skill/)
+  assert.match(out, /#in-ci$/m)
+})
+
+test('a committed CLI copy and the setup never count as the change: status and next agree the check is done', async () => {
+  const { d } = checkedRepo()
+  const cli = copyCli(d)
+  sh(d, 'node', [cli, 'init'])
+  commitAll(d, 'understanding check setup')
+  const st = localStatus(d)
+  assert.equal(own('tools/understanding.mjs'), true)
+  assert.equal(st.state.phase, 'done')
+  assert.equal(st.drift.lines, 0)
+  assert.match((await run(d, ['status'])).out, /· 0 lines since the check$/m)
+  assert.match((await run(d, ['next'])).out, /^✓ Done: 3 of 3 passed/)
+})
+
+test('next says a grown check like status does, not Done', async () => {
+  const { d } = checkedRepo()
+  grow(d, 45)
+  const words = stateWords(localStatus(d).state)
+  assert.equal((await run(d, ['next'])).out, `${words.title} · ${words.line}`)
+  assert.match((await run(d, ['status'])).out, /^Your change grew by 45 code lines · Add 1 question about the new lines\./)
 })

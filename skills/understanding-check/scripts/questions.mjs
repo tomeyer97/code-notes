@@ -74,9 +74,9 @@ function linesAt(head, file) {
   try { return U.git(repo, ['show', `${head}:${file}`]).split('\n') } catch { return undefined }
 }
 
-/** How many questions a change gets (U.questionsForChange: one for docs or a removal); a top-up 1, or 2 when it grew a lot. */
+/** How many questions a change gets (U.questionsForChange: one for docs or a removal); a top-up U.topUpQuestions (an older CLI copy: its rule). */
 function wanted(st, lines, topUp) {
-  return topUp ? (lines < 80 ? 1 : 2) : U.questionsForChange(st, cfg)
+  return topUp ? (U.topUpQuestions?.(lines) ?? (lines < 80 ? 1 : 2)) : U.questionsForChange(st, cfg)
 }
 
 if (cmd === 'start') {

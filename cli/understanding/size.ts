@@ -22,6 +22,9 @@ export function questionsFor(lines: number, cfg: Config = DEFAULTS): number {
   return Math.max(1, Math.min(max, Math.max(min, n)))
 }
 
+/** How many questions a top-up adds for `lines` new code lines: 1, or 2 when the change grew a lot. */
+export const topUpQuestions = (lines: number): number => (lines < 80 ? 1 : 2)
+
 /**
  * What kind of change it is, for its size rules: `docs` (only documentation), `removal` (only removes code), else
  * `code`. `st`: codeStat's shape (`docsOnly`, `added`, `removed`).
