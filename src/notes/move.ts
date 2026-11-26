@@ -1,5 +1,5 @@
-// Moving a note to other code: the selection now, or select it and click Move Here. Keep Here: a stale note takes
-// the code at its lines.
+// Moving a note to other code: the selection now, or select it and press Enter (or click "Move note here" in the
+// status bar). Keep Here: a stale note takes the code at its lines.
 
 import * as vscode from 'vscode'
 import { store } from './ports'
@@ -23,8 +23,9 @@ import { hint } from './hint'
 const MOVING_CTX = 'codeNotes.moving'
 
 /**
- * A move waiting for the person to select the code: which note, its status bar item (click: Move Here) and the
- * context key. Idle, or moving one note; start, complete or cancel go from one to the other.
+ * A move waiting for the person to select the code: which note, its status bar item (click or Enter: move it) and the
+ * context key. Idle, or moving one note; start, complete or cancel go from one to the other. No notification: one
+ * hides as soon as the editor takes the focus to select the code.
  */
 class MoveMode implements vscode.Disposable {
   private readonly item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 51)
@@ -36,17 +37,15 @@ class MoveMode implements vscode.Disposable {
     this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
   }
 
-  /** Waits for the code: the item, the context key and a message with Move Here. */
-  async start(n: Note): Promise<void> {
+  /** Waits for the code: the status bar item and the context key (Enter and Esc read it). */
+  start(n: Note): void {
     this.wait(n)
-    this.item.text = `$(move) Move "${noteTitle(n, 30)}" to the selection`
-    this.item.tooltip = 'Select the code, then click here. Esc cancels.'
+    this.item.text = '$(move) Move note here'
+    this.item.tooltip = `Select the code for "${noteTitle(n, 60)}", then press Enter or click here. Esc cancels.`
     this.item.show()
-    const question = `Move note "${noteTitle(n)}": select the code it belongs to, then click Move Here.`
-    const pick = await vscode.window.showInformationMessage(question, 'Move Here', 'Cancel')
-    if (pick === 'Move Here') await this.complete()
-    else if (pick === 'Cancel') this.cancel()
   }
+
+  get moving(): boolean { return this.pending !== undefined }
 
   /** The note waiting is `n`. */
   private wait(n: Note): void {
@@ -96,7 +95,7 @@ const moveMode = () => (mode ??= new MoveMode())
 /** The move mode, made when the notes start (its status bar item goes with them). */
 export function createMoveMode(): vscode.Disposable { return moveMode() }
 
-export const startMove = (n: Note) => moveMode().start(n)
+export const startMove = async (n: Note) => moveMode().start(n)
 export const cancelMove = () => moveMode().cancel()
 export const completeMove = () => moveMode().complete()
 
@@ -111,8 +110,10 @@ export const acceptCode = async (arg?: CommandArg) => {
   notesChanged({ kind: 'placed', ids: [n.data.id] })
 }
 
-/** codeNotes.moveToSelection: a selection elsewhere: the note moves there now (with Undo); otherwise it asks for one. */
-export const moveToSelection = (arg?: CommandArg) => {
+/** codeNotes.moveToSelection: a selection elsewhere: the note moves there now (with Undo); otherwise it asks for one.
+ *  No note given while a move waits (Enter): that move goes to the selection. */
+export const moveToSelection = async (arg?: CommandArg) => {
+  if (arg === undefined && moveMode().moving) return moveMode().complete()
   const [n] = notesFrom(arg)
   if (!n) return
   const e = vscode.window.activeTextEditor

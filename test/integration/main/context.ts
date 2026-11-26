@@ -5,6 +5,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { TestApi } from '../../../src/testApi'
+import { clickedLink } from '../../../src/platform/commands'
 import type { SuiteContext } from '../helpers'
 import { waiter } from '../helpers'
 
@@ -70,6 +71,15 @@ export const setting = (key: string, value: unknown) => vscode.workspace.getConf
 
 /** A thread's first comment as markdown. */
 export const bodyOf = (c: vscode.Comment) => (c.body as vscode.MarkdownString).value
+
+/** The command links in Markdown as a click runs them: label, command and arguments (a thread's short link
+ *  `codeNotes.link?<key>` as the command it stands for). */
+export function commandLinksIn(markdown: string): { label: string; command: string; args: unknown[] }[] {
+  return [...markdown.matchAll(/\[([^\]]*)\]\(command:([\w.]+)(?:\?([^ )]+))?/g)].map((m) => {
+    const args = m[3] ? JSON.parse(decodeURIComponent(m[3])) : []
+    return { label: m[1], ...clickedLink(m[2], Array.isArray(args) ? args : [args]) }
+  })
+}
 
 export const closeAllEditors = () => vscode.commands.executeCommand('workbench.action.closeAllEditors')
 

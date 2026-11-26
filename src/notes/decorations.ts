@@ -1,5 +1,6 @@
-// How notes mark their lines in the editor: a bar for open and stale notes, the exact text a note is about, unread
-// in the scrollbar. (src/platform/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
+// How notes mark their lines in the editor: a bar for open notes, a bar and a tint for stale ones, the exact text a
+// note is about, unread in the scrollbar. (src/platform/decorations.ts sends each editor's decorations; the step card
+// draws its own: tour/card.ts.)
 
 import * as vscode from 'vscode'
 import { cfg } from '../platform/settings'
@@ -18,16 +19,18 @@ let deco: Record<Kind, vscode.TextEditorDecorationType> | undefined
 
 const theme = (id: string) => new vscode.ThemeColor(id)
 
-/** The left bar and the scrollbar mark of a note (one marker per note: never a tint over its lines). */
-const BARS = {
+/** The left bar and the scrollbar mark of a note; a stale note's lines are tinted too (amber: the code changed under
+ *  it), so it shows in the editor, not only in its thread. */
+export const BARS = {
   openBar: { style: 'solid', color: 'codeNotes.noteBorder', ruler: 'codeNotes.noteRuler' },
-  staleBar: { style: 'dashed', color: 'editorWarning.foreground', ruler: 'editorWarning.foreground' },
+  staleBar: { style: 'dashed', color: 'editorWarning.foreground', ruler: 'editorWarning.foreground', background: 'codeNotes.staleBackground' },
 }
 
-function bar(b: (typeof BARS)[keyof typeof BARS]): vscode.TextEditorDecorationType {
+function bar(b: { style: string; color: string; ruler: string; background?: string }): vscode.TextEditorDecorationType {
   return vscode.window.createTextEditorDecorationType({
     isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: b.style, borderColor: theme(b.color),
     overviewRulerColor: theme(b.ruler), overviewRulerLane: vscode.OverviewRulerLane.Right,
+    ...(b.background ? { backgroundColor: theme(b.background) } : {}),
   })
 }
 
@@ -67,18 +70,24 @@ function exactRange(doc: vscode.TextDocument, n: Note): vscode.Range | undefined
 /** The notes marked in an editor: open or unread, not in a hidden session. */
 const marked = (n: Note) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)
 
-/** Every visible editor's note marks (and the step card's), as the notes are now. None on the code a podcast is
- *  telling while it plays (they come back on pause). */
+/** An editor's note marks, by kind, as the notes are now. None on the code a podcast is telling while it plays. */
+export function marksOf(editor: vscode.TextEditor): Record<Kind, vscode.Range[]> {
+  const shown = cfg().get<boolean>('highlight', true) && !notesPorts().layout.narrates(editor)
+  const list = shown ? lineNotesFor(editor.document.uri).filter(marked) : []
+  return {
+    openBar: list.filter((n) => !n.data.stale).map(linesOf),
+    staleBar: list.filter((n) => n.data.stale).map(linesOf),
+    unread: list.filter((n) => unread(n) > 0).map(linesOf),
+    exact: list.map((n) => exactRange(editor.document, n)).filter((r): r is vscode.Range => !!r),
+  }
+}
+
+/** Every visible editor's note marks (and the step card's), as the notes are now (they come back on a pause). */
 export function refreshDecorations(): void {
   if (!deco) return
-  const on = cfg().get<boolean>('highlight', true)
   for (const editor of vscode.window.visibleTextEditors) {
-    const shown = on && !notesPorts().layout.narrates(editor)
-    const list = shown ? lineNotesFor(editor.document.uri).filter(marked) : []
-    setDecorations(editor, deco.openBar, list.filter((n) => !n.data.stale).map(linesOf))
-    setDecorations(editor, deco.staleBar, list.filter((n) => n.data.stale).map(linesOf))
-    setDecorations(editor, deco.unread, list.filter((n) => unread(n) > 0).map(linesOf))
-    setDecorations(editor, deco.exact, list.map((n) => exactRange(editor.document, n)).filter((r): r is vscode.Range => !!r))
+    const marks = marksOf(editor)
+    for (const kind of Object.keys(marks) as Kind[]) setDecorations(editor, deco[kind], marks[kind])
   }
   notesPorts().layout.refreshCard()
 }

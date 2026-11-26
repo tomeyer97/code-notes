@@ -7,7 +7,7 @@ import * as fs from 'fs'
 import assert from 'assert'
 import { appendMessage, now, quiet, readJson, settle, sleep, test } from '../helpers'
 import { agentNote, writeNote } from '../fixtures'
-import { at, bodyOf, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
+import { at, bodyOf, commandLinksIn, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
 import { UNREAD_FINDING } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,13 +41,7 @@ function rowsOf(lines: string[]): Row[] {
 const notesRows = () => rowsOf(notesTree())
 
 /** The command links in a comment's markdown, as VS Code runs them when clicked: the command and its arguments. */
-function commandLinks(markdown: string): { command: string; args: unknown[] }[] {
-  return [...markdown.matchAll(/\(command:([\w.]+)(?:\?([^ )]+))?/g)].map((m) => {
-    let args: unknown = []
-    try { if (m[2]) args = JSON.parse(decodeURIComponent(m[2])) } catch { assert.fail(`the arguments of the ${m[1]} link do not parse: ${m[2]}`) }
-    return { command: m[1], args: Array.isArray(args) ? args : [args] }
-  })
-}
+const commandLinks = (markdown: string) => commandLinksIn(markdown)
 
 export const notesReviewTests = [
   test('R resolves the note at the cursor (recorded in "events") and opens the next unread note', async () => {

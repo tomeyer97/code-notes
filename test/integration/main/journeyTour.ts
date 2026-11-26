@@ -10,7 +10,7 @@ import { appendMessage, now, quiet, settle, test, windowShot } from '../helpers'
 import { shotsInBothThemes } from './themeShots'
 import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { cdp, codeColumns, ui } from '../devtools'
-import { at, bodyOf, closeAllEditors, codeLenses, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
+import { at, bodyOf, closeAllEditors, commandLinksIn, codeLenses, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
 import { demoPath, demoStep, demoSteps, writeDemo } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -382,7 +382,7 @@ export const journeyTourTests = [
 
   test('End keeps a resumable place; Next resumes; the sidebar marks the running tour', async () => {
     // Not walking: the step question links back to its step, with the journey's name.
-    await until('the back-link', () => /\[↩ Step 3 · Demo\]\(command:codeNotes\.openStepLink/.test(bodyOf(ctx.api.thread(stepQuestion()!.id)!.comments[0])))
+    await until('the back-link', () => commandLinksIn(bodyOf(ctx.api.thread(stepQuestion()!.id)!.comments[0])).some((l) => l.label === '↩ Step 3 · Demo' && l.command === 'codeNotes.openStepLink'))
     assert.ok(tabOpen(/flow\.ts$/), 'End keeps the code you were reading')
     assert.ok(journeysTree().some((l: string) => /journey:Demo · step 3\/4$/.test(l)), `the sidebar row: its title and, after End, where it was left:\n${journeysTree().join('\n')}`)
     await vscode.commands.executeCommand('codeNotes.notes.focus')

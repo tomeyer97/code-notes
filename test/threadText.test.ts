@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { aboutStepLine, codeBlock, messageText, segments, suggestionOf, verbatimText } from '../src/threads/text'
-import { diffBlock, oldCodeBlock, staleText, type StaleFacts } from '../src/threads/banner'
+import { diffLines, oldLines, staleText, type StaleFacts } from '../src/threads/banner'
 import { Links } from '../src/threads/links'
 import { BANNER_COMMANDS, Cmd, MESSAGE_COMMANDS } from '../src/platform/commands'
 
@@ -53,9 +53,25 @@ test('the stale banner: gone, shorter, changed (with the branch), and only the l
   assert.equal(staleText({ ...f, missing: true, was: '```\nx\n```' }, l()), `**\`src/a.ts\` no longer exists.**\n\n\`\`\`\nx\n\`\`\`\n\n${move}`)
   assert.equal(staleText({ ...f, pastEnd: 7 }, l()), `**The code changed since this note** (the file has 7 lines now).\n\n${move}`)
   assert.equal(staleText({ ...f, branch: 'dev' }, l()), `**The code changed since this note** (written on \`dev\`).\n\n${keep} · ${move}`)
-  assert.equal(oldCodeBlock(['1', '2', '3', '4', '5']), '```\n1\n2\n3\n… 2 more\n```')
-  assert.equal(diffBlock(['  a'], ['  b']), '```diff\n- a\n+ b\n```')
+  assert.equal(oldLines(['1', '2', '3', '4', '5']), '− 1  \n− 2  \n− 3  \n… 2 more')
+  assert.equal(diffLines(['  a'], ['  b']), '− `a`  \n\\+ `b`')
   assert.equal(codeBlock(['x'], 'ts'), '```ts\nx\n```')
+})
+
+test('the stale banner shows the old and the new line as text that wraps, the changed words as code', () => {
+  const was = '// The error the person must see is shown as an error (a toast), not a log line.'
+  const now = '// The failure the user has to notice is surfaced (a toast), not a log line.'
+  assert.equal(diffLines([`  ${was}`], [`  ${now}`]),
+    '− // The `error` the `person must see` is `shown as an error` \\(a toast\\), not a log line.  \n' +
+    '\\+ // The `failure` the `user has to notice` is `surfaced` \\(a toast\\), not a log line.')
+  // No code block (it scrolls sideways at the panel's width); Markdown in the code is text.
+  assert.ok(!diffLines([was], [now]).includes('```'))
+  assert.equal(diffLines(['a * b'], ['a * c']), '− a \\* `b`  \n\\+ a \\* `c`')
+  assert.equal(diffLines(['x = `a`'], ['x = `b`']), '− x = \\``a`\\`  \n\\+ x = \\``b`\\`', 'backticks in the code: escaped')
+  assert.equal(diffLines(['a'], ['`b`']), '− `a`  \n\\+ \\`b\\`', 'a change with a backtick in it: escaped text')
+  assert.equal(diffLines(['gone'], []), '− gone', 'a line without a partner is shown whole')
+  const f: StaleFacts = { id: 'n1', file: 'src/a.ts', wholeFile: false, missing: false, was: diffLines(['a'], ['b']) }
+  assert.match(staleText(f, new Links(BANNER_COMMANDS)), /^\*\*The code changed since this note\*\*\.\n\n− `a`  \n\\\+ `b`\n\n\[Keep here\]/)
 })
 
 test('links: the text may run every command it links to, after the ones it is allowed anyway', () => {

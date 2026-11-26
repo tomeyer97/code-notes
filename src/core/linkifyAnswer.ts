@@ -19,14 +19,19 @@ const REF_START = String.raw`(?<![\w/~.\-\u0000])`
 /** A reference's line: `:12`, `:12-20` (the first group) or `#L12` (the second). */
 const REF_LINE = String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))`
 /**
- * A bare reference, also right after "(" or in a list, optionally in backticks: `src/a.ts:12`, `src/a.ts:12-20`,
- * `src/a.ts#L12` (path, line, line). Never inside a longer word or path, nor after `~/` (outside the repo: left as text).
- * The path is journeyModel's PATH, as in step text (REF_IN_TEXT); what may come before it and the line forms differ.
+ * A file at the repository's root (`package.json`), only with a line after it: not two single letters (`e.g:3`) and
+ * not a host name (`example.com:443`). Step text needs a folder; answers follow the agents' README ("path:line").
  */
-const BARE_REF = new RegExp(`${REF_START}\`?(${PATH})${REF_LINE}\`?`, 'g')
+const ROOT_FILE = String.raw`(?![a-zA-Z]\.[a-zA-Z](?![\w.]))[\w-][\w.-]*\.(?!(?:com|org|net)\b)[a-zA-Z]{1,6}`
+/**
+ * A bare reference, also right after "(" or in a list, optionally in backticks: `src/a.ts:12`, `src/a.ts:12-20`,
+ * `src/a.ts#L12`, `package.json:3` (path, line, line). Never inside a longer word or path, nor after `~/` (outside the
+ * repo: left as text). The path is journeyModel's PATH, as in step text (REF_IN_TEXT), or a root file.
+ */
+const BARE_REF = new RegExp(`${REF_START}\`?(${PATH}|${ROOT_FILE})${REF_LINE}\`?`, 'g')
 
 /** The patterns, for test/answerLinks.test.ts's table (what each one matches, and the bare reference assembled). */
-export const ANSWER_LINK_PATTERNS = { IMAGE, MD_LINK, NOT_A_FILE, TARGET, BARE_REF } as const
+export const ANSWER_LINK_PATTERNS = { IMAGE, MD_LINK, NOT_A_FILE, TARGET, ROOT_FILE, BARE_REF } as const
 
 /**
  * One piece of answer text (outside ``` fences) with its file references as links. `link(text, file, line)` makes
