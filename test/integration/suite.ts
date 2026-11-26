@@ -19,6 +19,7 @@ import { journeyMarksTests } from './main/journeyMarks'
 import { roundTripsTests } from './main/roundTrips'
 import { podcastTests } from './main/podcast'
 import { listenEditorTests } from './main/listenEditor'
+import { threadsTests } from './main/threads'
 
 /**
  * The fake claude CLI, wired up for a chapter that runs after the notes chapter. The notes chapter wires it up
@@ -55,6 +56,8 @@ export const chapters: Chapter[] = [
     covers: 'a journey\'s podcast: the walk follows the audio, seeks, the audio while hidden   podcast/' },
   { name: 'listenEditor', file: 'main/listenEditor.ts', tests: listenEditorTests, ...fakeClaude,
     covers: 'the editor while a podcast plays: the card, the marks, what goes quiet   tour/card.ts, podcast/marks.ts' },
+  { name: 'threads', file: 'main/threads.ts', tests: threadsTests, ...fakeClaude,
+    covers: 'applied suggestions, short thread links, the stale tint and banner, Move with Enter   notes/suggestion.ts, threads/, notes/move.ts' },
 ]
 
 /** The entry point run.ts starts VS Code with (extensionTestsPath). */

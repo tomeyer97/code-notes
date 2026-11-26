@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { BANNER_COMMANDS, Cmd, commandUri, HiddenCmd, MESSAGE_COMMANDS, SYSTEM_COMMANDS } from '../src/platform/commands'
+import { BANNER_COMMANDS, clickedLink, Cmd, cmdLink, commandUri, HiddenCmd, linkCall, linkKey, MESSAGE_COMMANDS, shortLinks, SYSTEM_COMMANDS } from '../src/platform/commands'
 
 const ROOT = path.join(__dirname, '../..')
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
@@ -46,4 +46,22 @@ test('the code names commands through the table, not by string', () => {
 test('commandUri: the arguments as JSON in the query', () => {
   assert.equal(commandUri(Cmd.openAt), 'command:codeNotes.openAt')
   assert.equal(commandUri(Cmd.openAt, 'a b', 2), `command:codeNotes.openAt?${encodeURIComponent('["a b",2]')}`)
+})
+
+test('shortLinks: a link with arguments runs through a short key (no percent-encoded JSON for a screen reader to read)', () => {
+  const folder = 'file:///work/shop'
+  const md = `See ${cmdLink('redeemGiftCard', Cmd.openAt, folder, 'api/giftcards.js', 1)} · ${cmdLink('Next', HiddenCmd.nextCheckQuestion)}`
+  const short = shortLinks(md, [Cmd.openAt, HiddenCmd.nextCheckQuestion])
+  const m = /^See \[redeemGiftCard\]\(command:codeNotes\.link\?(\d{6})\) · \[Next\]\(command:codeNotes\.nextCheckQuestion\)$/.exec(short)
+  assert.ok(m, short)
+  assert.deepEqual(linkCall(Number(m[1])), { command: Cmd.openAt, args: [folder, 'api/giftcards.js', 1] })
+  assert.deepEqual(clickedLink(HiddenCmd.link, [Number(m[1])]), { command: Cmd.openAt, args: [folder, 'api/giftcards.js', 1] })
+  assert.equal(shortLinks(md, [Cmd.openAt, HiddenCmd.nextCheckQuestion]), short, 'the same link keeps its key (a redraw is a no-op)')
+  assert.doesNotMatch(short, /%/)
+  // A command the text may not run is left as it is (the short key would let it run).
+  assert.equal(shortLinks(md, []), md)
+  // A link to another note gets another key.
+  assert.notEqual(linkKey(Cmd.openAt, [folder, 'b.js', 1]), Number(m[1]))
+  assert.equal(linkCall(1), undefined)
+  assert.equal(linkCall('123456'), undefined, 'only a number is a key')
 })

@@ -6,28 +6,27 @@ import { Cmd, HiddenCmd } from '../../platform/commands'
 import { isAgent } from '../../notes/identity'
 import type { Note } from '../../notes/store'
 import type { TourApi } from '../../tour/api'
-import { THREAD_WORD } from '../context'
+import { THREAD_WORD, type ThreadWord } from '../context'
 import type { Links } from '../links'
 import type { ThreadsCheck } from '../ports'
 import { systemRow, type ThreadContribution, type ThreadRow } from '../rows'
 
 type Concern = NonNullable<ThreadStatus['concern']>
 
-/** A concern the grader found: Suggest a fix, Add TODO, Flag for reviewer; quiet: Mark fixed once it is flagged (it
- *  leaves the merge request), Dismiss with a reason when it is wrong. */
-function concernRow(id: string, c: Concern): ThreadRow {
-  const text = (l: Links) => {
-    const act = (label: string, action: string) => l.to(label, Cmd.checkConcern, id, action)
-    const acts = [
-      act('Suggest a fix', 'fix'),
-      c.todo ? `TODO added at ${c.todo}` : act('Add TODO', 'todo'),
-      act(c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : 'Flag for reviewer', 'flag'),
-      ...(c.flagged ? [act('Mark fixed', 'fixed')] : []),
-      act('Dismiss', 'dismiss'),
-    ]
-    return `⚠ ${c.text}\n\n${acts.join(' · ')}`
-  }
-  return { comment: systemRow(text, c.suspect ? 'Understanding check' : 'Found while grading') }
+/** A concern the grader found, and what was done about it. Its actions (Suggest a fix, Add TODO, Flag for reviewer,
+ *  Mark fixed, Dismiss) are the thread's menu: links here were read aloud as their command URIs. */
+function concernRow(c: Concern): ThreadRow {
+  const done = [
+    c.todo ? `TODO added at ${c.todo}` : '',
+    c.flagged ? (c.by ? `Flagged by ${c.by} ✓` : 'Flagged ✓') : '',
+  ].filter(Boolean).join(' · ')
+  return { comment: systemRow(`⚠ ${c.text}${done ? `\n\n${done}` : ''}`, c.suspect ? 'Understanding check' : 'Found while grading') }
+}
+
+/** The words the concern's menu items look for. */
+export function concernWords(c: Concern | undefined): ThreadWord[] {
+  if (!c) return []
+  return [THREAD_WORD.concern, ...(c.todo ? [THREAD_WORD.todo] : []), ...(c.flagged ? [THREAD_WORD.flagged] : [])]
 }
 
 /** An open question whose code a journey of the repository walks: one link to that step. */
@@ -44,7 +43,7 @@ function statusRows(n: Note, chk: ThreadsCheck, tour: Pick<TourApi, 'seeAlsoLink
   const s = chk.threadStatus(n)
   return [
     ...(s?.checking ? [{ comment: systemRow('_Checking your answer…_', 'Understanding check', 'checking…') }] : []),
-    ...(s?.concern ? [concernRow(id, s.concern)] : []),
+    ...(s?.concern ? [concernRow(s.concern)] : []),
     ...seeAlsoRow(n, chk, tour),
     ...(s?.error ? [{ comment: systemRow((l) => `⚠ ${s.error} ${l.to('Try again', Cmd.gradeCheck, id)}`, 'Code Notes') }] : []),
   ]
@@ -58,7 +57,8 @@ export function checkRows(check: () => ThreadsCheck | undefined, tour: () => Pic
       if (!chk) return undefined
       const s = chk.threadStatus(n)
       const isCheck = chk.isCheck(n)
-      return { pinned: chk.pinned(n), working: !!s?.checking, failed: !!s?.error, words: isCheck ? [THREAD_WORD.check] : [], neverResolved: isCheck }
+      const words = [...(isCheck ? [THREAD_WORD.check] : []), ...concernWords(s?.concern)]
+      return { pinned: chk.pinned(n), working: !!s?.checking, failed: !!s?.error, words, neverResolved: isCheck }
     },
     message: (n, index) => {
       const chk = check()

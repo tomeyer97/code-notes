@@ -4,7 +4,7 @@
 import type { StepLink } from '../core/format/journeyModel'
 import { linkify } from '../core/linkifyAnswer'
 import { linkPhrases, PH, PH_RE } from '../core/codeLinkText'
-import { escapeTags } from '../core/escape'
+import { escapeMarkdown, escapeTags } from '../core/escape'
 
 /** A piece of a message between its ``` fences; suggestion blocks are numbered in order (`k`) for Apply. */
 export type Segment =
@@ -33,6 +33,26 @@ export function suggestionOf(body: string, k: number): string | undefined {
   for (const s of segments(body)) if (s.kind === 'suggestion' && s.k === k) return s.code
   return undefined
 }
+
+/** A suggestion applied: which block of the message (`suggestion`), by whom, when. Kept in the note file as the
+ *  message's `applied` list, so a reader of the thread later sees it was taken. */
+export interface Applied { suggestion: number; by: string; at: string }
+
+/** Who applied suggestion `k` of a message (its `extra.applied`), if anyone did. */
+export function appliedOf(extra: Record<string, unknown> | undefined, k: number): Applied | undefined {
+  const list = extra?.applied
+  if (!Array.isArray(list)) return undefined
+  return list.find((a): a is Applied => !!a && typeof a === 'object' && a.suggestion === k && typeof a.by === 'string')
+}
+
+/** The message's extra fields with suggestion `k` marked applied by `by` (the other fields as they were). */
+export function withApplied(extra: Record<string, unknown> | undefined, a: Applied): Record<string, unknown> {
+  const list = Array.isArray(extra?.applied) ? extra.applied : []
+  return { ...extra, applied: [...list, a] }
+}
+
+/** What stands under an applied suggestion instead of Apply. */
+export const appliedText = (a: Applied) => `_Applied ✓ by ${escapeMarkdown(a.by)}_`
 
 /** A code link of the check: a phrase of the message and the lines it shows. */
 export type CodeLinkRef = StepLink
