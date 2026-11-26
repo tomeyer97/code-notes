@@ -6,6 +6,10 @@ import * as path from 'path'
 import { Ask, claudeArgs, foldEvent, MODEL_ALIASES, modelProblem } from '../src/platform/agent/claude'
 import { FoldState, lastTwoSegments, readLine } from '../src/platform/agent/stream'
 import { ClaudeCliFinder, findClaude } from '../src/platform/agent/claudeCli'
+import { CLAUDE_AUTHOR, claudePrompt, isClaudeAnswer, nothingToAnswer, STOPPED_MARK } from '../src/ask/prompts'
+import { RunEnds, SETTLE_MS } from '../src/ask/settle'
+import type { Message, NoteData } from '../src/core/format/noteModel'
+import type { Note } from '../src/notes/store'
 
 const FAKE_CLAUDE = path.join(__dirname, '../../test/fixtures/fake-claude.js')
 
@@ -133,4 +137,61 @@ test('the found CLI is remembered: one search, then known without waiting', asyn
   assert.equal(finder.known(undefined), '/found/claude')
   assert.equal(searches, 1, 'known() and find() shared the search')
   assert.equal(finder.known(FAKE_CLAUDE), FAKE_CLAUDE, 'a setting that is a program is known at once')
+})
+
+test('the model that answered is read from the stream\'s start', () => {
+  const state: FoldState = { text: '' }
+  assert.equal(foldEvent(state, '{"type":"system","subtype":"init","model":"claude-opus-5-5"}'), false, 'nothing shown')
+  foldEvent(state, '{"type":"result","result":"done","is_error":false}')
+  assert.equal(state.result?.model, 'claude-opus-5-5')
+})
+
+test('Claude: Path that is not a program: said once, naming it; the newest install still runs', async () => {
+  const [newer] = installs(['2.1.10'])
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'))
+  const where = { pathVar: newer, home, places: [] }
+  const skipped: [string, string | undefined][] = []
+  const finder = new ClaudeCliFinder((s) => findClaude(s, where), (s, used) => skipped.push([s, used]))
+  assert.equal(await finder.find('/nonexistent/claude'), path.join(newer, 'claude'))
+  assert.equal(await finder.find('/nonexistent/claude'), path.join(newer, 'claude'))
+  finder.known('/nonexistent/claude')
+  assert.deepEqual(skipped, [['/nonexistent/claude', path.join(newer, 'claude')]], 'once, with the program run instead')
+  await finder.find(path.join(newer, 'claude'))
+  await finder.find(undefined)
+  assert.equal(skipped.length, 1, 'a setting that runs, or none: nothing to say')
+})
+
+test('an Ask right after a run ends, with nothing said since, is ignored for a second', () => {
+  let now = 1000
+  const ends = new RunEnds(() => now)
+  assert.equal(ends.tooSoon('n', 3), false, 'no run yet')
+  ends.ended('n', 3)
+  now += SETTLE_MS - 1
+  assert.equal(ends.tooSoon('n', 3), true, 'the click meant for Stop')
+  assert.equal(ends.tooSoon('n', 4), false, 'a reply since: a new question')
+  assert.equal(ends.tooSoon('other', 3), false, 'another note')
+  now += 1
+  assert.equal(ends.tooSoon('n', 3), false, 'a second later: a real Ask')
+})
+
+/** A note as prompts.ts reads it. */
+const noteOf = (messages: Message[], claudeSession?: string): Note => ({
+  data: { id: 'n1', file: 'src/a.ts', range: { start: 1, end: 1 }, status: 'open', anchor: { text: 'x' }, messages, claudeSession } as NoteData,
+} as unknown as Note)
+
+test('Ask on a note Claude answered last: nothing to answer (never an empty run); a stopped answer is asked again', () => {
+  const q: Message = { author: 'Pat', role: 'human', body: 'Why twice?' }
+  const a: Message = { author: CLAUDE_AUTHOR, role: 'agent', body: 'Once.' }
+  const stopped: Message = { author: CLAUDE_AUTHOR, role: 'agent', body: `It is read in\n\n${STOPPED_MARK}`, extra: { stopped: true } }
+  assert.equal(nothingToAnswer(noteOf([q])), false, 'a question')
+  assert.equal(nothingToAnswer(noteOf([q, a], 's1')), true, "Claude's answer is the newest")
+  assert.equal(nothingToAnswer(noteOf([q, a, { ...q, body: 'And here?' }], 's1')), false, 'a reply since')
+  assert.equal(nothingToAnswer(noteOf([q, { author: 'Reviewer', role: 'agent', body: 'See b.ts' }])), false, "another agent's message")
+  assert.equal(nothingToAnswer(noteOf([q, a, { ...q, body: 'More?' }, stopped], 's1')), false, 'stopped: still awaits its answer')
+  assert.equal(isClaudeAnswer(stopped), false)
+  // The stopped text is the person's, not part of what Claude is asked.
+  const again = claudePrompt(noteOf([q, a, { ...q, body: 'More?' }, stopped], 's1'), undefined, 'Pat')
+  assert.match(again, /^Follow-up on the same note .*\n\nPat: More\?\n\nAnswer it\./)
+  assert.ok(!again.includes(STOPPED_MARK))
+  assert.ok(!claudePrompt(noteOf([q, stopped]), ['x'], 'Pat').includes(STOPPED_MARK))
 })

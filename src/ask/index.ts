@@ -7,6 +7,7 @@ import { askClaudeCommand, cancelClaudeCommand } from './commands'
 import { AskPorts, useAskPorts } from './ports'
 import { announceAskChanges, askStatusItem, createAskQueue } from './run'
 import { watchClaudeCli } from './settings'
+import { agentRunner } from '../platform/agent/runner'
 
 export interface AskFeature {
   /** The status item follows the notes' changes. */
@@ -16,7 +17,8 @@ export interface AskFeature {
 export function activateAsk(context: vscode.ExtensionContext, ports: AskPorts): AskFeature {
   useAskPorts(ports)
   const queue = createAskQueue()
-  context.subscriptions.push(queue, announceAskChanges(queue))
+  // The runner goes with the window: the runs it started stop then (runner.ts dispose).
+  context.subscriptions.push(queue, announceAskChanges(queue), agentRunner())
   // No claude CLI: no Ask Claude anywhere; the setting's description says how to get it.
   watchClaudeCli(context)
   registerCommands(context, {
