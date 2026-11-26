@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { checkState, conflictOf, hashProblems, isDefaultBranch, localStatus, readCheck, stateWords, validateCheck, writeCheck } from '../../cli/understanding.mjs'
-import { commitAll, gitIn, grow, ID, repo, root, sh, smallRepo, stashUntracked, verdicts } from './helpers/repos.mjs'
+import { bareRemote, commitAll, gitIn, grow, ID, repo, root, sh, smallRepo, stashUntracked, verdicts } from './helpers/repos.mjs'
 import { answerAll, ci, EXIT, gitlabEnv, grade, run, SCRIPT, writeQuestions } from './helpers/cli.mjs'
 
 test('status: what to do next, locally', async () => {
@@ -41,7 +41,8 @@ test('checkState: one word for where the check stands', () => {
   // Uncommitted lines past the limit: a top-up is due once they are committed.
   grow(d, 45, { commit: false, name: 'w' })
   assert.deepEqual(checkState(localStatus(d)), { phase: 'drift', commitFirst: true, passed: 2, done: 3, total: 3, needed: 2, maxDrift: 40, grew: 45 })
-  assert.equal(stateWords(localStatus(d).state).bar, 'Needs top-up: +45 lines')
+  // New work, not a fault: neutral, counted in questions; the lines are in the title (the status bar's tooltip).
+  assert.deepEqual(stateWords(localStatus(d).state), { tone: 'todo', bar: 'Understanding: +1 question', title: 'Your change grew by 45 code lines', line: 'Commit, then add 1 question about the new lines.', rule: 'Answer all 3 · 2 must pass' })
   commitAll(d, 'more')
   assert.equal(checkState(localStatus(d)).commitFirst, false)
 })
@@ -51,6 +52,33 @@ test('the default branch: one line, no check here', () => {
   gitIn(d, 'checkout', '-q', 'main')
   const st = localStatus(d)
   assert.deepEqual(stateWords(st.state, st), { tone: 'ok', bar: '', title: 'main: no check here', line: '', rule: '' })
+})
+
+test('the default branch with a scratch edit or a staged rename: no check here, no nudge to commit or start', async () => {
+  const d = repo()
+  gitIn(d, 'checkout', '-q', 'main')
+  // Cloned: main is compared with origin/main, so an edit on main is a change of its own.
+  gitIn(d, 'remote', 'add', 'origin', bareRemote())
+  gitIn(d, 'push', '-q', 'origin', 'main')
+  gitIn(d, 'remote', 'set-head', 'origin', 'main')
+  const quiet = async () => {
+    const st = localStatus(d)
+    assert.equal(st.state.phase, 'nothing')
+    assert.deepEqual(stateWords(st.state, st), { tone: 'ok', bar: '', title: 'main: no check here', line: '', rule: '' })
+    const r = await run(d, ['status'])
+    assert.equal(r.out.split('\n')[0], 'main: no check here')
+    assert.doesNotMatch(r.out, /Check my understanding|Without VS Code|Commit/)
+  }
+  // Five lines deleted while walking a journey, not committed.
+  fs.writeFileSync(path.join(d, 'src/app.js'), 'export function main() {\n')
+  assert.ok(localStatus(d).changed > 0)
+  await quiet()
+  gitIn(d, 'checkout', '-q', '--', 'src/app.js')
+  gitIn(d, 'mv', 'src/app.js', 'src/main.js')
+  await quiet()
+  // Committed on main too: still no check there.
+  commitAll(d, 'rename')
+  await quiet()
 })
 
 test('the default branch is one rule: origin/HEAD when known, else main/master, plus the branch compared with', () => {
