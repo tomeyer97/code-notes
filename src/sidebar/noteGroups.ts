@@ -15,21 +15,25 @@ export const sevRank = (n: Note) => SEV_RANK[n.data.severity ?? 'medium']
 export const rowOrder = (a: Note, b: Note) =>
   sevRank(a) - sevRank(b) || (a.data.target ? 0 : 1) - (b.data.target ? 0 : 1) || order(a, b)
 
+/** The order of notes in a session (a review, read as one list): severity, then by file, then as under a file row. */
+export const sessionOrder = (a: Note, b: Note) =>
+  sevRank(a) - sevRank(b) || a.data.file.localeCompare(b.data.file) || rowOrder(a, b)
+
 /** What a session's row counts: its notes listed, those with unread replies, and resolved ones out of all of its notes. */
 export interface SessionCounts { unread: number; resolved: number; total: number }
-/** What a file row counts: its stale notes and its unread messages. */
-export interface FileCounts { stale: number; newMessages: number }
+/** What a file row counts: its stale notes and its notes with something unread. */
+export interface FileCounts { stale: number; unread: number }
 
 /** What a row shows that depends on the other rows. */
 export interface RowFacts {
-  /** The note is a row of its own (no file row above it): the row names its file. */
+  /** No file row above the note's row (in a session, or in the Journeys view): the row names its file. */
   alone(n: Note): boolean
   session(name: string): SessionCounts
   file(key: string): FileCounts
 }
 
 const NO_SESSION: SessionCounts = { unread: 0, resolved: 0, total: 0 }
-const NO_FILE: FileCounts = { stale: 0, newMessages: 0 }
+const NO_FILE: FileCounts = { stale: 0, unread: 0 }
 
 /** What the layout is made from (the notes model's answers, read once). */
 export interface LayoutInput {
@@ -43,31 +47,27 @@ export interface LayoutInput {
   unread(n: Note): number
 }
 
-/** The key of the file row a note falls in, under `scope`. */
-const fileKeyOf = (n: Note, scope: string | undefined) => sessionFileKey(scope, n.folder.uri, n.data.file)
-
 export class NotesLayout implements RowFacts {
-  /** The top rows: note files that can't be used, the sessions (when grouped by session), then the notes by file. */
+  /** The top rows: note files that can't be used, the sessions (when grouped by session), then the files. */
   readonly roots: NoteNode[]
   private readonly kids = new Map<string, NoteNode[]>()
   private readonly parents = new Map<string, NoteNode>()
   private readonly sessions = new Map<string, SessionCounts>()
   private readonly files = new Map<string, FileCounts>()
-  /** How many listed notes fall in each file row's key. */
-  private readonly perFile = new Map<string, number>()
+  /** The notes listed under a file row (by id). */
+  private readonly inFile = new Set<string>()
 
   constructor(private readonly input: LayoutInput) {
     const grouped = input.listed.filter((n) => input.scopeOf(n) !== undefined)
     const loose = input.listed.filter((n) => input.scopeOf(n) === undefined)
-    this.roots = [...input.broken, ...this.sessionRows(grouped), ...this.fileRows(loose, undefined)]
+    this.roots = [...input.broken, ...this.sessionRows(grouped), ...this.fileRows(loose)]
   }
 
   children(node: NoteNode): NoteNode[] { return this.kids.get(keyOf(node)) ?? [] }
 
   parent(node: NoteNode): NoteNode | undefined { return this.parents.get(keyOf(node)) }
 
-  /** At most one listed note in its file (itself, or one other when it is not listed: a step's question). */
-  alone(n: Note): boolean { return (this.perFile.get(fileKeyOf(n, this.input.scopeOf(n))) ?? 0) <= 1 }
+  alone(n: Note): boolean { return !this.inFile.has(n.data.id) }
 
   session(name: string): SessionCounts { return this.sessions.get(name) ?? NO_SESSION }
 
@@ -93,32 +93,29 @@ export class NotesLayout implements RowFacts {
         resolved: all.filter((n) => n.data.status === 'resolved').length,
         total: all.length,
       })
-      this.under(node, this.fileRows(list, name))
+      // A review reads as one list, most severe first: no file rows inside a session.
+      this.under(node, [...list].sort(sessionOrder).map(noteNode))
       return node
     }).sort((x, y) => hasNew(x.notes) - hasNew(y.notes) || latest(y.notes).localeCompare(latest(x.notes)))
   }
 
-  /** Notes grouped by file (or folder); a file with one note is that note's row. */
-  private fileRows(list: Note[], session: string | undefined): NoteNode[] {
+  /** Notes grouped by file (or folder), by path; a file with one note is a file row too (one shape to scan). */
+  private fileRows(list: Note[]): NoteNode[] {
     const groups = new Map<string, FileNode>()
     for (const n of list) {
-      const key = fileKeyOf(n, session)
-      if (!groups.has(key)) groups.set(key, fileNode(n, session, []))
+      const key = sessionFileKey(undefined, n.folder.uri, n.data.file)
+      if (!groups.has(key)) groups.set(key, fileNode(n, []))
       groups.get(key)!.notes.push(n)
-      this.perFile.set(key, (this.perFile.get(key) ?? 0) + 1)
+      this.inFile.add(n.data.id)
     }
     // A stable order: the list must not jump while an agent writes; unread shows as dots.
-    // In a session (a review): the most severe findings first, then by file.
-    const worst = (g: FileNode) => (session !== undefined ? Math.min(...g.notes.map(sevRank)) : 0)
-    return [...groups.values()]
-      .sort((a, b) => worst(a) - worst(b) || a.file.localeCompare(b.file))
-      .map((g) => (g.notes.length === 1 ? noteNode(g.notes[0]) : this.fileRow(g)))
+    return [...groups.values()].sort((a, b) => a.file.localeCompare(b.file)).map((g) => this.fileRow(g))
   }
 
   private fileRow(g: FileNode): FileNode {
     this.files.set(g.key, {
       stale: g.notes.filter((n) => n.data.stale).length,
-      newMessages: g.notes.reduce((a, n) => a + this.input.unread(n), 0),
+      unread: g.notes.filter((n) => this.input.unread(n) > 0).length,
     })
     this.under(g, [...g.notes].sort(rowOrder).map(noteNode))
     return g

@@ -229,6 +229,16 @@ export const notesTests = [
     await until('all shown', () => bySession('Visual review')?.hasThread && bySession('Classic review')?.hasThread)
   }),
 
+  test('Show Only This Session leaves an open thread open (folding it would drop a reply being typed)', async () => {
+    const classic = needs(bySession('Classic review'), 'sessions: hide, show only, show all')
+    await vscode.commands.executeCommand('codeNotes.reveal', { thread: await until('thread', () => ctx.api.thread(classic.id)) })
+    await until('its thread open', () => bySession('Classic review')?.threadExpanded)
+    await vscode.commands.executeCommand('codeNotes.showOnlySession', { kind: 'session', name: 'Visual review', notes: [] })
+    await quiet(600, 'the open thread folded or removed')
+    assert.ok(bySession('Classic review')?.hasThread && bySession('Classic review')?.threadExpanded, 'the open thread is left as it was')
+    await vscode.commands.executeCommand('codeNotes.showAllSessions')
+  }),
+
   test('invalid ranges, statuses and empty notes are reported as unreadable', async () => {
     // Reported, not shown as normal notes.
     const brokenBefore = snap().broken

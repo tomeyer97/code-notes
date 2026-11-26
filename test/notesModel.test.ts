@@ -46,6 +46,25 @@ test('query: the filter lists open notes, resolved ones when shown or unread, st
   assert.equal(q.count('all'), 4)
 })
 
+test('query: Unread with resolved notes hidden lists no resolved note (an unread resolve stays under All)', () => {
+  const open = note('o'), done = note('r', { status: 'resolved' })
+  const q = new NotesQuery(facts([open, done], { unread: () => 1, revealed: () => 'r' }))
+  assert.equal(q.listedUnder(done, 'unread'), false)
+  assert.equal(q.listedUnder(open, 'unread'), true)
+  assert.equal(q.listedUnder(done, 'all'), true)
+  assert.equal(q.count('unread'), 1)
+  q.showResolved = true
+  assert.equal(q.listedUnder(done, 'unread'), true)
+})
+
+test('query: an open thread is never hidden in the editor with its session', () => {
+  const a = note('a', { session: 'Review' })
+  const q = new NotesQuery(facts([a], { hiddenSessions: () => new Set(['Review']) }))
+  assert.equal(q.hiddenInEditor(a), true)
+  q.keepInEditor = (id) => id === 'a'
+  assert.equal(q.hiddenInEditor(a), false)
+})
+
 test('query: a check question is never listed; the note just opened is listed as unread', () => {
   const a = note('a'), b = note('b')
   const opened: { id?: string } = {}
