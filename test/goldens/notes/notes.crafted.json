@@ -74,9 +74,26 @@
           "role": "human",
           "at": "2026-11-17T11:00:00Z"
         }
+      ],
+      "otherEvents": [
+        {
+          "index": 1,
+          "event": {
+            "type": "deleted",
+            "by": "x",
+            "at": "y"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "type": "reopened",
+            "at": 3
+          }
+        }
       ]
     },
-    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"a\",\n    \"before\": \"b\",\n    \"after\": \"c\",\n    \"commit\": \"abc1234\",\n    \"branch\": \"feat/x\"\n  },\n  \"session\": \"Review · api\",\n  \"claudeSession\": \"sess-1\",\n  \"selection\": {\n    \"text\": \"total\",\n    \"startCol\": 8,\n    \"endCol\": 13\n  },\n  \"status\": \"resolved\",\n  \"stale\": true,\n  \"createdAt\": \"2026-11-17T09:00:00Z\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"Because the queue is at-least-once.\",\n      \"at\": \"2026-11-17T10:05:00Z\"\n    }\n  ],\n  \"severity\": \"medium\",\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"role\": \"human\",\n      \"at\": \"2026-11-17T11:00:00Z\"\n    }\n  ]\n}\n"
+    "written": "{\n  \"version\": 1,\n  \"id\": \"n1\",\n  \"file\": \"api/orders.js\",\n  \"range\": {\n    \"start\": 3,\n    \"end\": 5\n  },\n  \"anchor\": {\n    \"text\": \"a\",\n    \"before\": \"b\",\n    \"after\": \"c\",\n    \"commit\": \"abc1234\",\n    \"branch\": \"feat/x\"\n  },\n  \"session\": \"Review · api\",\n  \"claudeSession\": \"sess-1\",\n  \"selection\": {\n    \"text\": \"total\",\n    \"startCol\": 8,\n    \"endCol\": 13\n  },\n  \"status\": \"resolved\",\n  \"stale\": true,\n  \"createdAt\": \"2026-11-17T09:00:00Z\",\n  \"messages\": [\n    {\n      \"author\": \"ann\",\n      \"role\": \"human\",\n      \"body\": \"Why is this retried?\",\n      \"at\": \"2026-11-17T10:00:00Z\"\n    },\n    {\n      \"author\": \"Claude\",\n      \"role\": \"agent\",\n      \"body\": \"Because the queue is at-least-once.\",\n      \"at\": \"2026-11-17T10:05:00Z\"\n    }\n  ],\n  \"severity\": \"medium\",\n  \"events\": [\n    {\n      \"type\": \"resolved\",\n      \"by\": \"ann\",\n      \"role\": \"human\",\n      \"at\": \"2026-11-17T11:00:00Z\"\n    },\n    {\n      \"type\": \"deleted\",\n      \"by\": \"x\",\n      \"at\": \"y\"\n    },\n    {\n      \"type\": \"reopened\",\n      \"at\": 3\n    }\n  ]\n}\n"
   },
   {
     "name": "unknown fields kept, in place",

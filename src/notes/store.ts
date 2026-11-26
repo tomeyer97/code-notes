@@ -7,6 +7,7 @@ import { fileName, jsonFilesIn, jsonName, readText, watchJsonFiles } from '../pl
 import { NoteData, merge, parseNote, serialize, titleOf } from '../core/format/noteModel'
 import { SaveFailures } from '../platform/saveFailures'
 import { exists, notFound, statOf } from '../platform/exists'
+import { sleep } from './timing'
 import { report } from '../platform/run'
 import { folderName, notesDir, setUpFolder, trashUri, writeReadme } from './notesFolder'
 import { fitTarget, isRangelessFileNote } from './model/target'
@@ -46,6 +47,8 @@ type FileRead = { note?: Note; before?: NoteData }
  * the old content or the new one, never a half-written file (the flaky "note history" test read a truncated file).
  */
 let tmpSeq = 0
+/** How often a save looks again at a note file being written. */
+const WRITING_POLL_MS = 100
 const encoder = new TextEncoder()
 export async function writeAtomic(uri: vscode.Uri, text: string): Promise<void> {
   // One temp file per write: two saves of a note at once must not rename each other's file away.
@@ -78,6 +81,8 @@ export class Store implements vscode.Disposable {
   private watchers: vscode.Disposable[] = []
   /** Saves that failed, said once each and together. */
   private readonly saveFailures: SaveFailures
+  /** How long a save waits for a note file that can't be read (an agent half-way through writing it) to parse again. */
+  writingWaitMs = 3000
 
   constructor(private log: vscode.LogOutputChannel, private person: () => string) {
     this.saveFailures = new SaveFailures(log, folderName)
@@ -232,11 +237,9 @@ export class Store implements vscode.Disposable {
     let merged = false
     if (n.raw !== undefined) {
       // Undefined: deleted, write ours.
-      const disk = await readText(n.uri)
-      if (disk !== undefined && disk !== n.raw) {
-        const read = parseNote(disk, n.data.id)
-        if (!read.ok) { this.log.appendLine(`${n.uri.fsPath}: not saved, the file is being written (${read.why})`); return false }
-        const theirs = read.value
+      const theirs = await this.changedOnDisk(n)
+      if (theirs === false) return false
+      if (theirs) {
         n.data = merge(n.base ?? theirs, n.data, theirs)
         this.log.appendLine(`${n.uri.fsPath}: merged a change made on disk`)
         merged = true
@@ -260,6 +263,26 @@ export class Store implements vscode.Disposable {
     return true
   }
 
+  /**
+   * The note as its file has it now, when that changed since we read it (undefined: unchanged or gone). A file that
+   * can't be read is waited for (an agent writing it in two steps); false when it stays so: our change can't be
+   * merged, and overwriting would lose theirs. Said, not only logged: the caller's change is not saved.
+   */
+  private async changedOnDisk(n: Note): Promise<NoteData | undefined | false> {
+    const until = Date.now() + this.writingWaitMs
+    for (;;) {
+      const disk = await readText(n.uri)
+      if (disk === undefined || disk === n.raw) return undefined
+      const read = parseNote(disk, n.data.id)
+      if (read.ok) return read.value
+      if (Date.now() >= until) {
+        this.saveFailures.report(n.uri, new Error(`the file can't be read (${read.why}); fix it or try again`))
+        return false
+      }
+      await sleep(WRITING_POLL_MS)
+    }
+  }
+
   /** Moves the note's file to <folder>/.trash/ (restore brings it back). */
   async trash(n: Note): Promise<void> {
     this.forget(n.uri)
@@ -269,21 +292,45 @@ export class Store implements vscode.Disposable {
     this.changed.fire({ kind: 'removed', ids: [n.data.id] })
   }
 
-  /** Brings a trashed note back: its file from the trash, else (not there, or a file is in its place) written again
-   *  from memory. */
+  /**
+   * Brings a trashed note back: its file from the trash, else (not there) written again from memory. A note written
+   * under its id since (an agent's) is never overwritten: this one comes back under a new id beside it.
+   */
   async restore(n: Note): Promise<void> {
-    if (!(await this.fromTrash(n))) await this.save({ ...n, raw: undefined })
-    this.put(n)
+    const trashed = trashUri(n.folder, n.uri)
+    const back = (await exists(n.uri)) ? 'taken' : await this.fromTrash(n, trashed)
+    if (back === 'done') this.put(n)
+    else {
+      if (back === 'taken' || (await exists(n.uri))) await this.renameFree(n)
+      n.raw = undefined
+      // The trash copy is this note: gone once it is back.
+      if (await this.save(n)) await wfs.remove(trashed).catch((e) => { if (!notFound(e)) report(e, { what: `removing ${trashed.fsPath}` }) })
+    }
     this.changed.fire({ kind: 'removed', ids: [n.data.id] })
   }
 
-  /** The note's file renamed back from the trash; false when that can't be done. */
-  private async fromTrash(n: Note): Promise<boolean> {
-    try { await wfs.rename(trashUri(n.folder, n.uri), n.uri, { overwrite: false }); return true } catch (e) {
-      const expected = notFound(e) || (e instanceof vscode.FileSystemError && e.code === 'FileExists')
-      if (!expected) report(e, { what: `restoring ${n.uri.fsPath} from the trash` })
-      return false
+  /** The note's file renamed back from the trash: done, or why not (no trash copy, a file in its place, failed). */
+  private async fromTrash(n: Note, trashed: vscode.Uri): Promise<'done' | 'gone' | 'taken' | 'failed'> {
+    try { await wfs.rename(trashed, n.uri, { overwrite: false }); return 'done' } catch (e) {
+      if (notFound(e)) return 'gone'
+      if (e instanceof vscode.FileSystemError && e.code === 'FileExists') return 'taken'
+      report(e, { what: `restoring ${n.uri.fsPath} from the trash` })
+      return 'failed'
     }
+  }
+
+  /** Gives the note a new id (`<id>-restored`, `-restored-2`, …) whose file is free. */
+  private async renameFree(n: Note): Promise<void> {
+    const was = n.uri
+    for (let k = 1; ; k++) {
+      const id = `${n.data.id}-restored${k > 1 ? `-${k}` : ''}`
+      const uri = vscode.Uri.joinPath(n.uri, '..', `${id}.json`)
+      if (await exists(uri)) continue
+      n.data.id = id
+      n.uri = uri
+      break
+    }
+    this.log.warn(`${was.fsPath}: a note was written under its id since it was deleted; it stays, and the deleted one is back as ${n.data.id}`)
   }
 
   /** The README for agents, naming the person. */
