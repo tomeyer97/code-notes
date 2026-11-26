@@ -6,9 +6,8 @@
 /** The contributed commands (package.json), by name; the comment is the title the palette shows. */
 export const Cmd = {
   add: 'codeNotes.add', // Add Note
-  addQuick: 'codeNotes.addQuick', // Add One-Line Note
   reply: 'codeNotes.reply', // Reply
-  createFromThread: 'codeNotes.createFromThread', // Add Note
+  createFromThread: 'codeNotes.createFromThread', // Save Note
   reveal: 'codeNotes.reveal', // Open Thread
   resolve: 'codeNotes.resolve', // Resolve
   reopen: 'codeNotes.reopen', // Reopen
@@ -31,10 +30,9 @@ export const Cmd = {
   find: 'codeNotes.find', // Find Note…
   refresh: 'codeNotes.refresh', // Reload Notes
   copyAgentPrompt: 'codeNotes.copyAgentPrompt', // Copy Prompt for Agent
-  replyResolve: 'codeNotes.replyResolve', // Reply & Resolve
   hideSession: 'codeNotes.hideSession', // Hide Session in Editor
   showSession: 'codeNotes.showSession', // Show Session in Editor
-  showOnlySession: 'codeNotes.showOnlySession', // Show Only This Session
+  showOnlySession: 'codeNotes.showOnlySession', // Show Only This Session in Editor
   showAllSessions: 'codeNotes.showAllSessions', // Show All Sessions
   resolveSession: 'codeNotes.resolveSession', // Resolve Session…
   deleteSession: 'codeNotes.deleteSession', // Delete Session…
@@ -50,7 +48,7 @@ export const Cmd = {
   restoreBroken: 'codeNotes.restoreBroken', // Restore Last Good Version
   collapseThread: 'codeNotes.collapseThread', // Show Fewer Replies
   openJourney: 'codeNotes.openJourney', // Open Journey…
-  askQuestion: 'codeNotes.askQuestion', // Ask a Question About the Code…
+  askQuestion: 'codeNotes.askQuestion', // Find or Write a Journey…
   startJourney: 'codeNotes.startJourney', // Start Journey
   nextStep: 'codeNotes.nextStep', // Next Step
   previousStep: 'codeNotes.previousStep', // Previous Step
@@ -81,6 +79,11 @@ export const Cmd = {
   answerCheck: 'codeNotes.answerCheck', // Answer
   gradeCheck: 'codeNotes.gradeCheck', // Grade the Answer Again
   checkConcern: 'codeNotes.checkConcern', // Act on a Concern Found During the Check
+  // A check concern's actions, buttons on its thread.
+  concernFix: 'codeNotes.concernFix', // Suggest a Fix
+  concernTodo: 'codeNotes.concernTodo', // Add TODO
+  concernFlag: 'codeNotes.concernFlag', // Flag for Reviewer
+  concernDismiss: 'codeNotes.concernDismiss', // Dismiss Concern
   pickJourneyStep: 'codeNotes.pickJourneyStep', // Pick a Journey Step Here
   searchJourneys: 'codeNotes.searchJourneys', // Search Journeys
   sortJourneys: 'codeNotes.sortJourneys', // Sort Journeys
@@ -103,12 +106,13 @@ export const HiddenCmd = {
   podcastFollow: 'codeNotes.podcastFollow',
   /** A thread's links run through this one with a short key (shortLinks below). */
   link: 'codeNotes.link',
-  /** A check concern's actions on its thread (menus on the thread, not links in the text). */
-  concernFix: 'codeNotes.concernFix',
-  concernTodo: 'codeNotes.concernTodo',
-  concernFlag: 'codeNotes.concernFlag',
+  /** A concern marked fixed (the commit that fixes it does this; no button). */
   concernFixed: 'codeNotes.concernFixed',
-  concernDismiss: 'codeNotes.concernDismiss',
+  /** Not contributed (no menu or key runs them); still registered for keybindings people wrote themselves. */
+  addQuick: 'codeNotes.addQuick',
+  replyResolve: 'codeNotes.replyResolve',
+  /** Esc in a new note box (the manifest's key). */
+  closeNoteBox: 'codeNotes.closeNoteBox',
   notesFocus: 'codeNotes.notes.focus',
   journeysFocus: 'codeNotes.journeys.focus',
   checkFocus: 'codeNotes.check.focus',
