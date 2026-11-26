@@ -7,7 +7,7 @@ import { watched, WATCHED, overflowing } from './report.js'
 import { codeSpans, plainText } from './codeSpans.js'
 import { runTestMessage } from './map/testHooks.js'
 import { QSTATE } from '../src/protocol/check'
-import { answerBoxes } from './checkAnswer.js'
+import { answerBoxes, warned } from './checkAnswer.js'
 
 /** @typedef {import('../src/protocol/check').ToCheck} ToCheck */
 /** @typedef {import('../src/protocol/check').FromCheck} FromCheck */
@@ -163,7 +163,11 @@ function row(r, answer) {
   const text = watched(el('span', 'text'))
   text.append(...codeSpans(r.text))
   body.append(text, watched(el('span', 'meta', metaLine(r))))
-  if (r.flag) body.append(watched(el('span', 'flag', `⚠ ${r.flag}`)))
+  if (r.flag) {
+    const flag = watched(el('span', 'flag'))
+    flag.append(...warned(r.flag))
+    body.append(flag)
+  }
   b.append(icon, body)
   li.append(b)
   if (answer && answer.id === r.id) li.append(answers.box(answer, r))

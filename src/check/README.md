@@ -25,7 +25,7 @@ the threads are a view of it, kept in sync both ways. Where the check stands com
 | concern.ts | concerns about the code (fix, TODO, flag, dismiss; the TODO's text in todoComment.ts, its edit in editor.ts) |
 | push.ts | Commit & push (its git calls in pushGit.ts) |
 | park.ts | a check moved aside while another branch is checked out |
-| background.ts | questions written after a push (pushSeen.ts says when one happened) |
+| background.ts | questions written after a push, in a repository that uses the check (backgroundRule.ts decides; pushSeen.ts says when one happened) |
 | invalidFile.ts | a check file that can't be read |
 | view.ts | the Check view's webview |
 | statusItem.ts | the status bar item |

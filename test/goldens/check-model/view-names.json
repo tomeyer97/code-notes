@@ -66,6 +66,7 @@
     "VIEW_ID": "codeNotes.check",
     "STATUS_ITEM_ID": "codeNotes.understanding",
     "CHECK_OPEN_CONTEXT": "codeNotes.checkOpen",
+    "CHECK_ON_BASE_CONTEXT": "codeNotes.checkOnBase",
     "INSTALL_URL": "https://claude.com/claude-code",
     "SETTINGS": {
       "model": "understanding.model",
