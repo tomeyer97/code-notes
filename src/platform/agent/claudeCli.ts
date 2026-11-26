@@ -87,7 +87,14 @@ export class ClaudeCliFinder {
   private found?: { key: string; cli?: string }
   private searching?: { key: string; search: Promise<string | undefined> }
 
-  constructor(private readonly search = findClaude) {}
+  /**
+   * `onSkipped`: the setting names no program, so `used` (another install, or none) runs instead; said once per
+   * search, so a typo never quietly runs (and bills) a different install.
+   */
+  constructor(
+    private readonly search = findClaude,
+    private readonly onSkipped?: (setting: string, used: string | undefined) => void,
+  ) {}
 
   /** The CLI for `setting`: the answer found before, else a search (one at a time per setting and PATH). */
   find(setting: string | undefined): Promise<string | undefined> {
@@ -95,7 +102,11 @@ export class ClaudeCliFinder {
     if (this.found?.key === key) return Promise.resolve(this.found.cli)
     if (this.searching?.key === key) return this.searching.search
     const search = this.search(setting).then((cli) => {
-      if (this.searching?.search === search) { this.found = { key, cli }; this.searching = undefined }
+      if (this.searching?.search === search) {
+        this.found = { key, cli }
+        this.searching = undefined
+        if (setting && cli !== setting) this.onSkipped?.(setting, cli)
+      }
       return cli
     })
     this.searching = { key, search }

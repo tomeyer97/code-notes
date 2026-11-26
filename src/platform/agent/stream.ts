@@ -13,6 +13,8 @@ export interface AskResult {
   text: string
   sessionId?: string
   costUsd?: number
+  /** The model that answered, as Claude Code named it at the start. */
+  model?: string
   error?: string
   errorKind?: AskErrorKind
   cancelled?: boolean
@@ -26,6 +28,8 @@ export type AskErrorKind = 'no-cli'
 
 /** The events of a stream-json line that a run reads; every other line is `undefined`. */
 export type StreamEvent =
+  /** The session starts, with the model it runs. */
+  | { kind: 'init'; model?: string }
   /** A new assistant message starts (a paragraph break in the text so far). */
   | { kind: 'message-start' }
   /** More of the answer's text. */
@@ -75,6 +79,8 @@ export function readLine(line: string): StreamEvent | undefined {
       return isObject(e.event) ? streamEvent(e.event) : undefined
     case 'assistant':
       return assistantEvent(e.message)
+    case 'system':
+      return e.subtype === 'init' ? { kind: 'init', model: str(e.model) } : undefined
     case 'result':
       return {
         kind: 'result',
@@ -109,6 +115,7 @@ export interface FoldState {
   text: string
   activity?: string
   tool?: ToolCall
+  model?: string
   result?: AskResult
 }
 
@@ -116,6 +123,9 @@ export interface FoldState {
 export function foldEvent(state: FoldState, line: string): boolean {
   const ev = readLine(line)
   switch (ev?.kind) {
+    case 'init':
+      state.model = ev.model
+      return false
     case 'message-start':
       if (!state.text || state.text.endsWith('\n\n')) return false
       state.text += '\n\n'
@@ -136,6 +146,7 @@ export function foldEvent(state: FoldState, line: string): boolean {
         text: ev.text ?? state.text,
         sessionId: ev.sessionId,
         costUsd: ev.costUsd,
+        ...(state.model ? { model: state.model } : {}),
         ...(ev.isError ? { error: ev.text ?? 'Claude reported an error' } : {}),
       }
       return true
