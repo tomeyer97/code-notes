@@ -1,9 +1,11 @@
 // The connection to a controller (src/core/bridge/client.ts, backoff.ts) against a real WebSocket server
 // (helpers/wsServer.ts) with Node's own WebSocket: the hello with the token, requests answered, dialling again after
-// a drop with a backoff of 1 s to 30 s, and the discovery file (watch.ts) followed end to end.
+// a drop with a backoff of 1 s to 30 s, several addresses tried in turn, and the discovery file (watch.ts) followed
+// end to end.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
+import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
 import { Backoff } from '../src/core/bridge/backoff'
@@ -15,12 +17,20 @@ import { FakeController } from './helpers/wsServer'
 
 const dial = (url: string) => new WebSocket(url) as unknown as SocketLike
 
-/** Real timers, a waited delay shortened to 10 ms; every delay asked for is kept. */
+/** The dial timeout in these tests: long enough for a dial on this machine, short enough to wait for. */
+const DIAL_TIMEOUT = 300
+
+/** Real timers, a waited delay shortened to 10 ms; every delay asked for is kept. The dial timeout runs as it is and
+ *  is not kept: it is no wait between dials. */
 function fastTimers() {
   const asked: number[] = []
   return {
     asked,
-    set: (fn: () => void, ms: number) => { asked.push(ms); return setTimeout(fn, 10) },
+    set: (fn: () => void, ms: number) => {
+      if (ms === DIAL_TIMEOUT) return setTimeout(fn, ms)
+      asked.push(ms)
+      return setTimeout(fn, 10)
+    },
     clear: (h: unknown) => clearTimeout(h as NodeJS.Timeout),
   }
 }
@@ -29,14 +39,22 @@ function fastTimers() {
 function client(timers = fastTimers(), handle?: ClientDeps['handle']) {
   const log: string[] = []
   const c = new BridgeClient({
-    dial, timers, log: (l) => log.push(l),
+    dial, timers, log: (l) => log.push(l), dialTimeoutMs: DIAL_TIMEOUT,
     hello: (t) => ({ type: 'hello', protocol: 1, token: t.token, client: 'code-notes', version: '9.9.9', window: { folders: [], remoteName: null, wslDistro: 'Ubuntu' } }),
     handle: handle ?? (async (r: BridgeRequest): Promise<BridgeResponse> => ({ type: 'response', id: r.id, ok: true, result: { echo: r.method } })),
   })
   return { c, log, timers }
 }
 
-const target = (ctl: FakeController, token = 'secret'): BridgeTarget => ({ url: ctl.url, token, name: 'Desk' })
+const target = (ctl: FakeController, token = 'secret'): BridgeTarget => ({ urls: [ctl.url], token, name: 'Desk' })
+
+/** An address where nobody listens: a port taken, then freed. */
+async function deadUrl(): Promise<string> {
+  const ctl = await new FakeController().listen()
+  const url = ctl.url
+  await ctl.close()
+  return url
+}
 
 test('Backoff: 1 s doubling to 30 s; back to 1 s after a reset', () => {
   const b = new Backoff()
@@ -131,6 +149,62 @@ test('use(): none hangs up for good; another target is dialled at once', async (
     assert.equal(c.state.dials, 2)
     assert.deepEqual(timers.asked, [], 'no dial after hanging up')
   } finally { c.dispose(); await a.close(); await b.close() }
+})
+
+test('several addresses: the second is dialled at once when the first does not answer, and kept', async () => {
+  const dead = await deadUrl()
+  const ctl = await new FakeController().listen()
+  const { c, timers } = client()
+  try {
+    c.use({ urls: [dead, ctl.url], token: 'secret', name: 'Desk' })
+    assert.equal((await ctl.until('hello', () => ctl.received[0])).token, 'secret')
+    assert.deepEqual(c.state, { target: ctl.url, connected: true, dials: 2 })
+    assert.deepEqual(timers.asked, [], 'no wait between the addresses of a round')
+  } finally { c.dispose(); await ctl.close() }
+})
+
+test('several addresses: after a drop and the wait, the one that connected is dialled first', async () => {
+  const dead = await deadUrl()
+  const ctl = await new FakeController().listen()
+  const { c, timers } = client()
+  try {
+    c.use({ urls: [dead, ctl.url], token: 'secret', name: 'Desk' })
+    await ctl.until('first hello', () => ctl.received.length === 1)
+    ctl.drop()
+    await ctl.until('second hello', () => ctl.received.length === 2 && ctl.connections === 2)
+    assert.deepEqual(timers.asked, [1000], 'the drop waits once')
+    assert.equal(c.state.dials, 3, 'the dead address is not tried before the one that connected')
+  } finally { c.dispose(); await ctl.close() }
+})
+
+test('several addresses, none answering: every one is tried each round, one wait per round', async () => {
+  const [a, b] = [await deadUrl(), await deadUrl()]
+  const { c, timers } = client()
+  try {
+    c.use({ urls: [a, b], token: 'secret', name: 'Desk' })
+    await waitFor(() => timers.asked.length >= 3)
+    c.dispose()
+    assert.deepEqual(timers.asked.slice(0, 3), [1000, 2000, 4000])
+    assert.ok(c.state.dials >= 6 && c.state.dials <= 8, `two dials per wait: ${c.state.dials}`)
+  } finally { c.dispose() }
+})
+
+test('several addresses: one that never answers is given up after the dial timeout', async () => {
+  const held: net.Socket[] = []
+  const silent = net.createServer((socket) => { held.push(socket) }) // accepts, never answers the handshake
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const ctl = await new FakeController().listen()
+  const { c, timers } = client()
+  try {
+    c.use({ urls: [`ws://127.0.0.1:${(silent.address() as net.AddressInfo).port}/`, ctl.url], token: 'secret', name: 'Desk' })
+    await ctl.until('hello after the timeout', () => ctl.received[0])
+    assert.equal(c.state.dials, 2)
+    assert.deepEqual(timers.asked, [])
+  } finally {
+    c.dispose(); await ctl.close()
+    for (const socket of held) socket.destroy()
+    silent.close()
+  }
 })
 
 test('end to end with a discovery file: found, a new port followed, gone hangs up', async () => {

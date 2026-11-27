@@ -11,9 +11,9 @@ import { extVersion, log } from '../platform/host'
 import { registerCommands } from '../platform/registerCommands'
 import { fireAndForget } from '../platform/run'
 import { cfg } from '../platform/settings'
-import { Callout } from './callout'
 import { handleRequest } from './handlers'
-import { bridgePaths, nodeTimers, readText, webSocketDialer } from './machine'
+import { ExplanationHint } from './hint'
+import { bridgeHosts, bridgePaths, nodeTimers, readText, webSocketDialer } from './machine'
 import { BridgePorts, useBridgePorts } from './ports'
 import { windowInfo } from './window'
 
@@ -21,7 +21,7 @@ export interface BridgeFeature {
   /** Looks for a controller from now on (once everything is shown: its first request finds the journeys read). */
   start(): void
   /** For tests: the discovery file used, the connection, the explanation shown. */
-  snapshot(): { file?: string; target?: string; connected: boolean; dials: number; callout: Callout['state'] }
+  snapshot(): { file?: string; target?: string; connected: boolean; dials: number; hint: ExplanationHint['state'] }
 }
 
 const enabled = () => cfg().get<boolean>('bridge.enabled', true)
@@ -32,16 +32,16 @@ const hello = (t: BridgeTarget): FromExtension =>
 
 export function activateBridge(context: vscode.ExtensionContext, ports: BridgePorts): BridgeFeature {
   useBridgePorts(ports)
-  const callout = new Callout()
+  const hint = new ExplanationHint()
   const dial = webSocketDialer()
   const client = dial && new BridgeClient({
     dial, hello, timers: nodeTimers,
-    handle: (request, controller) => handleRequest(request, { controller, callout }),
+    handle: (request, controller) => handleRequest(request, { controller, hint }),
     log: (line) => log().info(line),
   })
   let file: string | undefined
   const watch = new DiscoveryWatch({
-    paths: () => bridgePaths(discoveryOverride()), read: readText, timers: nodeTimers,
+    paths: () => bridgePaths(discoveryOverride()), read: readText, hosts: bridgeHosts, timers: nodeTimers,
     changed: (target, path) => {
       file = path
       if (target && !client) log().warn('bridge: this VS Code has no WebSocket (Node 22 or newer is needed): not connecting')
@@ -52,15 +52,15 @@ export function activateBridge(context: vscode.ExtensionContext, ports: BridgePo
     if (enabled()) fireAndForget(watch.start(), 'bridge: read the discovery file')
     else { watch.stop(); client?.use(undefined) }
   }
-  registerCommands(context, { [Cmd.dismissExplanation]: () => callout.dismiss() })
+  registerCommands(context, { [Cmd.dismissExplanation]: () => hint.dismiss() })
   let started = false
-  context.subscriptions.push(callout,
+  context.subscriptions.push(hint,
     vscode.workspace.onDidChangeConfiguration((e) => { if (started && e.affectsConfiguration('codeNotes.bridge')) follow() }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => client?.send({ type: 'window', window: windowInfo() })),
     { dispose: () => { watch.stop(); client?.dispose() } },
   )
   return {
     start: () => { started = true; follow() },
-    snapshot: () => ({ file, ...(client?.state ?? { connected: false, dials: 0 }), callout: callout.state }),
+    snapshot: () => ({ file, ...(client?.state ?? { connected: false, dials: 0 }), hint: hint.state }),
   }
 }

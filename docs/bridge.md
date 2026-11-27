@@ -15,9 +15,14 @@ While it runs, the controller writes a discovery file and removes it when it exi
 
 | field | |
 |---|---|
-| `url` | where to dial: `ws://` on a loopback address (`127.x.x.x`, `localhost`, `[::1]`); any other is ignored |
+| `url` | where to dial: `ws://` on a loopback address (`127.x.x.x`, `localhost`, `[::1]`) or, inside WSL, on the Windows host's (below); any other is ignored |
+| `urls` | optional: more addresses of the same kinds, dialled in order after `url` (either one alone is enough) |
 | `token` | a secret the extension sends back in its hello, so the controller knows the caller read this file |
 | `name` | shown as the author of the controller's explanations and notes (default `Controller`) |
+
+The extension dials the addresses in turn until one answers, and keeps that one: after a drop it dials it first, then
+the others. An address that hasn't answered within 3 seconds gives way to the next. List every address the
+controller may be reached on when it can't know which one the extension sees, as with WSL below.
 
 Where the extension looks, in order (the first usable file wins):
 
@@ -31,15 +36,18 @@ Write the file with mode `0600`, and write it whole (a temporary file renamed ov
 be used makes it hang up. With no file, the extension does nothing and says nothing. `codeNotes.bridge.enabled: false`
 turns the bridge off.
 
-From WSL, the extension dials `127.0.0.1` inside WSL: a controller on Windows is reached when WSL's **mirrored
-networking** is on (`networkingMode=mirrored` in `%USERPROFILE%\.wslconfig`).
+From WSL, a controller on Windows is reached on `127.0.0.1` when WSL's **mirrored networking** is on
+(`networkingMode=mirrored` in `%USERPROFILE%\.wslconfig`). With WSL's default networking, WSL sees Windows on its
+default gateway instead (`ip route show default` inside WSL; on Windows, the address of the `vEthernet (WSL)`
+adapter): list it too, `"urls": ["ws://172.20.48.1:47321/v1/bridge"]`, and listen on it. Inside WSL, that address is
+the only one besides loopback the extension dials: the token never leaves the computer.
 
 ## The connection
 
 Every message is one JSON text frame. When a connection opens, the extension's first message is its hello:
 
 ```json
-{"type": "hello", "protocol": 1, "token": "a long random string", "client": "code-notes", "version": "0.27.0",
+{"type": "hello", "protocol": 1, "token": "a long random string", "client": "code-notes", "version": "0.27.1",
  "window": {"folders": [{"name": "shop", "path": "/home/sam/shop", "uri": "file:///home/sam/shop"}],
             "remoteName": "wsl", "wslDistro": "Ubuntu"}}
 ```
@@ -49,8 +57,8 @@ apart by its `window`. `path` is a path on the machine the extension runs on (in
 `remoteName` is VS Code's (`wsl`, `ssh-remote`, … or `null` locally); `wslDistro` is `null` outside WSL. When the
 window's folders change, the extension sends `{"type": "window", "window": {…}}`.
 
-When the connection drops or can't be made, the extension dials again after 1 s, then 2, 4, 8, 16 and at most every
-30 s, until the file changes or goes; a connection that opens starts the waits over at 1 s.
+When the connection drops or none of the addresses can be reached, the extension dials again after 1 s, then 2, 4, 8,
+16 and at most every 30 s, until the file changes or goes; a connection that opens starts the waits over at 1 s.
 
 ## Requests
 
@@ -68,10 +76,12 @@ folders (the first that has it). The extension sends no file contents or note bo
 
 ### `reveal`
 
-`{file, start, end, text?}`: opens the file, lights the lines (with **← Back** above them, as a code link from a chat
-does) and, with `text`, shows it under the lines as an explanation (Markdown; links and HTML are not run) until the
-reader dismisses it or the next `reveal` replaces it. A `reveal` without `text` removes the last explanation. Result:
-`{start, end}`, the lines lit (`end` stops at the file's last line).
+`{file, start, end, text?}`: opens the file and lights the lines (with **← Back** above them, as a code link from a
+chat does). With `text`, the explanation shows beside them as a hint: its first line, cut short, after the first
+line lit, and the whole text (Markdown; links and HTML are not run) in a hover on the lines, under the controller's
+`name`. The hint is not a note: nothing is saved. It goes when the reader edits the file, moves the caret out of the
+lines, presses Esc, or when the next `reveal` arrives (one without `text` only removes it). Result: `{start, end}`,
+the lines lit (`end` stops at the file's last line).
 
 ### `journey.play`
 

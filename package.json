@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Understand code you did not write: notes your coding agent answers, journeys through how it works, and an understanding check before you merge.",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -920,6 +920,11 @@
         "command": "codeNotes.closeNoteBox",
         "key": "escape",
         "when": "commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty"
+      },
+      {
+        "command": "codeNotes.dismissExplanation",
+        "key": "escape",
+        "when": "codeNotes.explanationShown && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !inSnippetMode && !codeNotes.moving"
       }
     ],
     "menus": {
@@ -982,11 +987,6 @@
         }
       ],
       "comments/commentThread/title": [
-        {
-          "command": "codeNotes.dismissExplanation",
-          "group": "navigation@9",
-          "when": "commentController == codeNotes.bridge"
-        },
         {
           "command": "codeNotes.cancelClaude",
           "group": "navigation@1",
@@ -1537,7 +1537,7 @@
         },
         {
           "command": "codeNotes.dismissExplanation",
-          "when": "false"
+          "when": "codeNotes.explanationShown"
         }
       ],
       "explorer/context": [

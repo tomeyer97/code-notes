@@ -8,7 +8,7 @@ export type Read<T> = { ok: true; value: T } | { ok: false; error: string }
 const ok = <T>(value: T): Read<T> => ({ ok: true, value })
 const no = (error: string): Read<never> => ({ ok: false, error })
 
-/** The longest text a callout or note takes: a controller's explanation, not a file. */
+/** The longest text an explanation or a note takes: a controller's explanation, not a file. */
 export const MAX_TEXT = 20_000
 
 /** A frame as a request: undefined when it is not one (no id to answer: nothing is sent back). */

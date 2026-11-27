@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.27.1
+
+### Changed
+
+- **A program's explanation is a hint, not a comment.** When a program on your computer shows you lines with an
+  explanation (the bridge), the explanation appears after the first line, in the inlay hints' colours, with the whole
+  text in a hover on the lines. It goes away when you edit the file, move the caret out of the lines, press Esc, or
+  when the program shows something else. Nothing is saved.
+- **The bridge tries every address it is given.** `bridge.json` may list several addresses in `urls`; Code Notes tries
+  each in turn and keeps the one that answers. Inside WSL, a program on Windows can list the Windows host's address
+  (WSL's default gateway), so it is found without mirrored networking.
+
 ## 0.27.0
 
 ### Added

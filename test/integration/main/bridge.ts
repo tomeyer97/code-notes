@@ -1,6 +1,6 @@
 // The bridge: a local program (a controller, here helpers/wsServer.ts) drives the window over a WebSocket. It writes
 // the discovery file; the extension dials it, says hello with the token and the window's folders, and answers reveal,
-// journey.play, note.add and context.get; it dials again after a drop and hangs up when the file goes.
+// journey.play, note.add and context.get (reveal's text a transient hint); it dials again after a drop and hangs up when the file goes.
 // Source: src/bridge/ (the requests), src/core/bridge/ (discovery, the connection), src/notes/agentNote.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
@@ -9,7 +9,7 @@ import * as path from 'path'
 import assert from 'assert'
 import { readJson, test } from '../helpers'
 import { FakeController } from '../../helpers/wsServer'
-import { closeAllEditors, ctx, journeyById, noteById, notePath, snap, until, wsPath } from './context'
+import { caretAt, closeAllEditors, ctx, journeyById, lenses, noteById, notePath, snap, until, wsPath } from './context'
 import { savingTs, writeSavingJourney } from './fixtures'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -40,20 +40,46 @@ export const bridgeTests = [
     await until('connected', () => bridge().connected && bridge().file === discovery)
   }),
 
-  test('reveal: the lines open and light, the text shows under them until dismissed', async () => {
+  test('reveal: the lines open and light, the text shows beside them as a hint until dismissed', async () => {
     await closeAllEditors()
+    const notesBefore = fs.readdirSync(ctx.notesDir).sort()
     const r = await ctl.request('reveal', { file: 'src/saving.ts', start: 3, end: 8, text: 'Writes the note, then logs its id.' })
     assert.deepEqual([r.ok, r.result], [true, { start: 3, end: 8 }])
     assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, savingUri().fsPath)
     assert.deepEqual(snap().claudeLinks.lit, { uri: savingUri().toString(), start: 2, end: 7 })
-    assert.deepEqual(bridge().callout, { uri: savingUri().toString(), start: 2, end: 7, text: 'Writes the note, then logs its id.', author: 'Desk' })
+    assert.deepEqual(bridge().hint, { uri: savingUri().toString(), start: 2, end: 7, text: 'Writes the note, then logs its id.', author: 'Desk' })
+    assert.ok(!(await lenses(savingUri())).some((l) => /Writes the note/.test(l)), 'no CodeLens')
+    assert.deepEqual(fs.readdirSync(ctx.notesDir).sort(), notesBefore, 'nothing written to .code-notes/')
     await vscode.commands.executeCommand('codeNotes.dismissExplanation')
-    assert.equal(bridge().callout, undefined, 'dismissed')
-    // An absolute path, no text: lit, no callout; lines past the end end at the last line.
+    assert.equal(bridge().hint, undefined, 'dismissed (the command Esc runs)')
+    // An absolute path, no text: lit, no hint; lines past the end end at the last line.
     const abs = await ctl.request('reveal', { file: wsPath('src', 'saving.ts'), start: 10, end: 99 })
     assert.equal(abs.ok, true)
     assert.deepEqual(abs.result, { start: 10, end: savingTs.length })
-    assert.equal(bridge().callout, undefined)
+    assert.equal(bridge().hint, undefined)
+  }),
+
+  test('reveal: the hint goes when the caret leaves the lines, on an edit in the file, and on the next reveal', async () => {
+    const show = (text: string) => ctl.request('reveal', { file: 'src/saving.ts', start: 3, end: 5, text })
+    await show('one')
+    const ed = vscode.window.activeTextEditor!
+    caretAt(ed, 3)
+    await new Promise((r) => setTimeout(r, 200))
+    assert.equal(bridge().hint?.text, 'one', 'the caret within the lines: still shown')
+    caretAt(ed, 8)
+    await until('gone: the caret left the lines', () => !bridge().hint)
+
+    await show('two')
+    await ed.edit((b) => b.insert(new vscode.Position(0, 0), ' '))
+    await until('gone: an edit in the file', () => !bridge().hint)
+    await vscode.commands.executeCommand('undo')
+
+    await show('three')
+    await ctl.request('reveal', { file: 'src/saving.ts', start: 1, end: 1, text: 'four' })
+    assert.equal(bridge().hint?.text, 'four', 'the next reveal replaces it')
+    await ctl.request('reveal', { file: 'src/saving.ts', start: 1, end: 1 })
+    assert.equal(bridge().hint, undefined, 'a reveal without text removes it')
+    await vscode.commands.executeCommand('workbench.action.files.revert')
   }),
 
   test('reveal: a missing file, bad params and an unknown method are refused with the reason', async () => {
