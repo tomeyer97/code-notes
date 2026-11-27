@@ -91,12 +91,15 @@ export async function listenTo(id: string, write: () => void, { panel = true } =
 /**
  * The Listen view there and unlocked, as the first playback test leaves it, with journey `id` paused in it. The
  * view goes 3 s after nothing is listened to (src/podcast/statusItem.ts LISTENING_OFF_MS), and a new one is locked
- * until a click in it: a test whose podcast is unavailable for longer (a slow machine) puts it back with this.
+ * until a click in it: a test that leaves nothing listened to, or its podcast unavailable for longer, puts it back
+ * with this (a journey listened to keeps it).
  */
 export async function listenViewUnlocked(id: string): Promise<void> {
-  if (pod().unlocked.listen && pod().listenAlive) return
+  const ready = () => pod().listening && pod().hostIn === 'listen' && pod().unlocked.listen && pod().listenAlive
+  if (ready()) return
   await startPlaying(id)
   if (pod().playing) await pause()
+  if (ready()) return
   if (pod().mapVisible) await closePanel()
   await podUntil('the audio in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive && pod().hostVisible, MOVE_MS)
   await realClick(await frameOf('listen'), '.pod-b.play')
