@@ -283,7 +283,13 @@ export class HostPlayer {
     this.ctx.draw()
   }
   toggle() { if (this.state().playing) this.pause(); else this.play() }
+  /** The speed, said at once (as the muting is): the extension keeps it, also when it is set before the audio loads. */
   setRate(r) {
+    this.speed(r)
+    this.ctx.draw()
+    this.report(false)
+  }
+  speed(r) {
     this.audio.playbackRate = r
     this.audio.defaultPlaybackRate = r
   }
@@ -330,7 +336,8 @@ export class HostPlayer {
    *  episode before. */
   start(ep, cue) {
     Object.assign(this, freshHostState(cue.at, cue.play, cue.until))
-    this.setRate(knownRate(cue.rate))
+    // Not said here: until it loads, the audio is still the episode before's.
+    this.speed(knownRate(cue.rate))
     this.audio.muted = !!cue.muted
     this.load(ep)
   }

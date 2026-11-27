@@ -1,10 +1,11 @@
 // The Listen view (src/podcast/listenView.ts): where a journey's audio plays; the page's script, bundled as
 // out/pages/listen.js. VS Code keeps the view alive while hidden, so the episode goes on when the journey panel
-// closes. It is there only while a journey is listened to: nothing to say before one is loaded. It shows the journey,
-// the part being talked about, and the player (journey-podcast.js), which starts as the audio's host.
+// closes. It is there only while a journey is listened to and the journey panel does not have its audio: nothing to
+// say before one is loaded. It shows the journey, the part being talked about, and the player (journey-podcast.js),
+// which starts as the audio's host.
 //
-// One player on screen: while the journey panel shows this episode, the panel's player is the one to use, and this
-// view is one line (the journey, ⏸ / ▶ and the time).
+// One player on screen: while the journey panel shows this episode (the audio playing here), the panel's player is
+// the one to use, and this view is one line (the journey, ⏸ / ▶ and the time).
 //
 // Its messages both ways are src/protocol/listen.ts (ToListen, FromListen).
 import { el, connect, onMessages } from './common.js'
