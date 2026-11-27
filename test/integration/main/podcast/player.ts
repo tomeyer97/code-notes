@@ -9,11 +9,12 @@ import { ui } from '../../devtools'
 import { ctx, tour } from '../context'
 import { podcastFile } from './fixtures'
 import { codeFile, litLine, LOAD_MS, MOVE_MS, pod, podUntil, QUICK_MS } from './state'
-import { frameOf, watchConsole } from './webview'
+import { frameOf, realClick, watchConsole } from './webview'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** A command to the player, as the Listen view's buttons send it. */
-export const send = (m: { action: string; [k: string]: unknown }) => ctx.api.listenSend({ type: 'podcastCmd', ...m })
+/** A command to the player that has the audio (the Listen view, or the panel when only it may play), as the
+ *  extension passes on a button's. */
+export const send = (m: { action: string; [k: string]: unknown }) => ctx.api.hostSend({ type: 'podcastCmd', ...m })
 export const seek = (to: number) => send({ action: 'seek', to })
 /** Ctrl+' Space: play or pause. */
 export const toggle = () => vscode.commands.executeCommand('codeNotes.podcastToggle')
@@ -85,6 +86,22 @@ export async function listenTo(id: string, write: () => void, { panel = true } =
   await podUntil('its podcast is found', () => pod().journeys.includes(id), LOAD_MS)
   if (pod().session !== id || (panel && !pod().mapVisible)) await startPlaying(id)
   if (pod().playing) await pause()
+}
+
+/**
+ * The Listen view there and unlocked, as the first playback test leaves it, with journey `id` paused in it. The
+ * view goes 3 s after nothing is listened to (src/podcast/statusItem.ts LISTENING_OFF_MS), and a new one is locked
+ * until a click in it: a test whose podcast is unavailable for longer (a slow machine) puts it back with this.
+ */
+export async function listenViewUnlocked(id: string): Promise<void> {
+  if (pod().unlocked.listen && pod().listenAlive) return
+  await startPlaying(id)
+  if (pod().playing) await pause()
+  if (pod().mapVisible) await closePanel()
+  await podUntil('the audio in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive && pod().hostVisible, MOVE_MS)
+  await realClick(await frameOf('listen'), '.pod-b.play')
+  await podUntil('the Listen view\'s ▶ plays there; the view unlocked', () => pod().playing && pod().hostIn === 'listen' && pod().unlocked.listen, MOVE_MS)
+  await pause()
 }
 
 /** Every editor closed but the journey panel. */

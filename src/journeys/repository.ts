@@ -69,22 +69,26 @@ export class JourneyRepository implements vscode.Disposable {
   /**
    * Reads every journey file again (all at once), and watches their folders. Each file is read as if for the first
    * time, but the list keeps what it had until then: a journey is never missing from it (or from Open Journey) while
-   * the files are read, only the files no longer found leave it before.
+   * the files are read, only the files no longer found leave it before. A file the watcher read while the folders were
+   * listed stays: the listing may predate it.
    */
   async load(): Promise<void> {
     this.watchAll()
+    const before = new Set([...this.files.keys(), ...this.broken.keys()])
     const found = (await Promise.all(this.journeyFiles())).flatMap(({ folder, uris }) => uris.map((uri) => ({ folder, uri })))
-    this.forgetAllBut(new Set(found.map(({ uri }) => uri.toString())))
+    this.forget(before, new Set(found.map(({ uri }) => uri.toString())))
     const oldFormat = await Promise.all(found.map(({ folder, uri }) => this.read(folder, uri, { fresh: true })))
     this.keepOrder(found.map(({ uri }) => uri.toString()))
     this.logOldFormat(oldFormat.filter((name): name is string => !!name))
     this.ports.changed()
   }
 
-  /** Forgets the listed and the unreadable journey files whose URI is not in `keys` (not found any more). */
-  private forgetAllBut(keys: ReadonlySet<string>): void {
-    for (const map of [this.files, this.broken]) {
-      for (const k of [...map.keys()]) if (!keys.has(k)) map.delete(k)
+  /** Forgets the journey files (listed or unreadable) of `known` that are not in `found` (not found any more). */
+  private forget(known: ReadonlySet<string>, found: ReadonlySet<string>): void {
+    for (const k of known) {
+      if (found.has(k)) continue
+      this.files.delete(k)
+      this.broken.delete(k)
     }
   }
 

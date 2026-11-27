@@ -1,7 +1,7 @@
 // The podcast as the integration tests read it (src/testApi.ts, loaded only outside Production): what the player
 // shows and where the audio is, read through its parts, and the counts of what it did, kept here from its events.
 import { brokenLinks } from '../core/format/podcast/validate'
-import type { ToListen } from '../protocol/listen'
+import type { ToPlayer } from '../protocol/podcast'
 import type { PodcastFeature } from './index'
 import type { Podcasts } from './player'
 import type { PodcastPorts } from './ports'
@@ -16,8 +16,8 @@ export function podcastProbe(feature: PodcastFeature, ports: Pick<PodcastPorts, 
   })
   return {
     snapshot: () => snapshot(feature.player(), ports, seen),
-    /** A message for the Listen view (where the audio plays), as the extension sends it. */
-    listenSend: (m: ToListen) => feature.player().host.listen.send(m),
+    /** A command for the player that has the audio (the Listen view, or the panel), as the extension sends it. */
+    hostSend: (m: ToPlayer) => feature.player().host.send(m),
     /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
     listenIgnorePauses: (on: boolean) => { feature.player().host.listen.ignorePauses = on },
   }
