@@ -108,7 +108,7 @@ const withBinaryStep = () => journey('binary', [
 const moving = (title: string, from = 0) => journey('moving', demoSteps.slice(from).map((x) => ({ ...x, id: `m-${x.id}` })), { title })
 
 export const journeyTourTests = [
-  test('v2 journeys load (v1 and broken files skipped); steps are not notes; the group lists titles, new ones marked', async () => {
+  test('v2 journeys load (v1 and broken files skipped); steps are not notes; the view lists titles, new ones marked', async () => {
     writeLines(wsPath('src', 'flow.ts'), ['export function a() {', '  return b()', '}', '', 'export function b() {', '  return 2', '}'])
     writeLines(wsPath('src', 'flow2.ts'), ['// two', 'export const c = 3'])
     writeLines(wsPath('lib', 'mail', 'address.go'), Array.from({ length: 60 }, (_, i) => `// line ${i + 1}`))
@@ -127,14 +127,13 @@ export const journeyTourTests = [
     assert.equal(snap().notes.length, notesBefore, 'steps are not notes')
     assert.equal(snap().broken, brokenBefore, 'journey files are not read as notes')
     assert.equal(snap().badge, badgeBefore, 'steps never count as unread')
-    // 0.24: journeys have their own view (Journeys), grouped by area; the Notes view lists notes only.
+    // Journeys have their own view (Journeys); the Notes view lists notes only. Fewer than 8 journeys: one flat list,
+    // a row each (no area or "All" group above it), its length and "new" in the description.
     const rows = journeysTree()
     assert.ok(!notesTree().some((l) => /^journeys:|journey:/.test(l)), 'no journeys in the Notes view')
-    const demoRow = rows.findIndex((l) => /journey:Demo · new$/.test(l))
-    assert.ok(demoRow > 0 && /^\s+jgroup:src · 1$/.test(rows[demoRow - 1]), `Demo under its area (not said again), "new":\n${rows.join('\n')}`)
-    assert.ok(rows.some((l) => /^jgroup:All · 1$/.test(l)), `an "All" group:\n${rows.join('\n')}`)
-    // Files that never were valid journeys: one dimmed row each, after the groups.
-    assert.deepEqual(rows.slice(-2), ['badJourney: · ⚠ half-written.json', 'badJourney: · ⚠ old-v1.json'], `never-valid files are dimmed rows:\n${rows.join('\n')}`)
+    assert.ok(!rows.some((l) => /jgroup:/.test(l)), `a few journeys are not grouped:\n${rows.join('\n')}`)
+    // Files that never were valid journeys: one dimmed row each, after the journeys.
+    assert.deepEqual(rows, ['journey:Demo · 3 steps · new', 'badJourney: · ⚠ half-written.json', 'badJourney: · ⚠ old-v1.json'], `Demo a top row, "3 steps · new"; never-valid files are dimmed rows after it:\n${rows.join('\n')}`)
   }),
 
   test('Open Journey: the map and step 1\'s code, the panel at most 40 %; a read-only step card above the lines, details folded', async () => {
@@ -300,8 +299,15 @@ export const journeyTourTests = [
     assert.equal(question.session, undefined, 'a normal private note')
     assert.equal(question.unread, 0)
     const rows = journeysTree()
-    const row = rows.findIndex((l) => /^ {6}note:Step 2 · Why does b return 2\?/.test(l))
-    assert.ok(row > 0 && /^ {4}journey:Demo\b/.test(rows[row - 1]) && !/question/.test(rows[row - 1]), `listed right under its journey, with its step; no count on the row:\n${rows.join('\n')}`)
+    // The walked journey is listed once, in Continue: its questions under it there.
+    const row = rows.findIndex((l) => /^ {4}note:Step 2 · Why does b return 2\?/.test(l))
+    assert.ok(row > 1, `the question listed:\n${rows.join('\n')}`)
+    // Right under its journey (the walked one, in Continue), with its step; no question count on the journey's row.
+    assert.deepEqual(rows.slice(row - 2, row + 1).map((l) => l.replace(/ \[[^\]]*\]$/, '')), [
+      'jgroup:Continue · 1',
+      '  journey:Demo · step 2/3',
+      '    note:Step 2 · Why does b return 2? · flow.ts:8',
+    ], `listed right under its journey, with its step; no count on the row:\n${rows.join('\n')}`)
     assert.ok(!rows.some((l) => /^note:Why does b return 2/.test(l)), 'not a loose row too')
     const askedThread = await until('the asked note\'s thread', () => ctx.api.thread(question.id))
     assert.ok(!/openStepLink|About the step/.test(bodyOf(askedThread.comments[0])), 'on that very step: no back-link')

@@ -23,6 +23,11 @@ const activeUri = () => vscode.window.activeTextEditor?.document.uri.toString()
 /** What each action may call at most besides storing its place (stored in the background, not waited for). */
 const MOST: Record<string, number> = { next: 1, previous: 1, link: 1, back: 1, same: 0, chatBack: 1 }
 
+/** Opening a step (Next, Previous, Back to the step) waits for one more round trip, on purpose: an editor layout read
+ *  after the step is shown, so the code beside the journey panel keeps its 80 columns. Counted apart from MOST. */
+const LAYOUT_PROBE = 'command vscode.getEditorLayout'
+const STEP_ACTIONS = new Set(['next', 'previous', 'back'])
+
 /** The code link that goes into another file than the card's, and the one into the card's own file. */
 const TO_OTHER_FILE = 1, TO_CARD_FILE = 0
 
@@ -164,8 +169,11 @@ export const roundTripsTests = [
       await chatLinks(c, r)
       fs.rmSync(tripsPath)
       for (const [k, n] of Object.entries(MOST)) {
-        const waited = r[k].calls.filter((x) => !x.startsWith('store '))
+        // The step's layout read is waited for too; it is held to its own limit below, not to MOST.
+        const waited = r[k].calls.filter((x) => !x.startsWith('store ') && !(STEP_ACTIONS.has(k) && x === LAYOUT_PROBE))
         assert.ok(waited.length <= n, `${k}: ${waited.length} calls into the window (at most ${n}): ${waited.join(', ')}`)
+        const probes = r[k].calls.filter((x) => x === LAYOUT_PROBE).length
+        assert.ok(probes <= (STEP_ACTIONS.has(k) ? 1 : 0), `${k}: ${probes} waited layout reads (opening a step: at most one, after the step is shown; other actions: none)`)
       }
     } finally { c.dispose() }
   }),

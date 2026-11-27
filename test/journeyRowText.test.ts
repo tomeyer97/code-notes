@@ -60,8 +60,8 @@ test('a podcast: its length on the row and in the label; one that cannot play sa
   assert.equal(podcastContext(undefined), '')
 })
 
-test('questions nest under All, its areas and a row of no group only', () => {
-  assert.deepEqual([undefined, 'all', 'area:api', 'here', 'continue'].map(nestsQuestions), [true, true, true, false, false])
+test('questions nest under Continue, All, its areas and a row of no group; not under In this file', () => {
+  assert.deepEqual([undefined, 'all', 'area:api', 'here', 'continue'].map(nestsQuestions), [true, true, true, false, true])
 })
 
 test('a journey being written: its question, then the clock and what Claude is doing', () => {
