@@ -1,0 +1,91 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "",
+  "sort": "name",
+  "searchSort": "name",
+  "kind": "all",
+  "area": "worker",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13"
+      ]
+    },
+    {
+      "id": "new",
+      "label": "New",
+      "keys": [
+        "k16"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "A–Z",
+      "keys": [
+        "k11",
+        "k14",
+        "k12",
+        "k15",
+        "k17",
+        "k18"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "keys": [
+        "k13"
+      ]
+    },
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [
+        "k11",
+        "k14",
+        "k12",
+        "k15",
+        "k17",
+        "k13",
+        "k18",
+        "k16"
+      ]
+    }
+  ],
+  "count": 8,
+  "total": 35,
+  "hits": {}
+}

@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { gitRenames } from '../src/gitRenames'
+import { gitRenames, parseNameStatus, parseStatus } from '../src/platform/gitRenames'
 
 /** git in `repo` as a test user. */
 const gitIn = (repo: string) => (...a: string[]) => {
@@ -61,4 +61,12 @@ test('renames before "since" are not reported', async () => {
     const head = git('rev-parse', 'HEAD').toString().trim()
     assert.equal((await gitRenames(repo, head)).size, 0)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+/** The parsing cases journey.py check shares (test/fixtures/git-renames.json). */
+const CASES = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/git-renames.json'), 'utf8')) as Record<'nameStatus' | 'status', { what: string; text: string; renames: Record<string, string> }[]>
+
+test('rename lines read as the shared cases say', () => {
+  for (const c of CASES.nameStatus) assert.deepEqual(Object.fromEntries(parseNameStatus(c.text)), c.renames, c.what)
+  for (const c of CASES.status) assert.deepEqual(Object.fromEntries(parseStatus(c.text)), c.renames, c.what)
 })

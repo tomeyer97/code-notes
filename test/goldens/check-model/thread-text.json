@@ -1,0 +1,10 @@
+{
+  "pass": "✓ Right. The key makes it safe.",
+  "pass, no feedback": "✓ Right.",
+  "restated": "✓ Right.",
+  "retry": "Not quite. Close.\n\n**Hint:** Look at report().",
+  "retry, the grader says not quite": "Not quite: what then?",
+  "retry, no feedback": "Not quite.",
+  "explained": "It keeps it in a file.\n\n_Got it? Say it back in one sentence (optional)._",
+  "a restatement that missed": "The lock, not the lookup.\n\n_Try once more, or leave it: it is done._"
+}

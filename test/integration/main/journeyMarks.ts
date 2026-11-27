@@ -1,11 +1,13 @@
-// Marks on a walked step (src/tour/stepMarks.ts, src/marks/lights.ts, src/tour/card.ts, src/beats.ts): opening the
+// Marks on a walked step (src/tour/stepMarks.ts, src/marks/lights.ts, src/tour/card.ts, src/codeLinks/beats.ts): opening the
 // step lights its marks, each beat its own as the focus with the ones before dimmer; while there are marks the step's
 // lines get the thin grey bar and the beat's line no box; a mark not found near its lines lights nothing; marks follow
 // the step when code is inserted above it; a step without marks looks as it always did. CODE_NOTES_SHOTS: the step
 // at beat 1 without marks (before) and with them (after), dark and light.
 import * as vscode from 'vscode'
 import assert from 'assert'
-import { test, windowShot } from '../helpers'
+import { test } from '../helpers'
+import { shotsInBothThemes } from './themeShots'
+import { shiftLines } from './lineEdits'
 import { journey, step, writeJourney, writeLines } from '../fixtures'
 import { ctx, journeysDir, snap, tour, until, wsPath } from './context'
 
@@ -39,16 +41,21 @@ function writeMarksJourney(withMarks: boolean) {
   ], { title: 'Marks' }))
 }
 
-const marks = () => (tour().marks as any[]).map((x) => `${x.text}${x.style === 'focus' ? '*' : ''}`).sort().join(' | ')
+/** A mark as lit: its text, and whether it is the focus (the others are dim). */
+type Lit = { text: string; focus: boolean }
+const byText = (a: Lit, b: Lit) => a.text.localeCompare(b.text)
+/** The marks lit now, by their text. */
+const marks = (): Lit[] => (tour().marks as any[]).map((x) => ({ text: x.text, focus: x.style === 'focus' })).sort(byText)
+/** The marks lit now are exactly `want` (in any order). */
+const marksAre = (want: Lit[]) => JSON.stringify(marks()) === JSON.stringify([...want].sort(byText))
+const focus = (text: string): Lit => ({ text, focus: true })
+const dim = (text: string): Lit => ({ text, focus: false })
 const beat = (i: number) => ctx.api.mapMessage({ type: 'beat', n: 1, i })
 
 async function shots(state: string) {
   // The code at its width: the chat side bar closed.
   await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
-  await windowShot(`journey-marks-${state}-dark`, { wait: 800 })
-  await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Light Modern', vscode.ConfigurationTarget.Global)
-  await windowShot(`journey-marks-${state}-light`, { wait: 1200 })
-  await vscode.workspace.getConfiguration('workbench').update('colorTheme', undefined, vscode.ConfigurationTarget.Global)
+  await shotsInBothThemes(`journey-marks-${state}`, { dark: 800, light: 1200 })
 }
 
 export const journeyMarksTests = [
@@ -69,33 +76,29 @@ export const journeyMarksTests = [
     // After: the same journey with marks. Rewritten under the walk: the same step; the step's own mark, the focus.
     beat(-1)
     writeMarksJourney(true)
-    await until('step 1: its mark lit, to the character, the focus; the step a thin bar', () => marks() === 'total <= 0*' && tour().stepLook === 'quiet', 10000)
+    await until('step 1: its mark lit, to the character, the focus; the step a thin bar', () => marksAre([focus('total <= 0')]) && tour().stepLook === 'quiet', 10000)
     const own = tour().marks[0]
     assert.deepEqual([own.file, own.line, own.col, own.endLine, own.endCol], ['src/marked.js', 3, 6, 3, 16], 'only "total <= 0" of line 4')
     // Beat 1: its mark the focus, the step's dim; the beat's line known but not boxed.
     beat(0)
-    await until('beat 1: its mark the focus, the step\'s dim', () => marks() === 'total <= 0 | { hold: 30 }*' && tour().beat?.line === 4, 10000)
+    await until('beat 1: its mark the focus, the step\'s dim', () => marksAre([dim('total <= 0'), focus('{ hold: 30 }')]) && tour().beat?.line === 4, 10000)
     assert.equal(tour().beatBoxed, false, 'a beat with marks: no box on its line')
     assert.equal(tour().stepLook, 'quiet')
     await shots('after')
     // Beat 2: its found mark the focus, the earlier two dim; the one whose match isn't there lights nothing.
     beat(1)
-    await until('beat 2', () => marks() === 'save(cart, stock* | total <= 0 | { hold: 30 }' && tour().beat?.line === 5, 10000)
+    await until('beat 2', () => marksAre([focus('save(cart, stock'), dim('total <= 0'), dim('{ hold: 30 }')]) && tour().beat?.line === 5, 10000)
     // Beat 3 has no marks: its line boxed as always; beat 2's marks stay the focus (the newest).
     beat(2)
-    await until('beat 3: boxed, the newest marks still the focus', () => tour().beat?.line === 2 && tour().beatBoxed && marks() === 'save(cart, stock* | total <= 0 | { hold: 30 }', 10000)
+    await until('beat 3: boxed, the newest marks still the focus', () => tour().beat?.line === 2 && tour().beatBoxed && marksAre([focus('save(cart, stock'), dim('total <= 0'), dim('{ hold: 30 }')]), 10000)
     // The scene stops: back to the step's own marks.
     beat(-1)
-    await until('no beat: the step\'s mark alone', () => marks() === 'total <= 0*', 10000)
+    await until('no beat: the step\'s mark alone', () => marksAre([focus('total <= 0')]), 10000)
 
     // Code inserted above the step: the step moves, its marks with it.
-    const edit = new vscode.WorkspaceEdit()
-    edit.insert(vscode.Uri.parse(fileUri()), new vscode.Position(0, 0), '// one\n// two\n// three\n')
-    await vscode.workspace.applyEdit(edit)
+    await shiftLines(vscode.Uri.parse(fileUri()), { insert: '// one\n// two\n// three\n' })
     await until('the mark moved with the code', () => (tour().marks as any[]).length === 1 && tour().marks[0].line === 6 && tour().marks[0].text === 'total <= 0', 10000)
-    const back = new vscode.WorkspaceEdit()
-    back.delete(vscode.Uri.parse(fileUri()), new vscode.Range(0, 0, 3, 0))
-    await vscode.workspace.applyEdit(back)
+    await shiftLines(vscode.Uri.parse(fileUri()), { deleteLines: 3 })
     await until('and back', () => tour().marks[0]?.line === 3, 10000)
     await vscode.workspace.textDocuments.find((d) => d.uri.toString() === fileUri())?.save()
 

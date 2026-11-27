@@ -1,0 +1,396 @@
+{
+  "help": "understanding.mjs: an understanding check for a change (docs: https://github.com/tomeyer97/code-notes/blob/main/docs/understanding-check.md)",
+  "status.none.text": {
+    "code": 0,
+    "out": "No check yet for feat/refunds · 68 code lines changed · 3 questions, ~2 min.\n  Run \"Code Notes: Check my understanding\" in VS Code.\n  Without VS Code: add the understanding-check skill to .claude/skills (https://github.com/tomeyer97/code-notes/tree/main/skills/understanding-check), then type /understanding-check in Claude Code.\n  feat/refunds · understanding/feat-refunds.json (none yet) · 68 code lines changed"
+  },
+  "status.none.json": {
+    "branch": "feat/refunds",
+    "file": "understanding/feat-refunds.json",
+    "base": "<sha1>",
+    "baseRef": "main",
+    "head": "<sha2>",
+    "change": {
+      "files": 6,
+      "added": 67,
+      "removed": 1,
+      "exempt": [],
+      "exemptOnly": false,
+      "docsOnly": false,
+      "renamed": []
+    },
+    "changed": 68,
+    "exists": false,
+    "state": {
+      "phase": "none",
+      "changed": 68,
+      "want": 3
+    },
+    "next": "68 code lines changed · 3 questions, ~2 min."
+  },
+  "script": [
+    {
+      "args": [
+        "start",
+        "--base",
+        "main"
+      ],
+      "code": 0,
+      "out": "CHANGE: branch feat/refunds · 6 files · 68 code lines (+67 −1)\nWRITE: 3 questions, about code lines (never comments or blank lines), then `finish`. Files: api/refunds.js (+33 −0), api/restock.js (+7 −0), docker-compose.yml (+8 −0), migrations/002_refunds.sql (+10 −0), worker/alerts.js (+13 −0), worker/notify.js (+9 −1)\n\ndiff --git a/api/refunds.js b/api/refunds.js\nnew file mode 100644\nindex 0000000..a00c092\n--- /dev/null\n+++ b/api/refunds.js\n@@ -0,0 +1,33 @@\n    1 +// Refunds: staff refund part or all of an order. `key` is the request's Idempotency-Key: a retry with the\n    2 +// same key gets the refund made the first time back instead of a second refund.\n    3 +import { pool } from './pg.js'\n    4 +\n    5 +export class RefundError extends Error {\n    6 +  constructor(status, message) { super(message); this.status = status }\n    7 +}\n    8 +\n    9 +export async function createRefund(number, amount, key) {\n   10 +  if (!Number.isInteger(amount) || amount < 1) throw new RefundError(422, 'The amount must be a whole number of cents.')\n   11 +  const { rows: [prev] } = await pool.query(\n   12 +    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n   13 +  if (prev) return { refund: prev, replayed: true }\n   14 +\n   15 +  const client = await pool.connect()\n   16 +  try {\n   17 +    await client.query('BEGIN')\n   18 +    const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE number = $1 FOR UPDATE', [number])\n   19 +    if (!order) throw new RefundError(404, 'Order not found')\n   20 +    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)\n   21 +    const { rows: [refund] } = await client.query(\n   22 +      'INSERT INTO refunds (order_number, idempotency_key, amount) VALUES ($1, $2, $3) RETURNING *', [number, key, amount])\n   23 +    await client.query('UPDATE orders SET refunded = refunded + $2 WHERE number = $1', [number, amount])\n   24 +    await client.query(`INSERT INTO jobs (kind, payload) VALUES ('refund_notice', $1)`, [{ number, refund: refund.id }])\n   25 +    await client.query('COMMIT')\n   26 +    return { refund, replayed: false }\n   27 +  } catch (err) {\n   28 +    await client.query('ROLLBACK').catch(() => {})\n   29 +    throw err\n   30 +  } finally {\n   31 +    client.release()\n   32 +  }\n   33 +}\n\ndiff --git a/api/restock.js b/api/restock.js\nnew file mode 100644\nindex 0000000..1721166\n--- /dev/null\n+++ b/api/restock.js\n@@ -0,0 +1,7 @@\n    1 +// Refunded items: each refunded line is recorded, and its quantity goes back into the product's stock.\n    2 +export async function refundItems(client, number, items) {\n    3 +  for (const { sku, qty } of items) {\n    4 +    await client.query('INSERT INTO refund_items (order_number, sku, qty) VALUES ($1, $2, $3)', [number, sku, qty])\n    5 +    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])\n    6 +  }\n    7 +}\n\ndiff --git a/docker-compose.yml b/docker-compose.yml\nnew file mode 100644\nindex 0000000..3c2b3f0\n--- /dev/null\n+++ b/docker-compose.yml\n@@ -0,0 +1,8 @@\n    1 +# The shop's services as they run in production.\n    2 +services:\n    3 +  worker:\n    4 +    image: shop-worker\n    5 +    command: [\"node\", \"worker/worker.js\"]\n    6 +    environment:\n    7 +      DATABASE_URL: ${DATABASE_URL}\n    8 +      SMTP_HOST: ${SMTP_HOST}\n\ndiff --git a/migrations/002_refunds.sql b/migrations/002_refunds.sql\nnew file mode 100644\nindex 0000000..17272fe\n--- /dev/null\n+++ b/migrations/002_refunds.sql\n@@ -0,0 +1,10 @@\n    1 +-- Refunds: one row per refund. A retried request carries the same Idempotency-Key as the first one.\n    2 +CREATE TABLE IF NOT EXISTS refunds (\n    3 +  id              bigserial PRIMARY KEY,\n    4 +  order_number    integer NOT NULL REFERENCES orders(number),\n    5 +  idempotency_key text NOT NULL,\n    6 +  amount          integer NOT NULL CHECK (amount > 0),\n    7 +  created_at      timestamptz NOT NULL DEFAULT now(),\n    8 +  UNIQUE (order_number, idempotency_key)\n    9 +);\n   10 +ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded integer NOT NULL DEFAULT 0;\n\ndiff --git a/worker/alerts.js b/worker/alerts.js\nnew file mode 100644\nindex 0000000..aed8d35\n--- /dev/null\n+++ b/worker/alerts.js\n@@ -0,0 +1,13 @@\n    1 +// Low-stock alerts: when a product's stock falls under its threshold, operations get an email.\n    2 +import { pool } from '../api/pg.js'\n    3 +import { sendMail } from './notify.js'\n    4 +\n    5 +const OPS_EMAIL = process.env.OPS_EMAIL\n    6 +\n    7 +export async function checkStock() {\n    8 +  const { rows } = await pool.query('SELECT id, name, stock, low_at FROM products WHERE stock < low_at')\n    9 +  if (!rows.length || !OPS_EMAIL) return 0\n   10 +  const text = rows.map((p) => `${p.name}: ${p.stock} left`).join('\\n')\n   11 +  await sendMail(OPS_EMAIL, `Low stock: ${rows.length} products`, text)\n   12 +  return rows.length\n   13 +}\n\ndiff --git a/worker/notify.js b/worker/notify.js\nindex de496d5..01cadc8 100644\n--- a/worker/notify.js\n+++ b/worker/notify.js\n@@ -30,7 +30,15 @@ async function orderConfirmation({ number }) {\n   30    await pool.query('UPDATE orders SET receipt_sent_at = now() WHERE number = $1', [number])\n   31  }\n   32  \n      -const handlers = { order_confirmation: orderConfirmation }\n   33 +// A refund was made: tell the customer how much comes back to their card.\n   34 +async function refundNotice({ number, refund }) {\n   35 +  const { rows: [r] } = await pool.query(\n   36 +    'SELECT r.amount, o.email FROM refunds r JOIN orders o ON o.number = r.order_number WHERE r.id = $1', [refund])\n   37 +  const text = `We refunded ${(r.amount / 100).toFixed(2)} for order #${number}. It reaches your card in 3-5 days.`\n   38 +  await sendMail(r.email, `Refund for order #${number}`, text)\n   39 +}\n   40 +\n   41 +const handlers = { order_confirmation: orderConfirmation, refund_notice: refundNotice }\n   42  \n   43  // Takes the oldest due job; runs its handler; deletes it when the handler returns. A handler that throws: the\n   44  // job comes back after 2^tries seconds, and is marked dead after MAX_TRIES.\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "failure",
+        "--file",
+        "worker/notify.js",
+        "--lines",
+        "33-39",
+        "--text",
+        "If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?"
+      ],
+      "code": 0,
+      "out": "added #1 (failure) worker/notify.js:33-39 · 1 of 3\n  // A refund was made: tell the customer how much comes back to their card.\n  … }\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "edge",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "11-13",
+        "--text",
+        "What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?"
+      ],
+      "code": 0,
+      "out": "added #2 (edge) api/refunds.js:11-13 · 2 of 3\n  const { rows: [prev] } = await pool.query(\n  … if (prev) return { refund: prev, replayed: true }\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "why",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "18-20",
+        "--text",
+        "Why is the order row locked before the remaining refundable amount is checked?"
+      ],
+      "code": 0,
+      "out": "added #3 (why) api/refunds.js:18-20 · 3 of 3\n  const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE numbe\n  … if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.re\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "failure",
+        "--file",
+        "worker/alerts.js",
+        "--lines",
+        "5-12",
+        "--text",
+        "Where do the low-stock alerts end up once this runs in production?"
+      ],
+      "code": 0,
+      "out": "added #4 (failure) worker/alerts.js:5-12 · 4 of 3\n  const OPS_EMAIL = process.env.OPS_EMAIL\n  … return rows.length\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "why",
+        "--file",
+        "api/restock.js",
+        "--lines",
+        "3-6",
+        "--text",
+        "Why does every refunded unit go back into product stock, even when staff refund without a return?"
+      ],
+      "code": 0,
+      "out": "added #5 (why) api/restock.js:3-6 · 5 of 3\n  for (const { sku, qty } of items) {\n  … }\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "trivia",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "1-2",
+        "--text",
+        "What is this file about, in one sentence please?"
+      ],
+      "code": 1,
+      "out": "PROBLEM: --kind must be one of how, why, failure, edge, change\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "how",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "500-510",
+        "--text",
+        "How does the refund handler respond when the order is missing?"
+      ],
+      "code": 1,
+      "out": "PROBLEM: --lines: api/refunds.js has 34 lines\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "how",
+        "--file",
+        "README.md",
+        "--lines",
+        "1-2",
+        "--text",
+        "How does the readme describe the refunds that were added here?"
+      ],
+      "code": 1,
+      "out": "PROBLEM: README.md is not part of this change: ask about the changed files (api/refunds.js, api/restock.js, docker-compose.yml, migrations/002_refunds.sql, worker/alerts.js, worker/notify.js)\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "how",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "11-13",
+        "--text",
+        "Why?"
+      ],
+      "code": 1,
+      "out": "PROBLEM: --text is too short: ask a real question about this change\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "how",
+        "--file",
+        "api/refunds.js",
+        "--lines",
+        "11-13"
+      ],
+      "code": 1,
+      "out": "PROBLEM: --text is too short: ask a real question about this change\n"
+    },
+    {
+      "args": [
+        "add",
+        "--kind",
+        "edge",
+        "--file",
+        "api/refunds.js",
+        "--whole-file",
+        "--text",
+        "What does the refund handler answer for an order that was never paid at all?"
+      ],
+      "code": 0,
+      "out": "added #6 (edge) api/refunds.js · 6 of 3\n"
+    },
+    {
+      "args": [
+        "finish"
+      ],
+      "code": 0,
+      "out": "WROTE understanding/feat-refunds.json: 6 questions. Done: reply with one line per new question.\n"
+    }
+  ],
+  "next.1": {
+    "code": 0,
+    "out": "q1 (1 of 6) · failure · worker/notify.js:33-39\nIf sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?"
+  },
+  "graded": [
+    {
+      "q": "q1",
+      "answer": "tick() catches it and retries the job, so the mail may go out twice.",
+      "reply": "{\"verdict\":\"pass\",\"feedback\":\"Right: the retry sends it again.\",\"links\":[{\"phrase\":\"retries the job\",\"file\":\"worker/notify.js\",\"start\":33,\"end\":39}]}",
+      "code": 0,
+      "out": "✓ q1 pass: Right: the retry sends it again.\n1 of 6 done · next: q2"
+    },
+    {
+      "q": "q2",
+      "answer": "Both get refunded.",
+      "reply": "{\"verdict\":\"retry\",\"feedback\":\"Look at what the lookup does before the lock.\",\"hint\":\"What does the UNIQUE key do to the second insert?\"}",
+      "code": 0,
+      "out": "↻ q2 retry: Look at what the lookup does before the lock.\n  Hint: What does the UNIQUE key do to the second insert?\n1 of 6 done · next: q2"
+    },
+    {
+      "q": "q2",
+      "answer": "No idea.",
+      "reply": "```json\n{\"verdict\":\"retry\",\"feedback\":\"The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.\",\"topic\":\"idempotency\",\"concern\":\"The second request gets a 500 instead of the first refund.\"}\n```",
+      "code": 0,
+      "out": "· q2 explained: The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.\n  Concern: The second request gets a 500 instead of the first refund.\n2 of 6 done · next: q3"
+    },
+    {
+      "q": "q2",
+      "answer": "Both miss the lookup; the unique key makes the second one fail.",
+      "reply": "{\"verdict\":\"pass\",\"feedback\":\"Yes.\"}",
+      "code": 0,
+      "out": "✓ q2 restated: Yes.\n2 of 6 done · next: q3"
+    },
+    {
+      "q": "q3",
+      "answer": "So two refunds for one order run one after the other.",
+      "reply": "{\"verdict\":\"pass\",\"feedback\":\"Right.\",\"partial\":true}",
+      "code": 0,
+      "out": "✓ q3 pass (mostly right): Right.\n3 of 6 done · next: q4"
+    },
+    {
+      "q": "q4",
+      "answer": "They are emailed to OPS_EMAIL.",
+      "reply": "{\"verdict\":\"pass\",\"feedback\":\"That is what the code does.\",\"concern\":\"OPS_EMAIL is never set in the worker chart: the alerts go nowhere.\"}",
+      "code": 0,
+      "out": "✓ q4 pass: That is what the code does.\n  Concern: OPS_EMAIL is never set in the worker chart: the alerts go nowhere.\n4 of 6 done · next: q5"
+    },
+    {
+      "q": "q5",
+      "answer": "x",
+      "reply": "not json",
+      "code": 2,
+      "out": "✗ the grader didn't reply with a verdict: not json"
+    },
+    {
+      "q": "q5",
+      "answer": "x",
+      "reply": "{\"verdict\":\"maybe\"}",
+      "code": 2,
+      "out": "✗ the grader didn't reply with a verdict: {\"verdict\":\"maybe\"}"
+    },
+    {
+      "q": "q9",
+      "answer": "x",
+      "reply": "{\"verdict\":\"pass\"}",
+      "code": 2,
+      "out": "✗ no question q9"
+    }
+  ],
+  "flag": [
+    {
+      "code": 0,
+      "out": "⚠ Flagged for the reviewer: OPS_EMAIL is never set in the worker chart: the alerts go nowhere."
+    },
+    {
+      "code": 1,
+      "out": "q1 has no concern to flag."
+    },
+    {
+      "code": 2,
+      "out": "✗ no question (--question q1)"
+    }
+  ],
+  "next.2": {
+    "code": 0,
+    "out": "q5 (5 of 6) · why · api/restock.js:3-6\nWhy does every refunded unit go back into product stock, even when staff refund without a return?"
+  },
+  "status.answering.text": {
+    "code": 0,
+    "out": "4 of 6 done · Answer all 6 · 4 must pass · ~1 min left.\n  feat/refunds · understanding/feat-refunds.json · 68 code lines changed\n  4 done, 4 passed · 0 lines since the check"
+  },
+  "next.done": {
+    "code": 0,
+    "out": "✓ Done: 5 of 6 passed (4 needed). Commit and push: node understanding.mjs commit"
+  },
+  "validate": {
+    "code": 0,
+    "out": "✓ understanding/feat-refunds.json: 6 questions"
+  },
+  "status.done.json": {
+    "branch": "feat/refunds",
+    "file": "understanding/feat-refunds.json",
+    "base": "<sha1>",
+    "baseRef": "main",
+    "head": "<sha2>",
+    "change": {
+      "files": 6,
+      "added": 67,
+      "removed": 1,
+      "exempt": [],
+      "exemptOnly": false,
+      "docsOnly": false,
+      "renamed": []
+    },
+    "changed": 68,
+    "exists": true,
+    "summary": {
+      "total": 6,
+      "passed": 5,
+      "done": 6,
+      "explained": 1,
+      "restated": 1,
+      "retry": 0,
+      "todo": 0,
+      "ungraded": 0,
+      "open": 0,
+      "needed": 4,
+      "met": true,
+      "states": [
+        "pass",
+        "restated",
+        "pass",
+        "pass",
+        "pass",
+        "explained"
+      ]
+    },
+    "drift": {
+      "lines": 0,
+      "approx": false
+    },
+    "pending": {
+      "lines": 0,
+      "approx": false
+    },
+    "dirty": true,
+    "untracked": true,
+    "state": {
+      "passed": 5,
+      "done": 6,
+      "total": 6,
+      "needed": 4,
+      "maxDrift": 40,
+      "grew": 0,
+      "phase": "done"
+    },
+    "next": "A new file: not committed yet."
+  },
+  "status.committed.text": {
+    "code": 0,
+    "out": "✓ Done · Committed.\n  feat/refunds · understanding/feat-refunds.json · 68 code lines changed\n  6 done, 5 passed · 0 lines since the check"
+  },
+  "ci.pass": {
+    "code": 0,
+    "lines": [
+      "✓ Understanding check done: 5 of 6 passed (Answer all 6 · 4 must pass).",
+      "  This merge request changes the understanding check's settings: questions {\"min\":1,\"max\":5} → {\"min\":1,\"max\":6}. It applies once merged.",
+      "  ✓ q1 failure: If sendMail throws in refundNotice after the mail server already accep…",
+      "  ✓ q2 edge: What happens when two refund requests with the same Idempotency-Key fo…",
+      "  ✓ q3 why: Why is the order row locked before the remaining refundable amount is …",
+      "  ✓ q4 failure: Where do the low-stock alerts end up once this runs in production?",
+      "  ✓ q5 why: Why does every refunded unit go back into product stock, even when sta…",
+      "  · q6 edge: What does the refund handler answer for an order that was never paid a…",
+      "  tip: run \"node understanding.mjs init\" once and commit .gitattributes and .ignore: check files then collapse in diffs."
+    ],
+    "comment": "<!-- understanding-check -->\n**⚠ This merge request changes the understanding check's settings: questions {\"min\"\\:1,\"max\"\\:5} → {\"min\"\\:1,\"max\"\\:6}** (from the merge on; this merge request follows the current settings)\n\n**✓ Understanding check done** · 6 questions\n\n- ⚠ OPS\\_EMAIL is never set in the worker chart\\: the alerts go nowhere. · `worker/alerts.js:5-12`\n- 💬 **Worth discussing: idempotency** · `api/refunds.js:11-13` · The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.\n- 💬 **Worth discussing: Why is the order row locked before the remaining refundable amount is checked?** · `api/refunds.js:18-20` · Right.\n- 💬 **Worth discussing: What does the refund handler answer for an order that was never paid at all?** · `api/refunds.js` · It answers 404\\\\\\: the order lookup finds nothing paid.\n\n<details><summary>All answers</summary>\n\n**If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?** · `worker/notify.js:33-39`\n> tick() catches it and retries the job, so the mail may go out twice.\n\n**What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?** · `api/refunds.js:11-13` · restated after an explanation\n> Both miss the lookup; the unique key makes the second one fail.\n\n**Why is the order row locked before the remaining refundable amount is checked?** · `api/refunds.js:18-20`\n> So two refunds for one order run one after the other.\n\n**Where do the low-stock alerts end up once this runs in production?** · `worker/alerts.js:5-12`\n> They are emailed to OPS\\_EMAIL.\n\n**Why does every refunded unit go back into product stock, even when staff refund without a return?** · `api/restock.js:3-6`\n> Restock is called for every unit.\n\n**What does the refund handler answer for an order that was never paid at all?** · `api/refunds.js` · explained\n\n</details>",
+    "mode": "required"
+  },
+  "ci.advisory-other-branch": {
+    "code": 0,
+    "lines": [
+      "✓ No check needed: covered by feat/refunds's check (no code changed since)."
+    ],
+    "mode": "advisory"
+  }
+}

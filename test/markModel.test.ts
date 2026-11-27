@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findMark, markCodeProblem, marksIn, readMarks, walkMarks } from '../src/marks/model'
+import { CodeMark, findMark, findMarkProblem, markCodeProblem, marksIn, OnMissing, readMarks, walkMarks } from '../src/core/format/marks'
 
-// Marks (src/marks/model.ts): one shape, read and found the same way for a journey's steps and beats and a podcast's
+// Marks (src/core/format/marks.ts): one shape, read and found the same way for a journey's steps and beats and a podcast's
 // segments (the podcast's own fields, phrase and at: test/podcastModel.test.ts).
 
 test('found by match within the lines (its nth), re-found within 20 lines when the code moved, else the whole lines', () => {
@@ -44,16 +44,27 @@ test('read: the usable marks in order; each bad one left out with what is wrong 
   assert.deepEqual(marksIn('nope'), [])
 })
 
-test('against the code: in place says nothing; moved, missing, past the end, no file each say so (the reader\'s view per owner)', () => {
+test('against the code: in place says nothing; moved, not found, past the end, no file are each a kind of problem', () => {
   const doc = ['a', '  const stock = await db.reserve(cart.items)', '  if (!stock.ok) return reject(409)', 'b']
-  assert.equal(markCodeProblem(doc, 'o.ts', { lines: [2, 2], match: 'db.reserve' }, 'drop'), undefined)
-  assert.equal(markCodeProblem(doc, 'o.ts', { lines: [2, 3] }, 'drop'), undefined, 'whole lines: nothing to find')
-  assert.deepEqual(markCodeProblem(doc, 'o.ts', { lines: [2, 2], match: 'reject(409)' }, 'drop'), { what: '"reject(409)" isn\'t in line 2 of o.ts; found 1 line down, lit there', sub: 'match', moved: 1 })
-  assert.equal(markCodeProblem(doc, 'o.ts', { lines: [2, 3], match: 'stock', nth: 3 }, 'drop')!.what, '"stock" (occurrence 3) isn\'t in lines 2–3 of o.ts, nor within 20 lines: nothing is lit')
-  assert.match(markCodeProblem(doc, 'o.ts', { lines: [1, 1], match: 'zzz' }, 'lines')!.what, /: the whole lines light$/)
-  assert.deepEqual(markCodeProblem(doc, 'o.ts', { lines: [3, 6] }, 'drop'), { what: 'lines 3–6 of o.ts go past its end (4 lines)', sub: 'lines' })
-  assert.equal(markCodeProblem(doc, 'o.ts', { lines: [6, 6] }, 'drop')!.what, 'line 6 of o.ts is past its end (4 lines); nothing is lit')
-  assert.deepEqual(markCodeProblem(null, 'x.ts', { lines: [1, 1], file: 'x.ts' }, 'drop'), { what: 'x.ts isn\'t in the repository; nothing is lit', sub: 'file' })
+  /** Mark `mark` checked in o.ts (`doc`); a journey's reader sees nothing of a mark it can't find. */
+  const kindOf = (mark: CodeMark, d: string[] | null = doc) => findMarkProblem({ doc: d, file: 'o.ts', mark, onMissing: 'drop' })
+  assert.equal(kindOf({ lines: [2, 2], match: 'db.reserve' }), undefined)
+  assert.equal(kindOf({ lines: [2, 3] }), undefined, 'whole lines: nothing to find')
+  assert.deepEqual(kindOf({ lines: [2, 2], match: 'reject(409)' }), { kind: 'moved', moved: 1, sub: 'match' })
+  assert.deepEqual(kindOf({ lines: [2, 3], match: 'stock', nth: 3 }), { kind: 'not-found', sub: 'match' })
+  assert.deepEqual(kindOf({ lines: [3, 6] }), { kind: 'past-end', fileLines: 4, sub: 'lines' })
+  assert.deepEqual(kindOf({ lines: [1, 1], file: 'x.ts' }, null), { kind: 'no-file', sub: 'file' })
+})
+
+test('against the code, said: one sentence per kind; what is lit depends on the reader (drop or whole lines)', () => {
+  const doc = ['a', '  const stock = await db.reserve(cart.items)', '  if (!stock.ok) return reject(409)', 'b']
+  const said = (mark: CodeMark, onMissing: OnMissing = 'drop') => markCodeProblem({ doc, file: 'o.ts', mark, onMissing })?.what
+  assert.equal(said({ lines: [2, 2], match: 'reject(409)' }), '"reject(409)" isn\'t in line 2 of o.ts; found 1 line down, lit there')
+  assert.equal(said({ lines: [2, 3], match: 'stock', nth: 3 }), '"stock" (occurrence 3) isn\'t in lines 2–3 of o.ts, nor within 20 lines: nothing is lit')
+  assert.match(said({ lines: [1, 1], match: 'zzz' }, 'lines')!, /: the whole lines light$/)
+  assert.equal(said({ lines: [3, 6] }), 'lines 3–6 of o.ts go past its end (4 lines)')
+  assert.equal(said({ lines: [6, 6] }), 'line 6 of o.ts is past its end (4 lines); nothing is lit')
+  assert.deepEqual(markCodeProblem({ doc: null, file: 'x.ts', mark: { lines: [1, 1], file: 'x.ts' }, onMissing: 'drop' }), { what: 'x.ts isn\'t in the repository; nothing is lit', sub: 'file' })
 })
 
 test('walked: the step\'s marks, then each beat\'s up to the one lit; the newest group with marks is the focus, the rest dim', () => {

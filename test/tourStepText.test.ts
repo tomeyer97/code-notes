@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Journey, JStep, parseJourney } from '../src/journeyModel'
+import { Journey, JStep } from '../src/core/format/journeyModel'
+import { journeyOf } from './formats'
 import { parseBare, refFiles, StepRef, StepTextInput, TextJourney, staleText, stepText } from '../src/tour/stepText'
 import type { StepAt } from '../src/journeys/steps'
 
@@ -122,7 +123,7 @@ test('the stale banner: file gone, lines lost, or changed; nothing for a fresh s
 })
 
 test('the example journey: which refs are listed, as today', () => {
-  const j = parseJourney(fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8'), 'place-order') as Journey
+  const j = journeyOf(fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/v2-full.json'), 'utf8'), 'place-order')
   const lj: TextJourney = { folder: { uri: 'file:///w' }, j, at: j.steps.map((s) => ({ ...s.range, stale: false })) }
   const closed = stepText(lj, 1, link, input()), open = stepText(lj, 1, link, input({ detailsOpen: true }))
   assert.equal(closed.lead, 'The Place order button ([Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)) lands here; nothing is charged in the browser.')
@@ -130,4 +131,12 @@ test('the example journey: which refs are listed, as today', () => {
   assert.equal(closed.refs, '[Checkout.vue:30](web/src/checkout/Checkout.vue:30-30)')
   assert.equal(open.refs, closed.refs)
   assert.equal(stepText(lj, 6, link, input()).refs, '', 'its one ref is inside its own lines')
+})
+
+test('line suffixes, one grammar: a bare ref with an en dash, a `#L` ref, and a ref moved with the step keeps its dash', () => {
+  assert.deepEqual(parseBare('src/a.ts:3–5'), { text: 'a.ts:3–5', file: 'src/a.ts', line: 3, end: 5 })
+  assert.deepEqual(parseBare('src/a.ts#L9'), { text: 'a.ts#L9', file: 'src/a.ts', line: 9 })
+  assert.deepEqual(parseBare('src/a.ts'), { text: 'a.ts', file: 'src/a.ts', line: 0 })
+  const t = text(one({ refs: ['src/a.ts:40–42'] }, { start: 15, end: 25 }))
+  assert.equal(t.refs, '[a.ts:45–47](src/a.ts:45-47)')
 })

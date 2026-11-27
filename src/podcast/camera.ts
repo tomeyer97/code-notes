@@ -1,26 +1,11 @@
-// Camera moves (docs/podcast-format.md, "Camera moves"): while a podcast plays, the narrated editor scrolls or
-// switches files when the next mark or beat is out of view. Quick moves leave no time to read what was just lit, so
-// every such move goes through here: a heads-up cue at the editor's edge shortly before ("↓ 340", "↑ 212",
-// "→ main.ts"); before leaving, the latest mark or beat of the view on screen must have been lit READ seconds (the
-// audio waits); after arriving, the audio waits SETTLE seconds more with the new mark lit. A wait is a hold, not a
-// pause: the player, the status item, the rows and the step card go on showing it playing; the edge cue is all that
-// says it. No waits for the reader's own seeks, under the follow lock, or on the map: the player decides that
-// (`move`'s `wait`).
-//
-// The walk never lags the voice: the hold is checked against the audio's own reports. When the audio did not stop
-// (its time still moving PAUSE_CHECK_MS after asking), the wait is dropped and the walk is put where the audio is now
-// (`resync`), and waits stay off for WAITS_OFF_MS; the same when the reader plays on, or looks around (the follow
-// lock), during one. A dropped wait's move is never made late: the walk goes to what is said now.
+// Camera moves while a podcast plays (docs/podcast-format.md, "Camera moves"): the heads-up cue at the editor's edge,
+// and the wait around a move (read, the move, settle) during which the audio holds. The rules are cameraRules.ts.
 
 import * as vscode from 'vscode'
+import { cfg } from '../platform/settings'
+import { afterWait, audioKeptPlaying, ListenSettings, listenSettingsFrom, PAUSE_CHECK_MS, WaitEnd, WAITS_OFF_MS } from './cameraRules'
 
-/** The heads-up shows this long (s) before a move. */
-export const CUE_LEAD_S = 0.8
-
-/** After asking the audio to hold, its time may still move this long (ms): then it did not stop. */
-export const PAUSE_CHECK_MS = 250
-/** After a hold that did not stop the audio, no waits for this long (ms): the moves go at once. */
-export const WAITS_OFF_MS = 30000
+export { CUE_LEAD_S } from './cameraRules'
 
 /** What the player does for the camera: hold the audio, play on, where the audio is (its own reports), the walk put
  *  where the audio is now, the log. */
@@ -33,17 +18,8 @@ export interface CameraHost {
   log(line: string): void
 }
 
-/** How a wait ended: its time ran out; the reader played on or looked around (`skip`, `release`: the walk goes to
- *  the audio's time); the audio did not stop (`abandon`: the same); a seek, a pause, the session over (`cancel`). */
-type End = 'time' | 'skip' | 'release' | 'abandon' | 'cancel'
-
-/** Seconds from a setting (0 or more; anything else: the default). */
-function seconds(key: string, def: number): number {
-  const v = vscode.workspace.getConfiguration('codeNotes.listen').get<number>(key)
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : def
-}
-export const readBeforeMove = () => seconds('readBeforeMove', 2.5)
-export const settleAfterMove = () => seconds('settleAfterMove', 0.8)
+/** The listen settings (`codeNotes.listen.*`). */
+export const listenSettings = (): ListenSettings => listenSettingsFrom((key) => cfg().get(`listen.${key}`))
 
 /** Where a move goes, from the editor on screen: "↓ 340", "↑ 212" (1-based lines) or "→ main.ts". */
 export function cueText(e: vscode.TextEditor, uri: string, line: number): { text: string; line: number } | undefined {
@@ -55,30 +31,36 @@ export function cueText(e: vscode.TextEditor, uri: string, line: number): { text
   return line > last ? { text: `↓ ${line + 1}`, line: last } : { text: `↑ ${line + 1}`, line: first }
 }
 
+/** A wait: none; sleeping through its read or settle stage (`end` cuts it short); or between them, the move being
+ *  made (`ended`: how it was asked to end meanwhile). */
+type WaitState =
+  | { at: 'none' }
+  | { at: 'read' | 'settle'; end: (how: WaitEnd) => void }
+  | { at: 'moving'; ended?: WaitEnd }
+
+/** A wait as recorded (the log, the integration tests): where, how long each stage was (s), how it ended. */
+export interface WaitRecord { where: string; read: number; settle: number; ended: WaitEnd | 'waiting' }
+
 export class Camera implements vscode.Disposable {
   /** When the view on screen last lit something (a mark, a beat, a step arrived): ms. */
   private lastLit = 0
-  /** A wait in progress: its stage, and how to end it early. */
-  private wait: { stage: 'read' | 'settle'; end: (how: End) => void } | undefined
-  /** The whole wait (both stages) is being made: a move meanwhile goes at once. */
-  private busy = false
-  /** No waits until then (ms): the audio did not hold the last time. */
+  private wait: WaitState = { at: 'none' }
+  /** Checks, PAUSE_CHECK_MS after the hold was asked, that the audio stopped. */
+  private checkTimer: NodeJS.Timeout | undefined
+  /** No waits until then (ms): the audio did not hold the last time; said once. */
   private offUntil = 0
   private saidAbandon = false
-  /** How the wait ends, asked between its stages (while the move is made). */
-  private pendingEnd: End | undefined
-  private checkTimer: NodeJS.Timeout | undefined
-  /** The audio resumed by the camera itself (its own play report is not the reader's ▶). */
+  /** The audio resumed by the camera itself: its own play report is not the reader's ▶. */
   private resuming = false
   private readonly cueDeco = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor('editorCodeLens.foreground'), fontStyle: 'italic', margin: '0 0 0 2em' },
     isWholeLine: true,
   })
   private cueOn: { editor: vscode.TextEditor; text: string; uri: string; line: number } | undefined
-  private readonly subs: vscode.Disposable[]
   private cueTimer: NodeJS.Timeout | undefined
-  /** The waits made (tests, the log): where, how long each stage was (s), how it ended (`waiting`: not yet). */
-  readonly waits: { where: string; read: number; settle: number; ended: string }[] = []
+  private readonly subs: vscode.Disposable[]
+  /** The last waits made, newest last. */
+  readonly waits: WaitRecord[] = []
 
   constructor(private readonly host: CameraHost) {
     // The reader scrolled the target into view meanwhile: no heads-up needed any more.
@@ -91,36 +73,32 @@ export class Camera implements vscode.Disposable {
   /** The view on screen lit something now. */
   lit(): void { this.lastLit = Date.now() }
 
-  get waiting(): 'read' | 'settle' | undefined { return this.busy ? this.wait?.stage ?? 'settle' : undefined }
+  get waiting(): 'read' | 'settle' | undefined {
+    const w = this.wait
+    return w.at === 'none' ? undefined : w.at === 'read' ? 'read' : 'settle'
+  }
   get cue(): string | undefined { return this.cueOn?.text }
 
   /**
    * A camera move: `go` makes it. With `wait`, first the read time left (the view's latest light must have been on
-   * screen readBeforeMove s), then the move, then settleAfterMove s; the audio paused meanwhile, said in the player.
+   * screen readBeforeMove s), then the move, then settleAfterMove s; the audio holds meanwhile.
    */
   async move(go: () => Promise<void>, where: string, wait: boolean): Promise<void> {
     this.clearCue()
-    const read = Math.max(0, readBeforeMove() * 1000 - (Date.now() - this.lastLit))
-    const settle = settleAfterMove() * 1000
-    if (!wait || this.busy || (read <= 0 && settle <= 0) || Date.now() < this.offUntil) {
+    const s = listenSettings()
+    const read = Math.max(0, s.readBeforeMove * 1000 - (Date.now() - this.lastLit))
+    const settle = s.settleAfterMove * 1000
+    if (!wait || this.wait.at !== 'none' || (read <= 0 && settle <= 0) || Date.now() < this.offUntil) {
       await go()
       this.lit()
       return
     }
-    const rec = { where, read: 0, settle: 0, ended: 'waiting' }
+    const rec: WaitRecord = { where, read: 0, settle: 0, ended: 'waiting' }
     this.waits.push(rec)
     if (this.waits.length > 50) this.waits.shift()
-    this.busy = true
-    this.pendingEnd = undefined
-    // The audio holds; whether it did is what it says itself: still moving a moment later, the wait is dropped.
-    const from = this.host.audio().t
-    this.host.hold()
-    this.checkTimer = setTimeout(() => {
-      this.checkTimer = undefined
-      const a = this.host.audio()
-      if (a.playing && a.t - from > 0.1) this.end('abandon')
-    }, PAUSE_CHECK_MS)
-    let how: End = 'time'
+    this.wait = { at: 'moving' }
+    this.holdAudio()
+    let how: WaitEnd = 'time'
     try {
       const t0 = Date.now()
       how = await this.sleep('read', read)
@@ -136,48 +114,60 @@ export class Camera implements vscode.Disposable {
     } finally {
       clearTimeout(this.checkTimer)
       this.checkTimer = undefined
-      this.busy = false
-      this.pendingEnd = undefined
+      this.wait = { at: 'none' }
       rec.ended = how
     }
-    if (how === 'cancel') return
-    // Played on (the camera's own resume is not the reader's ▶); `unhold` does nothing when the audio plays already
-    // (the reader played on, or it never stopped).
-    if (how === 'time' || how === 'release') this.resuming = true
+    this.ended(how, rec)
+  }
+
+  /** The audio holds; whether it did is what it says itself: still moving a moment later, the wait is dropped. */
+  private holdAudio(): void {
+    const from = this.host.audio().t
+    this.host.hold()
+    this.checkTimer = setTimeout(() => {
+      this.checkTimer = undefined
+      if (audioKeptPlaying(from, this.host.audio())) this.end('abandon')
+    }, PAUSE_CHECK_MS)
+  }
+
+  /** What follows a wait that ended `how` (cameraRules.ts afterWait). `unhold` does nothing when the audio plays
+   *  already (the reader played on, or it never stopped). */
+  private ended(how: WaitEnd, rec: WaitRecord): void {
+    const next = afterWait(how)
+    if (!next.resume) return
+    if (next.ownResume) this.resuming = true
     this.host.resume()
-    if (how === 'time') {
-      this.host.log(`podcast: waited ${rec.read.toFixed(1)} + ${rec.settle.toFixed(1)} s to move ${where}`)
-      return
-    }
-    if (how === 'abandon') {
+    if (how === 'time') this.host.log(`podcast: waited ${rec.read.toFixed(1)} + ${rec.settle.toFixed(1)} s to move ${rec.where}`)
+    if (next.backOff) {
       this.offUntil = Date.now() + WAITS_OFF_MS
       if (!this.saidAbandon) {
         this.saidAbandon = true
-        this.host.log(`podcast: the audio did not stop for a camera wait (to move ${where}); the code follows it without waiting for ${WAITS_OFF_MS / 1000} s`)
+        this.host.log(`podcast: the audio did not stop for a camera wait (to move ${rec.where}); the code follows it without waiting for ${WAITS_OFF_MS / 1000} s`)
       }
     }
-    // The move that waited is not made late: the walk goes to what the audio says now.
-    this.host.resync()
+    if (next.resync) this.host.resync()
   }
 
-  /** Ends the wait in progress now, or between its stages (while its move is made). */
-  private end(how: End): void {
-    if (this.wait) this.wait.end(how)
-    else if (this.busy && !this.pendingEnd) this.pendingEnd = how
+  /** Ends the wait in progress now, or once its move is made. */
+  private end(how: WaitEnd): void {
+    const w = this.wait
+    if (w.at === 'read' || w.at === 'settle') w.end(how)
+    else if (w.at === 'moving' && !w.ended) w.ended = how
   }
 
-  private sleep(stage: 'read' | 'settle', ms: number): Promise<End> {
-    if (this.pendingEnd) return Promise.resolve(this.pendingEnd)
+  private sleep(stage: 'read' | 'settle', ms: number): Promise<WaitEnd> {
+    const w = this.wait
+    if (w.at === 'moving' && w.ended) return Promise.resolve(w.ended)
     if (ms <= 0) return Promise.resolve('time')
     return new Promise((resolve) => {
       const timer = setTimeout(() => done('time'), ms)
-      const done = (how: End) => {
+      const done = (how: WaitEnd) => {
         clearTimeout(timer)
-        if (this.wait === w) this.wait = undefined
+        if (this.wait === sleeping) this.wait = { at: 'moving' }
         resolve(how)
       }
-      const w = { stage, end: done }
-      this.wait = w
+      const sleeping: WaitState = { at: stage, end: done }
+      this.wait = sleeping
     })
   }
 
@@ -194,7 +184,7 @@ export class Camera implements vscode.Disposable {
   }
 
   /** A seek, the reader's pause, the session over, the walk elsewhere: a wait in progress is dropped (nothing moves,
-   *  nothing resumes). */
+   *  nothing resumes), and the heads-up with it. */
   cancel(): void {
     this.resuming = false
     this.end('cancel')
@@ -207,18 +197,21 @@ export class Camera implements vscode.Disposable {
     this.saidAbandon = false
   }
 
-  /** The heads-up at `at` ms from now in editor `e` (pointing at `uri`, 0-based `line`) when it is still out of view
-   *  then; `ok()`: still worth showing (playing, following). */
-  scheduleCue(ms: number, editor: () => vscode.TextEditor | undefined, uri: string, line: number, ok: () => boolean): void {
+  /** The heads-up in `editor` in `ms` (pointing at `uri`, 0-based `line`) if that is still out of view then; no
+   *  editor: none due (the one scheduled is dropped). The player clears it (clearCue, cancel) when it stops being worth
+   *  showing. */
+  scheduleCue(ms: number, editor: vscode.TextEditor | undefined, uri: string, line: number): void {
     clearTimeout(this.cueTimer)
+    this.cueTimer = undefined
+    if (!editor) return
     this.cueTimer = setTimeout(() => {
-      const e = editor()
-      if (!e || !ok()) return
-      const c = cueText(e, uri, line)
+      this.cueTimer = undefined
+      if (!vscode.window.visibleTextEditors.includes(editor)) return
+      const c = cueText(editor, uri, line)
       if (!c) return
-      const lineText = e.document.lineAt(Math.min(c.line, e.document.lineCount - 1))
-      e.setDecorations(this.cueDeco, [{ range: lineText.range, renderOptions: { after: { contentText: c.text } } }])
-      this.cueOn = { editor: e, text: c.text, uri, line }
+      const lineText = editor.document.lineAt(Math.min(c.line, editor.document.lineCount - 1))
+      editor.setDecorations(this.cueDeco, [{ range: lineText.range, renderOptions: { after: { contentText: c.text } } }])
+      this.cueOn = { editor, text: c.text, uri, line }
     }, Math.max(0, ms))
   }
 

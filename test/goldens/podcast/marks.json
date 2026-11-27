@@ -1,0 +1,388 @@
+{
+  "problems": [
+    {
+      "k": 4,
+      "what": "mark 5: the phrase \"not said here\" isn't in the text after the phrase before it",
+      "sub": [
+        "marks",
+        4,
+        "phrase"
+      ],
+      "drop": false
+    },
+    {
+      "k": 5,
+      "what": "mark 6 lights at 3.2 s, before mark 5 (5 s): marks light in the order they are said",
+      "sub": [
+        "marks",
+        5,
+        "at"
+      ],
+      "drop": false
+    },
+    {
+      "k": 6,
+      "what": "mark 7: lines must be [first, last] (1-based, first <= last), got [2,1]; ignored",
+      "sub": [
+        "marks",
+        6,
+        "lines"
+      ],
+      "drop": true
+    },
+    {
+      "k": 7,
+      "what": "mark 8: at 1:44 (99 s) is outside the segment (0:05–0:12); ignored",
+      "sub": [
+        "marks",
+        7,
+        "at"
+      ],
+      "drop": true
+    },
+    {
+      "k": 8,
+      "what": "mark 9: no phrase; ignored",
+      "sub": [
+        "marks",
+        8,
+        "phrase"
+      ],
+      "drop": true
+    },
+    {
+      "k": 9,
+      "what": "mark 10: at \"1\" is not a time in seconds; ignored",
+      "sub": [
+        "marks",
+        9,
+        "at"
+      ],
+      "drop": true
+    },
+    {
+      "k": 10,
+      "what": "mark 11: no \"at\" (seconds from the segment's start); ignored",
+      "sub": [
+        "marks",
+        10
+      ],
+      "drop": true
+    },
+    {
+      "k": 11,
+      "what": "mark 12: not an object { phrase, at, lines }; ignored",
+      "sub": [
+        "marks",
+        11
+      ],
+      "drop": true
+    }
+  ],
+  "problemsOnMap": [
+    {
+      "k": 0,
+      "what": "mark 1: a mark in a segment on the map (\"at\": null) needs its own \"file\"; ignored",
+      "sub": [
+        "marks",
+        0
+      ],
+      "drop": true
+    },
+    {
+      "k": 2,
+      "what": "mark 3: a mark in a segment on the map (\"at\": null) needs its own \"file\"; ignored",
+      "sub": [
+        "marks",
+        2
+      ],
+      "drop": true
+    },
+    {
+      "k": 3,
+      "what": "mark 4: a mark in a segment on the map (\"at\": null) needs its own \"file\"; ignored",
+      "sub": [
+        "marks",
+        3
+      ],
+      "drop": true
+    },
+    {
+      "k": 4,
+      "what": "mark 5: the phrase \"not said here\" isn't in the text after the phrase before it",
+      "sub": [
+        "marks",
+        4,
+        "phrase"
+      ],
+      "drop": false
+    },
+    {
+      "k": 5,
+      "what": "mark 6: a mark in a segment on the map (\"at\": null) needs its own \"file\"; ignored",
+      "sub": [
+        "marks",
+        5
+      ],
+      "drop": true
+    },
+    {
+      "k": 6,
+      "what": "mark 7: lines must be [first, last] (1-based, first <= last), got [2,1]; ignored",
+      "sub": [
+        "marks",
+        6,
+        "lines"
+      ],
+      "drop": true
+    },
+    {
+      "k": 7,
+      "what": "mark 8: at 1:44 (99 s) is outside the segment (0:05–0:12); ignored",
+      "sub": [
+        "marks",
+        7,
+        "at"
+      ],
+      "drop": true
+    },
+    {
+      "k": 8,
+      "what": "mark 9: no phrase; ignored",
+      "sub": [
+        "marks",
+        8,
+        "phrase"
+      ],
+      "drop": true
+    },
+    {
+      "k": 9,
+      "what": "mark 10: at \"1\" is not a time in seconds; ignored",
+      "sub": [
+        "marks",
+        9,
+        "at"
+      ],
+      "drop": true
+    },
+    {
+      "k": 10,
+      "what": "mark 11: no \"at\" (seconds from the segment's start); ignored",
+      "sub": [
+        "marks",
+        10
+      ],
+      "drop": true
+    },
+    {
+      "k": 11,
+      "what": "mark 12: not an object { phrase, at, lines }; ignored",
+      "sub": [
+        "marks",
+        11
+      ],
+      "drop": true
+    }
+  ],
+  "read": [
+    {
+      "phrase": "cart",
+      "at": 0.5,
+      "lines": [
+        1,
+        2
+      ]
+    },
+    {
+      "phrase": "order is placed",
+      "at": 2.5,
+      "lines": [
+        3,
+        4
+      ],
+      "file": "api/orders.ts"
+    },
+    {
+      "phrase": "order is placed",
+      "at": 2.5,
+      "lines": [
+        3,
+        4
+      ],
+      "match": "place"
+    },
+    {
+      "phrase": "queued",
+      "at": 3.2,
+      "lines": [
+        6,
+        6
+      ]
+    },
+    {
+      "phrase": "the order",
+      "at": 4,
+      "lines": [
+        5,
+        5
+      ]
+    },
+    {
+      "phrase": "not said here",
+      "at": 5,
+      "lines": [
+        7,
+        7
+      ],
+      "file": "api/queue.ts"
+    }
+  ],
+  "onMap": [
+    {
+      "phrase": "order is placed",
+      "at": 2.5,
+      "lines": [
+        3,
+        4
+      ],
+      "file": "api/orders.ts"
+    },
+    {
+      "phrase": "not said here",
+      "at": 5,
+      "lines": [
+        7,
+        7
+      ],
+      "file": "api/queue.ts"
+    }
+  ],
+  "none": [
+    "[undefined]",
+    "[undefined]"
+  ],
+  "times": [
+    5.38,
+    7.38,
+    7.38,
+    8.08,
+    8.88,
+    9.88
+  ],
+  "lit": [
+    [
+      4,
+      {
+        "lit": 0,
+        "focusFrom": 0
+      }
+    ],
+    [
+      5,
+      {
+        "lit": 0,
+        "focusFrom": 0
+      }
+    ],
+    [
+      5.5,
+      {
+        "lit": 1,
+        "focusFrom": 0
+      }
+    ],
+    [
+      7,
+      {
+        "lit": 1,
+        "focusFrom": 0
+      }
+    ],
+    [
+      8.9,
+      {
+        "lit": 5,
+        "focusFrom": 4
+      }
+    ],
+    [
+      12,
+      {
+        "lit": 6,
+        "focusFrom": 5
+      }
+    ],
+    [
+      13,
+      {
+        "lit": 6,
+        "focusFrom": 5
+      }
+    ]
+  ],
+  "planned": [
+    {
+      "file": "web/cart.ts",
+      "skip": false,
+      "opens": false
+    },
+    {
+      "file": "api/orders.ts",
+      "skip": true,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": false,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": false,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": false,
+      "opens": false
+    },
+    {
+      "file": "api/queue.ts",
+      "skip": false,
+      "opens": true
+    }
+  ],
+  "plannedOtherFile": [
+    {
+      "file": "web/cart.ts",
+      "skip": true,
+      "opens": false
+    },
+    {
+      "file": "api/orders.ts",
+      "skip": false,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": true,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": true,
+      "opens": false
+    },
+    {
+      "file": "web/cart.ts",
+      "skip": true,
+      "opens": false
+    },
+    {
+      "file": "api/queue.ts",
+      "skip": true,
+      "opens": false
+    }
+  ]
+}

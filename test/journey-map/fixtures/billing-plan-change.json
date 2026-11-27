@@ -1,0 +1,244 @@
+{
+  "version": 2,
+  "id": "billing-plan-change",
+  "question": "How does a plan change reach Stripe and come back?",
+  "title": "Plan change",
+  "summary": "",
+  "nodes": [
+    {
+      "id": "console",
+      "kind": "system",
+      "label": "Console",
+      "summary": ""
+    },
+    {
+      "id": "page",
+      "kind": "module",
+      "label": "Billing page",
+      "summary": "",
+      "parent": "console"
+    },
+    {
+      "id": "picker",
+      "kind": "function",
+      "label": "PlanPicker",
+      "summary": "",
+      "parent": "page"
+    },
+    {
+      "id": "srv",
+      "kind": "system",
+      "label": "Server",
+      "summary": ""
+    },
+    {
+      "id": "http",
+      "kind": "module",
+      "label": "HTTP API",
+      "summary": "",
+      "parent": "srv"
+    },
+    {
+      "id": "change",
+      "kind": "function",
+      "label": "changePlan",
+      "summary": "",
+      "parent": "http"
+    },
+    {
+      "id": "hook",
+      "kind": "function",
+      "label": "handleStripeWebhook",
+      "summary": "",
+      "parent": "http"
+    },
+    {
+      "id": "bill",
+      "kind": "module",
+      "label": "Billing",
+      "summary": "",
+      "parent": "srv"
+    },
+    {
+      "id": "apply",
+      "kind": "function",
+      "label": "applyPlan",
+      "summary": "",
+      "parent": "bill"
+    },
+    {
+      "id": "sync",
+      "kind": "function",
+      "label": "syncSubscription",
+      "summary": "",
+      "parent": "bill"
+    },
+    {
+      "id": "receipt",
+      "kind": "function",
+      "label": "sendReceipt",
+      "summary": "",
+      "parent": "bill"
+    },
+    {
+      "id": "rec",
+      "kind": "store",
+      "label": "Subscription record",
+      "summary": "",
+      "parent": "srv"
+    },
+    {
+      "id": "stripe",
+      "kind": "external",
+      "label": "Stripe",
+      "summary": ""
+    },
+    {
+      "id": "mail",
+      "kind": "external",
+      "label": "Email provider",
+      "summary": ""
+    }
+  ],
+  "edges": [
+    {
+      "from": "picker",
+      "to": "change",
+      "label": "POST /billing/plan"
+    },
+    {
+      "from": "change",
+      "to": "apply",
+      "label": "validates"
+    },
+    {
+      "from": "apply",
+      "to": "stripe",
+      "label": "updates the subscription"
+    },
+    {
+      "from": "stripe",
+      "to": "hook",
+      "label": "webhook",
+      "async": true
+    },
+    {
+      "from": "hook",
+      "to": "sync",
+      "label": "verified event"
+    },
+    {
+      "from": "sync",
+      "to": "rec",
+      "label": "writes"
+    },
+    {
+      "from": "sync",
+      "to": "receipt",
+      "label": "on upgrade"
+    },
+    {
+      "from": "receipt",
+      "to": "mail",
+      "label": "sends"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Step 1 in picker",
+      "node": "picker",
+      "file": "a.go",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s2",
+      "title": "Step 2 in change",
+      "node": "change",
+      "file": "a.go",
+      "range": {
+        "start": 2,
+        "end": 2
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s3",
+      "title": "Step 3 in apply",
+      "node": "apply",
+      "file": "a.go",
+      "range": {
+        "start": 3,
+        "end": 3
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s4",
+      "title": "Step 4 in stripe",
+      "node": "stripe",
+      "file": "a.go",
+      "range": {
+        "start": 4,
+        "end": 4
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s5",
+      "title": "Step 5 in hook",
+      "node": "hook",
+      "file": "a.go",
+      "range": {
+        "start": 5,
+        "end": 5
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s6",
+      "title": "Step 6 in sync",
+      "node": "sync",
+      "file": "a.go",
+      "range": {
+        "start": 6,
+        "end": 6
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s7",
+      "title": "Step 7 in receipt",
+      "node": "receipt",
+      "file": "a.go",
+      "range": {
+        "start": 7,
+        "end": 7
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s8",
+      "title": "Step 8 in mail",
+      "node": "mail",
+      "file": "a.go",
+      "range": {
+        "start": 8,
+        "end": 8
+      },
+      "lead": "",
+      "refs": []
+    }
+  ]
+}

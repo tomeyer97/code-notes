@@ -1,43 +1,66 @@
-// The code-journey skill's marks (`journey.py mark`, `marks`, `check`): the same rules as the extension's
-// src/marks/model.ts (the same messages for the same marks), and the commands on a small repository made here.
+// The code-journey skill's marks (`journey.py mark`, `marks`, `check`): with node, the extension's own rules
+// (src/core/format/marks.ts, through journey-check.mjs); without, journey.py's copy of them, word for word the same.
+// Then the commands on a small repository made here.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createRequire } from 'node:module'
-import { execFileSync, spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { JPY } from './helpers.mjs'
+import { both } from './journeyRules.mjs'
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const M = createRequire(import.meta.url)(path.join(root, 'out/src/marks/model.js'))
 // No __pycache__ beside the skill's script (it ships as is).
 const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
 
 const DOC = ['// Placing an order', 'export async function place(cart, user) {', '  const total = sum(cart.items)',
   "  if (total <= 0) throw new Error('empty cart')", '  const stock = await reserve(cart, { hold: 30 })', '  return save(cart, stock, user.id)', '}']
 
-test('journey.py marks: the same shape and code problems, word for word, as the extension', () => {
-  const shapes = [{ lines: [3, 3] }, { lines: [5, 4] }, { lines: [0, 1] }, {}, { lines: [1, 1], file: ' ' }, { lines: [1, 1], match: '' }, { lines: [1, 1], nth: 0 }, { lines: [1, 1], nth: 1.5 }]
-  const codes = [
-    [{ lines: [4, 4], match: 'total <= 0' }, 'drop'], [{ lines: [4, 4], match: 'reserve(' }, 'drop'], [{ lines: [4, 5], match: 'total', nth: 3 }, 'drop'],
-    [{ lines: [4, 5], match: 'total', nth: 3 }, 'lines'], [{ lines: [6, 9] }, 'drop'], [{ lines: [9, 9] }, 'drop'], [{ lines: [9, 10] }, 'drop'], [{ lines: [2, 3] }, 'drop'],
+/** Marks with something wrong in their fields: nothing else is looked at. */
+const SHAPES = [
+  { lines: [5, 4] }, { lines: [0, 1] }, {}, { lines: [1, 1], file: ' ' }, { lines: [1, 1], match: '' },
+  { lines: [1, 1], nth: 0 }, { lines: [1, 1], nth: 1.5 }, 'mark',
+]
+/** Marks against DOC (o.js), and what a match not found lights: in place, moved, not found, past the end. */
+const IN_CODE = [
+  [{ lines: [3, 3] }, 'drop'],
+  [{ lines: [4, 4], match: 'total <= 0' }, 'drop'],
+  [{ lines: [4, 4], match: 'reserve(' }, 'drop'],
+  [{ lines: [4, 5], match: 'total', nth: 3 }, 'drop'],
+  [{ lines: [4, 5], match: 'total', nth: 3 }, 'lines'],
+  [{ lines: [6, 9] }, 'drop'],
+  [{ lines: [9, 9] }, 'drop'],
+  [{ lines: [9, 10] }, 'drop'],
+  [{ lines: [2, 3] }, 'drop'],
+  [{ lines: [3, 4], match: 'sum(cart.items)\n  if' }, 'drop'],
+]
+
+test('journey.py marks: the same shape and code problems, and the same characters lit, with node and without', () => {
+  const requests = [
+    ...SHAPES.map((mark) => ({ op: 'mark', mark, file: 'o.js', doc: DOC })),
+    ...IN_CODE.map(([mark, onMissing]) => ({ op: 'mark', mark, file: 'o.js', doc: DOC, onMissing })),
+    { op: 'mark', mark: { lines: [1, 1] }, file: 'x.js', doc: null },
   ]
-  const py = `
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location('journey', sys.argv[1])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-c = json.load(sys.stdin)
-shape = [(lambda p: p and p[0])(m.mark_shape_problem(x)) for x in c['shapes']]
-code = [(lambda p: p and p[0])(m.mark_code_problem(c['doc'], 'o.js', x, how)) for x, how in c['codes']]
-code.append(m.mark_code_problem(None, 'x.js', {'lines': [1, 1]}, 'drop')[0])
-print(json.dumps({'shape': shape, 'code': code}))
-`
-  const got = JSON.parse(execFileSync('python3', ['-c', py, JPY], { input: JSON.stringify({ shapes, codes, doc: DOC }), encoding: 'utf8', env }))
-  assert.deepEqual(got.shape, shapes.map((x) => M.markShapeProblem(x)?.what ?? null))
-  assert.deepEqual(got.code, [...codes.map(([x, how]) => M.markCodeProblem(DOC, 'o.js', x, how)?.what ?? null), M.markCodeProblem(null, 'x.js', { lines: [1, 1] }, 'drop').what])
+  const { node, python } = both(requests)
+  assert.deepEqual(python, node)
+  assert.deepEqual(node.slice(0, SHAPES.length).map((m) => m.shape), [
+    'lines must be [first, last] (1-based, first <= last), got [5,4]', 'lines must be [first, last] (1-based, first <= last), got [0,1]',
+    'lines must be [first, last] (1-based, first <= last), got undefined', 'file is not a path', 'match is not a text',
+    'nth must be 1 or more, got 0', 'nth must be 1 or more, got 1.5', 'not an object { lines, match? }',
+  ])
+  assert.deepEqual(node.slice(SHAPES.length).map((m) => m.code), [
+    null, null,
+    ['"reserve(" isn\'t in line 4 of o.js; found 1 line down, lit there', 1],
+    ['"total" (occurrence 3) isn\'t in lines 4–5 of o.js, nor within 20 lines: nothing is lit', null],
+    ['"total" (occurrence 3) isn\'t in lines 4–5 of o.js, nor within 20 lines: the whole lines light', null],
+    ['lines 6–9 of o.js go past its end (7 lines)', null],
+    ['line 9 of o.js is past its end (7 lines); nothing is lit', null],
+    ['lines 9–10 of o.js are past its end (7 lines); nothing is lit', null],
+    null, null,
+    ["x.js isn't in the repository; nothing is lit", null],
+  ])
+  assert.deepEqual(node.slice(SHAPES.length, SHAPES.length + 3).map((m) => m.spot), [[2, 2, 2, 31], [3, 6, 3, 16], [4, 22, 4, 30]])
+  assert.deepEqual(node.at(-2).spot, [2, 16, 3, 4], 'a match across two lines')
 })
 
 test('journey.py mark / marks / rmmark: written only where the match is, previewed under the characters, checked and fixed by check', () => {

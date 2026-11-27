@@ -1,44 +1,55 @@
-// The understanding check's CLI (cli/understanding.mjs) on a worker thread. Its functions call git synchronously:
+// The understanding check's CLI (cli/understanding/*.ts) on a worker thread. Its functions call git synchronously:
 // right in a terminal or in CI, but in the extension host each call would stop every extension that shares it (over
 // Remote-SSH that host is on the remote machine, and the editor waits on it). Here they stop only this thread. The
-// same file, the same functions: the extension and the CLI can't disagree. See cliThread.ts for the other side.
-import { parentPort, workerData } from 'worker_threads'
+// same functions as the CLI's: the extension and the CLI can't disagree. cliThread.ts is the other side; `workerApi`
+// below is everything it can call.
+import { parentPort } from 'worker_threads'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { statusBranch, statusPaths } from '../git'
-import { importCli } from './importCli'
+import { statusPaths } from '../platform/git'
+import { gitIdentity } from '../../cli/understanding/checkFile'
+import { codeStat, diffText } from '../../cli/understanding/diff'
+import { currentBranch, defaultBase as cliDefaultBase, git } from '../../cli/understanding/git'
+import { localStatus, refreshInputs } from '../../cli/understanding/state'
+import { errorText, type WorkerReply, type WorkerRequest } from './cliProxy'
 import type { RefreshResult } from './types'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/** The CLI's functions, called by name from the other side (check/types.ts `Cli` lists the ones the extension uses). */
-type CliModule = Record<string, any>
-const loaded = importCli<CliModule>((workerData as { cli: string }).cli)
-/** The understanding CLI (cli/understanding.mjs), once loaded. */
-let cli!: CliModule
+/** This file, for `new Worker` (cliThread.ts): a compiled name, not a string kept in step by hand. */
+export const WORKER_FILE = __filename
+
+// What the worker keeps between calls, and until when:
+//   gitDirs  a repository's git folders               for the worker's life (a moved worktree is another path)
+//   memo     the base branch, who answers (git reads)  while the files git reads them from are unchanged, at most 5 min
+// A refresh itself caches nothing here: its key (gateKey) goes back to the caller, which passes it in again.
 
 /** How long a value read from git (the base branch, who answers) is kept while its key stays the same. */
 const MEMO_MS = 300_000
 
-/** A file as a cache key: changes when it is written or replaced, or appears or goes. */
+/** A file as a cache key: changes when it is written or replaced, or appears or goes ('-': not there). */
 function stamp(file: string): string {
-  try { const s = fs.statSync(file); return `${s.ino}:${s.size}:${s.mtimeMs}` } catch { return '-' }
+  try {
+    const s = fs.statSync(file)
+    return `${s.ino}:${s.size}:${s.mtimeMs}`
+  } catch {
+    return '-'
+  }
 }
 
 /** The repository's git folders (a linked worktree has its own, and shares the common one). */
-const dirsOf = new Map<string, { git: string; common: string }>()
+const gitDirs = new Map<string, { git: string; common: string }>()
 function dirs(repo: string): { git: string; common: string } {
-  let d = dirsOf.get(repo)
+  let d = gitDirs.get(repo)
   if (!d) {
-    const [git, common] = cli.git(repo, ['rev-parse', '--absolute-git-dir', '--git-common-dir']).trim().split('\n')
-    d = { git, common: path.resolve(repo, common ?? git) }
-    dirsOf.set(repo, d)
+    const [gitDir, common] = git(repo, ['rev-parse', '--absolute-git-dir', '--git-common-dir']).trim().split('\n')
+    d = { git: gitDir, common: path.resolve(repo, common ?? gitDir) }
+    gitDirs.set(repo, d)
   }
   return d
 }
 
-/** Values that rarely change, kept while their key (files git reads them from) stays the same, at most 5 minutes. */
+/** Values that rarely change, kept while their key (files git reads them from) stays the same, at most MEMO_MS. */
 const memo = new Map<string, { key: string; at: number; v: unknown }>()
 function cached<T>(name: string, key: string, f: () => T): T {
   const m = memo.get(name)
@@ -61,67 +72,77 @@ function configKey(repo: string): string {
   return files.map(stamp).join('|')
 }
 
+/** The refs the base branch is chosen from (the CLI's refreshInputs), as a key. */
+const refsKey = (repo: string, refs: string[]): string => refs.map((r) => stamp(path.join(dirs(repo).common, r))).join('|')
+
 /** The branch compared with (the CLI's defaultBase), kept while the branch and the refs it is chosen from stay the same. */
-function defaultBase(repo: string, branch: string | undefined): string | undefined {
-  const c = dirs(repo).common
-  // The refs the CLI chooses from (origin's HEAD, then its DEFAULT_BRANCHES on origin, then local), and packed-refs.
-  const names: string[] = cli.DEFAULT_BRANCHES
-  const refs = ['packed-refs', 'refs/remotes/origin/HEAD', ...names.map((b) => `refs/remotes/origin/${b}`), ...names.map((b) => `refs/heads/${b}`)]
-  const refsKey = refs.map((r) => stamp(path.join(c, r))).join('|')
-  return cached(`base\0${repo}`, `${branch}|${refsKey}`, () => cli.defaultBase(repo) as string | undefined)
+function defaultBase(repo: string, branch: string, refs: string[]): string | undefined {
+  return cached(`base\0${repo}`, `${branch}|${refsKey(repo, refs)}`, () => cliDefaultBase(repo))
 }
 
 /**
  * Everything a refresh reads, as one hash: HEAD and the branch, every ref (the base, the upstream, a stack's parent,
  * the stash), the working tree's changed files (each with its size and time: editing a changed file again changes no
- * line of `git status`), the check file, its settings and cached copy, the files the caller names, git's config (who
- * answers), and `extra` (what only the caller knows). The same hash: nothing a refresh shows can have changed.
+ * line of `git status`), the files and refs the CLI says a status reads (refreshInputs), the files the caller names,
+ * git's config (who answers), and `extra` (what only the caller knows). The same hash: nothing a refresh shows can
+ * have changed.
  */
-function gateKey(repo: string, o: { files: string[]; untracked: boolean; extra: string }): string {
+function gateKey(repo: string, inputs: { files: string[]; refs: string[] }, o: { files: string[]; untracked: boolean; extra: string }): string {
   const h = createHash('sha1')
   const untracked = `--untracked-files=${o.untracked ? 'all' : 'no'}`
-  const st = cli.git(repo, ['status', '--porcelain=v2', '--branch', '-z', untracked]) as string
+  const st = git(repo, ['status', '--porcelain=v2', '--branch', '-z', untracked])
   h.update(st)
   for (const p of statusPaths(st)) h.update(`\0${p}\0${stamp(path.join(repo, p))}`)
-  h.update(cli.git(repo, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads', 'refs/remotes', 'refs/stash']))
-  // The CLI's currentBranch, without another git call: the status names the branch.
-  const head = statusBranch(st)
-  const branch = cli.ciBranch() || (head === '(detached)' || !head ? 'HEAD' : head)
-  const files = [cli.fileFor(branch), `${cli.DIR}/config.json`, cli.cachedFor(branch), ...o.files]
-  for (const f of files) h.update(`\0${f}\0${stamp(path.join(repo, f))}`)
-  h.update(`\0${configKey(repo)}\0${o.extra}`)
+  h.update(git(repo, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads', 'refs/remotes', 'refs/stash']))
+  for (const f of [...inputs.files, ...o.files]) h.update(`\0${f}\0${stamp(path.join(repo, f))}`)
+  h.update(`\0${refsKey(repo, inputs.refs)}\0${configKey(repo)}\0${o.extra}`)
   return h.digest('hex')
 }
 
 /**
  * Where the branch stands (the CLI's localStatus), unless nothing it reads changed since `prev` (then `{ same: true }`).
- * With the identity of who answers (git's user.name and user.email).
+ * With the identity of who answers (git's user.name and user.email). Each part that fails is left out: no key (the
+ * next refresh reads again), the error's first line instead of a status, no identity.
  */
 function refreshState(repo: string, o: { prev?: string; files?: string[]; untracked?: boolean; extra?: string }): RefreshResult {
+  let inputs: ReturnType<typeof refreshInputs> | undefined
   let key: string | undefined
-  try { key = gateKey(repo, { files: o.files ?? [], untracked: !!o.untracked, extra: o.extra ?? '' }) } catch { key = undefined }
-  if (key && key === o.prev) return { key, same: true }
-  let st: RefreshResult['st'], error: string | undefined
   try {
-    const branch = cli.currentBranch(repo)
-    st = cli.localStatus(repo, { base: defaultBase(repo, branch) })
-  } catch (e) { error = String((e as Error)?.message ?? e).split('\n')[0] }
+    inputs = refreshInputs(repo)
+    key = gateKey(repo, inputs, { files: o.files ?? [], untracked: !!o.untracked, extra: o.extra ?? '' })
+  } catch {
+    key = undefined
+  }
+  if (key && key === o.prev) return { key, same: true }
+  let st: RefreshResult['st']
+  let error: string | undefined
+  try {
+    const branch = inputs?.branch ?? currentBranch(repo)
+    st = localStatus(repo, { base: defaultBase(repo, branch, inputs?.refs ?? []) })
+  } catch (e) {
+    error = errorText(e, true)
+  }
   let ident: RefreshResult['ident']
-  try { ident = cached(`who\0${repo}`, configKey(repo), () => cli.gitIdentity(repo)) } catch { ident = undefined }
+  try {
+    ident = cached(`who\0${repo}`, configKey(repo), () => gitIdentity(repo))
+  } catch {
+    ident = undefined
+  }
   return { key, st, error, ident }
 }
 
-/** Functions of the worker itself, called by name like the CLI's (they come first). */
-const workerFns: Record<string, (...a: any[]) => unknown> = { refreshState }
+/** What the extension host calls on this thread (through CliThread's `api`): only these, by name. */
+export const workerApi = { refreshState, codeStat, diffText }
+export type WorkerApi = typeof workerApi
 
-parentPort!.on('message', async (m: { id: number; fn: string; args: unknown[] }) => {
+parentPort?.on('message', async (m: WorkerRequest) => {
+  let reply: WorkerReply
   try {
-    cli ??= await loaded
-    const f = workerFns[m.fn] ?? cli[m.fn]
-    if (typeof f !== 'function') throw new Error(`no function ${m.fn}`)
-    const v = await f(...m.args)
-    parentPort!.postMessage({ id: m.id, ok: true, v })
+    if (!Object.hasOwn(workerApi, m.fn)) throw new Error(`no function ${m.fn}`)
+    const f = workerApi[m.fn as keyof WorkerApi] as (...a: unknown[]) => unknown
+    reply = { id: m.id, ok: true, v: await f(...m.args) }
   } catch (e) {
-    parentPort!.postMessage({ id: m.id, ok: false, err: String((e as Error)?.message ?? e) })
+    reply = { id: m.id, ok: false, err: errorText(e) }
   }
+  parentPort!.postMessage(reply)
 })

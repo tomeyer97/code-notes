@@ -1,14 +1,11 @@
 {
- "note": "The tour of a refunds change to the example shop (examples/shop), as written by Claude (sonnet) through skills/understanding-check: a fixture for test/check-tour/shoot.mjs.",
+ "note": "The tour of a refunds change to the example shop (examples/shop; its refunds code is test/fixtures/grader-cases') and the check's questions, each after the step that shows its answer: the fixture of test/check-tour/shoot.mjs, which reads the steps and the questions only. Hand-kept and small on purpose: four steps, the fields a check's tour needs (src/check/types.ts CheckTour) and nothing recorded from a run.",
  "journey": {
   "version": 2,
   "id": "tour",
   "question": "What happens when a shopper asks for a refund?",
   "title": "Refunds",
   "summary": "A shopper asks for money back on a paid order. The API marks the order and queues a job, and the worker asks the payment provider to refund it.",
-  "model": "sonnet",
-  "commit": "a7267e5034e97199772a194040ae7b075be969f6",
-  "createdAt": "2026-11-16T13:05:21.442Z",
   "nodes": [
    {
     "id": "api",
@@ -96,69 +93,6 @@
     }
    },
    {
-    "id": "f_settle",
-    "kind": "function",
-    "label": "settleOrder",
-    "summary": "Takes the worker's report for a charge or refund.",
-    "parent": "api",
-    "at": {
-     "file": "api/orders.js",
-     "start": 50,
-     "end": 56,
-     "anchor": {
-      "v": 3,
-      "head": "export async function settleOrder(req, res, id) {\n  const result = await readJson(req)\n  let changed",
-      "tail": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}",
-      "lines": 7,
-      "hash": "71431832b94e",
-      "before": "// The worker reports how the charge or the refund went: 409 when the order was settled before.",
-      "after": "const routes = ["
-     }
-    }
-   },
-   {
-    "id": "f_fail",
-    "kind": "function",
-    "label": "markRefundFailed",
-    "summary": "Puts a failed refund's order back to paid.",
-    "parent": "api",
-    "at": {
-     "file": "api/store.js",
-     "start": 59,
-     "end": 64,
-     "anchor": {
-      "v": 3,
-      "head": "export function markRefundFailed(id, error) {\n  const done = db\n    .prepare(\"UPDATE orders SET status = 'paid', refund = NULL, error = ? WHERE id = ? AND status = 'refund_pending'\")",
-      "tail": "  return done.changes === 1\n}",
-      "lines": 6,
-      "hash": "4ce2f7e86caa",
-      "before": "// The refund did not go through: the order is paid again, so the customer can ask once more.",
-      "after": "// Only a pending order changes: a second report for the same order changes nothing and returns false."
-     }
-    }
-   },
-   {
-    "id": "f_poll",
-    "kind": "function",
-    "label": "pollOnce",
-    "summary": "Takes one job and reports its result.",
-    "parent": "worker",
-    "at": {
-     "file": "worker/worker.js",
-     "start": 26,
-     "end": 40,
-     "anchor": {
-      "v": 3,
-      "head": "export async function pollOnce() {\n  const job = await takeJob()\n  if (!job) return false",
-      "tail": "  return true\n}",
-      "lines": 15,
-      "hash": "2177410d49b7",
-      "before": "// Takes one job and finishes it. Returns false when no job was waiting.",
-      "after": "async function run() {"
-     }
-    }
-   },
-   {
     "id": "f_wrefund",
     "kind": "function",
     "label": "refundOrder (worker)",
@@ -192,19 +126,9 @@
     "label": "queues the job"
    },
    {
-    "from": "f_poll",
+    "from": "f_push",
     "to": "f_wrefund",
-    "label": "refunds the job"
-   },
-   {
-    "from": "f_poll",
-    "to": "f_settle",
-    "label": "reports the result"
-   },
-   {
-    "from": "f_settle",
-    "to": "f_fail",
-    "label": "on a failed refund"
+    "label": "the worker takes the job"
    },
    {
     "from": "f_wrefund",
@@ -222,26 +146,7 @@
      "start": 37,
      "end": 42
     },
-    "anchor": {
-     "v": 3,
-     "head": "  const order = getOrder(id)\n  if (!order) return send(res, 404, { error: 'No such order' })\n  if (!body || body.customer !== order.customer) return send(res, 403, { error: 'Not your order' })",
-     "tail": "  if (!Number.isInteger(amount) || amount < 1 || amount > order.total) return send(res, 400, { error: 'Choose an amount up to the order total' })\n  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
-     "lines": 6,
-     "hash": "8fd9779f3337",
-     "before": "  const body = await readJson(req)",
-     "after": "  if (!startRefund(id, amount)) return send(res, 409, { error: 'This order cannot be refunded' })"
-    },
-    "lead": "The order must exist, belong to the caller, have a valid amount, and the queue must have room.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "the queue must have room",
-      "file": "api/orders.js",
-      "start": 42,
-      "end": 42,
-      "text": "if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })"
-     }
-    ]
+    "lead": "The order must exist, belong to the caller, have a valid amount, and the queue must have room."
    },
    {
     "id": "nmm934",
@@ -252,56 +157,7 @@
      "start": 44,
      "end": 49
     },
-    "anchor": {
-     "v": 3,
-     "head": "export function startRefund(id, amount) {\n  const done = db\n    .prepare(\"UPDATE orders SET status = 'refund_pending', refund = ? WHERE id = ? AND status = 'paid'\")",
-     "tail": "  return done.changes === 1\n}",
-     "lines": 6,
-     "hash": "d9a8ead094ed",
-     "before": "// was asked for already): two refund requests for one order start one refund.",
-     "after": "export function markRefunded(id, refundId) {"
-    },
-    "lead": "Only a row still paid is changed, and the number of changed rows tells the caller whether it won.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "the number of changed rows",
-      "file": "api/store.js",
-      "start": 48,
-      "end": 48,
-      "text": "return done.changes === 1"
-     }
-    ]
-   },
-   {
-    "id": "wkyfpm",
-    "title": "The refund job is queued right after the update",
-    "node": "f_refund",
-    "file": "api/orders.js",
-    "range": {
-     "start": 44,
-     "end": 46
-    },
-    "anchor": {
-     "v": 3,
-     "head": "  if (!startRefund(id, amount)) return send(res, 409, { error: 'This order cannot be refunded' })\n  jobs.push({ kind: 'refund', orderId: id, amount, paymentId: order.payment_id })\n  send(res, 202, { order: getOrder(id) })",
-     "tail": "  jobs.push({ kind: 'refund', orderId: id, amount, paymentId: order.payment_id })\n  send(res, 202, { order: getOrder(id) })",
-     "lines": 3,
-     "hash": "4d2110f55f00",
-     "before": "  if (jobs.isFull()) return send(res, 503, { error: 'The shop is busy' })",
-     "after": "}"
-    },
-    "lead": "Once the order is refund_pending, the job is pushed and the shopper gets a 202.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "the job is pushed",
-      "file": "api/orders.js",
-      "start": 45,
-      "end": 45,
-      "text": "jobs.push({ kind: 'refund', orderId: id, amount, paymentId: order.payment_id })"
-     }
-    ]
+    "lead": "Only a row still paid is changed, and the number of changed rows tells the caller whether it won."
    },
    {
     "id": "a442zq",
@@ -312,56 +168,7 @@
      "start": 6,
      "end": 9
     },
-    "anchor": {
-     "v": 3,
-     "head": "  constructor(maxJobs) {\n    this.maxJobs = maxJobs\n    this.waiting = []",
-     "tail": "    this.waiting = []\n  }",
-     "lines": 4,
-     "hash": "981f9d8f4450",
-     "before": "export class JobQueue {",
-     "after": "  get size() {"
-    },
-    "lead": "Waiting jobs live only in this array, while the order's status lives in the database.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "the order's status lives in the database",
-      "file": "api/store.js",
-      "start": 12,
-      "end": 12,
-      "text": "status      TEXT    NOT NULL DEFAULT 'pending',"
-     }
-    ]
-   },
-   {
-    "id": "q47nzz",
-    "title": "The worker sends refund jobs to the refund code",
-    "node": "f_poll",
-    "file": "worker/worker.js",
-    "range": {
-     "start": 30,
-     "end": 35
-    },
-    "anchor": {
-     "v": 3,
-     "head": "  if (job.kind === 'refund') {\n    const result = await refundOrder(job)\n    await report(job.orderId, result)",
-     "tail": "    return true\n  }",
-     "lines": 6,
-     "hash": "93dbee9b6117",
-     "before": "  if (!job) return false",
-     "after": "  const result = await chargeOrder(job)"
-    },
-    "lead": "A job of kind refund is refunded, its result is reported to the API, and the poll ends.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "its result is reported",
-      "file": "worker/worker.js",
-      "start": 32,
-      "end": 32,
-      "text": "await report(job.orderId, result)"
-     }
-    ]
+    "lead": "Waiting jobs live only in this array, while the order's status lives in the database."
    },
    {
     "id": "gt8lj3",
@@ -372,116 +179,7 @@
      "start": 7,
      "end": 17
     },
-    "anchor": {
-     "v": 3,
-     "head": "  const idempotencyKey = `refund-${job.orderId}`\n  const { maxAttempts, retryMs } = config.worker\n  for (let attempt = 1; attempt <= maxAttempts; attempt++) {",
-     "tail": "      await new Promise((resolve) => setTimeout(resolve, attempt * retryMs))\n    }",
-     "lines": 11,
-     "hash": "31e775a4e584",
-     "before": "export async function refundOrder(job) {",
-     "after": "  }"
-    },
-    "lead": "The key is only the order id, so retries and any later refund of this order share it.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "retries",
-      "file": "worker/refund.js",
-      "start": 15,
-      "end": 16,
-      "text": "if (attempt === maxAttempts) return { kind: 'refund', refunded: false, error: err.message }"
-     }
-    ]
-   },
-   {
-    "id": "tbwe1q",
-    "title": "The provider gets the key and the amount",
-    "node": "payments",
-    "file": "payments/client.js",
-    "range": {
-     "start": 36,
-     "end": 45
-    },
-    "anchor": {
-     "v": 3,
-     "head": "  const res = await fetch(`${config.payments.url}/refunds`, {\n    method: 'POST',\n    headers: {",
-     "tail": "    signal: AbortSignal.timeout(config.payments.timeoutMs),\n  })",
-     "lines": 10,
-     "hash": "5006a8896821",
-     "before": "export async function createRefund({ paymentId, amount, idempotencyKey }) {",
-     "after": "  if (!res.ok) throw new Error(`the payment provider answered ${res.status}`)"
-    },
-    "lead": "The same key sent again returns the first refund, whatever amount the new request carries.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "The same key sent again",
-      "file": "payments/client.js",
-      "start": 41,
-      "end": 41,
-      "text": "'Idempotency-Key': idempotencyKey,"
-     }
-    ]
-   },
-   {
-    "id": "j8rw4m",
-    "title": "The report is routed by kind to the refund updates",
-    "node": "f_settle",
-    "file": "api/orders.js",
-    "range": {
-     "start": 52,
-     "end": 55
-    },
-    "anchor": {
-     "v": 3,
-     "head": "  let changed\n  if (result.kind === 'refund') changed = result.refunded ? markRefunded(id, result.refundId) : markRefundFailed(id, result.error)\n  else changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
-     "tail": "  else changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)\n  send(res, changed ? 200 : 409, { order: getOrder(id) })",
-     "lines": 4,
-     "hash": "d49f68b403df",
-     "before": "  const result = await readJson(req)",
-     "after": "}"
-    },
-    "lead": "A refund result marks the order refunded or refund-failed, and anything else is treated as a charge.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "refund-failed",
-      "file": "api/orders.js",
-      "start": 53,
-      "end": 53,
-      "text": "if (result.kind === 'refund') changed = result.refunded ? markRefunded(id, result.refundId) : markRefundFailed(id, result.error)"
-     }
-    ]
-   },
-   {
-    "id": "h8ybyi",
-    "title": "A failed refund puts the order back to paid",
-    "node": "f_fail",
-    "file": "api/store.js",
-    "range": {
-     "start": 59,
-     "end": 64
-    },
-    "anchor": {
-     "v": 3,
-     "head": "export function markRefundFailed(id, error) {\n  const done = db\n    .prepare(\"UPDATE orders SET status = 'paid', refund = NULL, error = ? WHERE id = ? AND status = 'refund_pending'\")",
-     "tail": "  return done.changes === 1\n}",
-     "lines": 6,
-     "hash": "4ce2f7e86caa",
-     "before": "// The refund did not go through: the order is paid again, so the customer can ask once more.",
-     "after": "// Only a pending order changes: a second report for the same order changes nothing and returns false."
-    },
-    "lead": "The refund amount is cleared and the order can be refunded again, with a new job and the same key.",
-    "refs": [],
-    "links": [
-     {
-      "phrase": "can be refunded again",
-      "file": "api/orders.js",
-      "start": 44,
-      "end": 44,
-      "text": "if (!startRefund(id, amount)) return send(res, 409, { error: 'This order cannot be refunded' })"
-     }
-    ]
+    "lead": "The key is only the order id, so retries and any later refund of this order share it."
    }
   ]
  },
@@ -489,13 +187,13 @@
   {
    "id": "q1",
    "n": 1,
-   "step": 4,
+   "step": 3,
    "text": "What happens to an order in refund_pending if the API restarts before the worker takes its refund job?"
   },
   {
    "id": "q2",
    "n": 2,
-   "step": 9,
+   "step": 4,
    "text": "After a failed refund, what happens when the customer asks again for a different amount, given the idempotency key?"
   },
   {

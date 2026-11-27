@@ -1,0 +1,27 @@
+{
+  "about": "How git's rename output reads: the extension (src/platform/gitRenames.ts) and journey.py check should both pass these.",
+  "nameStatus": [
+    {
+      "what": "renames only (R<score>), any score; other changes and blank lines skipped",
+      "text": "R100\ta.go\tb.go\nM\tc.go\nR087\tweb/cart/basket.ts\tweb/cart/cartLines.ts\n\nA\tnew.ts\n",
+      "renames": { "a.go": "b.go", "web/cart/basket.ts": "web/cart/cartLines.ts" }
+    },
+    {
+      "what": "a file renamed twice: the later line wins",
+      "text": "R100\ta.go\tb.go\nR100\ta.go\tc.go\n",
+      "renames": { "a.go": "c.go" }
+    },
+    {
+      "what": "a copy is not a rename",
+      "text": "C090\ta.go\tcopy.go\n",
+      "renames": {}
+    }
+  ],
+  "status": [
+    {
+      "what": "staged renames; quotes around odd names dropped; other entries skipped",
+      "text": "R  a.go -> b.go\nR  \"caf\\303\\251.ts\" -> \"cafe.ts\"\n M c.go\n?? scratch.js\nRM old.ts -> new.ts\n",
+      "renames": { "a.go": "b.go", "caf\\303\\251.ts": "cafe.ts", "old.ts": "new.ts" }
+    }
+  ]
+}

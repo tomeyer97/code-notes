@@ -5,10 +5,14 @@
 // where it is now (`relocate`), drop the refs already on screen (`onScreen`), and say each as a link or a struck-out
 // name (`label`). `stepText` composes them.
 import { fileOf, LoadedJourney } from '../journeys/steps'
-import type { JStep } from '../journeyModel'
-import { readLinks } from '../journeyModel'
+import type { JStep } from '../core/format/journeyModel'
+import { readLinks } from '../core/format/journeyModel'
 import { DIR, FILE_NAME, REF_IN_TEXT } from '../journeys/textFormat'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
+import { formatLineSuffix, LINE_SUFFIX_PLAIN, lineSuffixOf } from '../core/lineSuffix'
+import { mdLabel } from '../core/mdLabel'
+import { STEP_CODE_CHANGED, STEP_FILE_GONE, STEP_LINES_LOST } from '../core/staleWording'
+import { folderFileKey } from '../platform/keys'
 
 /** A link in a step's text: where it goes now (renames, moved lines), and how it reads. */
 export interface StepRef { label: string; file: string; line: number; end: number; gone: boolean; stale: boolean }
@@ -44,17 +48,15 @@ export interface Ref { text: string; file: string; line: number; end?: number }
 const SHORT_PATHS = new RegExp(`(?:${DIR})+(${FILE_NAME})`, 'g')
 export const shortPaths = (t: string) => t.replace(SHORT_PATHS, '$1')
 /** A "(path:line)" aside (the folders may be left out), with the space before it. */
-const ASIDE = new RegExp(`\\s*\\(\`?(?:${DIR})*${FILE_NAME}(?::\\d+(?:[-–]\\d+)?|#L\\d+)\`?\\)`, 'g')
+const ASIDE = new RegExp(`\\s*\\(\`?(?:${DIR})*${FILE_NAME}${LINE_SUFFIX_PLAIN}\`?\\)`, 'g')
 export const dropAsides = (t: string) => t.replace(ASIDE, '')
-
-/** The `-b` of `path:a-b` (the range's end), if written. */
-const rangeEnd = (t: string) => { const m = /[-–](\d+)`?$/.exec(t); return m ? Number(m[1]) : undefined }
 
 /** Each place `t` names (REF_IN_TEXT), replaced with what `f` makes of it. */
 export function mapRefs(t: string, f: (r: Ref) => string): string {
-  return t.replace(REF_IN_TEXT, (m: string, file: string, l1?: string, l2?: string) => {
+  return t.replace(REF_IN_TEXT, (m: string, file: string) => {
     const text = m.replace(/`/g, '')
-    return f({ text, file, line: Number(l1 ?? l2) || 1, end: rangeEnd(text) })
+    const at = lineSuffixOf(text)
+    return f({ text, file, line: at?.line || 1, end: at?.end })
   })
 }
 /** The places `t` names. */
@@ -68,9 +70,10 @@ export function refsIn(t: string): Ref[] {
 export const isSentence = (r: string) => /\s/.test(r.trim())
 /** A bare ref, `path[:line[-end]]` or `path#Lline`: it reads as the file's name and its lines as written. */
 export function parseBare(r: string): Ref {
-  const m = /^(.*?)(?::(\d+)(?:[-–](\d+))?|#L(\d+))?$/.exec(r)!
-  const text = `${baseName(m[1])}${r.slice(m[1].length)}`
-  return { text, file: m[1], line: Number(m[2] ?? m[4]) || 0, ...(m[3] ? { end: Number(m[3]) } : {}) }
+  const at = lineSuffixOf(r)
+  const file = at ? r.slice(0, at.index) : r
+  const text = `${baseName(file)}${r.slice(file.length)}`
+  return { text, file, line: at?.line || 0, ...(at?.end !== undefined ? { end: at.end } : {}) }
 }
 
 /** Every file a step's text names (its refs, lead and details), as written: the ones to check exist. */
@@ -103,7 +106,7 @@ export function relocate(ref: Ref, here: Here): Placed {
   const at = ref.line || 1
   const line = same ? Math.max(1, at + here.delta) : at
   const end = Math.max(line, (ref.end ?? at) + (same ? here.delta : 0))
-  const k = `${here.folder}|${file}`
+  const k = folderFileKey(here.folder, file)
   const gone = here.refGone.has(k) ? 'file' : (here.refLines.get(k) ?? Infinity) < line ? 'line' : undefined
   return { file, line, end, same, ...(gone ? { gone } : {}) }
 }
@@ -111,9 +114,13 @@ export function relocate(ref: Ref, here: Here): Placed {
 // ---------- label: how a ref reads ----------
 
 /** `text` with its `:a-b` or `#La` moved by `delta`. */
-const shiftLines = (text: string, delta: number) =>
-  text.replace(/(:|#L)(\d+)(?:([-–])(\d+))?$/, (_m, at: string, a: string, d?: string, b?: string) =>
-    `${at}${Math.max(1, +a + delta)}${d ? `${d}${Math.max(1, +b! + delta)}` : ''}`)
+function shiftLines(text: string, delta: number): string {
+  const at = lineSuffixOf(text)
+  if (!at) return text
+  const by = (x: number) => Math.max(1, x + delta)
+  const end = at.end === undefined ? {} : { end: by(at.end) }
+  return `${text.slice(0, at.index)}${formatLineSuffix({ ...at, line: by(at.line), ...end })}`
+}
 
 /** `ref` as it reads at `place`: its line moved with the step, a renamed file's new name. */
 function placedText(ref: Ref, place: Placed, delta: number): string {
@@ -128,7 +135,7 @@ function placedText(ref: Ref, place: Placed, delta: number): string {
  */
 export function label(ref: Ref, place: Placed, delta: number): string {
   const t = shortPaths(placedText(ref, place, delta))
-  if (place.gone) return `~~${t.replace(/[[\]]/g, '')}~~ (${place.gone} gone)`
+  if (place.gone) return `~~${mdLabel(t)}~~ (${place.gone} gone)`
   return place.file === ref.file ? t : `${t} (moved)`
 }
 
@@ -140,20 +147,29 @@ export function label(ref: Ref, place: Placed, delta: number): string {
  */
 export interface Shown { details: Set<string>; spans: { file: string; start: number; end: number }[] }
 
+/** A place as a key of `Shown.details`: the file and the line as written. */
+const placeKey = (r: Pick<Ref, 'file' | 'line'>) => `${r.file}:${r.line}`
+
 /** Is the place `ref` names on screen? A ref with no line never is. */
 export function onScreen(ref: Ref, shown: Shown, renames: Map<string, string>): boolean {
   if (!ref.line) return false
+  if (shown.details.has(placeKey(ref))) return true
   const file = renames.get(ref.file) ?? ref.file
-  return shown.details.has(`${ref.file}:${ref.line}`) || shown.spans.some((s) => s.file === file && ref.line >= s.start && ref.line <= s.end)
+  return shown.spans.some((s) => s.file === file && ref.line >= s.start && ref.line <= s.end)
 }
 
 /** What step n's card shows of its own: the open details' places, its code links' lines, its own lines (unless stale). */
 export function shownBy(lj: TextJourney, n: number, details: string, input: StepTextInput, delta: number): Shown {
-  const s = lj.j.steps[n - 1], at = lj.at[n - 1], moved = input.renames
-  const shown: Shown = { details: new Set(input.detailsOpen && details ? refsIn(details).map((r) => `${r.file}:${r.line}`) : []), spans: [] }
+  const s = lj.j.steps[n - 1]
+  const at = lj.at[n - 1]
+  const inDetails = input.detailsOpen && details ? refsIn(details).map(placeKey) : []
+  const shown: Shown = { details: new Set(inDetails), spans: [] }
   // A ref inside a code link's lines repeats that link: the phrase on the card already goes there.
   const text = `${s.lead ?? ''}\n${s.details ?? ''}`
-  for (const l of readLinks(s.links)) if (text.includes(l.phrase)) shown.spans.push({ file: moved.get(l.file) ?? l.file, start: l.start, end: l.end })
+  for (const l of readLinks(s.links)) {
+    if (!text.includes(l.phrase)) continue
+    shown.spans.push({ file: input.renames.get(l.file) ?? l.file, start: l.start, end: l.end })
+  }
   // The step's own lines, back in the coordinates its text was written in.
   if (!at.stale) shown.spans.push({ file: fileOf(lj, n), start: at.start - delta, end: at.end - delta })
   return shown
@@ -166,9 +182,9 @@ export function staleText(lj: TextJourney, n: number, ask: string, fileGone: boo
   // One line: what is known, and the one thing to do. The git gutter shows what changed.
   const at = lj.at[n - 1]
   // Never "gone" for code that was only edited or moved (it read as "the feature was removed").
-  if (fileGone) return `**⚠ File moved or deleted** · ${ask}`
+  if (fileGone) return `**⚠ ${STEP_FILE_GONE}** · ${ask}`
   if (!at.stale) return ''
-  return `**⚠ ${at.removed || at.was === undefined ? 'Code changed: can\'t find these lines' : 'Code changed'}** · ${ask}`
+  return `**⚠ ${at.removed || at.was === undefined ? STEP_LINES_LOST : STEP_CODE_CHANGED}** · ${ask}`
 }
 
 /**

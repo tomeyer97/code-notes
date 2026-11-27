@@ -1,5 +1,2 @@
-// Tool calls as Claude's stream reports them, for the unit tests of the phase readers (check/prompts.ts's checkPhase,
-// writing.ts's phaseOf).
-
-/** A Bash tool call running `command`. */
-export const bashCall = (command: string) => ({ name: 'Bash', input: { command } })
+// Moved to helpers/toolCalls.ts; kept until the unit tests import it from there.
+export * from './helpers/toolCalls'

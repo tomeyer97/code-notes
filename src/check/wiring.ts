@@ -1,68 +1,69 @@
 // The understanding check (src/check/) wired to the rest of the extension: what its host gets (the notes, Claude, the
-// tour and the journeys), its commands, and the check's side of code links and D / A.
+// tour), its commands, the check's side of code links and D / A, and the journeys list following its changes. Each
+// function gets the controller or the ports it uses (check/index.ts passes them): no global.
 
 import * as vscode from 'vscode'
-import { byId, cfg, log, mapPanel, notes, now, provide, state, store, understanding } from '../app'
+import { byId, visibleNotes } from '../notes/visible'
+import { log, now, stored } from '../platform/host'
 import { askAbout } from '../ask/run'
+import type { AskHandler } from '../ask/handlers'
 import { claudeCli } from '../ask/settings'
-import { claudeAllowed } from '../ask/trust'
-import { me } from '../identity'
-import { shape, shapeOf } from '../notes/changedOnDisk'
+import { agentRunner } from '../platform/agent/runner'
+import { me } from '../notes/identity'
 import { newId } from '../notes/create'
 import { addReply } from '../notes/reply'
 import { focusReply, reveal } from '../notes/reveal'
-import { refreshAll } from '../refresh'
-import { markRead, setSeen, unread } from '../seen'
-import { journeysTree } from '../sidebar/journeysTree'
-import { Note } from '../store'
-import { noteOfThread, revealed } from '../threads/sync'
-import { currentTour, openCheckpoint, tourChanged } from '../tour/checkTour'
-import { walkJourney } from '../tour/commands'
-import { card, walk } from '../tour/instances'
+import { notesChanged, selection } from '../notes/model'
+import { markRead, setSeen, unread } from '../notes/seen'
+import { Note } from '../notes/store'
+import { noteOfThread } from '../threads/sync'
 import { journeySkill } from '../write/claudeRun'
-import { isConcernAction } from './concern'
-import { CheckController } from './controller'
+import { checkAskHint } from './prompts'
+import type { CheckController } from './controller'
+import type { CheckHost } from './host'
+import type { CheckPorts } from './ports'
+import { parseCheckConcernArgs, parseNoteIdArg, type CheckQuery } from './query'
+import { parseCheckLinkKey } from '../platform/keys'
 
-/** The understanding check: questions about this branch's change, answered in their threads (src/check/). */
-export function createUnderstanding(context: vscode.ExtensionContext): void {
-  provide({ understanding: new CheckController({
-    log, store, extUri: context.extensionUri, memento: state, me, now, newId,
-    revealed: () => revealed.id,
+/** The check's host (src/check/host.ts): the notes, Claude, the tour and the journeys, from its ports. */
+export function checkHost(extUri: vscode.Uri, { store, tour }: CheckPorts): CheckHost {
+  return {
+    log: log(), store, extUri, stored: stored(), me, now, newId,
+    revealed: () => selection().revealed,
     focusReply,
     askAbout,
     cli: claudeCli,
-    allowed: (what) => claudeAllowed(what),
+    allowed: (what) => agentRunner().allowed(what),
     model: checkModel,
     changed: noteChanged,
     addReply: (n, text) => addReply(n, text),
-    reveal: (n, col, keep) => reveal(n, col ?? walk.codeColumn(), keep),
-    refresh: () => refreshAll(),
-    codeColumn: walk.codeColumn,
-    listChanged,
+    reveal: (n, col, keep) => reveal(n, col ?? tour.codeColumn(), keep),
+    refresh: () => notesChanged({ kind: 'activity' }),
+    codeColumn: () => tour.codeColumn(),
     journeySkill: firstFolderSkill,
-    tourChanged,
-    walkTour,
-    openInTour,
-  }) })
-  context.subscriptions.push(understanding!)
+    tourChanged: (check, file, branch) => tour.checkTourChanged(check, file, branch),
+    walkTour: () => walkTour(tour),
+    openInTour: (id) => openInTour(tour, id),
+  }
 }
 
 /** The model the check grades with: its own setting, else Claude's. */
-const checkModel = () => cfg().get<string>('understanding.model') || cfg().get<string>('claude.model') || undefined
+const checkModel = () => agentRunner().model('check')
 
 /** A note the check created or changed: read if just made (its question is the check's, not news) or shown now. */
 async function noteChanged(n: Note, created: boolean): Promise<void> {
   if (created) await setSeen([[n.data.id, n.data.messages.length]])
-  shape.set(n.data.id, shapeOf(n))
-  if (revealed.id === n.data.id) await markRead([n], n)
-  refreshAll()
+  if (selection().revealed === n.data.id) await markRead([n], n)
+  notesChanged({ kind: 'activity', ids: [n.data.id] })
 }
 
-/** The check's row in the journeys list changed: the list, the map, the lenses. */
-function listChanged(): void {
-  journeysTree.refresh()
-  mapPanel.update()
-  card.lensChanged.fire()
+/** The check changed (controller.onDidChange): its row in the journeys list, the map, the lenses follow. */
+export function followCheck({ refreshJourneyList, mapPanel, tour }: CheckPorts): () => void {
+  return () => {
+    refreshJourneyList()
+    mapPanel.update()
+    tour.lensesChanged()
+  }
 }
 
 /** The code-journey skill of the first workspace folder. */
@@ -72,63 +73,86 @@ function firstFolderSkill(): string | undefined {
 }
 
 /** The check's tour walked (where it was left); false when it has no steps. */
-async function walkTour(): Promise<boolean> {
-  const lj = currentTour()
+async function walkTour(tour: CheckPorts['tour']): Promise<boolean> {
+  const lj = tour.checkTour()
   if (!lj || !lj.j.steps.length) return false
-  await walkJourney(lj)
+  await tour.walkJourney(lj)
   return true
 }
 
 /** Question `id`'s stop of the check's tour opened; false without a tour. */
-async function openInTour(id: string): Promise<boolean> {
-  const lj = currentTour()
-  return lj ? openCheckpoint(lj, id) : false
+async function openInTour(tour: CheckPorts['tour'], id: string): Promise<boolean> {
+  const lj = tour.checkTour()
+  return lj ? tour.openCheckpoint(lj, id) : false
 }
 
+/**
+ * Ask Claude on a check question: what do you want to know? The answer goes in a note of its own about the question's
+ * code, never in the check's thread, and Claude is told not to give the check's answer away.
+ */
+export const checkAskHandler = (check: Pick<CheckQuery, 'isCheck' | 'questionOf' | 'branchOf'>): AskHandler => ({
+  owns: (n) => check.isCheck(n),
+  hint: checkAskHint,
+  ask: async (n, text) => {
+    const q = check.questionOf(n)
+    const box = { title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' }
+    const ask = text?.trim() || await vscode.window.showInputBox(box)
+    if (!ask?.trim()) return
+    const extra = { ...(q ? { checkAsk: q.text } : {}), ...check.branchOf(n) }
+    await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), extra)
+  },
+})
 
-/** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
-export const answerCheck = async (r: vscode.CommentReply) => {
-  const n = noteOfThread(r.thread)
-  if (n && r.text.trim()) await understanding!.answer(n, r.text)
+/** The check's commands that take arguments (a reply box, a thread's links). */
+export function checkCommands(check: CheckController) {
+  return {
+    /** Ctrl+Enter in a question's thread: the answer is saved to the check's file and graded. */
+    answerCheck: async (r: vscode.CommentReply) => {
+      const n = noteOfThread(r.thread)
+      if (n && r.text.trim()) await check.answer(n, r.text)
+    },
+    /** codeNotes.checkConcern (a concern row's links): `action` on note `id`'s concern; `reason`: a dismissal's. */
+    checkConcern: async (id?: unknown, action?: unknown, reason?: unknown) => {
+      const a = parseCheckConcernArgs(id, action, reason)
+      const n = a && byId(a.id)
+      if (a && n) await check.concern(n, a.action, a.reason)
+    },
+    /** codeNotes.gradeCheck (Try again): note `id`'s question graded again. */
+    gradeCheck: async (id?: unknown) => {
+      const noteId = parseNoteIdArg(id)
+      const n = noteId !== undefined ? byId(noteId) : undefined
+      if (n) await check.regrade(n)
+    },
+  }
 }
 
-
-/** codeNotes.checkConcern (a concern row's links): `action` on note `id`'s concern; `reason`: a dismissal's. */
-export const checkConcern = async (id?: string, action?: string, reason?: string) => {
-  const n = typeof id === 'string' ? byId(id) : undefined
-  if (!n || !isConcernAction(action)) return
-  await understanding!.concerns.act(n, action, typeof reason === 'string' ? reason : undefined)
-}
-
-/** codeNotes.gradeCheck (Try again): note `id`'s question graded again. */
-export const gradeCheck = async (id?: string) => {
-  const n = typeof id === 'string' ? byId(id) : undefined
-  const q = n && understanding!.qidOf(n)
-  if (q) await understanding!.grader.grade(q)
-}
-
-/** Back from a check thread's code link: the question, with the keyboard in its answer box (never in the code). */
-export async function backToQuestion(n: Note): Promise<void> {
-  const q = understanding?.qidOf(n)
-  if (q) { await understanding!.open(q); return }
-  await reveal(n, walk.codeColumn())
-  await focusReply(n)
-}
-
-/** A code link key of a check thread ("check|<note id>|<message index>"): its note and that message's links. */
-export function checkLinkNote(key: string): { n: Note; links: ReturnType<CheckController['linksIn']> } | undefined {
-  const m = /^check\|([^|]+)\|(\d+)$/.exec(key)
-  const n = m ? byId(m[1]) : undefined
-  return n && understanding ? { n, links: understanding.linksIn(n, Number(m![2])) } : undefined
+/** The check's side of code links: a check thread's link key, and the way back from a link to its question. */
+export function checkLinks(check: Pick<CheckController, 'qidOf' | 'open' | 'linksIn'>, tour: CheckPorts['tour']) {
+  return {
+    /** A code link key of a check thread (platform/keys.ts checkLinkKey): its note and that message's links. */
+    noteOf(key: string): { n: Note; links: ReturnType<CheckController['linksIn']> } | undefined {
+      const k = parseCheckLinkKey(key)
+      const n = k ? byId(k.noteId) : undefined
+      return n && k ? { n, links: check.linksIn(n, k.index) } : undefined
+    },
+    /** Back from a check thread's code link: the question, with the keyboard in its answer box (never in the code). */
+    async backToQuestion(n: Note): Promise<void> {
+      const q = check.qidOf(n)
+      if (q) { await check.open(q); return }
+      await reveal(n, tour.codeColumn())
+      await focusReply(n)
+    },
+  }
 }
 
 /**
  * Whether D (next) and A (previous) walk the check's open questions, outside a tour: while it has some, when nothing
  * is unread or the thread shown is one of its questions. (Else they step through unread replies.)
  */
-export function checkStepping(): boolean {
-  if (!understanding?.hasOpen()) return false
-  const nothingUnread = !notes().some((n) => unread(n) > 0)
-  const shown = revealed.id ? byId(revealed.id) : undefined
-  return nothingUnread || (!!shown && understanding.isCheck(shown))
+export function checkStepping(check: Pick<CheckController, 'hasOpen' | 'isCheck'>): boolean {
+  if (!check.hasOpen()) return false
+  const nothingUnread = !visibleNotes().some((n) => unread(n) > 0)
+  const revealed = selection().revealed
+  const shown = revealed ? byId(revealed) : undefined
+  return nothingUnread || (!!shown && check.isCheck(shown))
 }

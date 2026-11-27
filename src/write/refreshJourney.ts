@@ -1,24 +1,24 @@
 // Refresh journey: Claude updates a journey's stale steps in a copy; the copy replaces it once its check passes.
 
 import * as vscode from 'vscode'
+import { journeys, mapPanel, refreshJourneyList, tour } from './ports'
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
-import { journeys, log, mapPanel, showError } from '../app'
-import { claudeAllowed } from '../ask/trust'
-import { AskResult } from '../claude'
+import { log } from '../platform/host'
+import { fireAndForget, showError } from '../platform/run'
+import { AskResult } from '../platform/agent/claude'
 import { LoadedJourney } from '../journeys/steps'
-import { pickOne } from '../quickPick'
-import { journeysTree } from '../sidebar/journeysTree'
+import { pickOne } from '../platform/quickPick'
 import { staleCount, staleLine, staleSteps } from '../sidebar/listModel'
-import { plural, shortQ } from '../text'
-import { walk } from '../tour/instances'
-import { clock } from '../writing'
-import { bundledSkill, cliOrClipboard, journeyPy, modelLabel, runJourneySkill, skillAndModel, Staging, stagingFolder } from './claudeRun'
-import { startWriting, Writing } from './inProgress'
+import { plural, shortQ } from '../core/text'
+import { elapsed as clock } from '../core/clock'
+import { journeyJob, journeyPy, JourneyRunReady, prepareJourneyRun, reportNotReady, runJourneySkill } from './claudeRun'
+import { isRefreshing } from './journeyJobs'
+import { refreshPrompt, refreshTask } from './prompts'
+import { beforeCopies } from './beforeCopies'
 
-/** Journeys being refreshed (key): their Refresh says so. */
-export const refreshing = new Set<string>()
+/** Journeys being refreshed (by key): their Refresh says so. */
+export const refreshing: Pick<ReadonlySet<string>, 'has'> = { has: isRefreshing }
 
 /**
  * "Refresh journey": the journey writer (Claude Code with the code-journey skill, as when writing one) updates the
@@ -28,48 +28,44 @@ export const refreshing = new Set<string>()
  */
 export async function refreshJourney(arg?: unknown): Promise<LoadedJourney | undefined> {
   const key = journeyKeyOf(arg)
-  const lj = (key ? journeys.list.get(key) : undefined) ?? (await pickStaleJourney())
+  const lj = (key ? journeys().list.get(key) : undefined) ?? (await pickStaleJourney())
   if (!lj) return undefined
   const stale = staleSteps(lj)
   if (!stale.length) {
     vscode.window.setStatusBarMessage('$(check) Every step matches the code', 3000)
     return undefined
   }
-  if (refreshing.has(lj.key)) {
+  if (isRefreshing(lj.key)) {
     vscode.window.setStatusBarMessage('$(sync~spin) Already refreshing this journey', 3000)
     return undefined
   }
-  const repo = lj.folder.uri.fsPath
   const slug = path.basename(lj.uri.fsPath, '.json')
-  const task = refreshTask(lj, slug, stale)
-  const cli = await cliOrClipboard(`Use the code-journey skill. ${task}`, `Copied a prompt for your agent to refresh “${lj.j.title}”`)
-  if (!cli) return undefined
-  if (!claudeAllowed('refresh journeys')) return undefined
-  const ready = skillAndModel(lj.folder, NO_SKILL)
-  if (!ready) return undefined
-  const { skill, model } = ready
-  const staging = stagingFolder(repo)
-  const before = fs.readFileSync(lj.uri.fsPath, 'utf8')
-  fs.writeFileSync(path.join(staging.dir, `${slug}.json`), before)
+  const task = refreshTask(slug, stale.map((n) => ({ n, title: lj.j.steps[n - 1].title })))
+  const ready = await prepareJourneyRun(lj.folder, {
+    what: 'refresh journeys',
+    ownAgent: {
+      prompt: `Use the code-journey skill. ${task}`,
+      notice: `Copied a prompt for your agent to refresh “${lj.j.title}”`,
+    },
+  })
+  if (!ready.ok) return reportNotReady(ready)
+  const { skill, repo, staging } = ready
+  const before = await fs.promises.readFile(lj.uri.fsPath, 'utf8')
+  await fs.promises.writeFile(path.join(staging.dir, `${slug}.json`), before)
   // What `check` says before: a refresh is judged by what it adds, not by rule breaks the journey already had.
   const was = problemsIn((await journeyPy(skill, repo, staging.stage, ['check', repo, slug, 'quiet'])).out)
-  const prompt = refreshPrompt(skill, staging.stage, task)
-  const w: Writing = { id: staging.id, question: `Refresh: ${lj.j.title}`, started: Date.now(), phase: 'starting', model: modelLabel(model) }
-  startWriting(w)
-  refreshing.add(lj.key)
-  journeysTree.refresh()
-  mapPanel.update()
-  log.info(`journey ${lj.j.id}: Claude (${w.model}) refreshes step(s) ${stale.join(', ')}`)
-  let res: AskResult
+  const job = journeyJob(ready, 'refresh', `Refresh: ${lj.j.title}`, lj.key)
+  log().info(`journey ${lj.j.id}: Claude (${job.model}) refreshes step(s) ${stale.join(', ')}`)
+  const prompt = refreshPrompt(skill, staging.stage, task, ready.bundled)
+  const res = await runJourneySkill(job, `Refreshing: ${shortQ(lj.j.title)}`, ready, { prompt })
   try {
-    res = await runJourneySkill(w, `Refreshing: ${shortQ(lj.j.title)}`, { cli, repo, prompt, skill, model })
+    const outcome = await applyRefresh(lj, { ...ready, slug, before, was, res })
+    return said(lj, outcome, { slug, stage: staging.stage, took: Date.now() - job.started })
   } finally {
-    refreshing.delete(lj.key)
+    refreshJourneyList()
+    mapPanel().update()
   }
-  return applyRefresh(lj, { skill, repo, slug, staging, before, was, res, started: w.started })
 }
-
-const NO_SKILL = 'Code Notes: the code-journey skill isn\'t in this repository (.claude/skills/code-journey) or in ~/.claude/skills.'
 
 /** The journey a command argument names: a key, a sidebar row ({ lj }), or a journey itself. */
 function journeyKeyOf(arg: unknown): string | undefined {
@@ -82,12 +78,12 @@ function journeyKeyOf(arg: unknown): string | undefined {
 /** Which stale journey to refresh: the one in front (the walk, the panel's) preselected, else none (Enter never
  *  refreshes a journey by chance). Undefined: none is stale (said), or Esc. */
 async function pickStaleJourney(): Promise<LoadedJourney | undefined> {
-  const stale = journeys.all().filter((x) => staleCount(x))
+  const stale = journeys().all().filter((x) => staleCount(x))
   if (!stale.length) {
     vscode.window.setStatusBarMessage('$(check) Every journey matches the code', 3000)
     return undefined
   }
-  const near = walk.tourJourney() ?? mapPanel.journey
+  const near = tour().tourJourney() ?? mapPanel().journey
   const items = stale.map((x) => ({ label: x.j.title, description: staleLine(x).replace(/^⚠ /, ''), key: x.key }))
   const qp = vscode.window.createQuickPick<typeof items[number]>()
   qp.title = 'Refresh which journey?'
@@ -95,27 +91,7 @@ async function pickStaleJourney(): Promise<LoadedJourney | undefined> {
   const pre = items.find((x) => x.key === near?.key)
   qp.activeItems = pre ? [pre] : []
   const p = await pickOne(qp, { orActive: true })
-  return p && journeys.list.get(p.key)
-}
-
-/** What Claude is asked to do: the stale steps (by number and title), and how to update only those. */
-function refreshTask(lj: LoadedJourney, slug: string, stale: number[]): string {
-  const one = stale.length === 1
-  const which = stale.map((n) => `${n} (“${lj.j.steps[n - 1].title}”)`).join(', ')
-  return `The journey "${slug}" is out of date: step${one ? '' : 's'} ${which} no longer match${one ? 'es' : ''} the code. ` +
-    `Update only ${one ? 'that step' : 'those steps'}: \`check … fix\` what only moved; where the code changed, re-read it, ` +
-    '`restep` the facts that are no longer true, then the range; `rmstep` a step whose code is gone for good. ' +
-    'Leave the other steps, the map and the journey\'s question and title as they are.'
-}
-
-/** The prompt: the skill (by name, or the bundled copy's SKILL.md), the task, the staging folder, the reply wanted. */
-function refreshPrompt(skill: string, stage: string, task: string): string {
-  const how = skill === bundledSkill()
-    ? `Read ${skill}/SKILL.md and follow it exactly (it is the code-journey skill; it is not installed, so do not look for it with the Skill tool).`
-    : 'Use the code-journey skill.'
-  return [how, task,
-    `The journey is in a staging folder: run journey.py always with \`--dir ${stage}\` (Code Notes puts it back in place once \`check\` passes). Run its scripts by their full path (${skill}/scripts/…), one command per call: no shell variables, no && or pipes. Edit nothing else.`,
-    'When done, reply with one short line per step you changed.'].join('\n\n')
+  return p && journeys().list.get(p.key)
 }
 
 /** journey.py check's PROBLEM lines, numbers masked (a moved line is not a new problem). */
@@ -123,62 +99,82 @@ function problemsIn(out: string): Set<string> {
   return new Set(out.split('\n').filter((l) => l.startsWith('PROBLEM')).map((l) => l.replace(/\d+/g, '#')))
 }
 
-interface RefreshRun { skill: string; repo: string; slug: string; staging: Staging; before: string; was: Set<string>; res: AskResult; started: number }
+interface RefreshRun extends JourneyRunReady { slug: string; before: string; was: Set<string>; res: AskResult }
+
+/** How a refresh ended. The refreshed copy stays in the staging folder when it broke a rule or the file changed. */
+type Outcome =
+  | { kind: 'cancelled' }
+  | { kind: 'error'; error: string }
+  | { kind: 'broke-a-rule' }
+  | { kind: 'unchanged'; reply: string }
+  | { kind: 'edited-meanwhile' }
+  | { kind: 'refreshed'; done?: LoadedJourney; diff: vscode.Uri }
 
 /**
  * After Claude's run: the refreshed copy replaces the journey file when its check adds no problem and the file was
- * not edited meanwhile; else it is said, and the copy stays in the staging folder.
+ * not edited meanwhile.
  */
-async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<LoadedJourney | undefined> {
+async function applyRefresh(lj: LoadedJourney, r: RefreshRun): Promise<Outcome> {
   const { skill, repo, slug, staging, before, res } = r
-  const title = lj.j.title
-  const lists = () => {
-    journeysTree.refresh()
-    mapPanel.update()
-  }
-  const staged = path.join(staging.dir, `${slug}.json`)
-  const after = fs.existsSync(staged) ? fs.readFileSync(staged, 'utf8') : ''
-  if (res.cancelled) {
+  if (res.cancelled || res.error) {
     staging.cleanup()
-    lists()
-    return undefined
+    return res.error ? { kind: 'error', error: res.error } : { kind: 'cancelled' }
   }
-  if (res.error) {
-    staging.cleanup()
-    void showError(`Code Notes: Claude couldn't refresh the journey: ${res.error}`)
-    journeysTree.refresh()
-    return undefined
-  }
+  const after = await fs.promises.readFile(path.join(staging.dir, `${slug}.json`), 'utf8').catch(() => '')
   const chk = await journeyPy(skill, repo, staging.stage, ['check', repo, slug, 'quiet'])
   const added = [...problemsIn(chk.out)].filter((p) => !r.was.has(p))
   if (added.length || !after) {
-    log.error(`journey ${slug}: the refreshed copy has new problems (journey.py check); left in ${staging.stage}/:\n${chk.out}`)
-    void showError('Code Notes: the refreshed journey broke a rule of its check, so nothing changed.', 'Show Output').then((b) => { if (b) log.show(true) })
-    lists()
-    return undefined
+    const why = `the refreshed copy has new problems (journey.py check); left in ${staging.stage}/`
+    log().error(`journey ${slug}: ${why}:\n${chk.out}`)
+    return { kind: 'broke-a-rule' }
   }
   if (after === before) {
     staging.cleanup()
-    void vscode.window.showInformationMessage(`“${title}”: Claude changed nothing. ${res.text.trim().split('\n')[0] ?? ''}`.trim())
-    journeysTree.refresh()
-    return lj
+    return { kind: 'unchanged', reply: res.text.trim().split('\n')[0] ?? '' }
   }
   // The journey file was edited meanwhile: keep that, the refresh stays in the staging folder.
-  if (fs.readFileSync(lj.uri.fsPath, 'utf8') !== before) {
-    void showError(`Code Notes: “${title}” changed while it was refreshed; the refreshed copy is in ${staging.stage}/.`)
-    return undefined
-  }
-  const old = path.join(os.tmpdir(), `code-notes-${staging.id}-${slug}.before.json`)
-  fs.writeFileSync(old, before)
-  fs.writeFileSync(lj.uri.fsPath, after)
+  if ((await fs.promises.readFile(lj.uri.fsPath, 'utf8')) !== before) return { kind: 'edited-meanwhile' }
+  const diff = beforeCopies.keep(staging.id, `${slug}.before.json`, before)
+  await fs.promises.writeFile(lj.uri.fsPath, after)
   staging.cleanup()
-  const done = await journeys.reload(lj.uri)
-  const left = done ? staleCount(done) : 0
-  log.info(`journey ${slug}: refreshed in ${clock(Date.now() - r.started)}${left ? `; ${left} step(s) still out of date` : ''}`)
-  const stillStale = left ? ` · ${plural(left, 'step')} still out of date` : ''
-  void vscode.window.showInformationMessage(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
-    if (b) void vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(old), lj.uri, `${title}: before ↔ refreshed`)
-  })
-  lists()
-  return done ?? lj
+  return { kind: 'refreshed', done: await journeys().reload(lj.uri), diff }
+}
+
+/** Each outcome said: an error, a notice, or nothing (cancelled). The journey after it. */
+function said(lj: LoadedJourney, o: Outcome, run: { slug: string; stage: string; took: number }): LoadedJourney | undefined {
+  const title = lj.j.title
+  const info = (text: string, ...items: string[]) => vscode.window.showInformationMessage(text, ...items)
+  const shownBy = 'refreshJourney: window.showInformationMessage'
+  switch (o.kind) {
+    case 'cancelled':
+      return undefined
+    case 'error':
+      fireAndForget(showError(`Claude couldn't refresh the journey: ${o.error}`), 'refreshJourney: showError')
+      return undefined
+    case 'broke-a-rule': {
+      const shown = showError('the refreshed journey broke a rule of its check, so nothing changed.', 'Show Output')
+      fireAndForget(shown.then((b) => { if (b) log().show(true) }), 'refreshJourney: showError')
+      return undefined
+    }
+    case 'unchanged':
+      fireAndForget(info(`“${title}”: Claude changed nothing. ${o.reply}`.trim()), shownBy)
+      return lj
+    case 'edited-meanwhile': {
+      const text = `“${title}” changed while it was refreshed; the refreshed copy is in ${run.stage}/.`
+      fireAndForget(showError(text), 'refreshJourney: showError')
+      return undefined
+    }
+    case 'refreshed': {
+      const left = o.done ? staleCount(o.done) : 0
+      log().info(`journey ${run.slug}: refreshed in ${clock(run.took)}${left ? `; ${left} step(s) still out of date` : ''}`)
+      const stillStale = left ? ` · ${plural(left, 'step')} still out of date` : ''
+      const shown = info(`Refreshed “${title}”${stillStale}`, 'Show changes').then((b) => {
+        if (!b) return
+        const diff = vscode.commands.executeCommand('vscode.diff', o.diff, lj.uri, `${title}: before ↔ refreshed`)
+        fireAndForget(diff, 'refreshJourney: command vscode.diff')
+      })
+      fireAndForget(shown, shownBy)
+      return o.done ?? lj
+    }
+  }
 }

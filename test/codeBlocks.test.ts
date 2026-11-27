@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Sym, blockAt, blocksFromSymbols, blocksFromText, groupSteps } from '../src/codeBlocks'
+import { Sym, blockAt, blocksFromSymbols, blocksFromText, groupSteps } from '../src/core/codeBlocks'
 
 // A worker like the one in the example shop: consts at the top, functions with destructuring and callbacks inside.
 const worker = [

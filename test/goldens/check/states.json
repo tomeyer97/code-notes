@@ -1,0 +1,782 @@
+{
+  "passed": {
+    "status": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "base": "<sha1>",
+      "baseRef": "main",
+      "head": "<sha2>",
+      "change": {
+        "files": 1,
+        "added": 70,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false,
+        "docsOnly": false,
+        "renamed": []
+      },
+      "changed": 70,
+      "exists": true,
+      "check": {
+        "version": 1,
+        "branch": "feat/x",
+        "base": "<sha1>",
+        "head": "<sha3>",
+        "diffStat": {
+          "files": 1,
+          "added": 70,
+          "removed": 0
+        },
+        "answeredBy": {
+          "name": "Ada",
+          "email": "ada@example.com"
+        },
+        "createdAt": "<time>",
+        "questions": [
+          {
+            "id": "q1",
+            "kind": "failure",
+            "text": "What happens when load() throws for one of the steps here?",
+            "file": "src/app.js",
+            "start": 3,
+            "end": 6,
+            "anchor": {
+              "v": 3,
+              "head": "  const v1 = load(1) // step 1\n  const v2 = load(2) // step 2\n  const v3 = load(3) // step 3",
+              "tail": "  const v3 = load(3) // step 3\n  const v4 = load(4) // step 4",
+              "lines": 4,
+              "hash": "635d1bcbce43",
+              "before": "  const v0 = load(0) // step 0",
+              "after": "  const v5 = load(5) // step 5"
+            },
+            "attempts": [
+              {
+                "answer": "a",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "d80cab5ceeb5"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "kind": "why",
+            "text": "Why are the steps loaded one by one instead of all at once?",
+            "file": "src/app.js",
+            "start": 10,
+            "end": 12,
+            "anchor": {
+              "v": 3,
+              "head": "  const v8 = load(8) // step 8\n  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "tail": "  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "lines": 3,
+              "hash": "bb223c45157d",
+              "before": "  const v7 = load(7) // step 7",
+              "after": "  const v11 = load(11) // step 11"
+            },
+            "attempts": [
+              {
+                "answer": "b",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "78ceb48d38fc"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "kind": "edge",
+            "text": "What does main return when there are no steps to load at all?",
+            "file": "src/app.js",
+            "target": "file",
+            "attempts": [
+              {
+                "answer": "c",
+                "at": "<time>",
+                "verdict": "explained",
+                "hash": "6ad8f96ed423"
+              }
+            ]
+          }
+        ],
+        "result": {
+          "done": 0,
+          "passed": 0,
+          "total": 3,
+          "needed": 2,
+          "verdict": "fail",
+          "at": "<time>"
+        }
+      },
+      "summary": {
+        "total": 3,
+        "passed": 2,
+        "done": 3,
+        "explained": 1,
+        "restated": 0,
+        "retry": 0,
+        "todo": 0,
+        "ungraded": 0,
+        "open": 0,
+        "needed": 2,
+        "met": true,
+        "states": [
+          "pass",
+          "pass",
+          "explained"
+        ]
+      },
+      "drift": {
+        "lines": 0,
+        "approx": false
+      },
+      "pending": {
+        "lines": 0,
+        "approx": false
+      },
+      "dirty": false,
+      "state": {
+        "passed": 2,
+        "done": 3,
+        "total": 3,
+        "needed": 2,
+        "maxDrift": 40,
+        "grew": 0,
+        "phase": "done"
+      },
+      "next": "Committed."
+    },
+    "words": {
+      "tone": "ok",
+      "bar": "✓ Understanding",
+      "title": "✓ Done",
+      "line": "Committed.",
+      "rule": "Answer all 3 · 2 must pass"
+    },
+    "view": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "tone": "ok",
+      "title": "✓ Done",
+      "line": "Not pushed yet.",
+      "rows": [
+        {
+          "id": "q1",
+          "n": 1,
+          "kind": "Failure",
+          "text": "What happens when load() throws for one of the steps here?",
+          "where": "src/app.js:3",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q2",
+          "n": 2,
+          "kind": "Why",
+          "text": "Why are the steps loaded one by one instead of all at once?",
+          "where": "src/app.js:10",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q3",
+          "n": 3,
+          "kind": "Edge case",
+          "text": "What does main return when there are no steps to load at all?",
+          "where": "src/app.js",
+          "also": [],
+          "state": "explained",
+          "word": "explained · say it back"
+        }
+      ],
+      "action": {
+        "id": "commitPush",
+        "label": "Push"
+      },
+      "tour": {
+        "label": "Write a tour",
+        "action": "write"
+      }
+    },
+    "bar": {
+      "text": "$(pass) Understanding",
+      "tip": "✓ Done · Committed.",
+      "warn": false
+    },
+    "run": "commitPush"
+  },
+  "uncommittedDrift": {
+    "status": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "base": "<sha1>",
+      "baseRef": "main",
+      "head": "<sha2>",
+      "change": {
+        "files": 1,
+        "added": 130,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false,
+        "docsOnly": false,
+        "renamed": []
+      },
+      "changed": 130,
+      "exists": true,
+      "check": {
+        "version": 1,
+        "branch": "feat/x",
+        "base": "<sha1>",
+        "head": "<sha3>",
+        "diffStat": {
+          "files": 1,
+          "added": 70,
+          "removed": 0
+        },
+        "answeredBy": {
+          "name": "Ada",
+          "email": "ada@example.com"
+        },
+        "createdAt": "<time>",
+        "questions": [
+          {
+            "id": "q1",
+            "kind": "failure",
+            "text": "What happens when load() throws for one of the steps here?",
+            "file": "src/app.js",
+            "start": 3,
+            "end": 6,
+            "anchor": {
+              "v": 3,
+              "head": "  const v1 = load(1) // step 1\n  const v2 = load(2) // step 2\n  const v3 = load(3) // step 3",
+              "tail": "  const v3 = load(3) // step 3\n  const v4 = load(4) // step 4",
+              "lines": 4,
+              "hash": "635d1bcbce43",
+              "before": "  const v0 = load(0) // step 0",
+              "after": "  const v5 = load(5) // step 5"
+            },
+            "attempts": [
+              {
+                "answer": "a",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "d80cab5ceeb5"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "kind": "why",
+            "text": "Why are the steps loaded one by one instead of all at once?",
+            "file": "src/app.js",
+            "start": 10,
+            "end": 12,
+            "anchor": {
+              "v": 3,
+              "head": "  const v8 = load(8) // step 8\n  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "tail": "  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "lines": 3,
+              "hash": "bb223c45157d",
+              "before": "  const v7 = load(7) // step 7",
+              "after": "  const v11 = load(11) // step 11"
+            },
+            "attempts": [
+              {
+                "answer": "b",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "78ceb48d38fc"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "kind": "edge",
+            "text": "What does main return when there are no steps to load at all?",
+            "file": "src/app.js",
+            "target": "file",
+            "attempts": [
+              {
+                "answer": "c",
+                "at": "<time>",
+                "verdict": "explained",
+                "hash": "6ad8f96ed423"
+              }
+            ]
+          }
+        ],
+        "result": {
+          "done": 0,
+          "passed": 0,
+          "total": 3,
+          "needed": 2,
+          "verdict": "fail",
+          "at": "<time>"
+        }
+      },
+      "summary": {
+        "total": 3,
+        "passed": 2,
+        "done": 3,
+        "explained": 1,
+        "restated": 0,
+        "retry": 0,
+        "todo": 0,
+        "ungraded": 0,
+        "open": 0,
+        "needed": 2,
+        "met": true,
+        "states": [
+          "pass",
+          "pass",
+          "explained"
+        ]
+      },
+      "drift": {
+        "lines": 0,
+        "approx": false
+      },
+      "pending": {
+        "lines": 60,
+        "approx": false
+      },
+      "dirty": false,
+      "state": {
+        "passed": 2,
+        "done": 3,
+        "total": 3,
+        "needed": 2,
+        "maxDrift": 40,
+        "grew": 60,
+        "phase": "drift",
+        "commitFirst": true
+      },
+      "next": "Commit, then add 1–2 questions about the new lines."
+    },
+    "words": {
+      "tone": "warn",
+      "bar": "Needs top-up: +60 lines",
+      "title": "Needs top-up: +60 lines",
+      "line": "Commit, then add 1–2 questions about the new lines.",
+      "rule": "Answer all 3 · 2 must pass"
+    },
+    "view": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "tone": "warn",
+      "title": "Needs top-up: +60 lines",
+      "line": "Commit, then add 1–2 questions about the new lines.",
+      "rows": [
+        {
+          "id": "q1",
+          "n": 1,
+          "kind": "Failure",
+          "text": "What happens when load() throws for one of the steps here?",
+          "where": "src/app.js:3",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q2",
+          "n": 2,
+          "kind": "Why",
+          "text": "Why are the steps loaded one by one instead of all at once?",
+          "where": "src/app.js:10",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q3",
+          "n": 3,
+          "kind": "Edge case",
+          "text": "What does main return when there are no steps to load at all?",
+          "where": "src/app.js",
+          "also": [],
+          "state": "explained",
+          "word": "explained · say it back"
+        }
+      ],
+      "action": {
+        "id": "scm",
+        "label": "Commit…"
+      }
+    },
+    "bar": {
+      "text": "$(warning) Needs top-up: +60 lines",
+      "tip": "Needs top-up: +60 lines · Commit, then add 1–2 questions about the new lines.",
+      "warn": true
+    },
+    "run": "scm"
+  },
+  "drift": {
+    "status": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "base": "<sha1>",
+      "baseRef": "main",
+      "head": "<sha4>",
+      "change": {
+        "files": 1,
+        "added": 130,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false,
+        "docsOnly": false,
+        "renamed": []
+      },
+      "changed": 130,
+      "exists": true,
+      "check": {
+        "version": 1,
+        "branch": "feat/x",
+        "base": "<sha1>",
+        "head": "<sha3>",
+        "diffStat": {
+          "files": 1,
+          "added": 70,
+          "removed": 0
+        },
+        "answeredBy": {
+          "name": "Ada",
+          "email": "ada@example.com"
+        },
+        "createdAt": "<time>",
+        "questions": [
+          {
+            "id": "q1",
+            "kind": "failure",
+            "text": "What happens when load() throws for one of the steps here?",
+            "file": "src/app.js",
+            "start": 3,
+            "end": 6,
+            "anchor": {
+              "v": 3,
+              "head": "  const v1 = load(1) // step 1\n  const v2 = load(2) // step 2\n  const v3 = load(3) // step 3",
+              "tail": "  const v3 = load(3) // step 3\n  const v4 = load(4) // step 4",
+              "lines": 4,
+              "hash": "635d1bcbce43",
+              "before": "  const v0 = load(0) // step 0",
+              "after": "  const v5 = load(5) // step 5"
+            },
+            "attempts": [
+              {
+                "answer": "a",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "d80cab5ceeb5"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "kind": "why",
+            "text": "Why are the steps loaded one by one instead of all at once?",
+            "file": "src/app.js",
+            "start": 10,
+            "end": 12,
+            "anchor": {
+              "v": 3,
+              "head": "  const v8 = load(8) // step 8\n  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "tail": "  const v9 = load(9) // step 9\n  const v10 = load(10) // step 10",
+              "lines": 3,
+              "hash": "bb223c45157d",
+              "before": "  const v7 = load(7) // step 7",
+              "after": "  const v11 = load(11) // step 11"
+            },
+            "attempts": [
+              {
+                "answer": "b",
+                "at": "<time>",
+                "verdict": "pass",
+                "hash": "78ceb48d38fc"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "kind": "edge",
+            "text": "What does main return when there are no steps to load at all?",
+            "file": "src/app.js",
+            "target": "file",
+            "attempts": [
+              {
+                "answer": "c",
+                "at": "<time>",
+                "verdict": "explained",
+                "hash": "6ad8f96ed423"
+              }
+            ]
+          }
+        ],
+        "result": {
+          "done": 0,
+          "passed": 0,
+          "total": 3,
+          "needed": 2,
+          "verdict": "fail",
+          "at": "<time>"
+        }
+      },
+      "summary": {
+        "total": 3,
+        "passed": 2,
+        "done": 3,
+        "explained": 1,
+        "restated": 0,
+        "retry": 0,
+        "todo": 0,
+        "ungraded": 0,
+        "open": 0,
+        "needed": 2,
+        "met": true,
+        "states": [
+          "pass",
+          "pass",
+          "explained"
+        ]
+      },
+      "drift": {
+        "lines": 60,
+        "approx": false
+      },
+      "pending": {
+        "lines": 60,
+        "approx": false
+      },
+      "dirty": false,
+      "state": {
+        "passed": 2,
+        "done": 3,
+        "total": 3,
+        "needed": 2,
+        "maxDrift": 40,
+        "grew": 60,
+        "phase": "drift",
+        "commitFirst": false
+      },
+      "next": "Add 1–2 questions about the new lines."
+    },
+    "words": {
+      "tone": "warn",
+      "bar": "Needs top-up: +60 lines",
+      "title": "Needs top-up: +60 lines",
+      "line": "Add 1–2 questions about the new lines.",
+      "rule": "Answer all 3 · 2 must pass"
+    },
+    "view": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "tone": "warn",
+      "title": "Needs top-up: +60 lines",
+      "line": "Add 1–2 questions about the new lines.",
+      "rows": [
+        {
+          "id": "q1",
+          "n": 1,
+          "kind": "Failure",
+          "text": "What happens when load() throws for one of the steps here?",
+          "where": "src/app.js:3",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q2",
+          "n": 2,
+          "kind": "Why",
+          "text": "Why are the steps loaded one by one instead of all at once?",
+          "where": "src/app.js:10",
+          "also": [],
+          "state": "pass",
+          "word": ""
+        },
+        {
+          "id": "q3",
+          "n": 3,
+          "kind": "Edge case",
+          "text": "What does main return when there are no steps to load at all?",
+          "where": "src/app.js",
+          "also": [],
+          "state": "explained",
+          "word": "explained · say it back"
+        }
+      ],
+      "action": {
+        "id": "topUp",
+        "label": "Add questions"
+      }
+    },
+    "bar": {
+      "text": "$(warning) Needs top-up: +60 lines",
+      "tip": "Needs top-up: +60 lines · Add 1–2 questions about the new lines.",
+      "warn": true
+    },
+    "run": "topUp"
+  },
+  "conflict": {
+    "status": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "base": "<sha1>",
+      "baseRef": "main",
+      "head": "<sha4>",
+      "change": {
+        "files": 1,
+        "added": 130,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false,
+        "docsOnly": false,
+        "renamed": []
+      },
+      "changed": 130,
+      "exists": true,
+      "errors": [
+        "understanding/feat-x.json has a merge conflict"
+      ],
+      "conflict": {
+        "line": 1,
+        "mergeable": true
+      },
+      "state": {
+        "phase": "invalid",
+        "why": "understanding/feat-x.json has a merge conflict",
+        "conflict": {
+          "line": 1,
+          "mergeable": true
+        }
+      },
+      "next": "Both sides of the conflict can be kept."
+    },
+    "words": {
+      "tone": "warn",
+      "bar": "Understanding: merge conflict",
+      "title": "The check file has a merge conflict",
+      "line": "Both sides of the conflict can be kept.",
+      "rule": ""
+    },
+    "view": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "tone": "warn",
+      "title": "The check file has a merge conflict",
+      "line": "Both sides of the conflict can be kept.",
+      "rows": [],
+      "action": {
+        "id": "merge",
+        "label": "Keep both answers"
+      }
+    },
+    "bar": {
+      "text": "$(warning) Understanding: merge conflict",
+      "tip": "The check file has a merge conflict · Both sides of the conflict can be kept.",
+      "warn": false
+    },
+    "run": "openFile"
+  },
+  "conflictText": {
+    "code": 1,
+    "out": "The check file has a merge conflict · Both sides of the conflict can be kept.\n  feat/x · understanding/feat-x.json · 130 code lines changed\n  First conflict at understanding/feat-x.json:1."
+  },
+  "invalid": {
+    "status": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "base": "<sha1>",
+      "baseRef": "main",
+      "head": "<sha4>",
+      "change": {
+        "files": 1,
+        "added": 130,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false,
+        "docsOnly": false,
+        "renamed": []
+      },
+      "changed": 130,
+      "exists": true,
+      "errors": [
+        "understanding/feat-x.json is not valid JSON (Unexpected token '}', ...\"\"branch\": }\n\" is not valid JSON)"
+      ],
+      "state": {
+        "phase": "invalid",
+        "why": "understanding/feat-x.json is not valid JSON (Unexpected token '}', ...\"\"branch\": }\n\" is not valid JSON)"
+      },
+      "next": "It isn't valid JSON: open it."
+    },
+    "words": {
+      "tone": "warn",
+      "bar": "Understanding: fix the file",
+      "title": "The check file is not valid",
+      "line": "It isn't valid JSON: open it.",
+      "rule": ""
+    },
+    "view": {
+      "branch": "feat/x",
+      "file": "understanding/feat-x.json",
+      "tone": "warn",
+      "title": "The check file is not valid",
+      "line": "Line 2: unexpected token.",
+      "rows": [],
+      "action": {
+        "id": "openFile",
+        "label": "Open"
+      }
+    },
+    "bar": {
+      "text": "$(warning) Understanding: fix the file",
+      "tip": "The check file is not valid · It isn't valid JSON: open it.",
+      "warn": false
+    },
+    "run": "openFile"
+  },
+  "onMain": {
+    "status": {
+      "branch": "main",
+      "file": "understanding/main.json",
+      "head": "<sha1>",
+      "change": {
+        "files": 0,
+        "added": 0,
+        "removed": 0,
+        "exempt": [],
+        "exemptOnly": false
+      },
+      "changed": 0,
+      "exists": false,
+      "onBase": true,
+      "state": {
+        "phase": "nothing",
+        "changed": 0,
+        "exemptOnly": false
+      },
+      "next": ""
+    },
+    "words": {
+      "tone": "ok",
+      "bar": "",
+      "title": "main: no check here",
+      "line": "",
+      "rule": ""
+    },
+    "view": {
+      "branch": "main",
+      "file": "understanding/main.json",
+      "tone": "ok",
+      "title": "main: no check here",
+      "line": "",
+      "rows": []
+    },
+    "bar": null,
+    "run": "show"
+  },
+  "onMainText": {
+    "code": 0,
+    "out": "main: no check here\n  main · understanding/main.json (none yet) · 0 code lines changed"
+  }
+}

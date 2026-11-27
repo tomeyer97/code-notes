@@ -1,21 +1,21 @@
 // Find a note: every word must match somewhere in it (messages as written, file, session, authors).
 
 import * as vscode from 'vscode'
-import { notes } from '../app'
-import { unread } from '../seen'
-import { lastMessage, order } from '../sidebar/nodes'
-import { Note } from '../store'
-import { noteTitle, plain } from '../text'
+import { byFileThenLine, visibleNotes } from './visible'
+import { unread } from './seen'
+import { lastMessage } from './model'
+import { Note } from './store'
+import { noteTitle, plain } from '../core/text'
 import { reveal } from './reveal'
-import { pickOne } from '../quickPick'
-import { baseName } from '../paths'
+import { pickOne } from '../platform/quickPick'
+import { baseName } from '../core/paths'
+import { fireAndForget } from '../platform/run'
 
 /** What a note's words are searched in: its file, session, and every message's author and text. */
-const haystack = (n: Note) => [n.data.file, n.data.session ?? '', ...n.data.messages.flatMap((m) => [m.author, m.body])].join('\n').toLowerCase()
+const haystack = (n: Note) =>
+  [n.data.file, n.data.session ?? '', ...n.data.messages.flatMap((m) => [m.author, m.body])].join('\n').toLowerCase()
 
-/** The row's icon: unread, stale or resolved (the first that applies), else none. The sidebar's noteIcon
- *  (sidebar/notesTree.ts) has more cases (Claude at work, failed, severity, gone) and colours; a picker row shows
- *  only these. */
+/** The row's icon: unread, stale or resolved (the first that applies), else none (a picker row has no colours). */
 function findIcon(n: Note): string {
   if (unread(n)) return '$(circle-filled) '
   if (n.data.stale) return '$(warning) '
@@ -24,7 +24,7 @@ function findIcon(n: Note): string {
 
 /** Every word must match somewhere in the note: messages as written, file, session, authors. */
 export const findNote = async () => {
-  const all = notes().sort((a, b) => a.data.file.localeCompare(b.data.file) || order(a, b))
+  const all = visibleNotes().sort(byFileThenLine)
   const hay = new Map(all.map((n) => [n.data.id, haystack(n)]))
   const item = (n: Note, words: string[]) => {
     // The newest message with a word in it; else, in a thread with replies, the last one.
@@ -48,5 +48,5 @@ export const findNote = async () => {
   qp.onDidChangeValue(update)
   update()
   // Not awaited: the command returns while the pick is open.
-  void pickOne(qp).then((pick) => { if (pick) void reveal(pick.note) })
+  fireAndForget(pickOne(qp).then((pick) => { if (pick) fireAndForget(reveal(pick.note), 'find: reveal') }), 'find: pickOne')
 }

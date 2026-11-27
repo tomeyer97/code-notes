@@ -1,0 +1,148 @@
+// What is wrong with a check file: its format, its tour's, and answers changed after grading.
+import fs from 'node:fs'
+import path from 'node:path'
+import { KINDS, MAX_QUESTIONS, MAX_TOUR_STEPS, VERDICTS } from './constants'
+import { attemptHash } from './checkFile'
+import { isHex } from './git'
+import type { Check } from './types'
+import { readJourney } from '../../src/core/format/journeyModel'
+import { VERSIONS } from '../../src/core/format/versions'
+
+/** Optional code links in a question's or a reply's text: `[{ phrase, file, start, end }]`, checked lightly. */
+function linksBad(links: any, at: string, errs: string[]): void {
+  if (links === undefined) return
+  const ok = Array.isArray(links) && links.every((l: any) => l && typeof l === 'object' && typeof l.phrase === 'string' && typeof l.file === 'string'
+    && Number.isInteger(l.start) && Number.isInteger(l.end) && l.start > 0 && l.end > 0)
+  if (!ok) errs.push(`${at} must be a list of { "phrase", "file", "start", "end" }`)
+}
+
+/** A path inside the repository: relative, without "..". */
+const isRelPath = (f: any): boolean => typeof f === 'string' && !!f && !path.isAbsolute(f) && !f.split(/[\\/]/).includes('..')
+/** 1-based lines `start`..`end` (`end` not before `start`). */
+const isLines = (start: any, end: any): boolean => Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start
+/** A person: `{ name?, email? }` with at least one of them, both strings. */
+const isWho = (w: any): boolean => !!w && typeof w === 'object' && !Array.isArray(w) && (w.name === undefined || typeof w.name === 'string')
+  && (w.email === undefined || typeof w.email === 'string') && !!(w.name || w.email)
+const isObject = (x: unknown): x is Record<string, any> => !!x && typeof x === 'object' && !Array.isArray(x)
+
+/** What is wrong with a check file (an empty list: nothing). `repo`: also check that each question's file exists. */
+export function validateCheck(c: unknown, { repo }: { repo?: string } = {}): string[] {
+  if (!isObject(c)) return ['not a JSON object']
+  const errs = topProblems(c)
+  if (!Array.isArray(c.questions) || !c.questions.length) return [...errs, '"questions" must be a non-empty array']
+  if (c.questions.length > MAX_QUESTIONS) errs.push(`${c.questions.length} questions: at most ${MAX_QUESTIONS}`)
+  // Optional: older files have no journey, and CI never needs one.
+  if (c.journey !== undefined) for (const e of tourProblems(c.journey)) errs.push(`journey: ${e}`)
+  // The change's text describes no code: no tour, on purpose.
+  if (c.noTour !== undefined && c.noTour !== true) errs.push('"noTour" must be true or left out')
+  const tourSteps = Array.isArray(c.journey?.steps) ? c.journey.steps.length : 0
+  const ids = new Set<string>()
+  c.questions.forEach((q: any, i: number) => errs.push(...questionProblems(q, i, { ids, tourSteps, repo })))
+  return errs
+}
+
+/** The file's own fields: version, branch, commits, who answers. */
+function topProblems(c: Record<string, any>): string[] {
+  const errs: string[] = []
+  if (c.version !== VERSIONS.check) errs.push(`"version" is ${JSON.stringify(c.version)}: expected ${VERSIONS.check}`)
+  if (typeof c.branch !== 'string' || !c.branch) errs.push('"branch" is missing')
+  if (!isHex(c.head)) errs.push('"head" must be a commit sha')
+  if (c.base !== undefined && !isHex(c.base)) errs.push('"base" must be a commit sha')
+  if (c.answeredBy !== undefined && !isWho(c.answeredBy)) errs.push('"answeredBy" must be { "name": …, "email": … }')
+  return errs
+}
+
+/** Question `i` (`ids`: the ids seen so far, this one added; `tourSteps`: the journey's step count). */
+function questionProblems(q: any, i: number, { ids, tourSteps, repo }: { ids: Set<string>; tourSteps: number; repo?: string }): string[] {
+  const at = `question ${i + 1}${q && typeof q.id === 'string' ? ` (${q.id})` : ''}`
+  if (!q || typeof q !== 'object') return [`${at}: not an object`]
+  const errs: string[] = []
+  const bad = (text: string) => errs.push(`${at}: ${text}`)
+  if (typeof q.id !== 'string' || !/^q\d+$/.test(q.id)) bad('"id" must look like q1')
+  else if (ids.has(q.id)) bad('id used twice')
+  ids.add(q.id)
+  if (!KINDS.includes(q.kind)) bad(`"kind" must be one of ${KINDS.join(', ')}`)
+  if (typeof q.text !== 'string' || q.text.trim().length < 10) bad('"text" is missing or too short')
+  else if (q.text.length > 400) bad('"text" is longer than 400 characters')
+  if (!isRelPath(q.file)) bad('"file" must be a path inside the repository')
+  else if (repo && !fs.existsSync(path.join(repo, q.file))) bad(`${q.file} doesn't exist`)
+  // A design question (target "file") has no lines.
+  if (q.target !== undefined && q.target !== 'file') bad('"target" must be "file" or left out')
+  else if (q.target === undefined && !isLines(q.start, q.end)) bad('"start"/"end" must be 1-based lines (or "target": "file")')
+  if (q.anchor !== undefined && (!isObject(q.anchor) || q.anchor.v !== 3 || typeof q.anchor.head !== 'string')) {
+    bad('"anchor" must be a compact anchor ({ "v": 3, "head": … })')
+  }
+  // The question writer thinks the honest answer is "this is a bug".
+  if (q.suspect !== undefined && typeof q.suspect !== 'boolean') bad('"suspect" must be true or false')
+  // A concern about the code found during the check; `flagged`: the author put it on the merge request.
+  const c = q.concern
+  if (c !== undefined && (!c || typeof c !== 'object' || typeof c.text !== 'string' || (c.flagged !== undefined && typeof c.flagged !== 'boolean'))) {
+    bad('"concern" must be { "text": …, "flagged": true | false }')
+  }
+  // Unchanged code the answer depends on (shown beside the question).
+  if (q.also !== undefined) {
+    if (!Array.isArray(q.also) || q.also.length > 3) bad('"also" must be a list of at most 3 { "file", "start", "end" }')
+    else if (q.also.some((x: any) => !x || !isRelPath(x.file) || !isLines(x.start, x.end))) bad('each "also" needs a file inside the repository and 1-based start/end')
+    else if (repo) for (const x of q.also) if (!fs.existsSync(path.join(repo, x.file))) bad(`${x.file} doesn't exist`)
+  }
+  linksBad(q.links, `${at}: "links"`, errs)
+  // The tour step after which its answer is visible.
+  if (q.step !== undefined) {
+    if (!Number.isInteger(q.step) || q.step < 1) bad('"step" must be a step number of the journey')
+    else if (!tourSteps) bad(`"step" ${q.step}, but the check has no journey`)
+    else if (q.step > tourSteps) bad(`"step" ${q.step}, but the journey has ${tourSteps} steps`)
+  }
+  if (q.attempts !== undefined && !Array.isArray(q.attempts)) bad('"attempts" must be an array')
+  const attempts: any[] = Array.isArray(q.attempts) ? q.attempts : []
+  attempts.forEach((a, k) => errs.push(...attemptProblems(a, `${at}, attempt ${k + 1}`, k === attempts.length - 1)))
+  return errs
+}
+
+/** An attempt (`at`: where, for the message); only the `last` must keep its answer (earlier ones may be pruned). */
+function attemptProblems(a: any, at: string, last: boolean): string[] {
+  // Older files still have the earlier answers.
+  const answerOk = !!a && typeof a === 'object' && (last ? typeof a.answer === 'string' : a.answer === undefined || typeof a.answer === 'string')
+  if (!answerOk) return [`${at}: "answer" must be a string`]
+  const errs: string[] = []
+  linksBad(a.links, `${at}: "links"`, errs)
+  if (a.by !== undefined && !isWho(a.by)) errs.push(`${at}: "by" must be { "name": …, "email": … }`)
+  if (a.verdict !== undefined && !VERDICTS.includes(a.verdict)) errs.push(`${at}: "verdict" must be one of ${VERDICTS.join(', ')}`)
+  return errs
+}
+
+/**
+ * What is wrong with a check's journey (the tour of the change, a journey file; docs/journey-format.md). The
+ * extension's reader decides what it can read (src/core/format/journeyModel.ts readJourney): a tour it refuses, or a
+ * step it would leave out, is an error here. On top, what a tour needs that a journey doesn't: a title, at most
+ * MAX_TOUR_STEPS titled steps, files inside the repository, whole ranges. A step whose file is gone later is not a
+ * problem here (the extension shows it as stale): CI never fails over the tour's code.
+ */
+export function tourProblems(j: any): string[] {
+  const read = readJourney(j, 'tour')
+  if (!read.ok) return [read.why]
+  const errs = [...read.value.stepsLeftOut]
+  if (typeof j.title !== 'string' || !j.title.trim()) errs.push('"title" is missing')
+  if (!j.steps.length) return [...errs, '"steps" must be a non-empty array']
+  if (j.steps.length > MAX_TOUR_STEPS) errs.push(`${j.steps.length} steps: at most ${MAX_TOUR_STEPS}`)
+  j.steps.forEach((s: any, i: number) => {
+    if (!s || typeof s !== 'object') return // left out above
+    const at = `step ${i + 1}`
+    if (typeof s.title !== 'string' || !s.title.trim()) errs.push(`${at}: "title" is missing`)
+    if (typeof s.file === 'string' && s.file.trim() && !isRelPath(s.file)) errs.push(`${at}: "file" must be a path inside the repository`)
+    if (s.range && !isLines(s.range.start, s.range.end)) errs.push(`${at}: "range" must be { "start", "end" } (1-based lines)`)
+  })
+  return errs
+}
+
+/** Graded attempts whose hash doesn't match (or is missing): "q2 attempt 1". */
+export function hashProblems(check: Check): string[] {
+  // Only each question's last attempt keeps its answer, so only it can be verified; earlier hashes are not checked.
+  const out: string[] = []
+  for (const q of check.questions) {
+    const as = q.attempts ?? []
+    const a = as[as.length - 1]
+    if (a?.verdict && a.hash !== attemptHash(q, a)) out.push(`${q.id} attempt ${as.length}`)
+  }
+  return out
+}
+

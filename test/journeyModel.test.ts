@@ -2,15 +2,24 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as path from 'path'
-import { staleKind } from '../src/staleDiff'
-import { Journey, parseJourney, readValues } from '../src/journeyModel'
-import { capValue, escapeTags, linkPaths } from '../src/journeys/textFormat'
+import { staleKind } from '../src/core/anchors/staleDiff'
+import { isOldFormat, parseJourney, readJourney, readValues } from '../src/core/format/journeyModel'
+import { capValue, linkPaths } from '../src/journeys/textFormat'
+import { escapeTags } from '../src/core/escape'
+import { journeyOf } from './formats'
 
-const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/place-order.json'), 'utf8')
-const j = parseJourney(fixture, 'place-order') as Journey
+/** Why parseJourney refuses `raw` (the test fails when it reads it). */
+function refusal(raw: string): string {
+  const r = parseJourney(raw, 'x')
+  assert.equal(r.ok, false, 'refused')
+  return r.ok ? '' : r.why
+}
+
+const fixture = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/journeys/v2-full.json'), 'utf8')
+const j = journeyOf(fixture, 'place-order')
 
 test('the v2 journey parses: 21 nodes, 13 edges, 13 embedded steps, numbered by position, with ids', () => {
-  assert.equal(typeof j, 'object')
+  assert.equal(parseJourney(fixture, 'place-order').ok, true)
   assert.deepEqual([j.nodes.length, j.edges.length, j.steps.length], [21, 13, 13])
   assert.deepEqual(j.steps.map((s) => s.n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
   const s3 = j.steps[2]
@@ -24,21 +33,21 @@ test('the v2 journey parses: 21 nodes, 13 edges, 13 embedded steps, numbered by 
 })
 
 test('v1 (steps as notes) is refused with a reason the extension can log once', () => {
-  const v1 = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/legacy/place-order-v1.json'), 'utf8')
-  assert.match(parseJourney(v1, 'x') as string, /^format v1/)
+  const v1 = fs.readFileSync(path.join(__dirname, '../../test/fixtures/journey/legacy/v1.json'), 'utf8')
+  assert.match(refusal(v1), /^format v1/)
 })
 
 test('unusable files are refused with a reason; bad parts are dropped', () => {
-  assert.match(parseJourney('{', 'x') as string, /not valid JSON/)
-  assert.match(parseJourney('[]', 'x') as string, /object/)
-  assert.match(parseJourney('{"version":2,"nodes":[],"steps":[]}', 'x') as string, /nodes/)
-  assert.match(parseJourney('{"version":2,"nodes":[{"id":"a"}]}', 'x') as string, /steps/)
-  const loose = parseJourney(JSON.stringify({
+  assert.match(refusal('{'), /not valid JSON/)
+  assert.match(refusal('[]'), /object/)
+  assert.match(refusal('{"version":2,"nodes":[],"steps":[]}'), /nodes/)
+  assert.match(refusal('{"version":2,"nodes":[{"id":"a"}]}'), /steps/)
+  const loose = journeyOf(JSON.stringify({
     version: 2,
     nodes: [{ id: 'a', kind: 'system', label: 'A' }, { id: 'b', kind: 'weird', parent: 'nope' }, { id: 'c', parent: 'd' }, { id: 'd', parent: 'c' }, { id: 'a' }],
     edges: [{ from: 'a', to: 'b', label: 'x' }, { from: 'a', to: 'zzz' }, { from: 'a', to: 'a' }],
     steps: [{ node: 'zzz', file: 'f.ts', range: { start: 1 } }, { node: 'b', title: 'T', file: 'f.ts', range: { start: 3, end: 2 }, refs: ['a:1', 'b:2', 'c:3', 'd:4'] }, { node: 'a' }],
-  }), 'file-name') as Journey
+  }), 'file-name')
   assert.deepEqual(loose.nodes.map((n) => n.id), ['a', 'b', 'c', 'd'], 'duplicate id dropped')
   assert.equal(loose.nodes[1].kind, 'module')
   assert.equal(loose.nodes[1].parent, undefined, 'unknown parent: top level')
@@ -53,7 +62,7 @@ test('unusable files are refused with a reason; bad parts are dropped', () => {
 })
 
 test('more than 7 children on a level: a problem for the author (the map still draws every box)', () => {
-  const many = parseJourney(JSON.stringify({ version: 2, nodes: Array.from({ length: 9 }, (_, i) => ({ id: `s${i}`, kind: 'system' })), steps: [{ node: 's8', file: 'x', range: { start: 1 } }] }), 'm') as Journey
+  const many = journeyOf(JSON.stringify({ version: 2, nodes: Array.from({ length: 9 }, (_, i) => ({ id: `s${i}`, kind: 'system' })), steps: [{ node: 's8', file: 'x', range: { start: 1 } }] }), 'm')
   assert.equal(many.nodes.length, 9)
   assert.ok(many.problems.some((p) => /top level: 9 boxes/.test(p)))
 })
@@ -66,11 +75,11 @@ test('blurb, path and edge detail are read, and optional', () => {
   assert.ok(j.edges.some((e) => e.detail === 'validate first, then for real: POST /api/orders'))
   assert.ok(j.edges.every((e) => e.label.length <= 30), 'the map shows the short labels')
   // A journey without blurbs/paths/details still works.
-  const bare = parseJourney(JSON.stringify({ ...JSON.parse(fixture), nodes: j.nodes.map(({ blurb, path, ...n }) => n), edges: j.edges.map(({ detail, ...e }) => e) }), 'bare') as Journey
+  const bare = journeyOf(JSON.stringify({ ...JSON.parse(fixture), nodes: j.nodes.map(({ blurb, path, ...n }) => n), edges: j.edges.map(({ detail, ...e }) => e) }), 'bare')
   assert.ok(bare.nodes.every((n) => n.blurb === undefined && n.path === undefined))
   assert.ok(bare.edges.every((e) => e.detail === undefined))
   // Blank values are dropped.
-  const blank = parseJourney(JSON.stringify({ version: 2, nodes: [{ id: 'a', blurb: '  ', path: '' }], edges: [], steps: [] }), 'x') as Journey
+  const blank = journeyOf(JSON.stringify({ version: 2, nodes: [{ id: 'a', blurb: '  ', path: '' }], edges: [], steps: [] }), 'x')
   assert.deepEqual(Object.keys(blank.nodes[0]).sort(), ['id', 'kind', 'label', 'summary'])
 })
 
@@ -110,12 +119,12 @@ test('<name> outside code stays text in the inline card; code spans and fences a
 })
 
 test('kinds: a store is read as a store, an unknown kind as a module', () => {
-  const k = parseJourney(JSON.stringify({
+  const k = journeyOf(JSON.stringify({
     version: 2,
     nodes: [{ id: 'srv', kind: 'system', label: 'Server' }, { id: 'rec', kind: 'store', label: 'Record', parent: 'srv' }, { id: 'odd', kind: 'whatever', label: 'Odd' }],
     edges: [{ from: 'odd', to: 'rec', label: 'polls', async: true }],
     steps: [{ node: 'srv', title: 'A', file: 'a.go', range: { start: 1 } }],
-  }), 'x') as Journey
+  }), 'x')
   assert.equal(k.nodes.find((n) => n.id === 'rec')!.kind, 'store')
   assert.equal(k.nodes.find((n) => n.id === 'odd')!.kind, 'module', 'an unknown kind is a module')
   assert.equal(k.edges[0].async, true)
@@ -136,4 +145,33 @@ test('capValue: about 40 characters, the note survives', () => {
   const long = 'x'.repeat(60)
   assert.equal(capValue(long).length, 40)
   assert.ok(capValue(long).endsWith('…'))
+})
+
+test('versions: only the current file version is read (VERSIONS.journey); an anchor\'s own `v` is not a file version', () => {
+  const doc = (version: unknown) => JSON.stringify({ version, nodes: [{ id: 'a' }], steps: [] })
+  assert.equal(parseJourney(doc(2), 'x').ok, true)
+  const newer = refusal(doc(3))
+  assert.equal(newer, 'format v3 is newer than this extension reads (v2)', 'no file was ever written as version 3')
+  assert.equal(isOldFormat(newer), false, 'a newer file is not listed as one to migrate')
+  assert.ok(isOldFormat(refusal(doc(1))))
+  assert.match(refusal(doc(undefined)), /^format v1/)
+})
+
+test('a step\'s links and values are read with the step (the same rules as readLinks and readValues)', () => {
+  const step = { node: 'a', file: 'f.ts', range: { start: 1 } }
+  const links = [{ phrase: ' p ', file: 'f.ts', start: 2 }, { phrase: '', file: 'f.ts', start: 1 }]
+  const values = [{ name: 'x', value: 'a\n b', file: 'f.ts', line: 1 }, { name: 'y' }]
+  const got = journeyOf(JSON.stringify({ version: 2, nodes: [{ id: 'a' }], steps: [{ ...step, links, values }, { ...step, links: [{}], values: 'x' }] }), 'x')
+  assert.deepEqual(got.steps[0].links, [{ phrase: 'p', file: 'f.ts', start: 2, end: 2, text: '' }])
+  assert.deepEqual(got.steps[0].values, [{ name: 'x', value: 'a b', file: 'f.ts', line: 1, text: '' }])
+  assert.equal(got.steps[1].links, undefined, 'none usable: left out')
+  assert.equal(got.steps[1].values, undefined)
+})
+
+test('readJourney (a check\'s embedded tour): the steps it leaves out are listed apart from the other problems', () => {
+  const r = readJourney({ version: 2, nodes: [{ id: 'a', label: 'A label longer than thirty characters!' }], steps: [{ node: 'b', file: 'f', range: { start: 1 } }, { node: 'a', file: 'f', range: { start: 1 } }] }, 'tour')
+  assert.ok(r.ok)
+  assert.deepEqual(r.value.stepsLeftOut, ['step 1 is in an unknown box "b": left out'])
+  assert.equal(r.value.journey.problems.length, 2, 'the long label is a problem, not a step left out')
+  assert.deepEqual(readJourney([], 'tour'), { ok: false, why: 'not a JSON object' })
 })

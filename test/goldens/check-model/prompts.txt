@@ -1,0 +1,143 @@
+--- bundled=false topUp=false head=-
+Use the understanding-check skill to write the questions of an understanding check for this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --base abc
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=false topUp=false head=abc123
+Use the understanding-check skill to write the questions of an understanding check for this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --base abc --branch feat/x --head abc123
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=false topUp=true head=-
+Use the understanding-check skill to add 1-2 questions about what changed since the understanding check of this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --top-up
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=false topUp=true head=abc123
+Use the understanding-check skill to add 1-2 questions about what changed since the understanding check of this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --top-up --branch feat/x --head abc123
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=true topUp=false head=-
+Read /ext/skills/understanding-check/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool) to write the questions of an understanding check for this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --base abc
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=true topUp=false head=abc123
+Read /ext/skills/understanding-check/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool) to write the questions of an understanding check for this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --base abc --branch feat/x --head abc123
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=true topUp=true head=-
+Read /ext/skills/understanding-check/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool) to add 1-2 questions about what changed since the understanding check of this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --top-up
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- bundled=true topUp=true head=abc123
+Read /ext/skills/understanding-check/SKILL.md and follow it exactly (it is the understanding-check skill; it is not installed, so do not look for it with the Skill tool) to add 1-2 questions about what changed since the understanding check of this branch (feat/x, compared with origin/main).
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs start --top-up --branch feat/x --head abc123
+
+Run the script by its full path (/ext/skills/understanding-check/scripts/…), one command per call: no shell variables, no && or pipes. Do not modify any other file.
+
+When done, reply with one line per question you wrote.
+
+--- tour bundled=false topUp=false resumed=false
+Write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=false topUp=false resumed=true
+Now write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of the understanding-check skill.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=false topUp=true resumed=false
+Write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour --top-up
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=false topUp=true resumed=true
+Now write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of the understanding-check skill.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour --top-up
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=true topUp=false resumed=false
+Write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=true topUp=false resumed=true
+Now write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=true topUp=true resumed=false
+Write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour --top-up
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.
+
+--- tour bundled=true topUp=true resumed=true
+Now write the tour of this change, so the author can click their way to each answer. Follow the section "The tour" of /ext/skills/understanding-check/SKILL.md.
+
+Start with: /ext/skills/understanding-check/scripts/questions.mjs tour --top-up
+
+Run the scripts by their full path (/ext/skills/understanding-check/scripts/… and /ext/skills/code-journey/scripts/journey.py), one command per call: no shell variables, no && or pipes (a heredoc for journey.py's text is fine). Do not modify any other file.
+
+When done, reply with the step titles, one per line.

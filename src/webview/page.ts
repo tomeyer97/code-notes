@@ -1,16 +1,22 @@
-// Webview pages, in one place: text escaped for HTML, a nonce for their scripts, and the page around a view's own files
-// (webviewPage), with its Content-Security-Policy (contentSecurityPolicy: the extension's styles and fonts, only the
-// scripts carrying the nonce). A page's markup may be kept as a .html file next to this one (copied to out/ by
-// `npm run pages`) and filled in where it says {{name}} (pageBody). cli/understanding.mjs builds no webview, so it
-// needs none of this.
+// Webview pages, in one place: a nonce for their scripts, and the page around a view's own files (webviewPage), with
+// its Content-Security-Policy (contentSecurityPolicy: the extension's styles and fonts, only the scripts carrying the
+// nonce). Each page's script is one bundle, out/pages/<page>.js (pageScript: built by scripts/build/pages.mjs from
+// media/). A page's markup may be kept as a .html file next to this one (copied to out/ by the same script) and filled
+// in where it says {{name}} (pageBody). Text going into a page is escaped with core/escape.ts escapeHtml.
 
 import * as fs from 'fs'
 import * as path from 'path'
 import type * as vscode from 'vscode'
 
-/** Text as HTML (for text and attribute values; markdown is escaped with escapeTags in journeys/textFormat.ts). */
-export function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+/** The pages: each is one script, bundled from media/ (scripts/build/pages.mjs). */
+export type PageName = 'map' | 'listen' | 'check' | 'clarify'
+
+/** Where the pages' scripts are, under the extension's root (a webview's localResourceRoots include it). */
+export const PAGES_DIR = ['out', 'pages']
+
+/** The script of page `name`, under the extension's root `root`. */
+export function pageScript(root: vscode.Uri, name: PageName): vscode.Uri {
+  return root.with({ path: [root.path.replace(/\/$/, ''), ...PAGES_DIR, `${name}.js`].join('/') })
 }
 
 /** 24 random letters and digits: the page's scripts carry it, its Content-Security-Policy lets in only those. */

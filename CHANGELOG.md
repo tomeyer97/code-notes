@@ -2,165 +2,35 @@
 
 ## 0.26.0
 
-- **Journey podcasts (prototype).** A journey with an audio episode next to it (`<journey>.podcast.json` and its
-  audio, [docs/podcast-format.md](docs/podcast-format.md)) gets a ▶ on its row and a player at the bottom of the
-  journey panel: play and pause, back and forward 15 s, previous and next step, speed (1×, 1.25×, 1.5×), and a
-  timeline marked by step (hover names the step; click or drag to go there). The walk follows the voice: steps open
-  and animations move beat by beat, exactly as when you walk them; any seek puts the walk where it is at that time,
-  backwards too. Next, Previous, a step or a beat you pick moves the audio to its part. The audio goes on while the
-  panel is behind another tab or VS Code is in the background. Ctrl+' Space plays and pauses from anywhere, Ctrl+' ← →
-  skip; the status bar shows where it is.
-  - Seeking works in VS Code for the web and remote windows too: the panel loads the audio whole, and the walk, the
-    player and the status bar always show where the audio actually is (a seek that can't get there is said and
-    logged). One clock: the status bar shows the player's second.
-  - Where you were is kept per journey: another journey, ending the walk, closing the panel, a reload, or saving the
-    podcast file again (the same moment of the same segment) keep it, and ▶ goes on from there.
-  - A step the podcast skips: the walk stays on it, the audio pauses and says so, and ▶ goes on after that step.
-  - A beat whose code is in another file opens that file directly; a part on the map closes the walk's code tab.
-  - Space and K play and pause anywhere in the panel, also after clicking the animation's ‹ ›. An audio that can't
-    play stays paused and says why.
-- **Listen: the podcast player, reworked.** Podcasts are called **Listen** now: ▶ Listen on the row, **Code Notes:
-  Listen to Journey**, **Listen: Play/Pause**, **Back 15 s**, **Forward 15 s**, **Previous Step**, **Next Step**
-  (new, Ctrl+' Shift+← →). The command ids and the `.podcast.json` format are unchanged.
-  - The audio lives in a new **Listen** view (Code Notes side bar): closing the journey panel, or a layout that hides
-    it, no longer stops the episode. The panel's player and the status bar are remotes; the status bar says
-    **Listening · 6:58** / **Paused · 6:58** (the glyph shows the state), its tooltip lists the actions with their
-    keys, and its click opens the journey's map, whose player shows where the audio is.
-  - ▶ starts the sound where you pressed it: no second ▶ to find in the Listen view. VS Code lets a webview play
-    audio only after a click or a key in that webview, so ▶ in the journey panel plays the audio in the panel (the
-    Listen view follows it, and takes the audio over when the panel closes, once it has been clicked too). A start
-    from a row, the palette or a key before any click in either player opens the panel with its ▶ focused: Space or
-    one click there plays it, and later starts play at once.
-  - The caption is the sentence being said, two lines at most and never cut (a long sentence in parts), with the
-    speaker's name when the voice changes. A segment may give its own sentence times (`sentences`, checked when
-    present); else they are estimated from the text.
-  - The timeline: the player's whole width, a mark per step with its number (at least 8 px to hit), the playhead
-    always shown, hover says the time and the step in full and goes when the pointer leaves, the part a cut-off audio
-    can't reach greyed. The ±15 s buttons are gone (the keys stay); a narrow panel keeps ▶ ⏮ ⏭ first. Speed is a menu
-    from 0.75× to 2× (< > too); mute (M) is new; both are remembered. K works by its place on the keyboard. A seek
-    after the end plays on; the end offers Replay, Walk it yourself and Next journey.
-  - The storyline is the chapter list: start times, ♪ on the step being said, "not narrated" on a skipped step, ▶ per
-    step (plays that step and stops), a transcript per step (current sentence marked, click to go there, found by
-    Ctrl+F when shut). While it plays the panel's header is one line ("Step 6 of 14 · …"), and the animation's own
-    sentence and the code snippet give way to the caption; the panel scrolls to a step the voice moves to.
-  - Rows mark journeys with a podcast ("♪ 12:47"; "♪ Listening", "♪ Paused at 3:38"), with ⏸ / Resume on the row and a
-    tooltip line; the journey being walked is listed once (not again under "In this file"); Open Journey… and the
-    panel's journey list mark podcasts too. The scene's beat shows as dots.
-  - Accessibility: the timeline is an ARIA slider (↑ ↓ Home End Page Up/Down) whose value text gives the time, the
-    total and the step; step changes are announced once; controls have names and keys. Media keys and the system's
-    "now playing" work (Media Session).
-- **Listen: the panel, calmer.** One player: while the journey panel shows the episode the Listen view is one line
-  (the journey, ⏸ / ▶, the time). While it plays the panel is the one-line header and the step's animation alone, in
-  the same box every step (the map where there is none, names only at the intro and the recap); the chapter list
-  comes back on pause, as number and title (▶ on hover) with one **Transcript** switch. The header stays one line
-  until the episode ends. The player: plain ⏸, ticks for the steps (hover "Step 6 · title · 5:23"), a "1×" that
-  cycles 1×–2×, no mute button (M stays), neutral greys; the end is Replay · Walk it yourself · Next journey only.
-  Beside the code the panel is 360–420 px while an episode is on. A caption or transcript sentence no longer splits
-  at the dot inside `repo.ReadTestFile`; the animation draws no wire stub to an actor out of view.
-- **Listen: the side bar, the status bar and the palette, quieter.** The Listen view is there only while a journey is
-  listened to (playing or paused), with no empty-state text. A Journeys row says "♪ 12:47" and nothing more (no
-  "Listening", no "Paused at", no step, no speaker icon); its ▶ shows unless it plays (paused, ▶ goes on), with no ⏸ or
-  Resume row action and no podcast line in the tooltip unless the podcast can't play (then no ▶: the tooltip says
-  why). Open Journey… marks a podcast with a ♪ after the title, and the journey listened to says "listening" without a
-  ▶. The status item shows only while the journey panel is off screen ("Listening · 6:58", a one-line tooltip), is
-  gone after the end, and the walk's "3/14" item steps aside meanwhile. No status-bar flashes (resume, the follow
-  lock, a note being written, a removed step): the output logs them. The transport commands are in the palette only
-  while a journey is listened to (**Listen: Pause/Play**, **Listen: Open the Map**). The panel's notice is one line,
-  "⚠ 3 problems · Show why", counting what the Problems view lists; a bad beat is said by the step ("Step 1: no beat 99
-  (it has 5); showing the whole step") and its marks aren't reported again; "Code changed since recording: steps 2, 5,
-  9". A journey panel closed while VS Code was restoring it no longer fails the extension's activation.
-- **Listen: the editor while it plays.** The editor is calmer: a view is held at least 8 s (a shorter part in
-  another file stays in the view before; beats in the same file just move the highlight). Scroll or click in the
-  narrated code and it stops following until the next step; **Follow along** on the step card snaps back. While it
-  plays the step card is one line ("narrating · beat 2/6", ⏸, ⏮ ⏭) and its ⏮ ⏭, Ctrl+' A / D and the player's are one
-  transport (⏮ is always the part before; in the Intro and Recap the keys move the episode). The Intro and Recap close
-  the walk's code so the map has the editor; the code comes back in one group beside the panel, never on your own
-  unsaved or untitled file. The first play says "The walk follows the voice: code opens beside the map". A note or a
-  question being written pauses it (closing the panel does not: the audio is in the Listen view). The panel no longer changes width on its own: focusing it, ‹ Journeys and the row
-  of the journey you're in keep its width (VS Code widening a panel focused at its minimum is undone), a reload never
-  closes it, and the journey you're in is focused, not reopened; Ctrl+' V gives a narrow panel room for the map. A
-  journey edited under the podcast keeps the step (by id); a removed step shows what the podcast says at its time;
-  quick ⏭ ⏭ open only the last target; a beat it doesn't narrate pauses it; End Journey ends the listening (▶ says
-  where it goes on); Ctrl+' Space in a journey without a podcast says so instead of starting another one. Reopened,
-  the panel shows the beat it was at; the output logs plays, pauses and stops with why.
-- **Listen: marks, highlights as the words are said.** A segment may carry `marks`: while the voice says "requires a
-  model", that check lights, down to the characters (`match`, its `nth`); on "right there", the line that rejects it.
-  The newest mark is a strong tint (whole lines: one tinted block with a bar on the left, no lines between rows), the
-  segment's earlier ones stay, lighter, over the beat's own line;
-  the next segment clears them. A mark lights 0.12 s before its word; marks with the same phrase light together; at
-  any time (a seek, paused too) exactly the marks said by then show. Code that moved is found within 20 lines (said
-  once in the output), else the whole lines light. An off-screen mark is scrolled to, never under a reader who is
-  looking around; a mark in another file opens it only after the view hold (8 s). The check (extension and
-  `journey.py podcast`) says marks that can't be used, phrases not in the text, marks out of order, and, reading the
-  code, a missing file, lines past its end, or a `match` not where it says (and whether it is found nearby).
-- **Listen: camera moves give you time to read.** When the next mark, beat or step is out of view, a cue at the
-  editor's edge says where the code goes ("↓ 340", "↑ 212", "→ main.ts") 0.8 s before; the code moves only once what
-  was just lit has been on screen 2.5 s (`codeNotes.listen.readBeforeMove`), and the audio then waits 0.8 s with the
-  new mark lit (`codeNotes.listen.settleAfterMove`). A wait is not a pause: the player, the status bar, the Journeys
-  row and the step card stay as they are; the cue is all that shows it. No waits when the code is on screen, under the
-  follow lock, after your own seeks, or on the map. The walk never lags the voice: if the audio doesn't stop for a
-  wait (checked against the audio's own time), or you play on or scroll during one, the wait is dropped and the code
-  goes to what is being said now; waits then stay off for 30 s.
-- **Listen: the player and the walk keep time with the audio.** The panel's player (a remote of the Listen view)
-  counts from when the audio said its time, not from when the message arrived, so a busy extension never puts its
-  caption behind the voice; a run of time reports that piled up is applied once, its newest. Captions of a long
-  sentence change part when its words are said (the marks' phrases are word-timed) instead of by character count.
-- **Listen: a quieter editor while it plays.** The step card is its header line ("3/14 · title", and Follow along
-  while you read on your own) above the function the step is in; the full card comes back on pause. The newest mark
-  is the one colour on the code (its own theme colour, `codeNotes.markBackground`; no bar, no scrollbar ticks); the
-  step's lines keep a thin grey bar, and the beat's box, value hints and note bars wait for the pause.
-- **Listen: the follow lock sees the reader.** A slow scroll in small steps now counts (measured from where the
-  extension left the code), and the step card growing or shrinking on pause and play no longer counts as the reader
-  scrolling. A mark brought on screen keeps column 1 in view; the code scrolls right only when the mark starts past
-  the right edge.
-- **Listen: more checks of the podcast file.** A step the journey doesn't have is said once with its segments and times; a beat written
-  as a string, a reused segment id (with both times), and narration in another order than the journey's are warnings;
-  a podcast recorded for an older commit whose steps' code changed since gets a quiet note; a podcast file not named
-  after its journey says in the output why it's ignored. `journey.py podcast` stays in step.
-- **Podcasts: broken files are explained.** One check of the podcast file, with errors (it can't be played) and
-  warnings (a part is not what the file says: a step or beat the journey doesn't have, overlapping or out-of-order
-  times, an end before its start or past the audio, a cut-off audio, written for another journey). Every problem is
-  in the Problems view on the `.podcast.json` and in the output at warning level. A podcast that can't be played
-  keeps a greyed ▶ on its row (the tooltip says why) and a "Podcast unavailable · Show why" line in the panel; one
-  with warnings says them in one short line. A file that breaks while it plays keeps the last good version playing;
-  the status item goes with its podcast; putting the audio file back brings the podcast back. `audio` outside the
-  journeys folder is refused at load. `journey.py podcast` (the code-journey skill) runs the same checks, and
-  `journey.py check` runs them too. Segments may carry other fields, e.g. `say`, the spoken form (ignored).
-  [docs/podcast-format.md](docs/podcast-format.md) ships with the extension.
-- **Understanding check: a tour of the change.** Right after the questions, Claude writes a short journey of the change
-  (6-10 steps through the changed code and the code it depends on), each question placed after the step that shows
-  its answer. Check my understanding (or **Walk the tour** in the Check view) walks it in the journey panel: the
-  questions are rows of the storyline, Next stops at each open one and opens its thread, a pass walks on. Rows of the
-  Check view say their step and go there. The tour is stored in the check file (`journey`); a top-up adds steps for
-  the new part. The grader may point at a step; the merge request comment gets one line about the tour. A question,
-  and the tour's last step, may say "See also" a journey of the repository that walks the same code.
-- **Faster over Remote-SSH and on big repositories.** The understanding check reads git on a worker thread: the
-  extension host (shared with every other extension, and over Remote-SSH with the editor) never waits for git. It
-  reads again only when something it shows can have changed: another `git status` (the Git view, a terminal, an agent)
-  no longer makes it refresh, and a burst of triggers is one refresh. A code link, Back, the next or previous step, a
-  link from a chat and opening a question each wait for at most one call into the window (fixed waits and repeated
-  context keys, decorations and lens refreshes are gone), so they slow down less with the network's latency.
-- **Remote-SSH: files are read where they are.** Notes, journeys and step files are read and written with Node's fs
-  instead of through the window (a round trip each): opening a folder with many notes and journeys no longer takes a
-  round trip per file. A quick Next, Next, Next ends on the last step asked for, with its file and card. A reply, a
-  note or an answer sent twice with a quick double Ctrl+Enter is saved once, and shows at once ("Checking…" for an
-  answer). Links from a Claude Code chat are recognised on newer VS Code versions too. A code link's Back names its
-  step and goes away once the walk moves on. Copied link text has no hidden zero-width spaces.
-- **Fixes.** The sidebar no longer logs "Failed to resolve tree node" (a reveal waits until the view holds the row,
-  and redraws are spaced so the window applies each). Undo of Mark All Read makes resolves and reopens unread again.
-  Notes queued for Claude no longer stay "Queued…" when the Claude Code CLI isn't found. A note on a file that shrank
-  no longer fails to place. A notes-folder setting like `notes\` or `./notes` works. Step text: a bare `file#L9` ref
-  links to its line, `#L` and range labels move with the code, a sentence ref is hidden only when every place it names
-  is on screen, a gone ref names where it was looked for, and a step link opens the journey of its own folder. The
-  CLI places notes exactly as the extension does, and reads a removed `-- comment` line as code, not a file header.
-  Commit & push sees an unsaved fix behind a `git:` diff view. The default branch is one rule everywhere: origin/HEAD
-  when known, else main or master, plus the compared-with branch. With reduced motion, journey scenes don't animate
-  at all. A question id with a quote no longer stops the Check view drawing; a status or screen named like
-  `constructor` no longer breaks a scene.
-- **Internals:** the extension's code is split into small modules by area (`src/ask`, `check`, `notes`, `tour`,
-  `journeys`, `sidebar`, `write`, `webview`); the CLI's source is modules under `cli/understanding/`, bundled into
-  `cli/understanding.mjs`; tests are one test per behaviour, in a file per module. Behaviour is unchanged apart from
-  the fixes above.
+### Added
+
+- **Listen to a journey.** A journey with an audio episode next to it (`<journey>.podcast.json`) gets ▶ Listen on its
+  row: the walk follows the voice step by step and beat by beat, with captions, a chapter list and a timeline marked
+  by step. Code highlights as the words are said (`marks`), and the editor gives you time to read before it moves
+  (`codeNotes.listen.readBeforeMove`, `codeNotes.listen.settleAfterMove`). The audio plays in the new **Listen** view,
+  so closing the journey panel doesn't stop it. Keys: Ctrl+' Space, Ctrl+' ← →, Ctrl+' Shift+← →. How it works and
+  the file format: [docs/podcast-format.md](docs/podcast-format.md).
+- **Podcast checks.** A podcast file that can't be played, or doesn't match its journey, says why in the Problems view
+  and on its row; `journey.py podcast` and `journey.py check` run the same checks.
+- **Understanding check: a tour of the change.** After the questions, Claude writes a short journey through the
+  change, each question placed after the step that shows its answer. **Walk the tour** in the Check view walks it.
+
+### Changed
+
+- **Faster over Remote-SSH and on big repositories.** Notes, journeys and step files are read with Node's fs instead
+  of through the window, and the understanding check reads git on a worker thread and only when something it shows
+  can have changed.
+
+### Fixed
+
+- The sidebar no longer logs "Failed to resolve tree node"; notes queued for Claude no longer stay "Queued…" when the
+  Claude Code CLI isn't found; a note on a file that shrank is placed again.
+- Step text: a bare `file#L9` ref links to its line, line labels move with the code, and a step link opens the journey
+  of its own folder.
+- A reply or an answer sent twice with a quick double Ctrl+Enter is saved once; a quick Next, Next, Next ends on the
+  last step asked for.
+- With reduced motion, journey scenes don't animate; a question id with a quote no longer stops the Check view
+  drawing.
 
 ## 0.24.0
 

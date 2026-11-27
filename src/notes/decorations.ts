@@ -1,16 +1,20 @@
 // How notes mark their lines in the editor: a bar for open and stale notes, the exact text a note is about, unread
-// in the scrollbar. (src/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
+// in the scrollbar. (src/platform/decorations.ts sends each editor's decorations; the step card draws its own: tour/card.ts.)
 
 import * as vscode from 'vscode'
-import { cfg } from '../app'
-import { setDecorations } from '../decorations'
-import { unread } from '../seen'
-import { hiddenInEditor } from '../sidebar/notesFilter'
-import { Note } from '../store'
-import { card } from '../tour/instances'
+import { cfg } from '../platform/settings'
+import { setDecorations } from '../platform/editorDecorations'
+import { unread } from './seen'
+import { hiddenInEditor, NotesApi } from './model'
+import { WorkspaceEvents } from '../platform/events'
+import { Note } from './store'
+import { notesPorts } from './ports'
 import { lineNotesFor } from './location'
 
-export let deco: Record<'openBar' | 'staleBar' | 'unread' | 'exact', vscode.TextEditorDecorationType>
+type Kind = 'openBar' | 'staleBar' | 'unread' | 'exact'
+
+/** The notes' decoration types, made when the notes start (createDecorations). */
+let deco: Record<Kind, vscode.TextEditorDecorationType> | undefined
 
 const theme = (id: string) => new vscode.ThemeColor(id)
 
@@ -27,8 +31,9 @@ function bar(b: (typeof BARS)[keyof typeof BARS]): vscode.TextEditorDecorationTy
   })
 }
 
-export function createDecorations(): void {
-  deco = {
+/** The notes' decoration types; disposed with the notes. */
+export function createDecorations(): vscode.Disposable {
+  const made: Record<Kind, vscode.TextEditorDecorationType> = {
     openBar: bar(BARS.openBar),
     staleBar: bar(BARS.staleBar),
     // Quieter than a note's mark: a light wash and a dotted line, never yellow (amber means stale).
@@ -40,6 +45,8 @@ export function createDecorations(): void {
       overviewRulerColor: theme('codeNotes.unreadForeground'), overviewRulerLane: vscode.OverviewRulerLane.Left,
     }),
   }
+  deco = made
+  return vscode.Disposable.from(...Object.values(made), new vscode.Disposable(() => { if (deco === made) deco = undefined }))
 }
 
 /** The note's lines, as whole lines. */
@@ -57,16 +64,29 @@ function exactRange(doc: vscode.TextDocument, n: Note): vscode.Range | undefined
   return new vscode.Range(doc.positionAt(from), doc.positionAt(from + sel.text.length))
 }
 
+/** The notes marked in an editor: open or unread, not in a hidden session. */
+const marked = (n: Note) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)
+
 /** Every visible editor's note marks (and the step card's), as the notes are now. None on the code a podcast is
  *  telling while it plays (they come back on pause). */
 export function refreshDecorations(): void {
+  if (!deco) return
   const on = cfg().get<boolean>('highlight', true)
   for (const editor of vscode.window.visibleTextEditors) {
-    const list = on && !card.narrates(editor) ? lineNotesFor(editor.document.uri).filter((n) => (n.data.status === 'open' || unread(n) > 0) && !hiddenInEditor(n)) : []
+    const shown = on && !notesPorts().layout.narrates(editor)
+    const list = shown ? lineNotesFor(editor.document.uri).filter(marked) : []
     setDecorations(editor, deco.openBar, list.filter((n) => !n.data.stale).map(linesOf))
     setDecorations(editor, deco.staleBar, list.filter((n) => n.data.stale).map(linesOf))
     setDecorations(editor, deco.unread, list.filter((n) => unread(n) > 0).map(linesOf))
     setDecorations(editor, deco.exact, list.map((n) => exactRange(editor.document, n)).filter((r): r is vscode.Range => !!r))
   }
-  card.refreshDecorations()
+  notesPorts().layout.refreshCard()
+}
+
+/** The marks follow the notes (an edit being typed too) and the editors on screen. */
+export function followNotes(model: NotesApi, events: WorkspaceEvents): vscode.Disposable {
+  return vscode.Disposable.from(
+    model.onDidChange(() => refreshDecorations()),
+    events.onDidChangeVisibleEditors(() => refreshDecorations()),
+  )
 }

@@ -1,7 +1,8 @@
 // A question's thread as text: the question (with the code it also depends on), the grader's replies, the code links
-// of each message, and the messages a thread is missing. No vscode API here (unit-tested in test/checkModel.test.ts).
+// of each message, and the messages a thread is missing. No vscode API here (unit-tested in
+// test/checkThreadText.test.ts).
 import type { Attempt, Link, Question, Range } from './types'
-import { baseName } from '../paths'
+import { baseName } from '../core/paths'
 
 /** The question as the first message of its thread; unchanged code it depends on (not linked from its words) below it. */
 export function questionBody(q: Question): string {
@@ -24,51 +25,92 @@ export function alsoLinks(q: Question): Link[] {
 }
 
 /**
- * The code links of message `mi` of a check thread (`roles`: each message's role): the question's for the first
- * message, then each grade's own (the n-th agent reply is the n-th graded attempt). Answers have none.
+ * Where a check thread's grades are: the thread is the question (message 0), then each answer and its grade, as
+ * threads.ts writes them; the k-th agent reply after the question holds the k-th grade gradedAttempts lists. Every
+ * reader of a thread by position goes through this (`roles`: each message's role).
  */
-export function linksAt(q: Question, roles: string[], mi: number): Link[] {
-  if (roles[mi] !== 'agent') return []
-  const k = roles.slice(0, mi).filter((r) => r === 'agent').length
-  // The question's own links, then its "Also read" names (last in its text, so they are found there).
-  if (k === 0) return [...(q.links ?? []), ...alsoLinks(q)]
-  return gradedAttempts(q)[k - 1]?.links ?? []
+export function gradeMessages(roles: readonly string[]): number[] {
+  return roles.flatMap((r, i) => (i > 0 && r === 'agent' ? [i] : []))
 }
 
 /**
- * The attempts whose grade the thread shows, in order (the n-th agent reply after the question is the n-th of them): a
- * superseded answer's grade only when it explained (the lesson stays). threads.ts messagesOf writes the thread by this.
+ * The code links of message `mi` of a check thread (`roles`: each message's role): the question's for the first
+ * message, then each grade's own. Answers have none.
+ */
+export function linksAt(q: Question, roles: string[], mi: number): Link[] {
+  if (roles[mi] !== 'agent') return []
+  // The question's own links, then its "Also read" names (last in its text, so they are found there).
+  if (mi === 0) return [...(q.links ?? []), ...alsoLinks(q)]
+  const k = gradeMessages(roles).indexOf(mi)
+  return gradedAttempts(q)[k]?.links ?? []
+}
+
+/**
+ * The attempts whose grade the thread shows, in order (see gradeMessages): a superseded answer's grade only when it
+ * explained (the lesson stays). threads.ts writes the thread by this.
  */
 export function gradedAttempts(q: Question): Attempt[] {
   return (q.attempts ?? []).filter(showsGrade)
 }
-/**
- * The index of the message that holds the k-th grade gradedAttempts lists (k from 1: the k-th agent reply after the
- * question); -1 when the thread has none (`roles`: each message's role).
- */
+/** The index of the message that holds the k-th grade (k from 1, see gradeMessages); -1 when the thread has none. */
 export function gradeMessageAt(roles: string[], k: number): number {
-  let seen = 0
-  return roles.findIndex((r, x) => x > 0 && r === 'agent' && ++seen === k)
+  return gradeMessages(roles)[k - 1] ?? -1
 }
 /** An attempt whose grade is in the thread (see gradedAttempts). */
 export const showsGrade = (a: Attempt): boolean => !!a.verdict && (a.answer !== undefined || a.verdict === 'explained')
 
-/**
- * The grader's reply in the thread: pass → a short confirmation; retry → feedback + hint; explained → the
- * explanation and an offer to say it back; a restatement → ✓, or what is still off.
- */
-export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string {
-  if (a.verdict === 'pass' || a.verdict === 'restated') return `✓ ${a.feedback || 'Right.'}`
-  if (a.verdict === 'retry') return `${retryText(a.feedback)}${a.hint ? `\n\n**Hint:** ${a.hint}` : ''}`.trim()
-  if (o.restatement) return `${a.feedback ?? ''}\n\n_Try once more, or leave it: it is done._`.trim()
-  return `${a.feedback ?? ''}\n\n_${SAY_IT_BACK}_`.trim()
-}
-
 /** After an explanation: the offer to say it back (the thread and the Check view say the same words). */
 export const SAY_IT_BACK = 'Got it? Say it back in one sentence (optional).'
+
+/** The grader's words around its feedback in a thread. */
+export const GRADE_WORDS = {
+  /** A pass with no feedback. */
+  right: 'Right.',
+  /** A retry opens with it (unless the grader's own words already do). */
+  notQuite: 'Not quite.',
+  hint: 'Hint:',
+  sayItBack: SAY_IT_BACK,
+  /** After a restatement that missed: the question is done anyway. */
+  tryOnceMore: 'Try once more, or leave it: it is done.',
+} as const
+
+/** The markdown a thread message uses. */
+const md = { bold: (s: string) => `**${s}**`, italic: (s: string) => `_${s}_` }
+
+/**
+ * The grader's reply as parts: pass → a short confirmation; retry → feedback + hint; explained → the explanation and
+ * an offer to say it back; a restatement that missed (`restatement`) → what is still off, and that it is done anyway.
+ */
+export type GradeReply =
+  | { tone: 'pass'; feedback: string }
+  | { tone: 'retry'; feedback: string; hint?: string }
+  | { tone: 'explained'; feedback: string; offer: 'sayItBack' | 'tryOnceMore' }
+
+export function gradeReply(a: Attempt, o: { restatement?: boolean } = {}): GradeReply {
+  if (a.verdict === 'pass' || a.verdict === 'restated') {
+    return { tone: 'pass', feedback: a.feedback || GRADE_WORDS.right }
+  }
+  if (a.verdict === 'retry') {
+    return { tone: 'retry', feedback: retryText(a.feedback), ...(a.hint ? { hint: a.hint } : {}) }
+  }
+  return { tone: 'explained', feedback: a.feedback ?? '', offer: o.restatement ? 'tryOnceMore' : 'sayItBack' }
+}
+
+/** The grader's reply in the thread, as markdown (see gradeReply). */
+export function gradeBody(a: Attempt, o: { restatement?: boolean } = {}): string {
+  const r = gradeReply(a, o)
+  switch (r.tone) {
+    case 'pass': return `✓ ${r.feedback}`
+    case 'retry': return (r.hint ? `${r.feedback}\n\n${md.bold(GRADE_WORDS.hint)} ${r.hint}` : r.feedback).trim()
+    case 'explained': return `${r.feedback}\n\n${md.italic(GRADE_WORDS[r.offer])}`.trim()
+  }
+}
+
 /** A retry's feedback, opening with "Not quite." (unless the grader's words already do). */
 export function retryText(feedback: string | undefined): string {
-  return `${/^not quite/i.test(feedback ?? '') ? '' : 'Not quite. '}${feedback ?? ''}`
+  const text = feedback ?? ''
+  const stem = GRADE_WORDS.notQuite.replace(/\.$/, '').toLowerCase()
+  return text.toLowerCase().startsWith(stem) ? text : `${GRADE_WORDS.notQuite} ${text}`
 }
 
 /**

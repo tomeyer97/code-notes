@@ -9,6 +9,19 @@ import { CHECK_DEBOUNCE_MS, api, chk, codeEditor, git, inLines, noteOf, until, w
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/** Long enough for refreshes triggered earlier (file events, focus) to have run: four debounces. */
+const EARLIER_REFRESHES_MS = CHECK_DEBOUNCE_MS * 4
+/** How long a refresh `git status` set off would take to show: five debounces. */
+const GIT_STATUS_QUIET_MS = CHECK_DEBOUNCE_MS * 5
+/** Ten triggers at once: the one that runs and at most one more after it. */
+const MAX_REFRESHES_PER_BURST = 2
+/** A refresh with the slow git takes at least this long, or git wasn't slow. */
+const SLOW_REFRESH_MIN_MS = 1500
+/** How much more of the time a refresh may hold the event loop than it is held idle (machine noise). */
+const HELD_SHARE_MARGIN = 0.25
+/** Stalls of a git call's length a refresh may cause beyond the idle rate (a few git calls on this thread). */
+const EXTRA_LONG_STALLS = 2
+
 export const refreshTests = [
   test('Check view: no errors, nothing cut or sticking out', async () => {
     // The view never showed an error or anything wider than itself.
@@ -16,48 +29,47 @@ export const refreshTests = [
     assert.deepEqual(panel.errors, []); assert.deepEqual(panel.overflow, [])
   }),
 
-  test('refresh: git status refreshes nothing, triggers coalesce, a commit goes through; a slow refresh never holds the event loop', async () => {
-    // Refreshing costs nothing when nothing changed, and never stops the extension host.
+  test('refresh: `git status` (it rewrites .git/index) refreshes nothing: nothing the check shows changed', async () => {
+    // VS Code's Git view, a terminal or an agent runs it all the time.
     await until('settled on feat/limits', () => chk().item === '$(pass) Understanding')
     await api.checkRefresh()
-    await settle(CHECK_DEBOUNCE_MS * 4, 'refreshes triggered earlier (file events, focus) run before the counts are taken')
+    await settle(EARLIER_REFRESHES_MS, 'refreshes triggered earlier (file events, focus) run before the counts are taken')
     const atStart = chk().refreshes
-    // `git status` (VS Code's Git view, a terminal, an agent) rewrites .git/index: nothing the check shows changed.
     for (let k = 0; k < 5; k++) git('status')
-    await quiet(CHECK_DEBOUNCE_MS * 5, 'a refresh after git status rewrote .git/index')
+    await quiet(GIT_STATUS_QUIET_MS, 'a refresh after git status rewrote .git/index')
     assert.equal(chk().refreshes.full, atStart.full, `git status refreshed the check: ${JSON.stringify([atStart, chk().refreshes])}`)
-    // A burst of triggers (focus, saves, the Git view): one check of the key, plus at most one more; nothing read again.
+  }),
+
+  test(`refresh: triggers coalesce: ten at once give at most ${MAX_REFRESHES_PER_BURST} checks, nothing read again when nothing changed`, async () => {
+    // A burst of triggers (focus, saves, the Git view): one check of the key, plus at most one more.
     const beforeBurst = chk().refreshes
     await Promise.all(Array.from({ length: 10 }, () => api.checkRefresh(false)))
     const afterBurst = chk().refreshes
     assert.equal(afterBurst.full, beforeBurst.full, 'nothing changed: no full refresh')
-    assert.ok(afterBurst.same - beforeBurst.same <= 2, `coalesced: ${afterBurst.same - beforeBurst.same} checks for 10 triggers`)
+    assert.ok(afterBurst.same - beforeBurst.same <= MAX_REFRESHES_PER_BURST, `coalesced: ${afterBurst.same - beforeBurst.same} checks for 10 triggers`)
     // Ten asked for at once while one runs: two refreshes, not ten.
     await Promise.all(Array.from({ length: 10 }, () => api.checkRefresh()))
-    assert.ok(chk().refreshes.full - afterBurst.full <= 2, `coalesced: ${chk().refreshes.full - afterBurst.full} refreshes for 10 calls`)
-    // A change does go through: a commit (HEAD moves), seen without being asked.
+    assert.ok(chk().refreshes.full - afterBurst.full <= MAX_REFRESHES_PER_BURST, `coalesced: ${chk().refreshes.full - afterBurst.full} refreshes for 10 calls`)
+  }),
+
+  test('refresh: a change goes through: a commit (HEAD moves) is seen without being asked', async () => {
     const beforeCommit = chk().refreshes
     fs.writeFileSync(path.join(ws, 'api', 'gate.js'), 'export const gate = 1\n')
     git('add', 'api/gate.js'); git('commit', '-qm', 'gate')
     await until('the commit refreshed the check', () => chk().refreshes.full > beforeCommit.full && chk().status?.head === git('rev-parse', 'HEAD'))
-    // With git taking 0.25 s a call, a refresh takes seconds; the extension host's event loop never waits on it.
+  }),
+
+  // A timing check (it depends on the machine's load): the only one of this suite.
+  test('refresh (timing): with git taking 0.25 s a call, a refresh takes seconds and never holds the extension host\'s event loop', async () => {
     // Measured as the share of the time the loop was held, against the same share with no refresh just before: a busy
     // machine holds it now and then (one stall alone says nothing), a refresh run on this thread holds it throughout.
     const idle = await loopHeld(() => sleep(2000))
-    const pathWas = process.env.PATH
-    process.env.PATH = `${process.env.CODE_NOTES_SLOW_GIT}${path.delimiter}${pathWas}`
-    api.checkRestartWorker() // its git: the slow one first on PATH
-    fs.writeFileSync(path.join(ws, '.git', 'slow-git'), '')
-    let slow: Held
-    try { slow = await loopHeld(async () => { await api.checkRefresh() }) } finally {
-      fs.rmSync(path.join(ws, '.git', 'slow-git'))
-      process.env.PATH = pathWas; api.checkRestartWorker()
-    }
+    const slow = await withSlowGit(() => loopHeld(async () => { await api.checkRefresh() }))
     const said = `held the event loop ${pct(slow)} of a ${slow.ms} ms refresh (${slow.long} git calls' length in long stalls, worst ${slow.worst} ms) vs ${pct(idle)} idle (${idle.long}, worst ${idle.worst} ms)`
-    assert.ok(slow.ms > 1500, `git was slow (${slow.ms} ms)`)
+    assert.ok(slow.ms > SLOW_REFRESH_MIN_MS, `git was slow (${slow.ms} ms)`)
     // All of the refresh on this thread: held most of the time. A few git calls on it: as many stalls of their length.
-    assert.ok(slow.held / slow.ms < idle.held / idle.ms + 0.25, `the extension host waited on the refresh: ${said}`)
-    assert.ok(slow.long <= 2 + (idle.long * slow.ms) / idle.ms, `the extension host waited on git calls: ${said}`)
+    assert.ok(slow.held / slow.ms < idle.held / idle.ms + HELD_SHARE_MARGIN, `the extension host waited on the refresh: ${said}`)
+    assert.ok(slow.long <= EXTRA_LONG_STALLS + (idle.long * slow.ms) / idle.ms, `the extension host waited on git calls: ${said}`)
     return said
   }),
 
@@ -110,3 +122,18 @@ async function loopHeld(run: () => Promise<unknown>): Promise<Held> {
   return { held, worst, long, ms }
 }
 const pct = (h: Held) => `${Math.round((100 * h.held) / Math.max(1, h.ms))}%`
+
+/**
+ * Runs `run` with the check's worker on run.ts's slow git (first on PATH; it is slow while .git/slow-git exists), then
+ * puts the worker back on the usual git, failed or not. The worker takes the extension host's PATH when it starts.
+ */
+async function withSlowGit<T>(run: () => Promise<T>): Promise<T> {
+  const pathWas = process.env.PATH
+  process.env.PATH = `${process.env.CODE_NOTES_SLOW_GIT}${path.delimiter}${pathWas}`
+  api.checkRestartWorker()
+  fs.writeFileSync(path.join(ws, '.git', 'slow-git'), '')
+  try { return await run() } finally {
+    fs.rmSync(path.join(ws, '.git', 'slow-git'))
+    process.env.PATH = pathWas; api.checkRestartWorker()
+  }
+}

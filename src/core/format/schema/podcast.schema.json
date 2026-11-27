@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "podcast.schema.json",
+  "title": "Journey podcast",
+  "description": "A journey's podcast: one audio file whose segments are linked to the journey's steps and animation beats (docs/podcast-format.md). It sits next to its journey as <slug>.podcast.json.",
+  "$comment": "From src/core/format/podcast/model.ts parsePodcast and src/core/format/podcast/validate.ts validatePodcast (journey.py podcast_problems has the same rules). The errors (the podcast can't be played) are all here: version, audio (present, a relative path that stays in the journeys folder), segments (a non-empty list). The field types the validator warns about are here too, since they define a well-formed file: at (null or {step, beat}), beat a whole number >= 1, cue, start/end as seconds, duration a number, sentences as a non-empty list of {start, text}, marks as {phrase, at, lines, ...}. Unknown fields, in the file or a segment, are allowed (generators keep their own data there, e.g. say). Not expressible here: at least one segment with a start; ids unique; segments in time order without overlap; end >= start and within duration; sentence starts in order and inside the segment; mark at within the segment and in time order; a phrase found in text; a file on marks of a segment whose at is null; steps and beats the journey has; the audio file existing and not empty. audio: the pattern refuses a URL, an absolute path and a path starting with ..; a path that leaves the folder later (a/../../x) is refused by the validator but not by this pattern. duration must be above 0 (written as minimum 0: exclusiveMinimum is not in the keyword subset). A mark's at may be up to 0.05 s before the segment (rounding); this schema says minimum 0.",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The format version: 1.", "const": 1 },
+    "title": { "description": "The episode's title.", "type": "string" },
+    "journey": {
+      "description": "The journey it was written for.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "The journey's id.", "type": "string" },
+        "file": { "description": "The journey file, relative to the repository.", "type": "string" },
+        "commit": { "description": "The commit the podcast was recorded for.", "type": "string" }
+      }
+    },
+    "audio": {
+      "description": "The audio file, relative to this file, inside the journeys folder (not a URL, not absolute).",
+      "type": "string",
+      "pattern": "^\\s*(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\\\/])(?!\\.\\.(?:[\\\\/]|\\s*$))(?=[\\s\\S]*\\S)"
+    },
+    "duration": {
+      "description": "The episode's length in seconds (the audio's own length wins).",
+      "type": "number",
+      "minimum": 0
+    },
+    "segments": {
+      "description": "The parts of the episode.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/segment" }
+    }
+  },
+  "required": ["version", "audio", "segments"],
+  "$defs": {
+    "segment": {
+      "description": "A part of the episode: who says what, when, and where in the journey it belongs.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "Stable when segments are edited or removed.", "type": "string" },
+        "at": {
+          "description": "Where it belongs: null (the whole journey: the map), {step} (the step), or {step, beat} (the step's animation at that beat).",
+          "anyOf": [
+            { "description": "The whole journey (the map, no step open).", "type": "null" },
+            { "$ref": "#/$defs/at" }
+          ]
+        },
+        "cue": { "description": "How the change of place is shown.", "enum": ["map", "open", "beat"] },
+        "speaker": { "description": "Who speaks.", "type": "string" },
+        "text": { "description": "What is said.", "type": "string" },
+        "say": { "description": "The spoken form sent to text-to-speech (ignored by the player).", "type": "string" },
+        "start": { "description": "When it starts, in seconds of the audio.", "type": "number", "minimum": 0 },
+        "end": { "description": "When it ends, in seconds of the audio.", "type": "number", "minimum": 0 },
+        "sentences": {
+          "description": "When each sentence of text starts.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sentence" }
+        },
+        "marks": {
+          "description": "Parts of the code lit while the voice says a phrase.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/mark" }
+        }
+      },
+      "required": ["at", "start"]
+    },
+    "at": {
+      "description": "A step of the journey, optionally at a beat of its animation.",
+      "type": "object",
+      "properties": {
+        "step": { "description": "The step's id.", "type": "string" },
+        "beat": {
+          "description": "The beat, 1-based, counted in the step's scene.beats.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["step"]
+    },
+    "sentence": {
+      "description": "A sentence of the segment's text and when it starts.",
+      "type": "object",
+      "properties": {
+        "start": { "description": "When the sentence starts, in seconds of the audio.", "type": "number" },
+        "text": { "description": "The sentence.", "type": "string", "pattern": "\\S" }
+      },
+      "required": ["start", "text"]
+    },
+    "mark": {
+      "description": "A mark lit while the voice says a phrase: a code mark plus the phrase and its time.",
+      "$ref": "marks.schema.json#/$defs/mark",
+      "properties": {
+        "phrase": { "description": "The words in text the mark goes with.", "type": "string", "pattern": "\\S" },
+        "at": {
+          "description": "Seconds from the segment's start when the phrase is said.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": ["phrase", "at"]
+    }
+  }
+}

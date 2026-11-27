@@ -1,43 +1,52 @@
 // Which notes a command is about: the selected rows, a tree node, a thread or reply, a link's id, or the cursor.
 
 import * as vscode from 'vscode'
-import { byId } from '../app'
-import { Node, order } from '../sidebar/nodes'
-import { Note } from '../store'
-import { noteTitle, rangeLabel } from '../text'
+import { byId } from './visible'
+import { order, selection } from './model'
+import { noteOfRow } from './model/rows'
+import { Note } from './store'
+import { noteTitle, rangeLabel } from '../core/text'
 import { notesAtLine } from './location'
-import { noteOfThread, revealed } from '../threads/sync'
+import { noteOfThread } from '../threads/sync'
+import { hint } from './hint'
 
 /**
  * What a command is given, by who calls it: a row of the Code Notes view (its node, and with several selected, all of
  * them as `many`), a link in a thread (the note's id), a thread's reply box (a CommentReply), a thread's title menu (the
  * CommentThread), or nothing (the palette, a key: the note at the cursor).
  */
-export type CommandArg = Node | string | vscode.CommentReply | vscode.CommentThread | undefined
+export type CommandArg = { kind: string } | string | vscode.CommentReply | { thread: vscode.CommentThread } | vscode.CommentThread | undefined
 
 /** A thread's reply box (Ctrl+Enter, its buttons): the thread and the text typed. */
 export const isReply = (arg: unknown): arg is vscode.CommentReply =>
   !!arg && typeof arg === 'object' && 'thread' in arg && 'text' in arg
 
-/** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor. */
-export function notesFrom(arg: CommandArg | any, many?: any[]): Note[] {
-  const fromNode = (x: any): Note | undefined => (x?.kind === 'note' ? x.note : undefined)
+/** Anything that carries a thread: a reply box (its text may be left out by a caller that only names the thread). */
+const carriesThread = (arg: unknown): arg is { thread: vscode.CommentThread } =>
+  !!arg && typeof arg === 'object' && !!(arg as { thread?: unknown }).thread
+
+/** A thread's title menu: the thread itself. */
+const isThread = (arg: unknown): arg is vscode.CommentThread => !!arg && typeof arg === 'object' && 'uri' in arg && 'range' in arg
+
+/** The notes a command is about: sidebar selection, a tree node, a comment thread or reply, or the note at the cursor.
+ *  `many`: every row selected, when the command came from a row. */
+export function notesFrom(arg: CommandArg, many?: readonly CommandArg[]): Note[] {
   const one = (n: Note | undefined) => (n ? [n] : [])
   // A link in a thread (it never comes with a selection).
   if (typeof arg === 'string') return one(byId(arg))
   // Rows: several selected.
-  if (Array.isArray(many) && many.length > 1) return many.map(fromNode).filter((n): n is Note => !!n)
+  if (Array.isArray(many) && many.length > 1) return many.map(noteOfRow).filter((n): n is Note => !!n)
   // A row.
-  if (arg?.kind === 'note') return [arg.note]
-  // A reply box.
-  if (arg?.thread) return one(noteOfThread(arg.thread))
-  // A thread's title menu.
-  if (arg && typeof arg === 'object' && 'uri' in arg && 'range' in arg) return one(noteOfThread(arg as vscode.CommentThread))
+  const row = noteOfRow(arg)
+  if (row) return [row]
+  if (carriesThread(arg)) return one(noteOfThread(arg.thread))
+  if (isThread(arg)) return one(noteOfThread(arg))
   // The palette or a key: the note at the cursor (the one just opened, if it is there).
   const editor = vscode.window.activeTextEditor
   if (!editor) return []
   const here = notesAtCursor(editor)
-  if (revealed.id) { const r = here.find((n) => n.data.id === revealed.id); if (r) return [r] }
+  const revealed = selection().revealed
+  if (revealed) { const r = here.find((n) => n.data.id === revealed); if (r) return [r] }
   return here.slice(0, 1)
 }
 
@@ -49,11 +58,11 @@ function notesAtCursor(editor: vscode.TextEditor): Note[] {
 }
 
 /** notesFrom; but from the palette, with several notes at the cursor, it asks which. */
-export async function pickNotes(arg: CommandArg | any, many?: any[]): Promise<Note[]> {
+export async function pickNotes(arg: CommandArg, many?: readonly CommandArg[]): Promise<Note[]> {
   if (arg !== undefined || many) return notesFrom(arg, many)
   const editor = vscode.window.activeTextEditor
   const here = editor ? notesAtCursor(editor) : []
-  if (!here.length) { vscode.window.setStatusBarMessage('$(info) No note at the cursor', 2500); return [] }
+  if (!here.length) { hint('No note at the cursor'); return [] }
   if (here.length === 1) return here
   const items = here.map((n) => ({ label: noteTitle(n, 70), description: rangeLabel(n), note: n }))
   const pick = await vscode.window.showQuickPick(items, { title: 'Which note?' })

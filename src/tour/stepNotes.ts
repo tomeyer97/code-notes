@@ -2,8 +2,9 @@
 // when the walk moves (their back-link says less while you walk their journey).
 
 import * as vscode from 'vscode'
-import { notes, store } from '../app'
-import { stepLinkOf } from '../sidebar/journeyRows'
+import { notesStore } from './ports'
+import { visibleNotes } from '../notes/visible'
+import { stepLinkOf } from '../notes/model/journeyLink'
 import { notesFor } from '../notes/location'
 import { setCollapse } from '../threads/settle'
 import { syncThread, threads } from '../threads/sync'
@@ -20,6 +21,5 @@ export function foldNotesOverlapping(uri: vscode.Uri, at: { start: number; end: 
 
 /** Each note asked from a journey step: its thread is drawn again. */
 export function syncStepNotes(): void {
-  if (!store) return
-  for (const n of notes()) if (stepLinkOf(n)) syncThread(n)
+  for (const n of visibleNotes()) if (stepLinkOf(n)) syncThread(n)
 }

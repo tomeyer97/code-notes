@@ -1,22 +1,23 @@
-// The tour of an understanding check in the journey panel (outside VS Code, in the harness of test/journey-map): the
-// storyline with the check's questions as rows between the steps, at 320/600/1000 px, dark and light. Asserts what a
-// person would notice: every question row after the step that shows its answer, nothing wider than the panel or cut
-// sideways, the current row (a step, or a question) marked once, a click on a row asks for that question, no console
-// errors. Exits 1 on any failure.
+// The tour of an understanding check in the journey panel (outside VS Code): the storyline with the check's
+// questions as rows between the steps, at 320/600/1000 px, dark and light. Asserts what a person would notice: every
+// question row after the step that shows its answer, nothing wider than the panel or cut sideways, the current row (a
+// step, or a question) marked once, a click on a row asks for that question, no console errors. Exits 1 on any failure.
+//
+// It draws the journey panel's own page, in that page's harness (test/journey-map/harness.html); it is a suite of its
+// own because what it checks is the check's: its fixture (refunds.json) is a check's tour and questions.
 //
 // Usage (after `npm run build`): node test/check-tour/shoot.mjs [screenshot-dir]
 // PLAYWRIGHT: path to playwright's index.mjs when it is not installed in node_modules.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { launchChromium, openHarness } from '../harness/page.mjs'
 
-const pw = await import(process.env.PLAYWRIGHT ? pathToFileURL(path.resolve(process.env.PLAYWRIGHT)).href : 'playwright')
-const chromium = pw.chromium ?? pw.default.chromium
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : ''
 if (OUT) fs.mkdirSync(OUT, { recursive: true })
-const HARNESS = pathToFileURL(path.join(ROOT, 'test/journey-map/harness.html')).href
-const fx = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/check-tour/refunds.json'), 'utf8'))
+const HARNESS = pathToFileURL(path.join(HERE, '../journey-map/harness.html')).href
+const fx = JSON.parse(fs.readFileSync(path.join(HERE, 'refunds.json'), 'utf8'))
 // As the extension sends it (journeyModel.parseJourney): steps carry their number.
 const journey = { ...fx.journey, id: 'check-feat-refunds', steps: fx.journey.steps.map((s, i) => ({ ...s, n: i + 1 })), problems: [] }
 const states = ['todo', 'retry', 'pass']
@@ -25,22 +26,18 @@ const tour = (x) => ({ current: 0, marks: {}, resume: 0, legendHidden: true, pro
 const failures = []
 const fail = (m) => { failures.push(m); console.log(`  ✗ ${m}`) }
 
-const b = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--mute-audio'] })
+const b = await launchChromium()
 for (const width of [320, 600, 1000]) for (const theme of ['dark', 'light']) {
   const tag = `${width}-${theme}`
-  const page = await (await b.newContext({ viewport: { width, height: 760 }, deviceScaleFactor: 1 })).newPage()
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  const errors = []
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`) })
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
-  await page.goto(`${HARNESS}?theme=${theme}`)
-  await page.waitForFunction(() => window.__posted.some((m) => m.type === 'ready'))
+  const { page, errors } = await openHarness(b, HARNESS, {
+    width, height: 760, theme, warnings: true, context: { deviceScaleFactor: 1, reducedMotion: 'reduce' }, ready: true,
+  })
   const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
-  const posted = () => page.evaluate(() => window.__posted.splice(0))
+  const posted = () => page.evaluate(() => window.__harness.posted.splice(0))
   const show = async (t) => {
     await posted()
     await send({ type: 'journey', journey, ...tour(t) })
-    await page.waitForFunction(() => window.__posted.some((m) => m.type === 'story'), null, { timeout: 15000 })
+    await page.waitForFunction(() => window.__harness.posted.some((m) => m.type === 'story'), null, { timeout: 15000 })
     await page.waitForTimeout(150)
   }
   /** What the storyline shows: rows in order (step n / question id), the current ones, what sticks out or is cut. */

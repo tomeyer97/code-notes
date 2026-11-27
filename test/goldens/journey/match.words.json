@@ -1,0 +1,99 @@
+[
+  {
+    "q": "retry",
+    "query": [
+      "retry"
+    ],
+    "telling": [
+      "retry"
+    ]
+  },
+  {
+    "q": "retr",
+    "query": [
+      "retr"
+    ],
+    "telling": [
+      "retr"
+    ]
+  },
+  {
+    "q": "How are charges retried?",
+    "query": [
+      "charges",
+      "retried"
+    ],
+    "telling": [
+      "charg",
+      "retri"
+    ]
+  },
+  {
+    "q": "the",
+    "query": [
+      "the"
+    ],
+    "telling": []
+  },
+  {
+    "q": "zebra retry",
+    "query": [
+      "zebra",
+      "retry"
+    ],
+    "telling": [
+      "zebra",
+      "retry"
+    ]
+  },
+  {
+    "q": "cart refunds",
+    "query": [
+      "cart",
+      "refunds"
+    ],
+    "telling": [
+      "cart",
+      "refund"
+    ]
+  },
+  {
+    "q": "api/store.js",
+    "query": [
+      "api",
+      "store",
+      "js"
+    ],
+    "telling": [
+      "api",
+      "store",
+      "js"
+    ]
+  },
+  {
+    "q": "order_id",
+    "query": [
+      "order_id"
+    ],
+    "telling": [
+      "order",
+      "id"
+    ]
+  },
+  {
+    "q": "Ünïcode café",
+    "query": [
+      "ünïcode",
+      "café"
+    ],
+    "telling": [
+      "ünïcode",
+      "café"
+    ]
+  },
+  {
+    "q": "",
+    "query": [],
+    "telling": []
+  }
+]

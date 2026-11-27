@@ -38,7 +38,10 @@ test('tour: written after the questions; each question placed after a step; vali
   const empty = structuredClone(c); empty.journey.steps = []; empty.questions.forEach((q) => delete q.step)
   assert.match(U.validateCheck(empty).join('\n'), /journey: "steps" must be a non-empty array/)
   const odd = structuredClone(c); odd.journey.steps[2].node = 'nope'; odd.journey.steps[3].file = '../x.js'
-  assert.match(U.validateCheck(odd).join('\n'), /journey: step 3: "node" "nope" is not a box[\s\S]*journey: step 4: "file" must be a path inside/)
+  assert.match(U.validateCheck(odd).join('\n'), /journey: step 3 .*is in an unknown box "nope": left out[\s\S]*journey: step 4: "file" must be a path inside/)
+  // The extension's reader decides: a tour it refuses is refused here with its reason.
+  const v3 = structuredClone(c); v3.journey.version = 3
+  assert.match(U.validateCheck(v3).join('\n'), /journey: format v3 is newer than this extension reads \(v2\)/)
   // A step's file deleted later never fails the check (the extension shows it as stale).
   const gone = structuredClone(c); gone.journey.steps[0].file = 'src/gone.js'
   assert.deepEqual(U.validateCheck(gone, { repo: d }), [])
@@ -102,30 +105,42 @@ test('tour top-up: steps for the new part are appended; earlier steps and their 
   assert.equal(res.code, 0, res.out)
 })
 
-test('tour: its length follows the change; a change that mostly removes code gets a tour of what went', () => {
+test('tour: its length is tourSize of the change; a change that mostly removes code gets a tour of what went', () => {
   const d = repo()
   const f = writeQuestions(d)
-  const size = (st) => { const c = U.readCheck(f); c.diffStat = { files: 1, ...st }; U.writeCheck(f, c) }
-  size({ added: 2, removed: 0 })
-  let { out, dir } = tourStage(d)
-  assert.match(out, /: 2-3 steps through/); assert.doesNotMatch(out, /REMOVAL/)
-  assert.match(out, /^SMALL: a few lines changed\. Steps around the changed lines/m)
-  writeTourSteps(d, dir)
+  /** Stages the tour of a change of this size; returns what it says. */
+  const stage = (stat) => {
+    const c = U.readCheck(f)
+    c.diffStat = { files: 1, ...stat }
+    U.writeCheck(f, c)
+    return tourStage(d)
+  }
+  /** The step count the staged text asks for: tourSize's (its thresholds are tested in units.test.mjs). */
+  const steps = (stat) => U.tourSize(U.changeKind(stat), U.linesOf(stat)).join('-') + ' steps'
+  for (const stat of [{ added: 2, removed: 0 }, { added: 15, removed: 0 }, { added: 1, removed: 40 }, { added: 0, removed: 40 }]) {
+    assert.ok(stage(stat).out.includes(`: ${steps(stat)}`), JSON.stringify(stat))
+  }
+  const small = stage({ added: 2, removed: 0 })
+  assert.match(small.out, /^SMALL: a few lines changed\. Steps around the changed lines/m)
+  assert.doesNotMatch(small.out, /REMOVAL/)
+  writeTourSteps(d, small.dir)
   assert.match(script(d, 'tour-finish', '--steps', 'q1=1,q2=2,q3=6').out, /PROBLEM: 6 steps: a tour of this change has 2-3 \(its size\)/)
-  size({ added: 15, removed: 0 })
-  ;({ out } = tourStage(d))
-  assert.match(out, /: 2-4 steps through/); assert.doesNotMatch(out, /SMALL/)
-  size({ added: 1, removed: 40 })
-  ;({ out } = tourStage(d))
-  assert.match(out, /: 4-7 steps through/)
-  assert.match(out, /^REMOVAL: this change mostly removes code\. Steps: what was removed/m)
+  assert.doesNotMatch(stage({ added: 15, removed: 0 }).out, /SMALL/)
+  assert.match(stage({ added: 1, removed: 40 }).out, /^REMOVAL: this change mostly removes code\. Steps: what was removed/m)
   // Only removes code: a short tour of where it was used and why removing it is safe.
-  size({ added: 0, removed: 40 })
-  ;({ out } = tourStage(d))
-  assert.match(out, /: 2-3 steps\. Its title/)
-  assert.match(out, /^REMOVAL: this change only removes code\. Steps on code that is still there: where the removed code used to be called/m)
+  assert.match(stage({ added: 0, removed: 40 }).out, /^REMOVAL: this change only removes code\. Steps on code that is still there: where the removed code used to be called/m)
   assert.match(script(d, 'tour-finish', '--none').out, /PROBLEM: --none is only for a change to documentation/)
 })
+
+/** A journey written through journey.py's commands, from data: the boxes, the edges, then the steps. */
+function writeJourney(d, dir, { question, title, summary, nodes, edges, steps }) {
+  jpy(d, dir, ['new', d, 'tour', question, title], summary)
+  for (const n of nodes) {
+    jpy(d, dir, ['node', d, 'tour', n.id, n.kind, n.label, ...(n.parent ? [n.parent] : []), ...(n.range ? [n.range] : []), ...(n.blurb ? ['--blurb', n.blurb] : [])], n.summary)
+  }
+  for (const e of edges) jpy(d, dir, ['edge', d, 'tour', e.from, e.to, e.label])
+  for (const st of steps) jpy(d, dir, ['step', d, 'tour', st.node, st.file, String(st.start), String(st.end), st.title], st.lead)
+}
 
 test('a docs-only change: its tour shows the code the text describes (any step), or none when it describes no code', () => {
   const d = repo()
@@ -143,13 +158,19 @@ test('a docs-only change: its tour shows the code the text describes (any step),
   assert.match(out, /: 2-3 steps\. Its title/)
   assert.match(out, /^DOCS: the change edits documentation\. Steps on the EXISTING code the edited text describes.*tour-finish --none$/m)
   // Two steps on src/app.js (the code the text describes): q1 is on README.md, any step shows its answer.
-  jpy(d, dir, ['new', d, 'tour', 'What does main return?', 'Saying what main returns'], 'The README now says what main returns. Main is in src/app.js.')
-  jpy(d, dir, ['node', d, 'tour', 'app', 'system', 'App', '--blurb', 'The program'], 'The program.')
-  jpy(d, dir, ['node', d, 'tour', 'f_main', 'function', 'main', 'app', 'src/app.js:1-3'], 'Main.')
-  jpy(d, dir, ['node', d, 'tour', 'f_end', 'function', 'the end of main', 'app', 'src/app.js:2-3'], 'Returns.')
-  jpy(d, dir, ['edge', d, 'tour', 'f_main', 'f_end', 'returns zero'])
-  jpy(d, dir, ['step', d, 'tour', 'f_main', 'src/app.js', '1', '1', 'Main is where the program starts'], 'Everything starts in main, which the README now describes.')
-  jpy(d, dir, ['step', d, 'tour', 'f_end', 'src/app.js', '2', '2', 'Main returns zero at the end'], 'Nothing is returned but zero, whatever happened before.')
+  writeJourney(d, dir, {
+    question: 'What does main return?', title: 'Saying what main returns', summary: 'The README now says what main returns. Main is in src/app.js.',
+    nodes: [
+      { id: 'app', kind: 'system', label: 'App', blurb: 'The program', summary: 'The program.' },
+      { id: 'f_main', kind: 'function', label: 'main', parent: 'app', range: 'src/app.js:1-3', summary: 'Main.' },
+      { id: 'f_end', kind: 'function', label: 'the end of main', parent: 'app', range: 'src/app.js:2-3', summary: 'Returns.' },
+    ],
+    edges: [{ from: 'f_main', to: 'f_end', label: 'returns zero' }],
+    steps: [
+      { node: 'f_main', file: 'src/app.js', start: 1, end: 1, title: 'Main is where the program starts', lead: 'Everything starts in main, which the README now describes.' },
+      { node: 'f_end', file: 'src/app.js', start: 2, end: 2, title: 'Main returns zero at the end', lead: 'Nothing is returned but zero, whatever happened before.' },
+    ],
+  })
   assert.match(execFileSync('python3', [JPY, 'check', d, 'tour', 'quiet', '--dir', dir, '--steps', '2-3'], { cwd: d, encoding: 'utf8' }), /^ok: 2 steps, 0 problems/m)
   const r = script(d, 'tour-finish', '--steps', 'q1=1')
   assert.equal(r.code, 0, r.out)

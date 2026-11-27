@@ -1,0 +1,81 @@
+{
+  "version": 2,
+  "id": "handoff",
+  "question": "How does a cancel reach the worker?",
+  "title": "Cancel",
+  "summary": "The API marks the order; the worker polls it.",
+  "nodes": [
+    {
+      "id": "srv",
+      "kind": "system",
+      "label": "Server",
+      "summary": ""
+    },
+    {
+      "id": "api",
+      "kind": "module",
+      "label": "Orders API",
+      "summary": "",
+      "parent": "srv"
+    },
+    {
+      "id": "loop",
+      "kind": "module",
+      "label": "Order worker",
+      "summary": "",
+      "parent": "srv"
+    },
+    {
+      "id": "rec",
+      "kind": "store",
+      "label": "Order record",
+      "path": "api/store",
+      "summary": "",
+      "parent": "srv"
+    }
+  ],
+  "edges": [
+    {
+      "from": "api",
+      "to": "rec",
+      "label": "marks it cancelling"
+    },
+    {
+      "from": "loop",
+      "to": "rec",
+      "label": "polls every 2 s",
+      "async": true
+    },
+    {
+      "from": "loop",
+      "to": "rec",
+      "label": "marks it cancelled"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Step 1 in api",
+      "node": "api",
+      "file": "a.go",
+      "range": {
+        "start": 1,
+        "end": 1
+      },
+      "lead": "",
+      "refs": []
+    },
+    {
+      "id": "s2",
+      "title": "Step 2 in loop",
+      "node": "loop",
+      "file": "a.go",
+      "range": {
+        "start": 2,
+        "end": 2
+      },
+      "lead": "",
+      "refs": []
+    }
+  ]
+}

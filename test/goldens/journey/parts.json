@@ -1,0 +1,275 @@
+{
+  "anchors": [
+    {
+      "in": "[undefined]",
+      "out": "[undefined]"
+    },
+    {
+      "in": null,
+      "out": "[undefined]"
+    },
+    {
+      "in": "text",
+      "out": "[undefined]"
+    },
+    {
+      "in": {},
+      "out": "[undefined]"
+    },
+    {
+      "in": {
+        "text": "a"
+      },
+      "out": {
+        "text": "a",
+        "before": "",
+        "after": ""
+      }
+    },
+    {
+      "in": {
+        "text": "a",
+        "before": "b",
+        "after": "c",
+        "extra": 1
+      },
+      "out": {
+        "text": "a",
+        "before": "b",
+        "after": "c"
+      }
+    },
+    {
+      "in": {
+        "v": 3,
+        "head": "x"
+      },
+      "out": {
+        "v": 3,
+        "head": "x",
+        "tail": "x",
+        "lines": 1,
+        "hash": "",
+        "before": "",
+        "after": ""
+      }
+    },
+    {
+      "in": {
+        "v": 3,
+        "head": "x\ny\nz",
+        "tail": "",
+        "lines": 7,
+        "hash": "h",
+        "before": "b"
+      },
+      "out": {
+        "v": 3,
+        "head": "x\ny\nz",
+        "tail": "z",
+        "lines": 7,
+        "hash": "h",
+        "before": "b",
+        "after": ""
+      }
+    },
+    {
+      "in": {
+        "v": 3,
+        "head": "",
+        "text": "t"
+      },
+      "out": "[undefined]"
+    },
+    {
+      "in": {
+        "v": 2,
+        "text": "t"
+      },
+      "out": {
+        "text": "t",
+        "before": "",
+        "after": ""
+      }
+    }
+  ],
+  "links": [
+    {
+      "in": "[undefined]",
+      "out": []
+    },
+    {
+      "in": "x",
+      "out": []
+    },
+    {
+      "in": [
+        null,
+        {},
+        {
+          "phrase": " the queue ",
+          "file": " api/q.js ",
+          "start": 4
+        },
+        {
+          "phrase": "p",
+          "file": "f",
+          "start": 0
+        },
+        {
+          "phrase": "p",
+          "file": "f",
+          "start": 5,
+          "end": 2,
+          "text": "line"
+        },
+        {
+          "phrase": "  ",
+          "file": "f",
+          "start": 1
+        },
+        {
+          "phrase": "p",
+          "file": 3,
+          "start": 1
+        },
+        {
+          "phrase": "q",
+          "file": "f",
+          "start": 2,
+          "end": 9,
+          "text": 7
+        }
+      ],
+      "out": [
+        {
+          "phrase": "the queue",
+          "file": "api/q.js",
+          "start": 4,
+          "end": 4,
+          "text": ""
+        },
+        {
+          "phrase": "p",
+          "file": "f",
+          "start": 5,
+          "end": 5,
+          "text": "line"
+        },
+        {
+          "phrase": "q",
+          "file": "f",
+          "start": 2,
+          "end": 9,
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "in": "[undefined]",
+      "out": []
+    },
+    {
+      "in": {},
+      "out": []
+    },
+    {
+      "in": [
+        null,
+        {
+          "name": "x",
+          "value": "a\n  b",
+          "file": "f",
+          "line": 1
+        },
+        {
+          "name": " y ",
+          "value": "1",
+          "file": " f ",
+          "line": 2,
+          "text": "let y",
+          "note": "  in\tcents "
+        },
+        {
+          "name": "z",
+          "value": 1,
+          "file": "f",
+          "line": 1
+        },
+        {
+          "name": "z",
+          "value": "",
+          "file": "f",
+          "line": 0
+        },
+        {
+          "name": "w",
+          "value": "",
+          "file": "f",
+          "line": 3,
+          "note": " "
+        }
+      ],
+      "out": [
+        {
+          "name": "x",
+          "value": "a b",
+          "file": "f",
+          "line": 1,
+          "text": ""
+        },
+        {
+          "name": "y",
+          "value": "1",
+          "file": "f",
+          "line": 2,
+          "text": "let y",
+          "note": "in cents"
+        },
+        {
+          "name": "w",
+          "value": "",
+          "file": "f",
+          "line": 3,
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "generic": [
+    [
+      "",
+      true
+    ],
+    [
+      "  ",
+      true
+    ],
+    [
+      "calls",
+      true
+    ],
+    [
+      "Calls per env",
+      true
+    ],
+    [
+      "call",
+      true
+    ],
+    [
+      "caller",
+      false
+    ],
+    [
+      "recalls",
+      false
+    ],
+    [
+      "enqueues",
+      false
+    ]
+  ]
+}

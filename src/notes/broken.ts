@@ -2,33 +2,30 @@
 // written back.
 
 import * as vscode from 'vscode'
-import { store } from '../app'
-import { serialize } from '../noteModel'
-import { Node } from '../sidebar/nodes'
-import { wfs } from '../workspaceFs'
+import { store } from './ports'
+import { serialize } from '../core/format/noteModel'
+import { BrokenRow, isRow } from './model/rows'
+import { writeAtomic } from './store'
+import { brokenOffset } from './brokenAt'
+import { hint } from './hint'
 
-/** Where in the file the problem `why` (store.ts's words) is: a field's name, the end (bad JSON), or the top. */
-function problemAt(doc: vscode.TextDocument, why: string): vscode.Position {
-  const field = /"(range|status|messages|file)/.exec(why)?.[1] ?? (/^message \d/.test(why) ? 'messages' : undefined)
-  const text = doc.getText()
-  const at = field ? text.indexOf(`"${field}"`) : why.startsWith('not valid JSON') ? text.length : -1
-  return at >= 0 ? doc.positionAt(at) : new vscode.Position(0, 0)
-}
+/** How long the reason a file can't be read stays in the status bar. */
+const WHY_MS = 6000
 
 /** codeNotes.openBroken: the file, at the field that is wrong. */
-export const openBroken = async (node?: Node) => {
-  if (node?.kind !== 'broken') return
+export const openBroken = async (node?: unknown) => {
+  if (!isRow<BrokenRow>(node, 'broken')) return
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(node.uri))
-  const pos = problemAt(doc, node.why)
+  const pos = doc.positionAt(brokenOffset(doc.getText()))
   await vscode.window.showTextDocument(doc, { selection: new vscode.Range(pos, pos) })
-  vscode.window.setStatusBarMessage(`$(warning) ${node.why}`, 6000)
+  hint(node.why, 'warning', WHY_MS)
 }
 
-/** codeNotes.restoreBroken: the last version read that was good, written back. */
-export const restoreBroken = async (node?: Node) => {
-  if (node?.kind !== 'broken') return
-  const known = store.notes.get(node.uri)
+/** codeNotes.restoreBroken: the last version read that was good, written back (in one step, as every note save). */
+export const restoreBroken = async (node?: unknown) => {
+  if (!isRow<BrokenRow>(node, 'broken')) return
+  const known = store().atUri(node.uri)
   if (!known) return
-  await wfs.writeFile(known.uri, new TextEncoder().encode(serialize(known.data)))
-  vscode.window.setStatusBarMessage('$(check) Restored the last good version', 3000)
+  await writeAtomic(known.uri, serialize(known.data))
+  hint('Restored the last good version', 'check')
 }

@@ -1,0 +1,88 @@
+[
+  {
+    "in": "See api/orders.go:12 and `web/src/a.ts:3-5`, also (worker/w.go#L9) and [x](api/orders.go:3).",
+    "linked": "See {api/orders.go:12|api/orders.go|12} and {web/src/a.ts:3-5|web/src/a.ts|3}, also ({worker/w.go#L9|worker/w.go|9}) and [x](api/orders.go:3).",
+    "short": "See orders.go:12 and `a.ts:3-5`, also (w.go#L9) and [x](orders.go:3).",
+    "noAsides": "See api/orders.go:12 and `web/src/a.ts:3-5`, also and [x].",
+    "escaped": "See api/orders.go:12 and `web/src/a.ts:3-5`, also (worker/w.go#L9) and [x](api/orders.go:3).",
+    "refs": [
+      {
+        "text": "api/orders.go:12",
+        "file": "api/orders.go",
+        "line": 12,
+        "end": "[undefined]"
+      },
+      {
+        "text": "web/src/a.ts:3-5",
+        "file": "web/src/a.ts",
+        "line": 3,
+        "end": 5
+      },
+      {
+        "text": "worker/w.go#L9",
+        "file": "worker/w.go",
+        "line": 9,
+        "end": "[undefined]"
+      }
+    ]
+  },
+  {
+    "in": "A <name> and <id> outside `code <x>` and ```\n<block>\n```, \\<kept\\>.",
+    "linked": "A <name> and <id> outside `code <x>` and ```\n<block>\n```, \\<kept\\>.",
+    "short": "A <name> and <id> outside `code <x>` and ```\n<block>\n```, \\<kept\\>.",
+    "noAsides": "A <name> and <id> outside `code <x>` and ```\n<block>\n```, \\<kept\\>.",
+    "escaped": "A \\<name\\> and \\<id\\> outside `code <x>` and ```\n<block>\n```, \\<kept\\>.",
+    "refs": []
+  },
+  {
+    "in": "Asides go (orders.go:12) here (`api/a.ts:3–4`) but not (see orders.go).",
+    "linked": "Asides go (orders.go:12) here ({api/a.ts:3–4|api/a.ts|3}) but not (see orders.go).",
+    "short": "Asides go (orders.go:12) here (`a.ts:3–4`) but not (see orders.go).",
+    "noAsides": "Asides go here but not (see orders.go).",
+    "escaped": "Asides go (orders.go:12) here (`api/a.ts:3–4`) but not (see orders.go).",
+    "refs": [
+      {
+        "text": "api/a.ts:3–4",
+        "file": "api/a.ts",
+        "line": 3,
+        "end": 4
+      }
+    ]
+  },
+  {
+    "in": "No paths at all: README, a.ts, ./x/y.js:3 and ../z/w.ts:4 and dir/file.tsx#L10.",
+    "linked": "No paths at all: README, a.ts, {./x/y.js:3|./x/y.js|3} and {../z/w.ts:4|../z/w.ts|4} and {dir/file.tsx#L10|dir/file.tsx|10}.",
+    "short": "No paths at all: README, a.ts, y.js:3 and w.ts:4 and file.tsx#L10.",
+    "noAsides": "No paths at all: README, a.ts, ./x/y.js:3 and ../z/w.ts:4 and dir/file.tsx#L10.",
+    "escaped": "No paths at all: README, a.ts, ./x/y.js:3 and ../z/w.ts:4 and dir/file.tsx#L10.",
+    "refs": [
+      {
+        "text": "./x/y.js:3",
+        "file": "./x/y.js",
+        "line": 3,
+        "end": "[undefined]"
+      },
+      {
+        "text": "../z/w.ts:4",
+        "file": "../z/w.ts",
+        "line": 4,
+        "end": "[undefined]"
+      },
+      {
+        "text": "dir/file.tsx#L10",
+        "file": "dir/file.tsx",
+        "line": 10,
+        "end": "[undefined]"
+      }
+    ]
+  },
+  {
+    "capped": [
+      "",
+      "short",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz…"
+    ]
+  }
+]

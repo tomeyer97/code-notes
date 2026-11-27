@@ -1,0 +1,2 @@
+# Imports from src/notes/ that break the layer rule today; remove a line when you fix it.
+# max-scc: 9

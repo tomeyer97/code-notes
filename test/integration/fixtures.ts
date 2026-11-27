@@ -1,8 +1,17 @@
-// Builders for the files the integration tests write: journeys (format v2), notes, the request file and the skill's
-// stand-in. Each takes the fields its test is about and fills in the rest, so a call shows only what matters (the
-// defaults-plus-overrides style of test/checkModel.test.ts). No VS Code API here: run.ts uses it too.
+// Builders for the files the integration tests write: journeys (format v2), notes, the request file, the skill's
+// stand-in, and each suite's workspace (the check's git repository too). Each takes the fields its test is about and
+// fills in the rest, so a call shows only what matters (the defaults-plus-overrides style of
+// test/checkModel.test.ts). The podcast's files and step scenes have their builders in main/podcast/fixtures.ts. No
+// VS Code API here: run.ts uses it too.
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
+
+/** The repository's root (this file is compiled to out/test/integration/). */
+export const REPO_ROOT = path.resolve(__dirname, '../../..')
+/** A file under test/fixtures/. */
+export const fixturePath = (rel: string) => path.join(REPO_ROOT, 'test', 'fixtures', rel)
 
 export interface StepFixture {
   id: string
@@ -80,4 +89,60 @@ export function writeSkillStandIn(ws: string): string {
   fs.mkdirSync(path.join(skill, 'scripts'), { recursive: true })
   fs.writeFileSync(path.join(skill, 'scripts', 'journey.py'), '# stand-in\n')
   return skill
+}
+
+// ---------- each suite's workspace ----------
+
+/** A new temp folder named `prefix…`. */
+const tempDir = (prefix: string) => fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+
+/** The main suite's workspace: src/app.ts and nothing else (the tests write the rest). */
+export function makeMainWorkspace(): string {
+  const ws = tempDir('code-notes-ws-')
+  writeLines(path.join(ws, 'src', 'app.ts'), ['import { readToken, use } from "./lib"', 'export function main() {', '  const token = readToken()', '  use(token)', '  return 0', '}'])
+  return ws
+}
+
+/** The Restricted Mode suite's workspace: a source file, a folder setting naming another claude, the skill's stand-in. */
+export function makeUntrustedWorkspace(): string {
+  const ws = tempDir('code-notes-untrusted-')
+  writeLines(path.join(ws, 'src', 'app.ts'), ['export function main() {', '  return 0', '}'])
+  fs.mkdirSync(path.join(ws, '.vscode'))
+  fs.writeFileSync(path.join(ws, '.vscode', 'settings.json'), JSON.stringify({ 'codeNotes.claude.path': path.join(ws, 'evil.sh') }))
+  writeSkillStandIn(ws)
+  return ws
+}
+
+// ---------- the check's git repository ----------
+
+/** The branch the check suite asks about (its change: order limits), and the branch its tour tests make. */
+export const CHECK_BRANCH = 'feat/limits'
+export const CHECK_TOUR_BRANCH = 'feat/tour'
+/** Who made the fixture repository's commits (and is the git user while the suite runs). */
+export const CHECK_AUTHOR = { name: 'Ada', email: 'ada@example.com' }
+
+/**
+ * The check suite's workspace: examples/shop committed on main by CHECK_AUTHOR, then CHECK_BRANCH with the change
+ * (api/limits.js), the test's own .vscode/ excluded from git, and a bare remote to push to. Returns the workspace.
+ */
+export function makeCheckRepo(): string {
+  const ws = tempDir('code-notes-check-')
+  fs.cpSync(path.join(REPO_ROOT, 'examples', 'shop'), ws, { recursive: true })
+  const { name, email } = CHECK_AUTHOR
+  const env = { ...process.env, GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email }
+  const g = (...a: string[]) => execFileSync('git', a, { cwd: ws, env })
+  g('init', '-q', '-b', 'main')
+  g('config', 'user.name', name)
+  g('config', 'user.email', email)
+  g('add', '-A')
+  g('commit', '-qm', 'shop')
+  g('checkout', '-qb', CHECK_BRANCH)
+  fs.copyFileSync(fixturePath('check/limits.js'), path.join(ws, 'api', 'limits.js'))
+  g('add', '-A')
+  g('commit', '-qm', 'limits')
+  fs.appendFileSync(path.join(ws, '.git', 'info', 'exclude'), '.vscode/\n')
+  const remote = tempDir('code-notes-check-remote-')
+  execFileSync('git', ['init', '-q', '--bare'], { cwd: remote })
+  g('remote', 'add', 'origin', remote)
+  return ws
 }

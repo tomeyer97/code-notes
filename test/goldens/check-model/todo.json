@@ -1,0 +1,145 @@
+{
+  "marks": [
+    [
+      "a.py",
+      [
+        "#",
+        ""
+      ]
+    ],
+    [
+      "a.ts",
+      [
+        "//",
+        ""
+      ]
+    ],
+    [
+      "a.go",
+      [
+        "//",
+        ""
+      ]
+    ],
+    [
+      "a.rb",
+      [
+        "#",
+        ""
+      ]
+    ],
+    [
+      "a.sql",
+      [
+        "--",
+        ""
+      ]
+    ],
+    [
+      "a.html",
+      [
+        "<!--",
+        " -->"
+      ]
+    ],
+    [
+      "a.css",
+      [
+        "/*",
+        " */"
+      ]
+    ],
+    [
+      "Makefile",
+      [
+        "#",
+        ""
+      ]
+    ],
+    [
+      "a.yaml",
+      [
+        "#",
+        ""
+      ]
+    ],
+    [
+      "a.lua",
+      [
+        "--",
+        ""
+      ]
+    ],
+    [
+      "a.unknown",
+      [
+        "//",
+        ""
+      ]
+    ],
+    [
+      "README",
+      [
+        "//",
+        ""
+      ]
+    ]
+  ],
+  "lines": [
+    [
+      "# TODO: short"
+    ],
+    [
+      "// TODO: A concern long enough to wrap over more than one",
+      "//       line of a comment in the code, with words that go",
+      "//       on and on past the limit."
+    ],
+    [
+      "<!-- TODO: In html.-->"
+    ]
+  ],
+  "places": [
+    [
+      0,
+      {
+        "line": 0,
+        "indent": ""
+      }
+    ],
+    [
+      1,
+      {
+        "line": 1,
+        "indent": "    "
+      }
+    ],
+    [
+      2,
+      {
+        "line": 2,
+        "indent": "        "
+      }
+    ],
+    [
+      3,
+      {
+        "line": 3,
+        "indent": ""
+      }
+    ],
+    [
+      4,
+      {
+        "line": 4,
+        "indent": "    "
+      }
+    ],
+    [
+      9,
+      {
+        "line": 9,
+        "indent": ""
+      }
+    ]
+  ]
+}

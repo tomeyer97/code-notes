@@ -1,224 +1,166 @@
+// Requests from scripts and agents (docs/agent-protocol.md; the envelope: platform/agent/protocol.ts): the request
+// file, the vscode://…/explain link (old scripts; it never starts Claude) and the palette's Ask a Question all take
+// this one path. The window that has the repo open handles a request file (also when it starts just now) and writes
+// the result for the script to print. Answering it: journeyAnswer.ts.
+
 import * as vscode from 'vscode'
-import * as fs from 'fs'
-import * as path from 'path'
-import { claudeLinks, extVersion, journeys, log, mapPanel, showError, state } from '../app'
-import { claudeAllowed, trusted } from '../ask/trust'
-import { modelProblem } from '../claude'
-import { linkTarget } from '../linkUri'
-import { posKey } from '../journeys/steps'
-import { walkJourney } from '../tour/commands'
-import { walk } from '../tour/instances'
-import { MAP_KEY } from '../tour/state'
-import { wfs } from '../workspaceFs'
-import { chooseJourney, confirmWrite, matchJourneys } from './rank'
-import { writeJourney } from './writeJourney'
-import { journeyModel, modelLabel } from './claudeRun'
-
-// Requests from scripts: a request file or a link (docs/journey-format.md).
-// The script writes .code-notes/.request.json in the repo ({action, question, model, at, id, needs}); the window that
-// has the repo open handles it (also when it starts just now) and writes .code-notes/.result.json ({id, outcome, …})
-// for the script to print. A request older than 2 minutes is ignored; one that needs a newer Code Notes is left for
-// the reloaded window. The vscode://<publisher>.code-notes/explain link (old scripts) still works, but never starts
-// Claude: it opens the overview or an existing journey.
-
-/** A request: the overview, or a question to answer with a journey (`model`: for one written for it; `id`: the
- *  script's, echoed in its result). */
-interface ScriptRequest { action: 'overview' | 'ask'; question: string; model?: string; id?: string }
-
-/** Where a request came from: the request file, a vscode:// link (old scripts), or the palette's Ask a Question. */
-type Via = 'file' | 'uri' | 'command'
-
-/** The script's answer: what was done (flat, string values). */
-interface RequestResult { outcome: string; title?: string; model?: string; message?: string; text?: string }
-
-const REQUEST_FILE = '.code-notes/.request.json'
-
-const RESULT_FILE = '.code-notes/.result.json'
-
-const REQUEST_MAX_AGE = 2 * 60_000
+import { extVersion, log } from '../platform/host'
+import { fireAndForget } from '../platform/run'
+import { wfs } from '../platform/workspaceFs'
+import {
+  readEnvelope, readRequest, REQUEST_FILE, RequestResult, RESULT_FILE, resultText, ScriptRequest, Via,
+} from '../platform/agent/protocol'
+import { answerQuestion, Outcome, showJourneysHome } from './journeyAnswer'
 
 /** The same request again within this long (an old script sends a link and a file) is handled once. */
 const DUPLICATE_MS = 30_000
+/** How many requests the log keeps (the newest). */
+const LOG_KEPT = 200
 
-/** The last request handled, and its answer (a duplicate gets the same one). */
-let lastRequest: { key: string; t: number; res?: RequestResult } | undefined
-
-/** What each request did (for the integration test): overview, opened:<id>, confirm, writing, cancelled, untrusted, duplicate. */
-export const requestLog: { action: string; question: string; via: string; outcome: string }[] = []
-
-/** `a` is an older version than `b` (major.minor.patch; a request may need a newer Code Notes than this one). */
-function olderThan(a: string, b: string): boolean {
-  const semver = (v: string) => (/(\d+)\.(\d+)\.(\d+)/.exec(v) ?? ['', '0', '0', '0']).slice(1).map(Number)
-  const x = semver(a)
-  const y = semver(b)
-  return (x[0] - y[0] || x[1] - y[1] || x[2] - y[2]) < 0
+/** A request handled: by whom, and what it did (overview, opened:<id>, choose, confirm, writing, cancelled, …). */
+export interface RequestLogEntry {
+  /** Counts up from 1 over the window's life: entries after a mark are those with a larger `seq`. */
+  seq: number
+  action: string
+  question: string
+  via: Via
+  outcome: string
 }
 
-/** The script's answer, written atomically. */
-function writeResult(folder: vscode.WorkspaceFolder, id: string | undefined, r: RequestResult): void {
-  if (!id) return
-  const file = path.join(folder.uri.fsPath, RESULT_FILE)
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    const tmp = `${file}.${process.pid}.tmp`
-    const flat = Object.fromEntries(Object.entries({ id, ...r }).filter(([, v]) => typeof v === 'string'))
-    fs.writeFileSync(tmp, JSON.stringify(flat) + '\n')
-    fs.renameSync(tmp, file)
-  } catch (e) { log.error(`explain: couldn't write ${RESULT_FILE}: ${e}`) }
-}
-
-/** What a request did: `outcome` for the log of requests, and `r` (if any) the script's answer. */
-type Outcome = (outcome: string, r?: RequestResult) => void
-
-async function handleRequest(req: ScriptRequest, via: Via, folder?: vscode.WorkspaceFolder): Promise<void> {
-  const key = `${req.action}|${req.question.trim()}`
-  const entry = { action: req.action, question: req.question, via, outcome: '' }
+/** The newest requests handled (the integration tests read it), at most LOG_KEPT. */
+export const requestLog: RequestLogEntry[] = []
+let seq = 0
+function logRequest(e: Omit<RequestLogEntry, 'seq'>): RequestLogEntry {
+  const entry = { seq: ++seq, ...e }
   requestLog.push(entry)
-  const outcome: Outcome = (o, r) => {
-    entry.outcome = o
-    if (!r) return
-    if (lastRequest?.key === key) lastRequest.res = r
-    if (folder && via === 'file') writeResult(folder, req.id, r)
+  if (requestLog.length > LOG_KEPT) requestLog.splice(0, requestLog.length - LOG_KEPT)
+  return entry
+}
+
+/** The last request handled and its answer: the same request again soon after gets that answer, and nothing runs. */
+class RecentRequest {
+  private last?: { key: string; t: number; result?: RequestResult }
+
+  /** `key` was handled less than DUPLICATE_MS ago: its answer so far (undefined: none yet). */
+  repeat(key: string): { result?: RequestResult } | undefined {
+    const l = this.last
+    return l && l.key === key && Date.now() - l.t < DUPLICATE_MS ? { result: l.result } : undefined
   }
+
+  handling(key: string): void { this.last = { key, t: Date.now() } }
+  answered(key: string, result: RequestResult): void { if (this.last?.key === key) this.last.result = result }
+  /** The request was not answered after all (a link no journey answers): the same one as a file still is. */
+  forget(key: string): void { if (this.last?.key === key) this.last = undefined }
+}
+const recent = new RecentRequest()
+
+/** What an outcome says in the log of requests. */
+function logLabel(o: Outcome): string {
+  switch (o.kind) {
+    case 'opened':
+    case 'picked':
+      return `opened:${o.journey.j.id}`
+    case 'not-answered':
+      return 'overview'
+    default:
+      return o.kind
+  }
+}
+
+/** What an outcome tells the script; undefined: nothing (it was told before, or nothing changed for it). */
+function resultOf(o: Outcome): RequestResult | undefined {
+  switch (o.kind) {
+    case 'overview': return { outcome: 'overview' }
+    case 'opened': return { outcome: 'opened', title: o.journey.j.title }
+    case 'choose': return { outcome: 'choose', text: o.journeys.map((x) => x.j.title).join(' / ') }
+    case 'confirm': return { outcome: 'confirm', model: o.model }
+    case 'writing': return { outcome: 'writing', model: o.model }
+    case 'untrusted': return { outcome: 'untrusted', message: 'Trust this folder in VS Code to let Claude write journeys.' }
+    case 'error': return { outcome: 'error', message: o.message }
+    case 'picked':
+    case 'cancelled':
+    case 'not-answered':
+      return undefined
+  }
+}
+
+/** Results written one after another (a confirm, then writing), each atomically: a temp file renamed over it. */
+let resultWrites: Promise<void> = Promise.resolve()
+function writeResult(folder: vscode.WorkspaceFolder, id: string, r: RequestResult): Promise<void> {
+  const file = vscode.Uri.joinPath(folder.uri, RESULT_FILE)
+  const tmp = vscode.Uri.joinPath(folder.uri, `${RESULT_FILE}.${process.pid}.tmp`)
+  const write = async () => {
+    try {
+      await wfs.writeFile(tmp, new TextEncoder().encode(resultText(id, r)))
+      await wfs.rename(tmp, file, { overwrite: true })
+    } catch (e) { log().error(`explain: couldn't write ${RESULT_FILE}: ${e}`) }
+  }
+  resultWrites = resultWrites.then(write)
+  return resultWrites
+}
+
+/** Where a request's answer goes: the request file's folder and id (a link or the palette has none). */
+type ReplyTo = { folder: vscode.WorkspaceFolder; id?: string }
+
+async function handleRequest(req: ScriptRequest, via: Via, replyTo?: ReplyTo): Promise<void> {
+  const key = `${req.action}|${req.question.trim()}`
+  const entry = logRequest({ action: req.action, question: req.question, via, outcome: '' })
+  const tell = (r: RequestResult) => { if (replyTo?.id) fireAndForget(writeResult(replyTo.folder, replyTo.id, r), 'explain result') }
   // The same request just now (an old script's link and file): handled once; the script still gets its answer.
-  const duplicate = via !== 'command' && lastRequest && lastRequest.key === key && Date.now() - lastRequest.t < DUPLICATE_MS
-  if (duplicate) {
+  const repeat = via !== 'command' ? recent.repeat(key) : undefined
+  if (repeat) {
     entry.outcome = 'duplicate'
-    if (folder && via === 'file') writeResult(folder, req.id, lastRequest!.res ?? { outcome: 'overview' })
+    tell(repeat.result ?? { outcome: 'overview' })
     return
   }
-  lastRequest = { key, t: Date.now() }
-  log.info(`explain (${via}): ${req.action}${req.question ? ` "${req.question}"` : ''}`)
+  recent.handling(key)
+  let told = ''
+  const report = (o: Outcome) => {
+    entry.outcome = logLabel(o)
+    const r = resultOf(o)
+    if (!r || JSON.stringify(r) === told) return
+    told = JSON.stringify(r)
+    recent.answered(key, r)
+    tell(r)
+  }
+  log().info(`explain (${via}): ${req.action}${req.question ? ` "${req.question}"` : ''}`)
   const q = req.question.trim()
-  if (req.action === 'ask' && q && (await answerQuestion(q, req.model, via, outcome))) return
+  const answered = req.action === 'ask' && q ? await answerQuestion(q, req.model, via, report) : undefined
+  if (answered?.kind === 'not-answered') recent.forget(key)
+  if (answered && answered.kind !== 'not-answered') { report(answered); return }
   // Overview: the panel's Journeys list (one marked "Start here"), not a picker; the sidebar is left as it was.
-  outcome('overview', { outcome: 'overview' })
+  report({ kind: 'overview' })
   await showJourneysHome()
 }
 
-/**
- * A question: the journey that answers it, a pick of a few that do, else (after a confirm) one written for it. False
- * when a link asked it and no journey answers it (a link never starts Claude: the overview instead).
- */
-async function answerQuestion(q: string, model: string | undefined, via: Via, outcome: Outcome): Promise<boolean> {
-  const found = matchJourneys(q)
-  if (found.length > 1) {
-    outcome('choose', { outcome: 'choose', text: found.map((x) => x.j.title).join(' / ') })
-    log.info(`explain: ${found.length} journeys answer it about equally: ${found.map((x) => x.j.id).join(', ')}: a pick`)
-    const c = await chooseJourney(q, found)
-    if (c) {
-      outcome(`opened:${c.j.id}`)
-      await walkJourney(c, { fromStart: true })
-    }
-    return true
-  }
-  const lj = found[0]
-  if (lj) {
-    outcome(`opened:${lj.j.id}`, { outcome: 'opened', title: lj.j.title })
-    log.info(`explain: opening journey ${lj.j.id}`)
-    // A question asks about the whole flow: from step 1, not where it was left.
-    await walkJourney(lj, { fromStart: true })
-    return true
-  }
-  if (via === 'uri') {
-    // A link can come from any web page: it never starts Claude. The overview instead.
-    lastRequest = undefined // the same request as a file (from the script) is still handled
-    log.info('explain: no journey answers it; a link never starts Claude: the overview')
-    return false
-  }
-  if (!trusted()) {
-    outcome('untrusted', { outcome: 'untrusted', message: 'Trust this folder in VS Code to let Claude write journeys.' })
-    claudeAllowed('write journeys')
-    return true
-  }
-  const bad = modelProblem(journeyModel(model))
-  if (bad) {
-    outcome('error', { outcome: 'error', message: bad })
-    void showError(`Code Notes: ${bad}`)
-    return true
-  }
-  await confirmAndWrite(q, model, outcome)
-  return true
-}
-
-/** No journey answers it: the closest ones, or Write (Claude writes one in the background), or Cancel. */
-async function confirmAndWrite(q: string, model: string | undefined, outcome: Outcome): Promise<void> {
-  const label = modelLabel(journeyModel(model))
-  outcome('confirm', { outcome: 'confirm', model: label })
-  const c = await confirmWrite(q, model)
-  if (c === 'write') {
-    outcome('writing', { outcome: 'writing', model: label })
-    void writeJourney(q, { model }).catch((e) => log.error(`journey: ${e}`))
-  } else if (c) {
-    outcome(`opened:${c.j.id}`, { outcome: 'opened', title: c.j.title })
-    await walkJourney(c, { fromStart: true })
-  } else outcome('cancelled')
-}
-
-/** The journey panel with its Journeys list in front: over the journey being walked or last shown, else the first one. */
-async function showJourneysHome(): Promise<void> {
-  const all = journeys.all()
-  const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? all.find((x) => x.j.start) ?? all[0]
-  if (!lj) { void vscode.window.showInformationMessage('Code Notes: no journeys in this workspace yet.'); return }
-  // The walk is not ended here (a new card right after an ended walk's made VS Code's comment widgets loop on their
-  // collapsed state: "Maximum call stack size exceeded"); choosing a journey switches as usual.
-  mapPanel.showHome(lj)
-  void state.update(MAP_KEY, posKey(lj))
-}
-
-/** A request as the script writes it; undefined (logged) when it can't be used. `model` only from the file. */
-function parseRequest(v: any, where: string): ScriptRequest | undefined {
-  const action = v?.action
-  if (action !== 'overview' && action !== 'ask') {
-    log.warn(`explain: ${where}: unknown action "${String(action)}"`)
-    return undefined
-  }
-  const question = typeof v.question === 'string' ? v.question : typeof v.q === 'string' ? v.q : ''
-  const model = typeof v.model === 'string' && v.model.trim() ? { model: v.model.trim() } : {}
-  const id = typeof v.id === 'string' && v.id ? { id: v.id } : {}
-  return { action, question, ...model, ...id }
-}
-
 /** vscode://<publisher>.code-notes/explain?action=…&q=…[&repo=<path>] (old scripts): `model` is ignored. */
-async function onUri(uri: vscode.Uri): Promise<void> {
-  if (uri.path.replace(/\/+$/, '') === '/link') {
-    const t = linkTarget(uri.query)
-    if (!t) { log.warn(`link: no file or start: ${uri.toString(true)}`); return }
-    const folder = vscode.workspace.workspaceFolders?.[0]
-    const file = path.isAbsolute(t.file) || !folder ? vscode.Uri.file(t.file) : vscode.Uri.joinPath(folder.uri, t.file)
-    await claudeLinks.light(file, t.start - 1, t.end - 1)
-    return
-  }
-  if (uri.path.replace(/\/+$/, '') !== '/explain') { log.warn(`unknown link: ${uri.toString(true)}`); return }
-  const p = new URLSearchParams(uri.query)
-  const repo = p.get('repo')
-  const real = (x: string) => { try { return fs.realpathSync(x) } catch { return x } }
-  const folder = repo ? (vscode.workspace.workspaceFolders ?? []).find((f) => real(f.uri.fsPath) === real(repo)) : vscode.workspace.workspaceFolders?.[0]
-  // Another repository's request: the window that has it open handles it (through the request file).
-  if (repo && !folder) { log.info(`explain: a link for ${repo}, not open in this window: left to that window`); return }
-  const req = parseRequest({ action: p.get('action'), question: p.get('q') ?? '' }, 'link')
-  if (req) await handleRequest(req, 'uri')
+export async function explainLink(query: string): Promise<void> {
+  const p = new URLSearchParams(query)
+  const req = readRequest({ action: p.get('action'), question: p.get('q') ?? '' })
+  if (typeof req === 'string') { log().warn(`explain: link: ${req}`); return }
+  await handleRequest(req, 'uri')
 }
 
 /** Reads and deletes .code-notes/.request.json, unless it needs a newer Code Notes (left for that window). */
 async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
   const uri = vscode.Uri.joinPath(folder.uri, REQUEST_FILE)
-  let raw: string
-  try { raw = new TextDecoder().decode(await wfs.readFile(uri)) } catch { return }
-  let v: any
-  try { v = JSON.parse(raw) } catch { v = undefined }
-  if (v && typeof v.needs === 'string' && olderThan(extVersion, v.needs)) {
-    log.info(`explain: the request needs Code Notes ${v.needs} (this is ${extVersion}): left for a reloaded window`)
-    requestLog.push({ action: String(v.action), question: String(v.question ?? ''), via: 'file', outcome: 'too-new' })
+  const raw = await wfs.readFile(uri).then((b) => new TextDecoder().decode(b), () => undefined)
+  // Gone already (another event for the same file took it).
+  if (raw === undefined) return
+  const env = readEnvelope(raw, { version: extVersion(), now: Date.now() })
+  if (env.kind === 'too-new') {
+    log().info(`explain: the request needs Code Notes ${env.needs} (this is ${extVersion()}): left for a reloaded window`)
+    logRequest({ action: env.action, question: env.question, via: 'file', outcome: 'too-new' })
     return
   }
-  try { await wfs.delete(uri) } catch { /* gone already */ }
-  if (!v) { log.warn(`explain: ${REQUEST_FILE} is not JSON: ignored`); return }
-  const at = Date.parse(typeof v?.at === 'string' ? v.at : '')
-  if (!at || Date.now() - at > REQUEST_MAX_AGE) { log.info(`explain: ${REQUEST_FILE} is ${at ? 'older than 2 minutes' : 'undated'}: ignored`); return }
-  const req = parseRequest(v, REQUEST_FILE)
-  if (req) await handleRequest(req, 'file', folder)
-  else writeResult(folder, typeof v.id === 'string' ? v.id : undefined, { outcome: 'error', message: `unknown action "${String(v.action)}"` })
+  await wfs.remove(uri).catch(() => undefined)
+  if (env.kind === 'refused') {
+    // Every request that can't be used gets the same answer, when it says where to send it.
+    log().warn(`explain: ${REQUEST_FILE}: ${env.reason}: ignored`)
+    if (env.id) await writeResult(folder, env.id, { outcome: 'error', message: env.reason })
+    return
+  }
+  await handleRequest(env.request, 'file', { folder, id: env.request.id })
 }
 
 /**
@@ -226,20 +168,40 @@ async function consumeRequest(folder: vscode.WorkspaceFolder): Promise<void> {
  * written for it.
  */
 export const askQuestion = async () => {
-  const q = (await vscode.window.showInputBox({ prompt: 'Ask a question about the code', placeHolder: 'How does … work?', ignoreFocusOut: true }))?.trim()
+  const box = { prompt: 'Ask a question about the code', placeHolder: 'How does … work?', ignoreFocusOut: true }
+  const q = (await vscode.window.showInputBox(box))?.trim()
   if (!q) return
   // The same path as a request with a question (matching, a pick of close matches, trust, model check, the confirm).
   return handleRequest({ action: 'ask', question: q }, 'command')
 }
 
-/** Requests from scripts: the link, and the request file (one that came before this window did is handled now). */
-export function watchRequests(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.window.registerUriHandler({ handleUri: (u) => void onUri(u).catch((e) => log.error(`explain link: ${e}`)) }))
-  for (const f of vscode.workspace.workspaceFolders ?? []) {
-    const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(f, REQUEST_FILE))
-    const take = () => void consumeRequest(f).catch((e) => log.error(`explain request: ${e}`))
-    w.onDidCreate(take); w.onDidChange(take)
-    context.subscriptions.push(w)
-    take()
+/** The request file of `folder` watched; one there already (it came before this window did) is handled now. */
+function watchFolder(folder: vscode.WorkspaceFolder): vscode.Disposable {
+  const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, REQUEST_FILE))
+  const take = () => fireAndForget(consumeRequest(folder), 'explain request')
+  w.onDidCreate(take)
+  w.onDidChange(take)
+  take()
+  return w
+}
+
+/** Request files, in every folder of the window: those open now and those added later. */
+export function watchRequestFiles(): vscode.Disposable {
+  /** Folder uri -> its watcher. */
+  const watchers = new Map<string, vscode.Disposable>()
+  const add = (f: vscode.WorkspaceFolder) => {
+    const key = f.uri.toString()
+    if (!watchers.has(key)) watchers.set(key, watchFolder(f))
   }
+  const remove = (f: vscode.WorkspaceFolder) => {
+    const key = f.uri.toString()
+    watchers.get(key)?.dispose()
+    watchers.delete(key)
+  }
+  for (const f of vscode.workspace.workspaceFolders ?? []) add(f)
+  const folders = vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+    e.removed.forEach(remove)
+    e.added.forEach(add)
+  })
+  return { dispose: () => { folders.dispose(); for (const w of watchers.values()) w.dispose() } }
 }

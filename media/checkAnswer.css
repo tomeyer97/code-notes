@@ -1,21 +1,22 @@
-/* The Check view's answer box (media/checkAnswer.js): under the selected question, quiet until used. */
-.answer { margin: 2px 0 6px 26px; }
-.answer .box {
+/* The Check view's answer box (media/checkAnswer.js): under the selected question, quiet until used. Scoped under
+   the page's root (#app.check), as check.css. */
+.check .answer { margin: 2px 0 6px 26px; }
+.check .answer .box {
   box-sizing: border-box; width: 100%; resize: vertical; min-height: 2.6em; font: inherit; padding: 4px 6px; border-radius: 2px;
   color: var(--input-fg); background: var(--input-bg); border: 1px solid var(--input-border);
 }
-.answer .box:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
-.answer .box::placeholder { color: var(--input-placeholder); }
-.answer .grade p, .answer .checking { margin: 4px 0 0; overflow-wrap: anywhere; }
-.answer .checking, .answer .say { color: var(--muted); font-style: italic; }
-.answer .grade.pass .mark { color: var(--ok); }
-.answer .codelink { font: inherit; color: inherit; background: var(--toolbar-hover); border: 0; padding: 0 2px; border-radius: 2px; cursor: pointer; text-align: left; }
-.answer .codelink:hover { text-decoration: underline; }
-.answer .codelink:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+.check .answer .box:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
+.check .answer .box::placeholder { color: var(--input-placeholder); }
+.check .answer .grade p, .check .answer .checking { margin: 4px 0 0; overflow-wrap: anywhere; }
+.check .answer .checking, .check .answer .say { color: var(--muted); font-style: italic; }
+.check .answer .grade.pass .mark { color: var(--ok); }
+.check .answer .codelink { font: inherit; color: inherit; background: var(--toolbar-hover); border: 0; padding: 0 2px; border-radius: 2px; cursor: pointer; text-align: left; }
+.check .answer .codelink:hover { text-decoration: underline; }
+.check .answer .codelink:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
 /* "Next question ›": a `.link` (common.css). */
-.answer .next { margin-top: 4px; }
-.answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
-.answer .concern p:first-child { color: var(--warn); }
-.answer .concern .link { display: inline; }
-.answer .concern .applied { color: var(--muted); }
-.answer .failed { margin: 4px 0 0; color: var(--warn); overflow-wrap: anywhere; }
+.check .answer .next { margin-top: 4px; }
+.check .answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.check .answer .concern p:first-child { color: var(--warn); }
+.check .answer .concern .link { display: inline; }
+.check .answer .concern .applied { color: var(--muted); }
+.check .answer .failed { margin: 4px 0 0; color: var(--warn); overflow-wrap: anywhere; }

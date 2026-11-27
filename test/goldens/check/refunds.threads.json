@@ -1,0 +1,204 @@
+[
+  {
+    "id": "q1",
+    "body": "If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?",
+    "also": [],
+    "grades": [
+      {
+        "body": "✓ Right: the retry sends it again.",
+        "restatement": "✓ Right: the retry sends it again.",
+        "links": [],
+        "message": 2
+      }
+    ],
+    "questionLinks": [],
+    "concern": null,
+    "answerBox": {
+      "id": "q1",
+      "n": 1,
+      "open": false,
+      "draft": "draft",
+      "grade": {
+        "pass": true,
+        "feedback": [
+          {
+            "text": "Right: the retry sends it again."
+          }
+        ]
+      },
+      "next": true
+    }
+  },
+  {
+    "id": "q2",
+    "body": "What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?",
+    "also": [],
+    "grades": [
+      {
+        "body": "The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.\n\n_Got it? Say it back in one sentence (optional)._",
+        "restatement": "The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.\n\n_Try once more, or leave it: it is done._",
+        "links": [],
+        "message": 2
+      },
+      {
+        "body": "✓ Yes.",
+        "restatement": "✓ Yes.",
+        "links": [],
+        "message": 4
+      }
+    ],
+    "questionLinks": [],
+    "concern": {
+      "text": "The second request gets a 500 instead of the first refund.",
+      "flagged": false,
+      "suspect": false
+    },
+    "answerBox": {
+      "id": "q2",
+      "n": 1,
+      "open": false,
+      "draft": "draft",
+      "grade": {
+        "pass": true,
+        "feedback": [
+          {
+            "text": "Yes."
+          }
+        ]
+      },
+      "next": true,
+      "concern": {
+        "text": "The second request gets a 500 instead of the first refund.",
+        "flagged": false
+      }
+    }
+  },
+  {
+    "id": "q3",
+    "body": "Why is the order row locked before the remaining refundable amount is checked?",
+    "also": [],
+    "grades": [
+      {
+        "body": "✓ Right.",
+        "restatement": "✓ Right.",
+        "links": [],
+        "message": 2
+      }
+    ],
+    "questionLinks": [],
+    "concern": null,
+    "answerBox": {
+      "id": "q3",
+      "n": 1,
+      "open": false,
+      "draft": "draft",
+      "grade": {
+        "pass": true,
+        "feedback": [
+          {
+            "text": "Right."
+          }
+        ]
+      },
+      "next": true
+    }
+  },
+  {
+    "id": "q4",
+    "body": "Where do the low-stock alerts end up once this runs in production?",
+    "also": [],
+    "grades": [
+      {
+        "body": "✓ That is what the code does.",
+        "restatement": "✓ That is what the code does.",
+        "links": [],
+        "message": 2
+      }
+    ],
+    "questionLinks": [],
+    "concern": {
+      "text": "OPS_EMAIL is never set in the worker chart: the alerts go nowhere.",
+      "flagged": true,
+      "suspect": false
+    },
+    "answerBox": {
+      "id": "q4",
+      "n": 1,
+      "open": false,
+      "draft": "draft",
+      "grade": {
+        "pass": true,
+        "feedback": [
+          {
+            "text": "That is what the code does."
+          }
+        ]
+      },
+      "next": true,
+      "concern": {
+        "text": "OPS_EMAIL is never set in the worker chart: the alerts go nowhere.",
+        "flagged": true
+      }
+    }
+  },
+  {
+    "id": "q5",
+    "body": "Why does every refunded unit go back into product stock, even when staff refund without a return?",
+    "also": [],
+    "grades": [
+      {
+        "body": "✓ Right.",
+        "restatement": "✓ Right.",
+        "links": [],
+        "message": 2
+      }
+    ],
+    "questionLinks": [],
+    "concern": null,
+    "answerBox": {
+      "id": "q5",
+      "n": 1,
+      "open": false,
+      "draft": "draft",
+      "grade": {
+        "pass": true,
+        "feedback": [
+          {
+            "text": "Right."
+          }
+        ]
+      },
+      "next": true
+    }
+  },
+  {
+    "id": "q6",
+    "body": "What does the refund handler answer for an order that was never paid at all?",
+    "also": [],
+    "grades": [
+      {
+        "body": "It answers 404: the order lookup finds nothing paid.\n\n_Got it? Say it back in one sentence (optional)._",
+        "restatement": "It answers 404: the order lookup finds nothing paid.\n\n_Try once more, or leave it: it is done._",
+        "links": [],
+        "message": 2
+      }
+    ],
+    "questionLinks": [],
+    "concern": null,
+    "answerBox": {
+      "id": "q6",
+      "n": 1,
+      "open": true,
+      "draft": "draft",
+      "grade": {
+        "pass": false,
+        "feedback": [
+          {
+            "text": "It answers 404: the order lookup finds nothing paid."
+          }
+        ],
+        "say": "Got it? Say it back in one sentence (optional)."
+      }
+    }
+  }
+]

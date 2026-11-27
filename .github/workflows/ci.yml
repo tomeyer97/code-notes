@@ -1,9 +1,12 @@
 name: CI
 
+# The one list of what gates a change: pull requests and main run it, and the release workflow calls it before it
+# publishes. Not here: test:checktour and test:podcast (screenshot drivers to look at), test:grader (needs a model).
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 # One run per branch or pull request; a newer push cancels the older run.
 concurrency:
@@ -15,22 +18,23 @@ permissions:
 
 jobs:
   test:
-    name: Build, unit tests, VS Code tests
+    name: Build, lint, unit tests, VS Code tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/setup
       - run: npm run build
+      - name: Generated files are up to date (cli/understanding.mjs)
+        run: git diff --exit-code
+      - name: Lint (ESLint, layers and import cycles)
+        run: npm run lint
       - name: Unit tests
         run: npm test
-      - name: Skill scripts
+      - name: Skill scripts, and the example journey still matches the example code
         run: |
           python3 skills/code-journey/scripts/journey.py help all > /dev/null
+          python3 skills/code-journey/scripts/journey.py check examples/shop place-order quiet
           node skills/understanding-check/scripts/questions.mjs > /dev/null
       - name: Tests in a real VS Code
         run: npm run test:integration
@@ -49,12 +53,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: ./.github/actions/setup
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
+          chromium: 'true'
       - run: npm run build
       - name: Panel layout and clicks
         run: npm run test:panel

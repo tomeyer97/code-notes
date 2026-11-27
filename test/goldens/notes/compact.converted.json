@@ -1,0 +1,133 @@
+{
+  "fromNotes": [
+    {
+      "v": 3,
+      "head": "\tnow := time.Now().UTC()\n\to := &store.Order{\n\t\tID:             store.NewID(),",
+      "tail": "\ts.Log.Info(\"order stored\", \"id\", o.ID, \"total\", o.Total, \"lines\", len(o.Lines))\n\twriteJSON(w, http.StatusCreated, o)",
+      "lines": 33,
+      "hash": "714655174f58",
+      "before": "\t}",
+      "after": "}"
+    },
+    {
+      "v": 3,
+      "head": "  const lines = cart.lines\n    .filter((l) => l.quantity > 0)\n    .map((l) => ({ sku: l.sku, quantity: Math.min(l.quantity, 99), shownPrice: l.shownPrice }))",
+      "tail": "  }\n  if (total > 1_000_000) {",
+      "lines": 22,
+      "hash": "6e3791ca74e9",
+      "before": "export function buildOrder(cart: Cart, customer: string, giftNote?: string): OrderRequest {",
+      "after": "    throw new Error(`orders over ${money(1_000_000)} go through sales`)"
+    },
+    {
+      "v": 3,
+      "head": "  // An order already sent from this cart (a double click, a reload): wait on that one instead of sending another.\n  const open = await api.get<{ id: string } | null>(`/api/carts/${cart.id}/open-order`)\n  if (open) {",
+      "tail": "  o.progress('Sending your order')\n  const created = await api.post<{ id: string; status: string }>('/api/orders', req)",
+      "lines": 19,
+      "hash": "cbadcd2f8997",
+      "before": "  const started = Date.now()",
+      "after": "  if (created.status === 'paid') {"
+    },
+    {
+      "v": 3,
+      "head": "func orderStage(ch *payments.Charge, o *store.Order) string {\n\tswitch {\n\tcase ch.Status == payments.Succeeded:",
+      "tail": "\treturn \"charging\"\n}",
+      "lines": 14,
+      "hash": "599e1563226f",
+      "before": "// orderStage works out what the customer is waiting for, from what the provider says about the charge.",
+      "after": "// applyOutcome writes the result of one pass onto the order: paid, still waiting (with a message), or failed."
+    },
+    {
+      "v": 3,
+      "head": "\treq := &ChargeRequest{\n\t\tAmount:         o.Total,\n\t\tCurrency:       strings.ToLower(o.Currency),",
+      "tail": "\t}\n\treturn req, nil",
+      "lines": 16,
+      "hash": "be917c134106",
+      "before": "\t}",
+      "after": "}"
+    },
+    {
+      "v": 3,
+      "head": "# The payment provider, as the shop talks to it. Charges are created by the worker (payments/charge.go);\n# the provider then sends the customer to their bank for 3-D Secure and calls the webhook below when it knows.\nprovider:",
+      "tail": "  chargeTimeout: 15m\n  retries: 3",
+      "lines": 14,
+      "hash": "78a915562152",
+      "before": "",
+      "after": "currency: EUR"
+    },
+    {
+      "v": 3,
+      "head": "\t\tch, err := w.Payments.Create(ctx, req)\n\t\tif err != nil {\n\t\t\tif payments.Transient(err) {",
+      "tail": "\t\to.Deadline = &deadline\n\t\treturn w.Store.Orders().Update(ctx, o)",
+      "lines": 14,
+      "hash": "f35c1682a1dc",
+      "before": "\t\t}",
+      "after": "\tcase store.OrderCharging:"
+    },
+    {
+      "v": 3,
+      "head": "func (w *Worker) loop(ctx context.Context, phase string) {\n\tinterval := w.Interval\n\tif interval <= 0 {",
+      "tail": "\t}\n}",
+      "lines": 16,
+      "hash": "c9d4ca7eb866",
+      "before": "}",
+      "after": "// pass handles every open order once, each with its own timeout."
+    },
+    {
+      "v": 3,
+      "head": "\tcase store.OrderCharging:\n\t\tif o.Deadline != nil && now.After(*o.Deadline) {\n\t\t\t_ = w.Store.Stock().Release(ctx, o.ID)",
+      "tail": "\t\tstage := orderStage(ch, o)\n\t\treturn applyOutcome(ctx, w.Store, o, stage, waiting, issues)",
+      "lines": 23,
+      "hash": "b1fc4259c3fe",
+      "before": "\t\treturn w.Store.Orders().Update(ctx, o)",
+      "after": "\tcase store.OrderCancelling:"
+    },
+    {
+      "v": 3,
+      "head": "// The provider's webhook payloads carry the bank's own decline text; these are the ones worth a clear message.\nvar declines = []struct {\n\tre  *regexp.Regexp",
+      "tail": "\t{regexp.MustCompile(`(?i)card (expired|not supported)`), \"this card cannot be used; try another\"},\n}",
+      "lines": 9,
+      "hash": "3d1f8ab2f733",
+      "before": "}",
+      "after": "// ChargeIssues says what went wrong with a charge, from the charge itself and the webhook log the shop keeps."
+    },
+    {
+      "v": 3,
+      "head": "\titems := make([]ChargeItem, 0, len(o.Lines))\n\tvar sum int64\n\tfor _, l := range o.Lines {",
+      "tail": "\t\treturn nil, fmt.Errorf(\"order %s: lines add up to %d, total is %d\", o.ID, sum, o.Total)\n\t}",
+      "lines": 14,
+      "hash": "97813d05d889",
+      "before": "\t}",
+      "after": "\tdesc := fmt.Sprintf(\"Order %s\", strings.ToUpper(o.ID[:8]))"
+    },
+    {
+      "v": 3,
+      "head": "\tcase len(waiting) == 0:\n\t\tif o.Status != store.OrderPaid {\n\t\t\tt := time.Now().UTC()",
+      "tail": "\t\t}\n\t\to.Status, o.Message = store.OrderPaid, \"\"",
+      "lines": 6,
+      "hash": "64e36c5342db",
+      "before": "\tswitch {",
+      "after": "\tcase stage == \"bank\":"
+    },
+    {
+      "v": 3,
+      "head": "  for (;;) {\n    const order = await api.get<{ status: string; message: string }>(`/api/orders/${id}`)\n    if (order.message && order.message !== last) {",
+      "tail": "    }\n    await new Promise((r) => setTimeout(r, POLL_MS))",
+      "lines": 19,
+      "hash": "cb8b6ef5c3c6",
+      "before": "  let last = ''",
+      "after": "  }"
+    }
+  ],
+  "blank": [
+    null,
+    null,
+    null
+  ],
+  "hashes": [
+    "da39a3ee5e6b",
+    "da39a3ee5e6b",
+    "86f7e437faa5",
+    "fcd127ffa101",
+    "852b6b9d9bb6"
+  ]
+}

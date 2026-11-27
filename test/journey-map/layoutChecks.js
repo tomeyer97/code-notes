@@ -1,5 +1,6 @@
 // The journey panel's layout rules, inside the harness page (shoot.mjs installs this file with page.addInitScript and
-// its `check` calls window.mapLayoutProblems). Each rule is a function returning what it finds wrong, as sentences.
+// calls window.__harness.mapLayoutProblems, mapTextContrast and farViewProblems: ../harness/themes.js Harness). Each
+// rule is a function returning what it finds wrong, as sentences.
 ;(function () {
   const rect = (e) => e.getBoundingClientRect()
   /** Do rectangles a and b overlap by more than `m` px? */
@@ -28,10 +29,10 @@
     return out
   }
 
-  /** Every box of the journey (window.__J, when the test set it) drawn, inside the box it belongs to. */
+  /** Every box of the journey (__harness.journey, when the test set it) drawn, inside the box it belongs to. */
   function boxesInsideParents(byId) {
     const out = []
-    const J = window.__J
+    const J = window.__harness.journey
     if (!J) return out
     for (const n of J.nodes) {
       const e = byId.get(n.id), p = n.parent && byId.get(n.parent)
@@ -113,11 +114,6 @@
     return out
   }
 
-  /** Parts of the old map (before 0.21) are gone. */
-  function noOldParts() {
-    return ['.crumbs', '.stub', '.note.more', '.note.idle', '.legend', '.eblock', '.pop'].filter((old) => document.querySelector(old)).map((old) => `old map part ${old} still drawn`)
-  }
-
   /** The storyline beside or under the map, never over it; its rows never overflow. */
   function storylineClear(map) {
     const out = []
@@ -128,14 +124,118 @@
     return out
   }
 
-  /** Things the panel no longer shows. */
+  /** What the panel stopped showing stays gone (as of 0.24, Nov 2026): the old map's parts, a summary under the
+   *  question, tags on storyline rows, a "1/6" by the tutorial's dots. */
+  const REMOVED = [
+    ['.crumbs, .stub, .note.more, .note.idle, .legend, .eblock, .pop', 'a part of the old map (before 0.21)'],
+    ['.summary', 'a summary under the question'],
+    ['.st .later, .st .asked, .st .wasTag', 'tags in the storyline'],
+    ['.tpos', 'a "1/6" beside the tutorial dots'],
+  ]
   function nothingRemovedShown() {
-    const gone = [['.summary', 'a summary under the question'], ['.st .later, .st .asked, .st .wasTag', 'tags in the storyline'], ['.tpos', 'a "1/6" beside the tutorial dots']]
-    return gone.filter(([sel]) => document.querySelector(sel)).map(([, what]) => `${what} shown`)
+    return REMOVED.filter(([sel]) => document.querySelector(sel)).map(([, what]) => `${what} shown`)
+  }
+
+  // ---------- text contrast (dark themes) ----------
+
+  /** The contrast of `e`'s text with what is under it (`under`: the colour below its own backgrounds, up to `stop`),
+   *  faded by its own and its ancestors' opacity (`faded`). */
+  function contrastOf(e, { stop = null, under, faded = false } = {}) {
+    const { rgba, over, backgroundOf, ratio } = window.__harness.contrast
+    let a = 1
+    if (faded) for (let x = e; x; x = x.parentElement) a *= Number(getComputedStyle(x).opacity)
+    const bg = backgroundOf(e, { stop, under }), fg0 = rgba(getComputedStyle(e).color)
+    return ratio(over([fg0[0], fg0[1], fg0[2], fg0[3] * a], bg), bg)
+  }
+
+  /** Map text at ≥ 4.5:1 (labels, numbers and names you are meant to read; faint ones are faint on purpose). */
+  function mapTextContrast() {
+    const out = []
+    const near = '.gmap:not(.far)'
+    for (const e of document.querySelectorAll(`${near} .glabel:not(.faint), ${near} .gnum:not(.cur), ${near} .gtitle, ${near} .glbl`)) {
+      if (e.getClientRects().length === 0 || getComputedStyle(e).visibility === 'hidden') continue
+      const r = contrastOf(e, { faded: true })
+      if (r < 4.5) out.push(`"${e.textContent.trim()}" (${e.className}) contrast ${r.toFixed(2)}:1 < 4.5`)
+    }
+    return out
+  }
+
+  // ---------- Fit and the far view ----------
+
+  /** The drawing centred in its area when it is smaller than it. */
+  function mapCentred(map) {
+    const out = []
+    const M = rect(map.querySelector('.gstage')), W = rect(map.querySelector('.gworld'))
+    if (W.width < M.width - 4 && Math.abs((W.left - M.left) - (M.right - W.right)) > 3) out.push(`map not centred across (${Math.round(W.left - M.left)} | ${Math.round(M.right - W.right)})`)
+    if (W.height < M.height - 4 && Math.abs((W.top - M.top) - (M.bottom - W.bottom)) > 3) out.push(`map not centred down (${Math.round(W.top - M.top)} | ${Math.round(M.bottom - W.bottom)})`)
+    return out
+  }
+
+  /** The far names shown: their element and their text on one line. */
+  const farNames = (map) => [...map.querySelectorAll('.gname')]
+    .filter((t) => getComputedStyle(t).display !== 'none' && t.getClientRects().length)
+    .map((e) => ({ e, text: e.querySelector('.gnt').textContent.replace(/\n/g, ' '), r: rect(e) }))
+
+  /** Far names never over each other. */
+  function farNamesApart(names) {
+    const out = []
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) if (overlap(names[i].r, names[j].r)) out.push(`far names "${names[i].text}" and "${names[j].text}" overlap`)
+    }
+    return out
+  }
+
+  /** Far names never under the map's buttons (what shows of them in the drawing). */
+  function farNamesClearOfButtons(map, names) {
+    const M = rect(map.querySelector('.gstage')), c = rect(map.querySelector('.gctl'))
+    const shownPart = (r) => ({ left: Math.max(r.left, M.left), right: Math.min(r.right, M.right), top: Math.max(r.top, M.top), bottom: Math.min(r.bottom, M.bottom) })
+    return names
+      .filter((x) => { const r = shownPart(x.r); return r.right > r.left && r.bottom > r.top && overlap(r, c) })
+      .map((x) => `far name "${x.text}" under the map's buttons`)
+  }
+
+  /** A far name cut only after a word ("Order…", never "Ord…er" or a one-letter "O…"); some names shown. */
+  function farNamesCutWell(names) {
+    const badly = (t) => /\S…\S/.test(t) || (/…$/.test(t) && !/\s/.test(t.slice(0, -1)) && t.length < 3)
+    const out = names.filter((x) => badly(x.text)).map((x) => `far name "${x.text}" cut badly`)
+    if (!names.length) out.push('far view with no names')
+    return out
+  }
+
+  /** While walking (step `cur`), the current step's box ringed in view and its number shown lit. */
+  function farRingVisible(map, cur) {
+    const out = []
+    const M = rect(map.querySelector('.gstage'))
+    const g = map.querySelector('.gring')
+    const gr = g && rect(g)
+    if (!gr || getComputedStyle(g).display === 'none' || gr.right < M.left || gr.left > M.right || gr.bottom < M.top || gr.top > M.bottom) out.push('far: the current step is not ringed in view')
+    const lit = [...map.querySelectorAll('.gfn.cur')].filter((b) => b.getClientRects().length && getComputedStyle(b.closest('.gname')).display !== 'none')
+    if (!lit.some((b) => b.textContent === String(cur))) out.push(`far: step ${cur}'s number not shown lit`)
+    return out
+  }
+
+  /** Far names and their step numbers at ≥ 4.5:1 over what is under them: the page or a block (they float over the
+   *  map, not on its own background). */
+  function farContrast(map, names) {
+    const { rgba, over } = window.__harness.contrast
+    const page = rgba(getComputedStyle(document.body).backgroundColor)
+    const block = document.querySelector('.gcover')
+    const cover = block ? over(rgba(getComputedStyle(block).backgroundColor), page) : page
+    const out = []
+    for (const { e: name } of names) {
+      for (const e of [name.querySelector('.gnt'), ...name.querySelectorAll('.gfn:not(.cur)')]) {
+        for (const under of [page, cover]) {
+          const r = contrastOf(e, { stop: map, under })
+          if (r < 4.5) { out.push(`far "${e.textContent}" at ${r.toFixed(2)}:1`); break }
+        }
+      }
+    }
+    return out
   }
 
   /** Every layout rule on what is shown now; `wantCurrent`: a step is being walked (its box must be ringed). */
-  window.mapLayoutProblems = (wantCurrent) => {
+  const H = (window.__harness = window.__harness || {})
+  H.mapLayoutProblems = (wantCurrent) => {
     const out = [...noHorizontalOverflow()]
     const map = document.querySelector('.gmap')
     if (map) {
@@ -146,7 +246,22 @@
       if (wantCurrent) out.push(...currentBoxInView(map))
       out.push(...controlsUnderTheDrawing(map))
     }
-    out.push(...noOldParts(), ...storylineClear(map), ...nothingRemovedShown())
+    out.push(...storylineClear(map), ...nothingRemovedShown())
+    return out
+  }
+  /** Map text contrast (dark themes). */
+  H.mapTextContrast = mapTextContrast
+  /** Fit and the far view: the map centred; far out, names apart, clear of the buttons, cut well, readable (`dark`);
+   *  walking (step `cur`), the current step ringed and its number lit. */
+  H.farViewProblems = (dark, cur) => {
+    const map = document.querySelector('.gmap')
+    if (!map || !map.querySelector('.gworld')) return []
+    const out = mapCentred(map)
+    if (!map.classList.contains('far')) return out
+    const names = farNames(map)
+    out.push(...farNamesApart(names), ...farNamesClearOfButtons(map, names), ...farNamesCutWell(names))
+    if (cur) out.push(...farRingVisible(map, cur))
+    if (dark) out.push(...farContrast(map, names))
     return out
   }
 })()

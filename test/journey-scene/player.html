@@ -1,6 +1,7 @@
 <!doctype html>
-<!-- Plays one step's animation outside VS Code, in the same look (the panel's own script and styles): for a quick look
-     in a browser and for videos (record.mjs). ?journey=<path to journey.json>&step=<n>&theme=dark|light&play=1 -->
+<!-- Plays one step's animation outside VS Code, in the same look (the panel's own scene modules and styles, bundled with
+     player.js into out/test/journey-scene/player.js by `npm run build`): for a quick look in a browser and for videos
+     (scripts/scene-video/record.mjs). ?journey=<path to journey.json>&step=<n>&theme=dark|light&play=1 -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -10,13 +11,9 @@
 <link rel="stylesheet" href="../../media/journey-scene.css">
 <link rel="stylesheet" href="player.css">
 <script src="../harness/themes.js"></script>
-<script src="../../media/common.js"></script>
-<script src="../../media/code-paint.js"></script>
-<script src="../../media/journey-scene.js"></script>
-<script src="../../media/journey-scene-app.js"></script>
 </head>
 <body>
 <div id="stage"><div id="head"><div id="crumb"></div><h1 id="title"></h1></div><div id="slot"></div></div>
-<script src="player.js"></script>
+<script src="../../out/test/journey-scene/player.js"></script>
 </body>
 </html>

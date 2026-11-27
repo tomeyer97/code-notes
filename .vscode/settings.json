@@ -1,0 +1,4 @@
+{
+  // cli/understanding.mjs is built from cli/understanding/*.ts (npm run build): search the sources, not the build.
+  "search.exclude": { "cli/understanding.mjs": true }
+}

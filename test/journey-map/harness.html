@@ -1,7 +1,8 @@
 <!doctype html>
-<!-- The journey map outside VS Code: stubs acquireVsCodeApi (posted messages land in window.__posted) and sets VS Code's
-     theme variables (?theme=dark|light), both from ../harness/themes.js. Driven by shoot.mjs; also opens fine in a
-     browser for a quick look. -->
+<!-- The journey map outside VS Code: stubs acquireVsCodeApi (posted messages land in window.__harness.posted) and sets
+     VS Code's theme variables (?theme=dark|light), both from ../harness/themes.js; then the page's bundle, the file the
+     extension loads (out/pages/map.js: run `npm run build` first). Driven by shoot.mjs; also opens fine in a browser for
+     a quick look. -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -20,26 +21,12 @@
      shoot.mjs checks no script file comes before it). -->
 <script src="../harness/themes.js"></script>
 <script>
-  stubVsCodeApi({ keepState: true })
-  applyTheme({}, { without: ['editor-foreground', 'editorWidget-background', 'testing-iconPassed', 'toolbar-hoverBackground', 'input-background', 'input-foreground', 'input-border', 'input-placeholderForeground'] })
-  document.body.className = 'vscode-' + themeName()
-  var exports = {}
-  var JourneyModel = exports
+  __harness.stubVsCodeApi({ keepState: true })
+  __harness.applyTheme({}, { without: ['editor-foreground', 'editorWidget-background', 'testing-iconPassed', 'toolbar-hoverBackground', 'input-background', 'input-foreground', 'input-border', 'input-placeholderForeground'] })
+  document.body.className = 'vscode-' + __harness.themeName()
 </script>
-<!-- The scripts after the body, as in the webview (the body exists while ELK loads). -->
-<script src="../../out/src/journeyModel.js"></script>
+<!-- The page's scripts after the body, as in the webview (the body exists while ELK loads). -->
 <script src="../../out/vendor/elk.bundled.js"></script>
-<script src="../../media/common.js"></script>
-<script src="../../media/journey-layout.js"></script>
-<script src="../../media/journey-farnames.js"></script>
-<script src="../../media/journey-graph.js"></script>
-<script src="../../media/code-paint.js"></script>
-<script src="../../media/journey-scene.js"></script>
-<script src="../../media/journey-scene-app.js"></script>
-<script src="../../media/journey-home.js"></script>
-<script src="../../media/journey-splitter.js"></script>
-<script src="../../media/journey-tutorial.js"></script>
-<script src="../../media/journey-podcast.js"></script>
-<script src="../../media/journey-map.js"></script>
+<script src="../../out/pages/map.js"></script>
 </body>
 </html>

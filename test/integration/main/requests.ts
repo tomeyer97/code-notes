@@ -1,8 +1,9 @@
 // Asking for a journey from outside the window: the request file (.code-notes/.request.json, written by a script or
 // another tool, answered in .result.json) and vscode://<extension id>/explain links. A match opens; no match asks
 // first and then writes one with Claude (or Claude asks back); a link never starts Claude.
-// Source: src/write/requests.ts (requests, links), src/write/rank.ts (the confirm and pick), src/match.ts (matching),
-// src/writing.ts.
+// Source: src/write/requests.ts (requests), src/write/uriRoutes.ts (links), src/write/journeyAnswer.ts (answering one),
+// src/platform/agent/protocol.ts (the envelope), src/write/rank.ts (the confirm and pick), src/core/list/match.ts
+// (matching), src/core/writing.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -18,8 +19,21 @@ const requestPath = () => requestFile(ctx.notesDir)
 const request = (o: object) => writeRequest(ctx.notesDir, o)
 /** What the script reads back. */
 const result = () => readResult(ctx.notesDir)
-/** Every request and link handled so far: { action, question, via, outcome }. */
-const outcomes = (): { action: string; question: string; via: string; outcome: string }[] => ctx.api.explainLog()
+/** Every request and link handled so far (the newest few hundred): { seq, action, question, via, outcome }. */
+const outcomes = () => ctx.api.explainLog()
+/** The requests handled from now on: take it before, read it after. */
+function newOutcomes(): () => ReturnType<typeof outcomes> {
+  const mark = outcomes().at(-1)?.seq ?? 0
+  return () => outcomes().filter((x) => x.seq > mark)
+}
+/** The fake claude's runs from now on (its log only grows): take it before, read it after. */
+function newRuns(): () => string[][] {
+  const before = claudeRuns().length
+  return () => claudeRuns().slice(before)
+}
+/** The confirm's items by what each does, in order: a journey to open, Write, Cancel (separators left out). */
+type ConfirmKind = 'journey' | 'write' | 'cancel'
+const confirmKind = (label: string): ConfirmKind => (label === 'Cancel' ? 'cancel' : /\bWrite$/.test(label) ? 'write' : 'journey')
 /** The link `code --open-url` delivers. */
 const explainLink = (q: string, repo = ctx.ws, extra = '') => vscode.Uri.parse(`${vscode.env.uriScheme}://${EXT_ID}/explain?action=ask&q=${encodeURIComponent(q)}${extra}&repo=${encodeURIComponent(repo)}`)
 const removeWritten = async () => {
@@ -41,49 +55,52 @@ export const requestsTests = [
   }),
 
   test('request file, overview: the panel\'s Journeys list', async () => {
-    const seen = outcomes().length
+    const handled = newOutcomes()
     request({ action: 'overview', question: '' })
-    await until('overview', () => outcomes().length > seen && outcomes()[seen].outcome === 'overview')
+    await until('overview', () => handled()[0]?.outcome === 'overview')
     // The panel's Journeys list (no picker), the tab titled "Journeys".
     await until('the Journeys list in the panel', () => snap().tour.map && snap().tour.mapTitle === 'Journeys', 8000)
   }),
 
   test('a request older than 2 minutes is ignored', async () => {
-    // And deleted.
-    const seen = outcomes().length
-    writeRequest(ctx.notesDir, { action: 'ask', question: 'saving a note' }, new Date(Date.now() - 5 * 60_000))
+    // And deleted; a script waiting for it is told why.
+    const handled = newOutcomes()
+    writeRequest(ctx.notesDir, { action: 'ask', question: 'saving a note', id: 'req-old' }, new Date(Date.now() - 5 * 60_000))
     await until('stale request deleted', () => !fs.existsSync(requestPath()))
+    await untilEqual('the script is told', () => result(), { id: 'req-old', outcome: 'error', message: 'the request is older than 2 minutes' })
     await quiet(500, 'the old request handled after all')
-    assert.equal(outcomes().length, seen, 'an old request does nothing')
+    assert.deepEqual(handled(), [], 'an old request does nothing')
   }),
 
   test('a request that needs a newer Code Notes is left for it', async () => {
     // For the reloaded window.
-    const seen = outcomes().length
+    const handled = newOutcomes()
     request({ action: 'ask', question: 'How does saving a note work?', id: 'req-new', needs: '99.0.0' })
-    await until('too new', () => outcomes().slice(seen).some((x) => x.outcome === 'too-new'))
+    await until('too new', () => handled().some((x) => x.outcome === 'too-new'))
     await quiet(500, 'the request deleted or answered')
     assert.ok(fs.existsSync(requestPath()) && result()?.id !== 'req-new', 'left alone, no result')
     fs.unlinkSync(requestPath())
   }),
 
   test('no match asks first, closest journeys first; Cancel starts nothing', async () => {
-    const runsBefore = claudeRuns().length
+    const runs = newRuns()
     request({ action: 'ask', question: 'How are saved widgets frobnicated?', model: 'claude-fake-x', id: 'req-2' })
     const confirm = await until('confirm shown', () => ctx.api.confirming())
     assert.match(confirm.title ?? '', /^No journey answers this yet\. Write one with Claude \(claude-fake-x, about 3 min\)\?$/)
-    const closest = confirm.items.findIndex((x: string) => /Saving a note/.test(x))
-    assert.ok(closest >= 0 && closest < confirm.items.indexOf('$(sparkle) Write') && confirm.items.at(-1) === 'Cancel', `closest journeys first, then Write, Cancel: ${confirm.items}`)
+    const kinds = confirm.items.map(confirmKind)
+    const order = kinds.filter((k, i) => k !== kinds[i - 1])
+    assert.deepEqual(order, ['journey', 'write', 'cancel'], `closest journeys first, then Write, Cancel: ${confirm.items}`)
+    assert.ok(confirm.items.some((x) => /Saving a note/.test(x)), `the closest journey is offered: ${confirm.items}`)
     await untilEqual('result: confirm', () => [result()?.id, result()?.outcome, result()?.model], ['req-2', 'confirm', 'claude-fake-x'])
     ctx.api.answerConfirm('Cancel')
     await until('cancelled', () => outcomes().some((x) => x.question === 'How are saved widgets frobnicated?' && x.outcome === 'cancelled'))
     await quiet(500, 'a Claude run after Cancel')
-    assert.equal(claudeRuns().length, runsBefore, `Cancel: no Claude run: ${claudeRuns().slice(runsBefore).map((a) => JSON.stringify(a).slice(0, 200)).join('\n')}`)
+    assert.deepEqual(runs(), [], 'Cancel: no Claude run')
   }),
 
   test('an unknown model is refused before any Claude run, with the message in the result', async () => {
     // The request's model or the setting's.
-    const runsBefore = claudeRuns().length
+    const runs = newRuns()
     request({ action: 'ask', question: 'How are gadgets frobnicated?', model: 'sonet', id: 'req-m' })
     await until('result: error', () => result()?.id === 'req-m' && result().outcome === 'error')
     assert.equal(result().message, "Unknown model 'sonet'. Use sonnet, opus, haiku or fable.")
@@ -91,7 +108,7 @@ export const requestsTests = [
     await setting('journeys.model', 'sonet')
     assert.equal(await ctx.api.writeJourney('How are gadgets frobnicated?'), undefined)
     await setting('journeys.model', undefined)
-    assert.equal(claudeRuns().length, runsBefore, 'nothing spawned')
+    assert.deepEqual(runs(), [], 'nothing spawned')
   }),
 
   test('request file, ask with no match: after Write, the agent writes the journey with the requested model; its map opens', async () => {
@@ -160,14 +177,14 @@ export const requestsTests = [
 
   test('a vscode:// link never starts Claude', async () => {
     // Whatever it asks (and its model is ignored): the overview instead.
-    const runsBefore = claudeRuns().length
-    const seen = outcomes().length
+    const runs = newRuns()
+    const handled = newOutcomes()
     await vscode.env.openExternal(explainLink('How are gizmos teleported?', ctx.ws, '&model=evil'))
-    await until('link handled', () => outcomes().slice(seen).some((x) => x.via === 'uri'), 8000)
+    await until('link handled', () => handled().some((x) => x.via === 'uri'), 8000)
     await quiet(800, 'a confirm or a Claude run after the link')
-    assert.equal(outcomes().slice(seen).find((x) => x.via === 'uri')!.outcome, 'overview', 'the overview, not a run')
+    assert.equal(handled().find((x) => x.via === 'uri')!.outcome, 'overview', 'the overview, not a run')
     assert.equal(ctx.api.confirming(), undefined, 'not even the confirm')
-    assert.equal(claudeRuns().length, runsBefore, 'no Claude run from a link')
+    assert.deepEqual(runs(), [], 'no Claude run from a link')
     await vscode.commands.executeCommand('workbench.action.closeQuickOpen')
   }),
 
@@ -175,36 +192,43 @@ export const requestsTests = [
     // The link (what `code --open-url` delivers), for this repo; the same request as a file is handled once.
     await closeAllEditors()
     await until('map closed', () => !snap().tour.map)
-    const seen = outcomes().length
+    const handled = newOutcomes()
     request({ action: 'ask', question: 'loadNote parses' })
     await vscode.env.openExternal(explainLink('loadNote parses'))
-    await until('link handled', () => outcomes().slice(seen).some((x) => x.outcome === 'opened:saving'), 8000)
+    await until('link handled', () => handled().some((x) => x.outcome === 'opened:saving'), 8000)
     await until('map open', () => snap().tour.map === 'saving')
     await quiet(800, 'the same request handled a second time')
-    const handled = outcomes().slice(seen)
-    assert.equal(handled.filter((x) => x.outcome.startsWith('opened')).length, 1, `handled once: ${JSON.stringify(handled)}`)
+    assert.equal(handled().filter((x) => x.outcome.startsWith('opened')).length, 1, `handled once: ${JSON.stringify(handled())}`)
     assert.ok(!fs.existsSync(requestPath()), 'request file consumed')
     // A link for another repository: left to the window that has it.
-    const before = outcomes().length
+    const later = newOutcomes()
     await vscode.env.openExternal(explainLink('loadNote parses', path.join(ctx.ws, '..', 'not-this-repo')))
     await quiet(1000, 'another repo\'s link handled here')
-    assert.equal(outcomes().length, before, 'another repo\'s link is ignored here')
+    assert.deepEqual(later(), [], 'another repo\'s link is ignored here')
   }),
 
   test('close matches: a pick of them (result "choose"), the one picked opens', async () => {
     // Two journeys answer about equally: a short pick, not one opened silently.
-    fs.writeFileSync(path.join(repoJourneysDir(), 'drafts.json'), JSON.stringify({ ...savingJourney, id: 'drafts', title: 'Saving a draft', question: 'How is a draft kept?' }, null, 2))
+    const drafts = path.join(repoJourneysDir(), 'drafts.json')
+    fs.writeFileSync(drafts, JSON.stringify({ ...savingJourney, id: 'drafts', title: 'Saving a draft', question: 'How is a draft kept?' }, null, 2))
     await ctx.api.reloadJourneys()
     await until('drafts read', () => snap().journeys.some((x: any) => x.id === 'drafts'))
-    const seen = outcomes().length
+    const handled = newOutcomes()
     request({ action: 'ask', question: 'How does saving work?', id: 'req-5' })
     const titles = await until('the pick', () => ctx.api.choosing() as string[] | undefined)
     assert.deepEqual([...titles].sort(), ['Saving a draft', 'Saving a note'])
     await until('result: choose', () => result()?.id === 'req-5' && result().outcome === 'choose')
     ctx.api.choose('Saving a note')
-    await until('opened the one picked', () => outcomes().slice(seen).some((x) => x.outcome === 'opened:saving'))
+    await until('opened the one picked', () => handled().some((x) => x.outcome === 'opened:saving'))
+    fs.rmSync(drafts, { force: true })
+  }),
+
+  // The repo journeys main/repoJourneys.ts wrote (and these tests use) are gone before main/animation.ts, whose
+  // matching they would change. Its own step, so a failure above still names the test that failed.
+  test('after the requests: the repo journeys of main/repoJourneys.ts removed', async () => {
     fs.rmSync(repoJourneysDir(), { recursive: true, force: true })
     fs.rmSync(path.join(ctx.notesDir, 'journeys', 'saving-copy.json'), { force: true })
+    await ctx.api.reloadJourneys()
   }),
 ]
 

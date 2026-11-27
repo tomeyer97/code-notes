@@ -1,0 +1,197 @@
+{
+  "signature": "[[[\"web\",\"system\",\"Web app\",\"\"],[\"api\",\"system\",\"API\",\"\"],[\"worker\",\"system\",\"Worker\",\"\"],[\"provider\",\"external\",\"Card charges\",\"pay\"],[\"checkout\",\"module\",\"Checkout\",\"web\"],[\"place\",\"function\",\"placeOrder\",\"checkout\"],[\"watch\",\"function\",\"watchOrder\",\"checkout\"],[\"create\",\"function\",\"createOrder\",\"api\"],[\"validate\",\"function\",\"validateOrder\",\"api\"],[\"insert\",\"function\",\"insertOrder\",\"api\"],[\"settle\",\"function\",\"settleOrder\",\"api\"],[\"orders\",\"store\",\"Orders table\",\"api\"],[\"queue\",\"store\",\"Job queue\",\"api\"],[\"run\",\"function\",\"run\",\"worker\"],[\"charge\",\"function\",\"chargeOrder\",\"worker\"],[\"pay\",\"system\",\"Payment provider\",\"\"]],[[\"place\",\"create\",\"place order\",false],[\"create\",\"validate\",\"check the order\",false],[\"create\",\"insert\",\"store the order\",false],[\"insert\",\"orders\",\"insert as pending\",false],[\"create\",\"queue\",\"add charge job\",false],[\"run\",\"queue\",\"polls every 2 s\",true],[\"run\",\"charge\",\"charge the job\",false],[\"run\",\"settle\",\"report the result\",false],[\"settle\",\"orders\",\"mark paid or failed\",false],[\"place\",\"watch\",\"watch the order\",false],[\"watch\",\"orders\",\"polls every second\",true],[\"charge\",\"provider\",\"charge the card\",false]],[\"place\",\"validate\",\"insert\",\"create\",\"run\",\"charge\",\"settle\",\"watch\",\"settle\",\"create\"]]",
+  "stepsOf": [
+    [
+      "place",
+      [
+        1
+      ]
+    ],
+    [
+      "validate",
+      [
+        2
+      ]
+    ],
+    [
+      "insert",
+      [
+        3
+      ]
+    ],
+    [
+      "create",
+      [
+        4,
+        10
+      ]
+    ],
+    [
+      "run",
+      [
+        5
+      ]
+    ],
+    [
+      "charge",
+      [
+        6
+      ]
+    ],
+    [
+      "settle",
+      [
+        7,
+        9
+      ]
+    ],
+    [
+      "watch",
+      [
+        8
+      ]
+    ]
+  ],
+  "ancestors": [
+    [
+      "web",
+      []
+    ],
+    [
+      "api",
+      []
+    ],
+    [
+      "worker",
+      []
+    ],
+    [
+      "provider",
+      [
+        "pay"
+      ]
+    ],
+    [
+      "checkout",
+      [
+        "web"
+      ]
+    ],
+    [
+      "place",
+      [
+        "checkout",
+        "web"
+      ]
+    ],
+    [
+      "watch",
+      [
+        "checkout",
+        "web"
+      ]
+    ],
+    [
+      "create",
+      [
+        "api"
+      ]
+    ],
+    [
+      "validate",
+      [
+        "api"
+      ]
+    ],
+    [
+      "insert",
+      [
+        "api"
+      ]
+    ],
+    [
+      "settle",
+      [
+        "api"
+      ]
+    ],
+    [
+      "orders",
+      [
+        "api"
+      ]
+    ],
+    [
+      "queue",
+      [
+        "api"
+      ]
+    ],
+    [
+      "run",
+      [
+        "worker"
+      ]
+    ],
+    [
+      "charge",
+      [
+        "worker"
+      ]
+    ],
+    [
+      "pay",
+      []
+    ]
+  ],
+  "verbs": [
+    [
+      "place order",
+      "place order"
+    ],
+    [
+      "check the order",
+      "check the order"
+    ],
+    [
+      "store the order",
+      "store the order"
+    ],
+    [
+      "insert as pending",
+      "insert as pending"
+    ],
+    [
+      "add charge job",
+      "add charge job"
+    ],
+    [
+      "polls every 2 s",
+      "polls"
+    ],
+    [
+      "charge the job",
+      "charge the job"
+    ],
+    [
+      "report the result",
+      "report the result"
+    ],
+    [
+      "mark paid or failed",
+      "mark paid or failed"
+    ],
+    [
+      "watch the order",
+      "watch the order"
+    ],
+    [
+      "polls every second",
+      "polls every second"
+    ],
+    [
+      "charge the card",
+      "charge the card"
+    ]
+  ]
+}

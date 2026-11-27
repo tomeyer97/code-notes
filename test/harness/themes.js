@@ -1,6 +1,27 @@
 // What a page outside VS Code needs to look and talk like a webview: VS Code's theme variables (?theme=dark|light)
 // and a stub of acquireVsCodeApi. Loaded by the harness pages: journey-map/harness.html (the journey panel),
-// check-panel/harness.html (the Check view) and journey-scene/player.html (an animation, for videos).
+// check-panel/harness.html (the Check view), journey-podcast/listen.html (the Listen view) and
+// journey-scene/player.html (an animation, for videos); each then loads its page's bundle from out/pages/, the same
+// file the extension loads.
+//
+// Everything the harness pages and the shoot scripts share in a page is one object, window.__harness (Harness below);
+// contrast.js and journey-map/layoutChecks.js add their helpers to it.
+/**
+ * @typedef {object} Harness
+ * @property {() => string} themeName  the page's theme, from ?theme= (dark by default)
+ * @property {(overrides?: object, o?: { without?: string[] }) => void} applyTheme  VS Code's --vscode-* variables
+ * @property {(o?: { keepState?: boolean }) => void} stubVsCodeApi  acquireVsCodeApi as a webview has it
+ * @property {object[]} posted  every message the page posted
+ * @property {object[]} errors  the `error` messages among them
+ * @property {unknown} state  what the page kept with setState (with keepState)
+ * @property {((m: object) => void) | undefined} onPost  a harness playing the extension's part answers here
+ * @property {object | undefined} journey  the journey a check is about (the layout rules, the scene player)
+ * @property {object} [contrast]  WCAG contrast helpers (contrast.js)
+ * @property {(wantCurrent: boolean) => string[]} [mapLayoutProblems]  the journey panel's layout rules (layoutChecks.js)
+ * @property {object} [scene]  the scene player's scene (journey-scene/player.js)
+ * @property {number} [beat]  the beat it shows
+ * @property {boolean} [done]  a video's scene played to its end
+ */
 // One table for all of them: a page that starts using a new --vscode-* variable gets it here. Where a page wants
 // other values it passes them to applyTheme (the check view's links are VS Code's Modern ones; the player is bigger,
 // for video), and it names the variables it leaves unset (each page has always set only some; setting the others
@@ -29,35 +50,38 @@
     },
   }
 
+  /** @type {Harness} */
+  const H = (window.__harness = window.__harness || {})
+
   /** The page's theme, from ?theme= (dark by default). */
-  window.themeName = () => new URLSearchParams(location.search).get('theme') || 'dark'
+  H.themeName = () => new URLSearchParams(location.search).get('theme') || 'dark'
 
   /**
    * Sets VS Code's --vscode-* variables of the page's theme on <html>: `overrides[theme]` replace some of them; the
    * variables named in `without` are left unset.
    */
-  window.applyTheme = (overrides = {}, { without = [] } = {}) => {
-    const name = window.themeName()
+  H.applyTheme = (overrides = {}, { without = [] } = {}) => {
+    const name = H.themeName()
     const t = { ...themes[name], ...(overrides[name] || {}) }
     for (const k in t) if (!without.includes(k)) document.documentElement.style.setProperty(`--vscode-${k}`, t[k])
   }
 
   /**
-   * acquireVsCodeApi as the page gets it in a webview: messages it posts land in window.__posted (the error reports
-   * also in window.__errors); with `keepState`, getState returns what setState stored, else nothing is kept.
+   * acquireVsCodeApi as the page gets it in a webview: messages it posts land in __harness.posted (the error reports
+   * also in __harness.errors); with `keepState`, getState returns what setState stored, else nothing is kept.
    */
-  window.stubVsCodeApi = ({ keepState = false } = {}) => {
-    window.__posted = []
-    window.__errors = []
+  H.stubVsCodeApi = ({ keepState = false } = {}) => {
+    H.posted = []
+    H.errors = []
     window.acquireVsCodeApi = () => ({
       postMessage: (m) => {
-        window.__posted.push(m)
-        if (m.type === 'error') window.__errors.push(m)
+        H.posted.push(m)
+        if (m.type === 'error') H.errors.push(m)
         // A harness playing the extension's part answers here (test/journey-podcast/shoot.mjs).
-        if (window.__onPost) window.__onPost(m)
+        if (H.onPost) H.onPost(m)
       },
-      getState: () => (keepState ? window.__state : undefined),
-      setState: (s) => { if (keepState) window.__state = s },
+      getState: () => (keepState ? H.state : undefined),
+      setState: (s) => { if (keepState) H.state = s },
     })
   }
 })()

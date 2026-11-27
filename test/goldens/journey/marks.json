@@ -1,0 +1,800 @@
+{
+  "read": [
+    {
+      "in": "[undefined]",
+      "out": {
+        "marks": [],
+        "problems": []
+      }
+    },
+    {
+      "in": "x",
+      "out": {
+        "marks": [],
+        "problems": [
+          {
+            "what": "marks is not a list of { lines, match? }; ignored",
+            "sub": [
+              "marks"
+            ],
+            "drop": true
+          }
+        ]
+      }
+    },
+    {
+      "in": [],
+      "out": {
+        "marks": [],
+        "problems": []
+      }
+    },
+    {
+      "in": [
+        null,
+        3,
+        {
+          "lines": [
+            2,
+            2
+          ]
+        },
+        {
+          "lines": [
+            3,
+            2
+          ]
+        },
+        {
+          "lines": [
+            0,
+            1
+          ]
+        },
+        {
+          "lines": [
+            1
+          ]
+        },
+        {
+          "lines": [
+            1,
+            2
+          ],
+          "file": ""
+        },
+        {
+          "lines": [
+            1,
+            2
+          ],
+          "file": "web/a.ts",
+          "match": ""
+        },
+        {
+          "lines": [
+            1,
+            2
+          ],
+          "match": "total",
+          "nth": 0
+        },
+        {
+          "lines": [
+            1,
+            2
+          ],
+          "match": "total",
+          "nth": 2,
+          "extra": true
+        },
+        {
+          "lines": [
+            1.5,
+            2
+          ]
+        }
+      ],
+      "out": {
+        "marks": [
+          {
+            "lines": [
+              2,
+              2
+            ]
+          },
+          {
+            "lines": [
+              1,
+              2
+            ],
+            "match": "total",
+            "nth": 2
+          }
+        ],
+        "problems": [
+          {
+            "k": 0,
+            "what": "mark 1: not an object { lines, match? }; ignored",
+            "sub": [
+              "marks",
+              0
+            ],
+            "drop": true
+          },
+          {
+            "k": 1,
+            "what": "mark 2: not an object { lines, match? }; ignored",
+            "sub": [
+              "marks",
+              1
+            ],
+            "drop": true
+          },
+          {
+            "k": 3,
+            "what": "mark 4: lines must be [first, last] (1-based, first <= last), got [3,2]; ignored",
+            "sub": [
+              "marks",
+              3,
+              "lines"
+            ],
+            "drop": true
+          },
+          {
+            "k": 4,
+            "what": "mark 5: lines must be [first, last] (1-based, first <= last), got [0,1]; ignored",
+            "sub": [
+              "marks",
+              4,
+              "lines"
+            ],
+            "drop": true
+          },
+          {
+            "k": 5,
+            "what": "mark 6: lines must be [first, last] (1-based, first <= last), got [1]; ignored",
+            "sub": [
+              "marks",
+              5,
+              "lines"
+            ],
+            "drop": true
+          },
+          {
+            "k": 6,
+            "what": "mark 7: file is not a path; ignored",
+            "sub": [
+              "marks",
+              6,
+              "file"
+            ],
+            "drop": true
+          },
+          {
+            "k": 7,
+            "what": "mark 8: match is not a text; ignored",
+            "sub": [
+              "marks",
+              7,
+              "match"
+            ],
+            "drop": true
+          },
+          {
+            "k": 8,
+            "what": "mark 9: nth must be 1 or more, got 0; ignored",
+            "sub": [
+              "marks",
+              8,
+              "nth"
+            ],
+            "drop": true
+          },
+          {
+            "k": 10,
+            "what": "mark 11: lines must be [first, last] (1-based, first <= last), got [1.5,2]; ignored",
+            "sub": [
+              "marks",
+              10,
+              "lines"
+            ],
+            "drop": true
+          }
+        ]
+      }
+    }
+  ],
+  "shape": [
+    {
+      "in": {},
+      "problem": {
+        "what": "lines must be [first, last] (1-based, first <= last), got undefined",
+        "sub": []
+      },
+      "mark": "[undefined]"
+    },
+    {
+      "in": {
+        "lines": [
+          1,
+          1
+        ]
+      },
+      "problem": "[undefined]",
+      "mark": {
+        "lines": [
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "in": {
+        "lines": [
+          2,
+          2
+        ],
+        "file": 7
+      },
+      "problem": {
+        "what": "file is not a path",
+        "sub": [
+          "file"
+        ]
+      },
+      "mark": "[undefined]"
+    },
+    {
+      "in": {
+        "lines": [
+          2,
+          2
+        ],
+        "nth": "x"
+      },
+      "problem": {
+        "what": "nth must be 1 or more, got \"x\"",
+        "sub": [
+          "nth"
+        ]
+      },
+      "mark": "[undefined]"
+    },
+    {
+      "in": {
+        "lines": [
+          2,
+          2
+        ],
+        "match": 5
+      },
+      "problem": {
+        "what": "match is not a text",
+        "sub": [
+          "match"
+        ]
+      },
+      "mark": "[undefined]"
+    }
+  ],
+  "find": [
+    {
+      "mark": {
+        "lines": [
+          2,
+          2
+        ],
+        "match": "total"
+      },
+      "found": {
+        "spot": {
+          "line": 1,
+          "col": 8,
+          "endLine": 1,
+          "endCol": 13
+        },
+        "moved": 0,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          3
+        ],
+        "match": "total",
+        "nth": 2
+      },
+      "found": {
+        "spot": {
+          "line": 2,
+          "col": 6,
+          "endLine": 2,
+          "endCol": 11
+        },
+        "moved": 0,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          2
+        ],
+        "match": "order"
+      },
+      "found": {
+        "spot": {
+          "line": 4,
+          "col": 8,
+          "endLine": 4,
+          "endCol": 13
+        },
+        "moved": 3,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          6,
+          6
+        ],
+        "match": "total"
+      },
+      "found": {
+        "spot": {
+          "line": 4,
+          "col": 33,
+          "endLine": 4,
+          "endCol": 38
+        },
+        "moved": -1,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          1,
+          1
+        ],
+        "match": "nowhere"
+      },
+      "found": {
+        "spot": {
+          "line": 0,
+          "col": 0,
+          "endLine": 0,
+          "endCol": 40
+        },
+        "moved": 0,
+        "found": false
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          4,
+          4
+        ]
+      },
+      "found": {
+        "spot": {
+          "line": 3,
+          "col": 0,
+          "endLine": 3,
+          "endCol": 0
+        },
+        "moved": 0,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          5,
+          99
+        ]
+      },
+      "found": {
+        "spot": {
+          "line": 4,
+          "col": 2,
+          "endLine": 6,
+          "endCol": 1
+        },
+        "moved": 0,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          8,
+          9
+        ]
+      },
+      "found": "[undefined]"
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          3
+        ],
+        "match": "cart\")\n"
+      },
+      "found": {
+        "spot": {
+          "line": 2,
+          "col": 41,
+          "endLine": 3,
+          "endCol": 0
+        },
+        "moved": 1,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          3,
+          5
+        ],
+        "match": "\n\n"
+      },
+      "found": {
+        "spot": {
+          "line": 2,
+          "col": 47,
+          "endLine": 4,
+          "endCol": 0
+        },
+        "moved": 0,
+        "found": true
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          1,
+          7
+        ],
+        "match": "order",
+        "nth": 5
+      },
+      "found": {
+        "spot": {
+          "line": 0,
+          "col": 0,
+          "endLine": 6,
+          "endCol": 1
+        },
+        "moved": 0,
+        "found": false
+      }
+    }
+  ],
+  "problems": [
+    {
+      "mark": {
+        "lines": [
+          2,
+          2
+        ],
+        "match": "total"
+      },
+      "journey": "[undefined]",
+      "podcast": "[undefined]"
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          3
+        ],
+        "match": "total",
+        "nth": 2
+      },
+      "journey": "[undefined]",
+      "podcast": "[undefined]"
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          2
+        ],
+        "match": "order"
+      },
+      "journey": {
+        "what": "\"order\" isn't in line 2 of api/orders.js; found 3 lines down, lit there",
+        "sub": "match",
+        "moved": 3
+      },
+      "podcast": {
+        "what": "\"order\" isn't in line 2 of api/orders.js; found 3 lines down, lit there",
+        "sub": "match",
+        "moved": 3
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          6,
+          6
+        ],
+        "match": "total"
+      },
+      "journey": {
+        "what": "\"total\" isn't in line 6 of api/orders.js; found 1 line up, lit there",
+        "sub": "match",
+        "moved": -1
+      },
+      "podcast": {
+        "what": "\"total\" isn't in line 6 of api/orders.js; found 1 line up, lit there",
+        "sub": "match",
+        "moved": -1
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          1,
+          1
+        ],
+        "match": "nowhere"
+      },
+      "journey": {
+        "what": "\"nowhere\" isn't in line 1 of api/orders.js, nor within 20 lines: nothing is lit",
+        "sub": "match"
+      },
+      "podcast": {
+        "what": "\"nowhere\" isn't in line 1 of api/orders.js, nor within 20 lines: the whole lines light",
+        "sub": "match"
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          4,
+          4
+        ]
+      },
+      "journey": "[undefined]",
+      "podcast": "[undefined]"
+    },
+    {
+      "mark": {
+        "lines": [
+          5,
+          99
+        ]
+      },
+      "journey": {
+        "what": "lines 5–99 of api/orders.js go past its end (7 lines)",
+        "sub": "lines"
+      },
+      "podcast": {
+        "what": "lines 5–99 of api/orders.js go past its end (7 lines)",
+        "sub": "lines"
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          8,
+          9
+        ]
+      },
+      "journey": {
+        "what": "lines 8–9 of api/orders.js are past its end (7 lines); nothing is lit",
+        "sub": "lines"
+      },
+      "podcast": {
+        "what": "lines 8–9 of api/orders.js are past its end (7 lines); nothing is lit",
+        "sub": "lines"
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          2,
+          3
+        ],
+        "match": "cart\")\n"
+      },
+      "journey": {
+        "what": "\"cart\\\")\\n\" isn't in lines 2–3 of api/orders.js; found 1 line down, lit there",
+        "sub": "match",
+        "moved": 1
+      },
+      "podcast": {
+        "what": "\"cart\\\")\\n\" isn't in lines 2–3 of api/orders.js; found 1 line down, lit there",
+        "sub": "match",
+        "moved": 1
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          3,
+          5
+        ],
+        "match": "\n\n"
+      },
+      "journey": "[undefined]",
+      "podcast": "[undefined]"
+    },
+    {
+      "mark": {
+        "lines": [
+          1,
+          7
+        ],
+        "match": "order",
+        "nth": 5
+      },
+      "journey": {
+        "what": "\"order\" (occurrence 5) isn't in lines 1–7 of api/orders.js, nor within 20 lines: nothing is lit",
+        "sub": "match"
+      },
+      "podcast": {
+        "what": "\"order\" (occurrence 5) isn't in lines 1–7 of api/orders.js, nor within 20 lines: the whole lines light",
+        "sub": "match"
+      }
+    },
+    {
+      "mark": {
+        "lines": [
+          1,
+          1
+        ],
+        "file": "x.js"
+      },
+      "journey": {
+        "what": "x.js isn't in the repository; nothing is lit",
+        "sub": "file"
+      },
+      "podcast": {
+        "what": "x.js isn't in the repository; nothing is lit",
+        "sub": "lines"
+      }
+    }
+  ],
+  "walk": [
+    {
+      "beat": "[undefined]",
+      "lit": [
+        {
+          "mark": "s1",
+          "group": -1,
+          "focus": true
+        },
+        {
+          "mark": "s2",
+          "group": -1,
+          "focus": true
+        }
+      ]
+    },
+    {
+      "beat": 0,
+      "lit": [
+        {
+          "mark": "s1",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "s2",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "b0",
+          "group": 0,
+          "focus": true
+        }
+      ]
+    },
+    {
+      "beat": 1,
+      "lit": [
+        {
+          "mark": "s1",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "s2",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "b0",
+          "group": 0,
+          "focus": true
+        }
+      ]
+    },
+    {
+      "beat": 2,
+      "lit": [
+        {
+          "mark": "s1",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "s2",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "b0",
+          "group": 0,
+          "focus": false
+        },
+        {
+          "mark": "b2a",
+          "group": 2,
+          "focus": true
+        },
+        {
+          "mark": "b2b",
+          "group": 2,
+          "focus": true
+        }
+      ]
+    },
+    {
+      "beat": 5,
+      "lit": [
+        {
+          "mark": "s1",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "s2",
+          "group": -1,
+          "focus": false
+        },
+        {
+          "mark": "b0",
+          "group": 0,
+          "focus": false
+        },
+        {
+          "mark": "b2a",
+          "group": 2,
+          "focus": true
+        },
+        {
+          "mark": "b2b",
+          "group": 2,
+          "focus": true
+        }
+      ]
+    },
+    {
+      "beat": "[undefined]",
+      "lit": []
+    },
+    {
+      "beat": 1,
+      "lit": [
+        {
+          "mark": "only",
+          "group": 1,
+          "focus": true
+        }
+      ]
+    }
+  ]
+}

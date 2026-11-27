@@ -1,0 +1,1034 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "journey.schema.json",
+  "title": "Code journey (format v2)",
+  "description": "A code journey: a layered map of boxes and arrows plus a storyline of steps through the real code (docs/journey-format.md).",
+  "$comment": "The shape of a journey file: what src/core/format/journeyModel.ts readJourney reads without leaving anything out. The writing rules (wording of titles and leads, label lengths, 6-14 steps, at most 7 boxes on a level, anchors on every step) are journey.py check's and the map's problems, not the format's, and are not here. A step's scene is described as media/journey-scene.js draws it and journey.py scene_issues enforces it: unknown keys in a scene, an actor or a beat, more than 4 actors and fewer than 3 beats are refused there when a scene is written, so they are refused here. Not expressible with these keywords (journey.py check still enforces them): unique ids; parents that exist; edges between existing boxes; range and link ends not before their start; scene ids unique; wires, packets, focus, set and click naming actors of the scene; a beat's set keys allowed for the actor's type (documented in $defs setState.*); label and sub fitting their box; gauge max above 0 (written as minimum 0).",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The format version: 2.", "const": 2 },
+    "id": { "description": "The journey's id (its file name).", "type": "string" },
+    "question": { "description": "The question it answers, one line.", "type": "string" },
+    "title": { "description": "A short topic name (a noun phrase, not a question).", "type": "string" },
+    "summary": { "description": "Plain words, at most 2 sentences, no code in the first.", "type": "string" },
+    "model": { "description": "Who wrote it (the model).", "type": "string" },
+    "commit": { "description": "The commit the journey was written at.", "type": "string" },
+    "createdAt": { "description": "When it was written (ISO 8601).", "type": "string" },
+    "start": {
+      "description": "The journey to start with: marked \"Start here\" in the Journeys list.",
+      "type": "boolean"
+    },
+    "nodes": {
+      "description": "The map's boxes (systems hold modules, modules hold functions).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" },
+      "minItems": 1
+    },
+    "edges": { "description": "The map's arrows.", "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "steps": {
+      "description": "The storyline, in order (step number = position).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "required": ["version", "nodes", "steps"],
+  "$defs": {
+    "anchor": {
+      "description": "Where a range is, to find it again: full text, or compact (its own `v`: 3; not a file version).",
+      "anyOf": [{ "$ref": "#/$defs/anchorText" }, { "$ref": "#/$defs/anchorCompact" }]
+    },
+    "anchorText": {
+      "description": "A full-text anchor (older journeys): the whole block and the lines around it.",
+      "type": "object",
+      "properties": {
+        "text": { "description": "The lines of the range, as they were.", "type": "string" },
+        "before": { "description": "The text just above the range.", "type": "string" },
+        "after": { "description": "The text just below the range.", "type": "string" }
+      },
+      "required": ["text", "before", "after"]
+    },
+    "anchorCompact": {
+      "description": "A compact anchor (`v`: 3): the first and last lines, the length and a hash of the range.",
+      "type": "object",
+      "properties": {
+        "v": { "description": "The anchor format: 3.", "const": 3 },
+        "head": {
+          "description": "The first (up to 3) non-blank lines of the range.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "tail": { "description": "The last (up to 2) non-blank lines of the range.", "type": "string" },
+        "lines": { "description": "How many lines the range has.", "type": "integer", "minimum": 1 },
+        "hash": {
+          "description": "sha1 of the normalized non-blank lines of the range, first 12 hex digits.",
+          "type": "string"
+        },
+        "before": {
+          "description": "The nearest non-blank line above the range (empty at the top of the file).",
+          "type": "string"
+        },
+        "after": {
+          "description": "The nearest non-blank line below the range (empty at the end of the file).",
+          "type": "string"
+        }
+      },
+      "required": ["v", "head", "tail", "lines", "hash", "before", "after"]
+    },
+    "node": {
+      "description": "A box on the map.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "The box's id, unique in the journey.", "type": "string", "minLength": 1 },
+        "kind": {
+          "description": "What the box is: system, module, external (third-party), store (the app's own record, queue or table) or function.",
+          "enum": ["system", "module", "external", "store", "function"]
+        },
+        "label": { "description": "The name shown in the box.", "type": "string" },
+        "blurb": {
+          "description": "The short text shown in the box (required on every kind but function).",
+          "type": "string"
+        },
+        "summary": { "description": "A longer description (the box's tooltip).", "type": "string" },
+        "path": { "description": "Where it lives: a folder or file, relative to the repository.", "type": "string" },
+        "parent": { "description": "The id of the box it sits in (a system or a module).", "type": "string" },
+        "lane": { "description": "Read but ignored by the map layout.", "enum": ["main", "side"] },
+        "at": {
+          "description": "The code of a function box: a file and its lines.",
+          "type": "object",
+          "properties": {
+            "file": { "description": "The file, relative to the repository.", "type": "string" },
+            "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+            "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 },
+            "anchor": { "$ref": "#/$defs/anchor", "description": "How to find the lines again after the code moved." }
+          },
+          "required": ["file", "start", "end", "anchor"]
+        }
+      },
+      "required": ["id"]
+    },
+    "edge": {
+      "description": "An arrow between two boxes.",
+      "type": "object",
+      "properties": {
+        "from": { "description": "The id of the box it starts at (never a store).", "type": "string" },
+        "to": { "description": "The id of the box it points at.", "type": "string" },
+        "label": {
+          "description": "What flows or who acts, shown on the arrow: not a question, not a bare \"calls\"/\"uses\"/\"invokes\".",
+          "type": "string"
+        },
+        "detail": { "description": "The full sentence (the label's tooltip).", "type": "string" },
+        "async": { "description": "The hop is asynchronous (drawn dashed).", "type": "boolean" }
+      },
+      "required": ["from", "to"]
+    },
+    "step": {
+      "description": "A step of the storyline: one fact, anchored on the lines that do it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "A short id, unique in the journey, that never changes when steps move.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The fact, one line: a sentence of at least 4 words, not a heading, topic or question.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The id of the box it happens in (a function, external or store box).",
+          "type": "string"
+        },
+        "file": { "description": "The file, relative to the repository.", "type": "string", "pattern": "\\S" },
+        "range": {
+          "description": "The lines that matter.",
+          "type": "object",
+          "properties": {
+            "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+            "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 }
+          },
+          "required": ["start"]
+        },
+        "anchor": { "$ref": "#/$defs/anchor", "description": "How to find the lines again after the code moved." },
+        "lead": {
+          "description": "What happens here and why it matters, at most 40 words; no \"step N\".",
+          "type": "string"
+        },
+        "details": { "description": "Markdown with the rest (folded by default); no \"step N\".", "type": "string" },
+        "refs": {
+          "description": "Pointers elsewhere (at most 3).",
+          "type": "array",
+          "items": {
+            "description": "A reference: a repo-relative path:line, or a sentence holding one.",
+            "type": "string"
+          },
+          "maxItems": 3
+        },
+        "links": {
+          "description": "Code links of the lead and details.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/link" }
+        },
+        "values": {
+          "description": "Value hints shown while the step is open.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/value" }
+        },
+        "marks": {
+          "$ref": "marks.schema.json#/$defs/marks",
+          "description": "The parts of the code the step's text names (file default: the step's)."
+        },
+        "scene": { "$ref": "#/$defs/scene", "description": "The step's animation." }
+      },
+      "required": ["node", "file", "range"]
+    },
+    "link": {
+      "description": "A code link: words of the lead or details that open these lines.",
+      "type": "object",
+      "properties": {
+        "phrase": {
+          "description": "The words of the lead or details, exactly as written.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "file": { "description": "The file, relative to the repository.", "type": "string" },
+        "start": { "description": "The first line (1-based).", "type": "integer", "minimum": 1 },
+        "end": { "description": "The last line (1-based, inclusive).", "type": "integer", "minimum": 1 },
+        "text": { "description": "The trimmed text of the first line (to find it again).", "type": "string" }
+      },
+      "required": ["phrase", "file", "start"]
+    },
+    "value": {
+      "description": "A value hint: what a variable holds in the example run, shown above its line.",
+      "type": "object",
+      "properties": {
+        "name": { "description": "The variable.", "type": "string", "pattern": "\\S" },
+        "value": { "description": "What it holds, on one line.", "type": "string" },
+        "note": { "description": "A few words on what the value is.", "type": "string" },
+        "file": { "description": "The file, relative to the repository.", "type": "string" },
+        "line": { "description": "The line it is on (1-based).", "type": "integer", "minimum": 1 },
+        "text": { "description": "The trimmed text of that line (to find it again).", "type": "string" }
+      },
+      "required": ["name", "value", "file", "line"]
+    },
+    "scene": {
+      "description": "The step's animation: actors, the wires between them, and the beats.",
+      "type": "object",
+      "properties": {
+        "actors": {
+          "description": "The boxes on stage (1-4).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/actor" },
+          "minItems": 1,
+          "maxItems": 4
+        },
+        "wires": {
+          "description": "Lines requests travel on.",
+          "type": "array",
+          "items": {
+            "description": "A wire: [fromId, toId].",
+            "type": "array",
+            "prefixItems": [
+              { "description": "One actor's id.", "type": "string" },
+              { "description": "The other actor's id.", "type": "string" }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "beats": {
+          "description": "The beats, played in order (3-7).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/beat" },
+          "minItems": 3,
+          "maxItems": 7
+        }
+      },
+      "required": ["actors", "beats"],
+      "additionalProperties": false
+    },
+    "actor": {
+      "description": "A box on the scene's stage; its type says what it draws and which keys it reads.",
+      "oneOf": [
+        { "$ref": "#/$defs/actor.service" },
+        { "$ref": "#/$defs/actor.table" },
+        { "$ref": "#/$defs/actor.cluster" },
+        { "$ref": "#/$defs/actor.app" },
+        { "$ref": "#/$defs/actor.browser" },
+        { "$ref": "#/$defs/actor.terminal" },
+        { "$ref": "#/$defs/actor.file" },
+        { "$ref": "#/$defs/actor.chat" },
+        { "$ref": "#/$defs/actor.queue" },
+        { "$ref": "#/$defs/actor.gauge" }
+      ]
+    },
+    "actor.service": {
+      "description": "A service actor: a function at work and the checks it ticks off.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"service\".", "const": "service" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 38 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 34 },
+        "fn": { "description": "The function at work, e.g. \"createOrder()\".", "type": "string", "maxLength": 28 },
+        "checks": {
+          "description": "What it does, ticked off one by one (at most 5).",
+          "type": "array",
+          "items": { "description": "One check.", "type": "string", "maxLength": 28 },
+          "maxItems": 5
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.table": {
+      "description": "A table actor: a store's rows, shown as beats write them.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"table\".", "const": "table" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 46 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 42 },
+        "rows": {
+          "description": "Its rows (at most 3).",
+          "type": "array",
+          "items": {
+            "description": "A row: its id and status pills.",
+            "type": "object",
+            "properties": {
+              "id": { "description": "The row's id.", "type": "string" },
+              "chips": {
+                "description": "Its status pills.",
+                "type": "array",
+                "items": { "description": "One pill.", "type": "string" }
+              },
+              "old": { "description": "There from the start (not written by a beat).", "type": "boolean" }
+            },
+            "required": ["id"]
+          },
+          "maxItems": 3
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.cluster": {
+      "description": "A cluster actor: a namespace with pods, optionally one cluster inside it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"cluster\".", "const": "cluster" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 46 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 42 },
+        "pods": {
+          "description": "Its pods.",
+          "type": "array",
+          "items": {
+            "description": "A pod: a label and an optional note under it.",
+            "type": "object",
+            "properties": {
+              "label": { "description": "The pod's name.", "type": "string" },
+              "note": { "description": "The note under it.", "type": "string" },
+              "madeNote": { "description": "The note once a beat makes it (made).", "type": "string" },
+              "goneNote": {
+                "description": "The note once a beat removes it (gone; default \"gone\").",
+                "type": "string"
+              },
+              "ghost": { "description": "Not there until a beat makes it.", "type": "boolean" }
+            },
+            "required": ["label"]
+          }
+        },
+        "inner": {
+          "description": "A cluster inside this one (a virtual cluster in a namespace).",
+          "type": "object",
+          "properties": {
+            "label": { "description": "Its name.", "type": "string", "maxLength": 40 },
+            "sub": { "description": "A short qualifier after the name.", "type": "string", "maxLength": 36 },
+            "ghost": { "description": "Not there until a beat sets inner.", "type": "boolean" },
+            "pods": {
+              "description": "Its pods.",
+              "type": "array",
+              "items": {
+                "description": "A pod: a label and an optional note under it.",
+                "type": "object",
+                "properties": {
+                  "label": { "description": "The pod's name.", "type": "string" },
+                  "note": { "description": "The note under it.", "type": "string" },
+                  "madeNote": { "description": "The note once a beat makes it (made).", "type": "string" },
+                  "goneNote": {
+                    "description": "The note once a beat removes it (gone; default \"gone\").",
+                    "type": "string"
+                  },
+                  "ghost": { "description": "Not there until a beat makes it.", "type": "boolean" }
+                },
+                "required": ["label"]
+              }
+            }
+          }
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.app": {
+      "description": "A web app actor: a window with a brand, tabs and screens (dialog, detail, sign-in, own pages).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": {
+          "description": "The actor type: \"app\" (\"console\" in older journeys).",
+          "enum": ["app", "console"]
+        },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 42 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 38 },
+        "brand": { "description": "The app's name in the top bar.", "type": "string", "maxLength": 31 },
+        "logo": { "description": "The logo: 1 or 2 letters.", "type": "string", "maxLength": 2 },
+        "tabs": {
+          "description": "The tabs in the top bar (at most 3).",
+          "type": "array",
+          "items": { "description": "A tab name.", "type": "string", "maxLength": 10 },
+          "maxItems": 3
+        },
+        "screen": {
+          "description": "The screen shown first: \"dialog\", \"detail\", \"signin\" (or an older name) or one of its pages.",
+          "type": "string"
+        },
+        "dialog": {
+          "description": "The dialog screen: a list page with a dialog over it.",
+          "type": "object",
+          "properties": {
+            "tab": { "description": "The tab this screen marks.", "type": "string" },
+            "title": { "description": "The dialog's title.", "type": "string", "maxLength": 24 },
+            "item": { "description": "The chosen item.", "type": "string", "maxLength": 24 },
+            "lines": {
+              "description": "Label/value lines (at most 2).",
+              "type": "array",
+              "items": {
+                "description": "A [\"label\", \"value\"] line.",
+                "type": "array",
+                "prefixItems": [
+                  { "description": "The label.", "type": "string", "maxLength": 12 },
+                  { "description": "The value.", "type": "string", "maxLength": 18 }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "maxItems": 2
+            },
+            "button": { "description": "The button's text.", "type": "string", "maxLength": 18 }
+          },
+          "additionalProperties": false
+        },
+        "detail": {
+          "description": "The detail screen: a title, a status chip, cards, a timeline and two panes.",
+          "type": "object",
+          "properties": {
+            "tab": { "description": "The tab this screen marks.", "type": "string" },
+            "title": { "description": "The page title.", "type": "string", "maxLength": 22 },
+            "status": { "description": "The status chip's text.", "type": "string", "maxLength": 12 },
+            "tone": { "description": "The status chip's tone.", "enum": ["neutral", "active", "good", "bad"] },
+            "empty": { "description": "What it says when there is nothing yet.", "type": "string", "maxLength": 30 },
+            "cards": {
+              "description": "Its cards (the first 2 are drawn).",
+              "type": "array",
+              "items": {
+                "description": "A card: a finding with a severity dot.",
+                "type": "object",
+                "properties": {
+                  "sev": {
+                    "description": "Its severity: \"low\", \"medium\", \"high\" or \"critical\".",
+                    "type": "string"
+                  },
+                  "title": { "description": "What it says.", "type": "string", "maxLength": 32 }
+                }
+              }
+            },
+            "timeline": {
+              "description": "Its timeline rows.",
+              "type": "array",
+              "items": { "description": "One row.", "type": "string", "maxLength": 36 }
+            },
+            "picture": { "description": "What the live picture pane shows.", "type": "string", "maxLength": 38 },
+            "placeholder": { "description": "The chat box's placeholder text.", "type": "string", "maxLength": 32 },
+            "chat": {
+              "description": "Chat messages of the detail page.",
+              "type": "array",
+              "items": {
+                "description": "A chat message.",
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "description": "Who says it: \"me\" or \"them\" (\"you\" and \"agent\" are read too).",
+                    "enum": ["me", "them", "you", "agent"]
+                  },
+                  "text": { "description": "What is said, one line.", "type": "string", "maxLength": 32 }
+                },
+                "required": ["from", "text"]
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "signin": {
+          "description": "The sign-in screen: a title, a notice and one button.",
+          "type": "object",
+          "properties": {
+            "title": { "description": "The title.", "type": "string", "maxLength": 22 },
+            "notice": { "description": "The notice.", "type": "string", "maxLength": 40 },
+            "provider": { "description": "The sign-in provider's name.", "type": "string", "maxLength": 10 },
+            "button": { "description": "The button's text.", "type": "string", "maxLength": 24 }
+          },
+          "additionalProperties": false
+        },
+        "pages": {
+          "description": "Its own pages by name: {tab, title, chip?, tone?, banner?, rows: [[label, value]], button?} each.",
+          "type": "object",
+          "properties": {}
+        },
+        "test": { "description": "Older journeys: the dialog's item.", "type": "string", "maxLength": 22 },
+        "env": { "description": "Older journeys: the dialog's environment line.", "type": "string", "maxLength": 18 },
+        "findings": {
+          "description": "Older journeys: the detail page's cards.",
+          "type": "array",
+          "items": {
+            "description": "A card: a finding with a severity dot.",
+            "type": "object",
+            "properties": {
+              "sev": {
+                "description": "Its severity: \"low\", \"medium\", \"high\" or \"critical\".",
+                "type": "string"
+              },
+              "title": { "description": "What it says.", "type": "string", "maxLength": 32 }
+            }
+          }
+        },
+        "timeline": {
+          "description": "Older journeys: the detail page's timeline rows.",
+          "type": "array",
+          "items": { "description": "One row.", "type": "string", "maxLength": 36 }
+        },
+        "status": { "description": "Older journeys: the detail page's status.", "type": "string", "maxLength": 12 },
+        "provider": { "description": "Older journeys: the sign-in provider.", "type": "string", "maxLength": 10 },
+        "chat": {
+          "description": "Chat messages of the detail page.",
+          "type": "array",
+          "items": {
+            "description": "A chat message.",
+            "type": "object",
+            "properties": {
+              "from": {
+                "description": "Who says it: \"me\" or \"them\" (\"you\" and \"agent\" are read too).",
+                "enum": ["me", "them", "you", "agent"]
+              },
+              "text": { "description": "What is said, one line.", "type": "string", "maxLength": 32 }
+            },
+            "required": ["from", "text"]
+          }
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.browser": {
+      "description": "A browser actor: a small shop page with two products, a cart and an address bar.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"browser\".", "const": "browser" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 42 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 38 },
+        "url": { "description": "The address shown.", "type": "string", "maxLength": 32 },
+        "title": { "description": "The shop's name.", "type": "string", "maxLength": 20 },
+        "shop": { "description": "The shop's name (when title is not set).", "type": "string", "maxLength": 20 },
+        "products": {
+          "description": "The products shown (the first 2): a name, or [name, ...].",
+          "type": "array",
+          "prefixItems": [
+            {
+              "description": "A product shown: its name, or [name, ...].",
+              "anyOf": [
+                { "description": "The product's name.", "type": "string", "maxLength": 14 },
+                {
+                  "description": "The product: [name, ...].",
+                  "type": "array",
+                  "prefixItems": [{ "description": "The product's name.", "type": "string", "maxLength": 14 }]
+                }
+              ]
+            },
+            {
+              "description": "A product shown: its name, or [name, ...].",
+              "anyOf": [
+                { "description": "The product's name.", "type": "string", "maxLength": 14 },
+                {
+                  "description": "The product: [name, ...].",
+                  "type": "array",
+                  "prefixItems": [{ "description": "The product's name.", "type": "string", "maxLength": 14 }]
+                }
+              ]
+            }
+          ],
+          "items": { "description": "A product not shown: a name, or [name, ...].", "type": ["string", "array"] }
+        },
+        "button": { "description": "The products' button text.", "type": "string", "maxLength": 13 },
+        "cart": { "description": "The cart's text.", "type": "string", "maxLength": 10 },
+        "markLabel": { "description": "The label of the highlight on the cart.", "type": "string", "maxLength": 18 },
+        "lock": {
+          "description": "Before the address: \"ok\" (a padlock) or \"warn\" (\"Not secure\").",
+          "type": "string"
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.terminal": {
+      "description": "A terminal actor: commands and what they print, shown as beats reveal them.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"terminal\".", "const": "terminal" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 42 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 38 },
+        "lines": {
+          "description": "Its lines: a command (\"$ npm test\") or a printed line.",
+          "type": "array",
+          "items": { "description": "One line.", "type": "string", "maxLength": 36 }
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.file": {
+      "description": "A file (or folder) actor: its lines as they are in it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"file\".", "const": "file" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 42 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 38 },
+        "from": {
+          "description": "The number of its first line (line numbers are shown then).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "lines": {
+          "description": "Its lines (34 characters each, 30 with line numbers).",
+          "type": "array",
+          "items": { "description": "One line.", "type": "string", "maxLength": 34 }
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "description": "With line numbers: lines of at most 30 characters.",
+          "required": ["from"],
+          "properties": {
+            "lines": {
+              "description": "Its lines.",
+              "type": "array",
+              "items": { "description": "One line.", "type": "string", "maxLength": 30 }
+            }
+          }
+        },
+        {
+          "description": "Without line numbers.",
+          "properties": { "from": { "description": "Absent.", "type": "null" } }
+        }
+      ]
+    },
+    "actor.chat": {
+      "description": "A chat actor: a conversation, one line per message.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"chat\".", "const": "chat" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 42 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 38 },
+        "messages": {
+          "description": "Its messages.",
+          "type": "array",
+          "items": {
+            "description": "A message.",
+            "type": "object",
+            "properties": {
+              "from": { "description": "Who says it.", "enum": ["me", "them"] },
+              "text": {
+                "description": "What is said, one line (38 characters, 32 for a tool call).",
+                "type": "string",
+                "maxLength": 38
+              },
+              "tool": { "description": "A tool call or its result (set in the code font).", "type": "boolean" }
+            },
+            "required": ["from", "text"],
+            "anyOf": [
+              {
+                "description": "A tool call: at most 32 characters.",
+                "required": ["tool"],
+                "properties": {
+                  "tool": { "description": "A tool call.", "const": true },
+                  "text": { "description": "What is said.", "type": "string", "maxLength": 32 }
+                }
+              },
+              {
+                "description": "A plain message.",
+                "properties": { "tool": { "description": "Not a tool call.", "const": false } }
+              }
+            ]
+          }
+        }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.queue": {
+      "description": "A queue actor: slots taken as items arrive.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"queue\".", "const": "queue" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 46 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 42 },
+        "slots": { "description": "How many places (at most 8 are drawn).", "type": "integer", "minimum": 1 },
+        "cap": { "description": "Its real size in words, e.g. \"256 slots\".", "type": "string", "maxLength": 44 }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "actor.gauge": {
+      "description": "A gauge actor: a limit and how much of it is taken.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The actor's id, unique in the scene; beats, wires and packets name it. Not \"all\".",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "type": { "description": "The actor type: \"gauge\".", "const": "gauge" },
+        "col": {
+          "description": "The column it is drawn in, 0-3 (default 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "label": { "description": "The name on the box's top line.", "type": "string", "maxLength": 46 },
+        "sub": { "description": "A short qualifier shown after the label.", "type": "string", "maxLength": 42 },
+        "max": { "description": "The limit, a number above 0.", "type": "number", "minimum": 0 },
+        "unit": { "description": "The unit, e.g. \"GiB\".", "type": "string" },
+        "used": { "description": "How much is taken at the start.", "type": "number" }
+      },
+      "required": ["id", "type", "max"],
+      "additionalProperties": false
+    },
+    "beat": {
+      "description": "One beat: the camera on one actor, a caption, and what changes.",
+      "type": "object",
+      "properties": {
+        "focus": {
+          "description": "The actor the camera goes to (an actor id; not \"all\").",
+          "type": "string",
+          "pattern": "^(?!all$)[\\s\\S]"
+        },
+        "caption": { "description": "What happens, in one short sentence.", "type": "string", "pattern": "\\S" },
+        "muted": { "description": "More words after the caption, greyed.", "type": "string" },
+        "set": {
+          "description": "What changes, by actor id: {actorId: {...}} (see $defs setState.*).",
+          "type": "object",
+          "properties": {}
+        },
+        "packet": {
+          "description": "A pill that travels a wire as the beat starts.",
+          "type": "object",
+          "properties": {
+            "from": { "description": "The sending actor's id.", "type": "string" },
+            "to": { "description": "The receiving actor's id.", "type": "string" },
+            "label": { "description": "What travels.", "type": "string" }
+          },
+          "required": ["from", "to"]
+        },
+        "click": {
+          "description": "A click: the browser actor's id, or (with an app actor) true or its id.",
+          "type": ["string", "boolean"]
+        },
+        "flash": { "description": "A screenshot flash on this browser actor (its id).", "type": "string" },
+        "code": {
+          "description": "The line that does what the beat shows (the extension lights it).",
+          "type": "object",
+          "properties": {
+            "file": { "description": "The file, relative to the repository.", "type": "string" },
+            "line": { "description": "The line number (1-based).", "type": "integer", "minimum": 1 },
+            "text": {
+              "description": "The trimmed text of that line (to find it again).",
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "required": ["file", "line", "text"]
+        },
+        "example": {
+          "description": "An example of the value in play at that line (written by the author).",
+          "type": "object",
+          "properties": {
+            "label": { "description": "What the example is.", "type": "string" },
+            "value": { "description": "The example value.", "type": "string" },
+            "lang": { "description": "The language to show it in.", "type": "string" }
+          }
+        },
+        "hold": { "description": "How long the beat is held when played (milliseconds).", "type": "number" },
+        "marks": {
+          "$ref": "marks.schema.json#/$defs/marks",
+          "description": "Parts of the code lit while the beat is (file default: the beat's code file, else the step's)."
+        }
+      },
+      "required": ["focus", "caption"],
+      "additionalProperties": false
+    },
+    "setState.service": {
+      "description": "What a beat changes on a service.",
+      "type": "object",
+      "properties": { "done": { "description": "How many checks are ticked.", "type": "integer", "minimum": 0 } },
+      "additionalProperties": false
+    },
+    "setState.table": {
+      "description": "What a beat changes on a table.",
+      "type": "object",
+      "properties": {
+        "show": { "description": "How many rows are there (after the old ones).", "type": "integer", "minimum": 0 },
+        "hi": { "description": "The row just written (-1: none).", "type": "integer", "minimum": -1 },
+        "chips": { "description": "Rows' pills now, by row index.", "type": "object", "properties": {} }
+      },
+      "additionalProperties": false
+    },
+    "setState.cluster": {
+      "description": "What a beat changes on a cluster.",
+      "type": "object",
+      "properties": {
+        "mark": { "description": "The pod pointed at (-1: none).", "type": "integer", "minimum": -1 },
+        "made": {
+          "description": "Ghost pods that exist now.",
+          "type": "array",
+          "items": { "description": "A pod index.", "type": "integer", "minimum": 0 }
+        },
+        "gone": {
+          "description": "Pods that are gone now.",
+          "type": "array",
+          "items": { "description": "A pod index.", "type": "integer", "minimum": 0 }
+        },
+        "inner": { "description": "The inner cluster is there.", "type": "boolean" },
+        "innerMade": {
+          "description": "Inner ghost pods that exist now.",
+          "type": "array",
+          "items": { "description": "A pod index.", "type": "integer", "minimum": 0 }
+        },
+        "innerMark": { "description": "The inner pod pointed at (-1: none).", "type": "integer", "minimum": -1 },
+        "innerGone": {
+          "description": "Inner pods that are gone now.",
+          "type": "array",
+          "items": { "description": "A pod index.", "type": "integer", "minimum": 0 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "setState.browser": {
+      "description": "What a beat changes on a browser.",
+      "type": "object",
+      "properties": {
+        "click": { "description": "The first product's button is pressed.", "type": "boolean" },
+        "mark": { "description": "The highlight on the cart is on.", "type": "boolean" },
+        "lock": { "description": "The padlock: \"ok\", \"warn\" or \"\" (none).", "enum": ["ok", "warn", ""] }
+      },
+      "additionalProperties": false
+    },
+    "setState.terminal": {
+      "description": "What a beat changes on a terminal.",
+      "type": "object",
+      "properties": {
+        "show": { "description": "How many lines are there.", "type": "integer", "minimum": 0 },
+        "hi": { "description": "The line just printed (-1: none).", "type": "integer", "minimum": -1 }
+      },
+      "additionalProperties": false
+    },
+    "setState.file": {
+      "description": "What a beat changes on a file.",
+      "type": "object",
+      "properties": {
+        "show": { "description": "How many lines are there.", "type": "integer", "minimum": 0 },
+        "hi": {
+          "description": "The line (or [first, last]) the beat is about.",
+          "anyOf": [
+            { "description": "A line index.", "type": "integer", "minimum": -1 },
+            {
+              "description": "[first, last] line indexes.",
+              "type": "array",
+              "prefixItems": [
+                { "description": "The first line index.", "type": "integer", "minimum": -1 },
+                { "description": "The last line index.", "type": "integer", "minimum": -1 }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        },
+        "text": {
+          "description": "Lines that read differently now, by line index.",
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "setState.chat": {
+      "description": "What a beat changes on a chat.",
+      "type": "object",
+      "properties": {
+        "show": { "description": "How many messages are there.", "type": "integer", "minimum": 0 },
+        "hi": { "description": "The message just said (-1: none).", "type": "integer", "minimum": -1 }
+      },
+      "additionalProperties": false
+    },
+    "setState.queue": {
+      "description": "What a beat changes on a queue.",
+      "type": "object",
+      "properties": {
+        "fill": { "description": "How many places are taken.", "type": "integer", "minimum": 0 },
+        "drop": { "description": "One more arrived and did not fit.", "type": "boolean" },
+        "note": { "description": "What it says underneath.", "type": "string", "maxLength": 44 }
+      },
+      "additionalProperties": false
+    },
+    "setState.gauge": {
+      "description": "What a beat changes on a gauge.",
+      "type": "object",
+      "properties": {
+        "used": { "description": "How much is taken.", "type": "number", "minimum": 0 },
+        "want": { "description": "How much is asked for on top.", "type": "number", "minimum": 0 },
+        "note": { "description": "What it says underneath.", "type": "string", "maxLength": 44 }
+      },
+      "additionalProperties": false
+    },
+    "setState.app": {
+      "description": "What a beat changes on a web app.",
+      "type": "object",
+      "properties": {
+        "screen": { "description": "The screen shown.", "type": "string" },
+        "status": { "description": "The detail page's status.", "type": "string", "maxLength": 12 },
+        "tone": { "description": "The status chip's tone.", "enum": ["neutral", "active", "good", "bad"] },
+        "findings": { "description": "Older journeys: how many cards are there.", "type": "integer", "minimum": 0 },
+        "cards": { "description": "How many cards are there.", "type": "integer", "minimum": 0 },
+        "events": { "description": "How many timeline rows are there.", "type": "integer", "minimum": 0 },
+        "newFinding": { "description": "Older journeys: the card just added.", "type": "integer", "minimum": -1 },
+        "newCard": { "description": "The card just added (-1: none).", "type": "integer", "minimum": -1 },
+        "newEvent": { "description": "The timeline row just added (-1: none).", "type": "integer", "minimum": -1 },
+        "ended": { "description": "The session ended (the sign-in notice shows).", "type": "boolean" },
+        "notice": { "description": "The sign-in notice shows.", "type": "boolean" },
+        "redirecting": { "description": "The sign-in button says it is redirecting.", "type": "boolean" },
+        "busy": { "description": "The dialog's button is busy.", "type": "boolean" },
+        "pane": {
+          "description": "The detail page's pane: \"picture\", \"chat\" (\"desktop\" in older journeys) or \"\" (none).",
+          "enum": ["picture", "chat", "desktop", ""]
+        },
+        "desktop": {
+          "description": "Older journeys: what the picture pane shows.",
+          "type": "string",
+          "maxLength": 38
+        },
+        "picture": { "description": "What the picture pane shows.", "type": "string", "maxLength": 38 },
+        "chat": { "description": "How many chat messages are there.", "type": "integer", "minimum": 0 },
+        "newChat": { "description": "The chat message just added (-1: none).", "type": "integer", "minimum": -1 },
+        "typing": { "description": "What is being typed in the chat box.", "type": "string", "maxLength": 32 },
+        "rows": { "description": "How many page rows are there.", "type": "integer", "minimum": 0 },
+        "hiRow": { "description": "The page row the beat is about (-1: none).", "type": "integer", "minimum": -1 },
+        "banner": { "description": "The page's banner shows.", "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

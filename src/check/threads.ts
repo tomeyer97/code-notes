@@ -1,137 +1,83 @@
 // The check's questions as note threads: a view of the check file, kept in sync with it. Every question has its
 // thread; answers and grades written elsewhere (the CLI, another window) are added to it; a thread whose question
-// changed or went is removed (a thread never stands for a question it didn't show).
-import * as fs from 'fs'
-import * as path from 'path'
-import { findCompact } from '../compact'
-import { captureAnchor, type NoteData } from '../noteModel'
-import type { Note } from '../store'
-import { Attempt, Check, notDone, Question } from './types'
-import { gradeBody, missingMessages, questionBody, showsGrade } from './threadText'
+// changed or went is removed (a thread never stands for a question it didn't show). What changes is planned in
+// threadSync.ts (no I/O); this file reads and writes the notes.
+import * as vscode from 'vscode'
+import type { Note } from '../notes/store'
+import { diskLines } from '../platform/documents'
+import { type Check, notDone } from './types'
 import { AUTHOR, SESSION } from './constants'
-import { linkOf, sameQuestion, textHash } from './threadLink'
-import type { CheckController } from './controller'
+import { linkOf } from './threadLink'
+import { planSync, threadNoteData, type SyncPlan } from './threadSync'
+import type { CheckHost } from './host'
+import type { CheckCore } from './state'
 
-type Messages = NoteData['messages']
+/** What the threads need: the state, the CLI's question states, and the notes. */
+export interface ThreadsPorts extends Pick<CheckCore, 'state' | 'cli'> {
+  host: Pick<CheckHost, 'changed' | 'me' | 'newId' | 'now' | 'refresh' | 'store'>
+}
 
 export class CheckThreads {
   /** Check threads graded in this window: they stay open where they are (the reply is read next to the code). */
   readonly graded = new Set<string>()
+  /** Each question's thread as last found (checked again on each lookup: the store may have read it again). */
+  private found = new Map<string, Note>()
 
-  constructor(private ctl: CheckController) {}
+  constructor(private ports: ThreadsPorts) {}
 
-  private get host() { return this.ctl.host }
+  private get host() { return this.ports.host }
 
   /** The thread of question `id` of the check checked out now. */
   noteOf(id: string): Note | undefined {
-    const file = this.ctl.st?.file
-    return this.host.store.all().find((n) => linkOf(n)?.q === id && linkOf(n)?.file === file)
+    const file = this.ports.state.st?.file
+    const was = this.found.get(id)
+    const now = was && this.host.store.atUri(was.uri.toString())
+    const l = now && linkOf(now)
+    if (now && l?.q === id && l.file === file) return now
+    // Not found where it was: every note is looked at once, and each question's thread remembered.
+    this.found = new Map()
+    for (const n of this.threadsOf(file)) if (!this.found.has(linkOf(n)!.q)) this.found.set(linkOf(n)!.q, n)
+    return this.found.get(id)
   }
 
-  /** Brings every thread of `check` in line with it (see the top of this file). */
+  /** The notes linked to check file `file`. */
+  private threadsOf(file: string | undefined): Note[] {
+    return file === undefined ? [] : this.host.store.all().filter((n) => linkOf(n)?.file === file)
+  }
+
+  /** Brings every thread of `check` in line with it (see the top of this file and threadSync.ts). */
   async sync(check: Check): Promise<void> {
-    const file = this.ctl.st!.file
-    for (const n of this.host.store.all().filter((x) => linkOf(x)?.file === file)) {
-      const q = check.questions.find((x) => x.id === linkOf(n)!.q)
-      if (!q || !sameQuestion(n, q)) {
-        this.graded.delete(n.data.id)
-        await this.host.store.trash(n)
-        this.host.refresh()
-      }
-    }
-    for (const q of check.questions) {
-      const want = this.messagesOf(q, check)
-      const n = this.noteOf(q.id)
-      if (!n) { await this.create(q, want); continue }
-      // An answer the file no longer keeps (a later one superseded it): its copy in the note goes too.
-      if (this.dropSuperseded(n, q) && await this.host.store.save(n)) await this.host.changed(n, false)
-      const missing = missingMessages(n.data.messages, want)
-      if (!missing.length) continue
-      n.data.messages.push(...missing.map((m) => ({ ...m, at: m.at ?? this.host.now() })))
-      // Done: resolved quietly (the ✓ in the thread says it; no "Resolved" line under it).
-      if (!notDone(this.ctl.cli.stateOf(q)) && n.data.status === 'open') n.data.status = 'resolved'
-      if (await this.host.store.save(n)) await this.host.changed(n, false)
-    }
-  }
-
-  /**
-   * The thread messages a question's file entry stands for: the question, then each answer and its grade. A superseded
-   * answer (not kept in the file) is left out with its grade, except an explanation: that is the lesson.
-   */
-  private messagesOf(q: Question, check: Check): Messages {
-    const out: Messages = [{ author: AUTHOR, role: 'agent', body: questionBody(q) }]
-    let explained = false
-    for (const a of q.attempts ?? []) {
-      if (a.answer !== undefined) {
-        out.push({ author: a.by?.name ?? check.answeredBy?.name ?? this.host.me(), role: 'human', body: a.answer, ...(a.at ? { at: a.at } : {}) })
-      }
-      if (showsGrade(a)) {
-        out.push({ author: AUTHOR, role: 'agent', body: gradeBody(a, { restatement: explained }), ...(a.gradedAt ? { at: a.gradedAt } : {}) })
-      }
-      if (a.verdict === 'explained') explained = true
-    }
-    return out
-  }
-
-  /**
-   * A thread's copies of answers the file no longer keeps (a later one superseded them) go, with the grade under each
-   * (an explanation stays). They are the thread's answers before the last kept one that aren't kept; matched from the
-   * last, the n-th such answer from the end is the n-th superseded attempt from the end.
-   */
-  private dropSuperseded(n: Note, q: Question): boolean {
-    const attempts = q.attempts ?? []
-    // The attempts whose answer the file no longer keeps, and the answers it keeps.
-    const superseded = attempts.filter((a) => a.answer === undefined)
-    const kept = new Set(attempts.flatMap((a) => (a.answer !== undefined ? [a.answer] : [])))
-    const messages = n.data.messages
-    const isKeptAnswer = (m: Messages[number]) => m.role === 'human' && kept.has(m.body)
-    let lastKept = -1
-    messages.forEach((m, i) => { if (isKeptAnswer(m)) lastKept = i })
-    if (!superseded.length || lastKept < 0) return false
-    // The thread's other answers before it (message indexes), newest first.
-    const oldAnswers = messages.flatMap((m, i) => (i > 0 && i < lastKept && m.role === 'human' && !kept.has(m.body) ? [i] : []))
-    if (!oldAnswers.length) return false
-    const newestFirst = oldAnswers.reverse()
-    const drop = new Set<number>()
-    newestFirst.forEach((answer, k) => {
-      // The k-th old answer from the end stands for the k-th superseded attempt from the end.
-      const attempt: Attempt | undefined = superseded.at(-1 - k)
-      drop.add(answer)
-      // Its grade (the next message) goes with it, unless it explained.
-      if (messages[answer + 1]?.role === 'agent' && attempt?.verdict !== 'explained') drop.add(answer + 1)
+    const st = this.ports.state.st!
+    const plan = planSync(check, this.threadsOf(st.file), {
+      stateOf: (q) => this.ports.cli.stateOf(q), me: this.host.me(), author: AUTHOR, now: this.host.now(),
     })
-    n.data.messages = messages.filter((_m, i) => !drop.has(i))
-    return true
+    await this.apply(plan)
+  }
+
+  private async apply(plan: SyncPlan): Promise<void> {
+    for (const n of plan.trash) {
+      this.graded.delete(n.data.id)
+      await this.host.store.trash(n)
+    }
+    if (plan.trash.length) this.host.refresh()
+    for (const c of plan.create) await this.create(c.q, c.messages)
+    for (const u of plan.update) {
+      u.note.data.messages = u.messages
+      u.note.data.status = u.status
+      if (await this.host.store.save(u.note)) await this.host.changed(u.note, false)
+    }
   }
 
   /** A new thread for question `q` on its lines (found again by its anchor when the code moved). */
-  private async create(q: Question, messages: Messages): Promise<void> {
-    const ctl = this.ctl, folder = ctl.folder!
-    let lines: string[]
-    try { lines = fs.readFileSync(path.join(folder.uri.fsPath, q.file), 'utf8').split(/\r?\n/) } catch { return /* its file is gone */ }
-    let start = q.start ?? 1, end = q.end ?? start
-    if (!q.target && q.anchor) {
-      const f = findCompact(lines, q.anchor, start - 1)
-      if (f.state !== 'gone') { start = f.loc.start + 1; end = f.loc.end + 1 }
-    }
-    start = clamp(start, 1, lines.length)
-    end = clamp(end, start, lines.length)
-    const at = this.host.now()
+  private async create(q: Check['questions'][number], messages: SyncPlan['create'][number]['messages']): Promise<void> {
+    const ports = this.ports, folder = ports.state.folder!, st = ports.state.st!
+    const lines = await diskLines(vscode.Uri.joinPath(folder.uri, q.file))
+    // Its file is gone: no thread until it is back.
+    if (!lines) return
     const id = this.host.newId()
-    const done = !notDone(ctl.cli.stateOf(q))
-    const n: Note = {
-      folder, uri: this.host.store.uriFor(folder, id),
-      data: {
-        id, file: q.file, range: { start, end },
-        anchor: q.target ? { text: '', before: '', after: '' } : captureAnchor(lines, start - 1, end - 1),
-        session: SESSION(ctl.st!.branch), status: done ? 'resolved' : 'open', stale: false, createdAt: at,
-        messages: messages.map((m) => ({ ...m, at: m.at ?? at })),
-        ...(q.target ? { target: 'file' as const } : {}),
-        extra: { check: { file: ctl.st!.file, q: q.id, h: textHash(q) } },
-      },
-    }
+    const done = !notDone(ports.cli.stateOf(q))
+    const data = threadNoteData(q, lines, { id, at: this.host.now(), checkFile: st.file, session: SESSION(st.branch), done, messages })
+    const n: Note = { folder, uri: this.host.store.uriFor(folder, id), data }
     if (await this.host.store.save(n)) await this.host.changed(n, true)
   }
 }
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(lo, v), hi)

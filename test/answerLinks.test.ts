@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { linkify } from '../src/linkifyAnswer'
-import { linkTarget } from '../src/linkUri'
+import { ANSWER_LINK_PATTERNS, linkify } from '../src/core/linkifyAnswer'
+import { linkTarget } from '../src/core/linkUri'
 
 const link = (t: string, f: string, l?: string) => `[${t}](cmd:${f}:${l ?? 1})`
 
@@ -49,4 +49,24 @@ test('linkTarget: a vscode://…/link query as the file and its lines (end never
   assert.equal(linkTarget('file=a.ts&start=0'), undefined)
   assert.equal(linkTarget('file=a.ts'), undefined)
   assert.equal(linkTarget('start=3'), undefined)
+})
+
+test('the reference patterns, case by case: the bare reference assembled, and what each pattern finds', () => {
+  const P = ANSWER_LINK_PATTERNS
+  // The bare reference as a reader would have to assemble it: not after a word, "/", "~", ".", "-" or a kept link;
+  // an optional backtick; the path (folders, then a file name); its line.
+  assert.equal(P.BARE_REF.source,
+    String.raw`(?<![\w/~.\-\u0000])` + '`?((?:[\\w.-]+\\/)+[\\w.-]+\\.[a-zA-Z]{1,6})' + String.raw`(?::(\d+)(?:-\d+)?|#L(\d+))` + '`?')
+  const all = (re: RegExp, s: string) => [...s.matchAll(new RegExp(re.source, 'g'))].map((m) => [...m])
+  const table: [RegExp, string, (string | undefined)[][]][] = [
+    [P.IMAGE, 'see ![chart](img/a.png "t")', [['![chart](img/a.png "t")', 'chart', 'img/a.png']]],
+    [P.MD_LINK, '[the parser](src/parse.ts#L12 "t")', [['[the parser](src/parse.ts#L12 "t")', 'the parser', 'src/parse.ts#L12']]],
+    [P.NOT_A_FILE, 'https://x.y', [['https:']]],
+    [P.NOT_A_FILE, 'src/a.ts', []],
+    [P.TARGET, 'src/a.ts#L12-L20', [['src/a.ts#L12-L20', 'src/a.ts', '12', undefined]]],
+    [P.BARE_REF, 'at src/a.ts:12-20.', [['src/a.ts:12-20', 'src/a.ts', '12', undefined]]],
+    [P.BARE_REF, '(`src/a.ts#L4`)', [['`src/a.ts#L4`', 'src/a.ts', undefined, '4']]],
+    [P.BARE_REF, 'a.ts:3 ~/x/b.ts:2 lib/src/c.ts:1', [['lib/src/c.ts:1', 'lib/src/c.ts', '1', undefined]]],
+  ]
+  for (const [re, text, want] of table) assert.deepEqual(all(re, text), want, `${text}`)
 })

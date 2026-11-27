@@ -1,19 +1,14 @@
-// The running tour's state: which journey and step, the step card's state, what the editor shows for it, and what
-// the integration tests read. One object (instances.ts makes it), passed to the walk and the card; the other tour modules
-// import it. The keys it is stored under in the workspace are here too.
+// The running tour's state: which journey and step, what the editor shows for it, and the step card's state. One
+// object per window (createTour makes it), passed to the walk and the card; other features read it as a TourView
+// (api.ts). What is stored across reloads is in platform/state.ts.
 import type * as vscode from 'vscode'
+import type { TourView } from './api'
 import type { StepRef } from './stepText'
-
-/** Stored in the workspace: the running tour's posKey (restored after a reload), where each journey was left
- *  (posKey -> { step, id, at }), and the journey last shown on the map. */
-export const TOUR_KEY = 'codeNotes.tour'
-export const POS_KEY = 'codeNotes.journeyPos'
-export const MAP_KEY = 'codeNotes.mapJourney'
 
 /** Where a step was shown: its journey, id, file and lines, and where the journey file put it then (`wrote`). */
 export interface ShownAt { key: string; id: string; file: string; start: number; end: number; removed: boolean; wrote: string }
 
-export class TourState {
+export class TourState implements TourView {
   // ---------- where the walk is (walk.ts) ----------
 
   /** The journey whose map is open (its file URI), and the step shown (1-based; 0: browsing the map, no tour running). */
@@ -69,17 +64,42 @@ export class TourState {
   readonly refGone = new Set<string>()
   readonly refLines = new Map<string, number>()
 
-  // ---------- for the integration tests ----------
+  /** The tour is on step n of this journey (whether or not a step is shown). */
+  isAt(lj: { key: string }, n: number): boolean {
+    return this.key === lj.key && this.step === n
+  }
 
+  /** What the integration tests read of where the walk is. */
+  snapshot() {
+    return { step: this.step, cp: this.checkpointId, fileGone: this.fileGone, ref: this.refHere, codeColumn: this.doc?.column }
+  }
+
+  // ---------- moves made outside the walk (commands.ts) ----------
+
+  /** A journey's map is open with no step shown (its walk not running). */
+  browse(key: string): void {
+    this.key = key
+    this.step = 0
+    this.stepId = undefined
+  }
+
+  /** The walk ended (its place is stored): no step, nothing opened for it; the journey's map may stay. */
+  stop(): void {
+    this.doc = undefined
+    this.step = 0
+    this.stepId = undefined
+  }
+}
+
+/**
+ * What the integration tests read of the tour that nothing else needs: written where it happens, read only by the
+ * test API (tour/testing.ts). Kept apart so TourState holds only what drives the tour.
+ */
+export class TourProbe {
   /** The last ref opened as a peek under the step. */
   lastPeek: { uri: string; start: number; end: number; under?: number } | undefined
   /** A journey left for another one mid-way: where. */
   lastLeft: { title: string; at: string } | undefined
   /** Editors (their file) that show the step's bar now. */
   marked: string[] = []
-
-  /** The tour is on step n of this journey (whether or not a step is shown). */
-  isAt(lj: { key: string }, n: number): boolean {
-    return this.key === lj.key && this.step === n
-  }
 }

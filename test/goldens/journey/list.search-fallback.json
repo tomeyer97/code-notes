@@ -1,0 +1,80 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "zebra retry",
+  "sort": "area",
+  "searchSort": "best",
+  "kind": "all",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "fallback": {
+    "missing": [
+      "zebra"
+    ],
+    "note": "No journey about “zebra”; closest for “retry”"
+  },
+  "sections": [
+    {
+      "id": "results",
+      "label": "2 found",
+      "keys": [
+        "k18",
+        "k11"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [],
+      "children": [
+        {
+          "id": "area:worker",
+          "label": "worker",
+          "keys": [
+            "k11",
+            "k18"
+          ]
+        }
+      ]
+    }
+  ],
+  "count": 2,
+  "total": 35,
+  "hits": {
+    "k11": [
+      "retries"
+    ],
+    "k18": [
+      "retries"
+    ]
+  }
+}

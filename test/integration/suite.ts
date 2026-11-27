@@ -1,30 +1,11 @@
 // The main integration suite. Runs inside a real VS Code (see run.ts): drives the extension the way a person and an
-// agent would, in one window and one workspace, each test starting from what the one before left.
-//
-// Where the tests are (and the source files they cover most):
-//   main/notes.ts          notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask/, claude.ts
-//   main/journeyTour.ts    walking a journey, step cards, lenses   journeys/, journeyModel.ts, tour/
-//   main/keysAndMap.ts     chord keys, the tutorial, the whole map package.json keybindings, tutorialSpot.ts
-//   main/journeyFiles.ts   a journey's files changing under it     journeys/, gitRenames.ts, anchor.ts, compact.ts
-//   main/notesReview.ts    findings: R, severity, history, suggestions, file and folder notes   notes/, sidebar/, noteModel.ts
-//   main/writeJourney.ts   the agent writes a journey              write/, writing.ts, claude.ts
-//   main/repoJourneys.ts   journeys in the repo, compact anchors   journeys/, compact.ts
-//   main/requests.ts       the request file and vscode:// links    write/, match.ts, writing.ts
-//   main/animation.ts      code links, value hints, animations     codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts
-//   main/roundTrips.ts     calls into the window per action (remote performance), on the journey animation.ts leaves
-//   main/journeyMarks.ts   a walked step's marks and its beats'    tour/stepMarks.ts, marks/lights.ts, card.ts, beats.ts
-//   main/podcast.ts        a journey's podcast: the walk follows the audio, seeks, the audio while hidden   podcast/
-//   main/listenEditor.ts   the editor while a podcast plays: the card, the marks, what goes quiet   tour/card.ts, podcast/marks.ts
+// agent would, in one window and one workspace. `chapters` below is the suite: its order is the order the tests run
+// in, and ONLY=<name> runs some of them (each chapter's setup gives it what the chapters before would have).
 // The pure modules have unit tests next to this folder, named after the module: src/<module>.ts in
 // test/<module>.test.ts, src/<folder>/<module>.ts in test/<folder, singular><Module>.test.ts (src/journeys/steps.ts:
 // journeySteps.test.ts, src/tour/stepText.ts: tourStepText.test.ts).
-// Set up here: `ctx` (main/context.ts). The fake claude CLI is wired up later, by the first test that asks Claude
-// (main/notes.ts "Ask Claude: …", `useFakeClaude`): set earlier, every note created before it would be asked to
-// Claude (src/notes/create.ts). The tests after it (writeJourney.ts, requests.ts) read its log.
-import * as vscode from 'vscode'
-import * as path from 'path'
-import { activate, runTests } from './helpers'
-import { ctx } from './main/context'
+import { Chapter, createSuiteContext, runChapters } from './helpers'
+import { notesFolderWatched, setMainContext, useFakeClaude } from './main/context'
 import { notesTests } from './main/notes'
 import { journeyTourTests } from './main/journeyTour'
 import { keysAndMapTests } from './main/keysAndMap'
@@ -39,33 +20,46 @@ import { roundTripsTests } from './main/roundTrips'
 import { podcastTests } from './main/podcast'
 import { listenEditorTests } from './main/listenEditor'
 
+/**
+ * The fake claude CLI, wired up for a chapter that runs after the notes chapter. The notes chapter wires it up
+ * itself, part-way through (set earlier, every note it creates before would be asked to Claude: src/notes/create.ts).
+ */
+const fakeClaude = { setup: useFakeClaude }
+
+/** The main suite's chapters, in the order they run (and the source files each covers most). */
+export const chapters: Chapter[] = [
+  { name: 'notes', file: 'main/notes.ts', tests: notesTests,
+    covers: 'notes from the first one to the trash   notes/, threads/, store.ts, anchor.ts, ask/, claude.ts' },
+  { name: 'journeyTour', file: 'main/journeyTour.ts', tests: journeyTourTests,
+    setup: async () => { await notesFolderWatched(); await useFakeClaude() },
+    covers: 'walking a journey, step cards, lenses   journeys/, journeyModel.ts, tour/' },
+  { name: 'keysAndMap', file: 'main/keysAndMap.ts', tests: keysAndMapTests, ...fakeClaude,
+    covers: 'chord keys, the tutorial, the whole map   package.json keybindings, tutorialSpot.ts' },
+  { name: 'journeyFiles', file: 'main/journeyFiles.ts', tests: journeyFilesTests, ...fakeClaude,
+    covers: 'a journey\'s files changing under it   journeys/, gitRenames.ts, anchor.ts, compact.ts' },
+  { name: 'notesReview', file: 'main/notesReview.ts', tests: notesReviewTests, ...fakeClaude,
+    covers: 'findings: R, severity, history, suggestions, file and folder notes   notes/, sidebar/, noteModel.ts' },
+  { name: 'writeJourney', file: 'main/writeJourney.ts', tests: writeJourneyTests, ...fakeClaude,
+    covers: 'the agent writes a journey   write/, writing.ts, claude.ts' },
+  { name: 'repoJourneys', file: 'main/repoJourneys.ts', tests: repoJourneysTests, ...fakeClaude,
+    covers: 'journeys in the repo, compact anchors   journeys/, compact.ts' },
+  { name: 'requests', file: 'main/requests.ts', tests: requestsTests, ...fakeClaude,
+    covers: 'the request file and vscode:// links   write/, match.ts, writing.ts' },
+  { name: 'animation', file: 'main/animation.ts', tests: animationTests, ...fakeClaude,
+    covers: 'code links, value hints, animations   codeLinks.ts, codeLinkText.ts, valueHints.ts, beats.ts, lineFollow.ts' },
+  { name: 'roundTrips', file: 'main/roundTrips.ts', tests: roundTripsTests, ...fakeClaude,
+    covers: 'calls into the window per action (remote performance), on the journey animation.ts leaves' },
+  { name: 'journeyMarks', file: 'main/journeyMarks.ts', tests: journeyMarksTests, ...fakeClaude,
+    covers: 'a walked step\'s marks and its beats\'   tour/stepMarks.ts, marks/lights.ts, card.ts, beats.ts' },
+  { name: 'podcast', file: 'main/podcast/', tests: podcastTests, ...fakeClaude,
+    covers: 'a journey\'s podcast: the walk follows the audio, seeks, the audio while hidden   podcast/' },
+  { name: 'listenEditor', file: 'main/listenEditor.ts', tests: listenEditorTests, ...fakeClaude,
+    covers: 'the editor while a podcast plays: the card, the marks, what goes quiet   tour/card.ts, podcast/marks.ts' },
+]
+
 /** The entry point run.ts starts VS Code with (extensionTestsPath). */
 export async function run(): Promise<void> {
-  console.log('code-notes integration test')
-  ctx.folder = vscode.workspace.workspaceFolders![0]
-  ctx.ws = ctx.folder.uri.fsPath
-  ctx.notesDir = path.join(ctx.ws, '.code-notes')
-  ctx.api = await activate()
-  // ONLY_PODCAST=1: main/podcast.ts and listenEditor.ts alone (they build on nothing before them); =editor: the latter.
-  if (process.env.ONLY_PODCAST) {
-    await runTests(process.env.ONLY_PODCAST === 'editor' ? listenEditorTests : [...podcastTests, ...listenEditorTests])
-    console.log('all passed')
-    return
-  }
-  await runTests([
-    ...notesTests,
-    ...journeyTourTests,
-    ...keysAndMapTests,
-    ...journeyFilesTests,
-    ...notesReviewTests,
-    ...writeJourneyTests,
-    ...repoJourneysTests,
-    ...requestsTests,
-    ...animationTests,
-    ...roundTripsTests,
-    ...journeyMarksTests,
-    ...podcastTests,
-    ...listenEditorTests,
-  ])
+  setMainContext(await createSuiteContext())
+  await runChapters('code-notes integration test', chapters)
   console.log('all passed')
 }

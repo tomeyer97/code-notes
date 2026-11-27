@@ -11,6 +11,7 @@ export function allow(customer, now = Date.now()) {
 export function reset(customer) {
   counts.delete(customer)
 }
+// Padding: the check suite's change (run.ts commits this file on feat/limits) needs 60+ lines for 3 questions and a 6-step tour (cli/understanding/size.ts).
 export const LIMIT_0 = 0
 export const LIMIT_1 = 1
 export const LIMIT_2 = 2

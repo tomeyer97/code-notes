@@ -1,12 +1,26 @@
-// A note file's content (src/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
+// A note file's content (src/core/format/noteModel.ts): reading, writing, the three-way merge, the notes folder setting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NoteData, agentReadme, captureAnchor, folderProblem, merge, parseNote, serialize, titleOf } from '../src/noteModel'
+import * as fs from 'fs'
+import * as path from 'path'
+import { NoteData, captureAnchor, fillReadme, folderProblem, merge, parseNote, serialize, titleOf } from '../src/core/format/noteModel'
 
 const note = (o: Record<string, unknown> = {}) => JSON.stringify({
   file: 'src/a.ts', range: { start: 3, end: 5 }, status: 'open', messages: [{ author: 'ann', role: 'human', body: 'Why?' }], ...o,
 })
-const parsed = (o: Record<string, unknown> = {}) => parseNote(note(o), 'n1') as NoteData
+/** The note `raw` holds (the test fails when parseNote refuses it). */
+function noteOf(raw: string, id = 'n1'): NoteData {
+  const r = parseNote(raw, id)
+  assert.ok(r.ok, r.ok ? '' : r.why)
+  return r.value
+}
+/** Why parseNote refuses `raw` (the test fails when it reads it). */
+function refusal(raw: string): string {
+  const r = parseNote(raw, 'x')
+  assert.equal(r.ok, false, 'refused')
+  return r.ok ? '' : r.why
+}
+const parsed = (o: Record<string, unknown> = {}) => noteOf(note(o))
 
 test('parseNote: the fields it knows, in the order they are written back', () => {
   const d = parsed({ session: ' Review ', severity: 'high', createdAt: '2026-11-17T10:00:00Z', anchor: { text: 'x', commit: 'abc' } })
@@ -19,18 +33,18 @@ test('parseNote: the fields it knows, in the order they are written back', () =>
 })
 
 test('parseNote: why a file is not a note', () => {
-  assert.match(parseNote('{', 'x') as string, /^not valid JSON/)
-  assert.equal(parseNote('[]', 'x'), 'missing "file"')
-  assert.equal(parseNote('3', 'x'), 'not a JSON object')
-  assert.equal(parseNote(note({ file: '' }), 'x'), 'missing "file"')
-  assert.match(parseNote(note({ target: 'line' }), 'x') as string, /^"target" is "line"/)
-  assert.match(parseNote(note({ range: { start: 1 } }), 'x') as string, /^"range" needs integer/)
-  assert.equal(parseNote(note({ range: { start: 0, end: 1 } }), 'x'), '"range.start" is 0: lines are 1-based')
-  assert.equal(parseNote(note({ range: { start: 4, end: 2 } }), 'x'), '"range" ends (2) before it starts (4)')
-  assert.match(parseNote(note({ status: 'done' }), 'x') as string, /^"status" is "done"/)
-  assert.equal(parseNote(note({ messages: {} }), 'x'), '"messages" must be an array')
-  assert.match(parseNote(note({ messages: [] }), 'x') as string, /is empty/)
-  assert.equal(parseNote(note({ messages: [{ author: 'a' }] }), 'x'), 'message 1 needs a "body" string')
+  assert.match(refusal('{'), /^not valid JSON/)
+  assert.equal(refusal('[]'), 'missing "file"')
+  assert.equal(refusal('3'), 'not a JSON object')
+  assert.equal(refusal(note({ file: '' })), 'missing "file"')
+  assert.match(refusal(note({ target: 'line' })), /^"target" is "line"/)
+  assert.match(refusal(note({ range: { start: 1 } })), /^"range" needs integer/)
+  assert.equal(refusal(note({ range: { start: 0, end: 1 } })), '"range.start" is 0: lines are 1-based')
+  assert.equal(refusal(note({ range: { start: 4, end: 2 } })), '"range" ends (2) before it starts (4)')
+  assert.match(refusal(note({ status: 'done' })), /^"status" is "done"/)
+  assert.equal(refusal(note({ messages: {} })), '"messages" must be an array')
+  assert.match(refusal(note({ messages: [] })), /is empty/)
+  assert.equal(refusal(note({ messages: [{ author: 'a' }] })), 'message 1 needs a "body" string')
 })
 
 test('parseNote: loose parts are read leniently', () => {
@@ -48,7 +62,16 @@ test('parseNote: unknown fields and an unknown severity are kept for writing bac
   const d = parsed({ severity: 'critical', journey: { id: 'j' } })
   assert.equal(d.severity, undefined)
   assert.deepEqual(d.extra, { severity: 'critical', journey: { id: 'j' } })
-  assert.equal(serialize(d), JSON.stringify({ ...d, extra: undefined, severity: 'critical', journey: { id: 'j' } }, null, 2) + '\n')
+  assert.equal(serialize(d), JSON.stringify({ version: 1, ...d, extra: undefined, severity: 'critical', journey: { id: 'j' } }, null, 2) + '\n')
+})
+
+test('versions: a file without "version" is version 1; the extension writes "version": 1 first; another version is refused', () => {
+  assert.deepEqual(parsed({ version: 1 }), parsed(), 'the version is the file\'s, not the note\'s')
+  assert.equal(parsed({ version: 1 }).extra, undefined)
+  assert.deepEqual(Object.keys(JSON.parse(serialize(parsed())))[0], 'version')
+  assert.equal(JSON.parse(serialize(parsed())).version, 1)
+  assert.equal(refusal(note({ version: 2 })), '"version" is 2: this extension reads note files of version 1')
+  assert.match(refusal(note({ version: '1' })), /^"version" is "1"/)
 })
 
 test('a file or folder note has no lines: 1-1 in memory, no range, anchor or stale in its file', () => {
@@ -56,7 +79,7 @@ test('a file or folder note has no lines: 1-1 in memory, no range, anchor or sta
   assert.deepEqual(d.range, { start: 1, end: 1 })
   assert.equal(d.stale, false)
   const back = JSON.parse(serialize(d))
-  assert.deepEqual(Object.keys(back), ['id', 'file', 'status', 'messages', 'target'])
+  assert.deepEqual(Object.keys(back), ['version', 'id', 'file', 'status', 'messages', 'target'])
 })
 
 test('merge: messages and events append; other fields are ours if we changed them, else theirs', () => {
@@ -101,9 +124,9 @@ test('captureAnchor (a note\'s, full text; journeys/steps.ts has a compact one):
   assert.deepEqual(captureAnchor(lines, 5, 5), { text: 'f', before: 'd\ne', after: '' })
 })
 
-test('agentReadme: names the person and the notes folder it is written into', () => {
-  const r = agentReadme('Ann', 'review-notes')
-  assert.match(r, /^# Code notes\n/)
+test('fillReadme: the README template names the person and the notes folder it is written into', () => {
+  const r = fillReadme(fs.readFileSync(path.join(__dirname, '../../media/notes-README.template.md'), 'utf8'), 'Ann', 'review-notes')
+  assert.match(r, /^# Code notes\n/, 'the template\'s own comment is left out')
   assert.match(r, /Notes \*\*Ann\*\* left on the code/)
   assert.match(r, /relative to the folder that contains `review-notes\/`/)
   assert.ok(!r.includes('${'), 'every placeholder filled')

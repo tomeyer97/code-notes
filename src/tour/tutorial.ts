@@ -1,75 +1,129 @@
-// The map's tutorial: which card it shows, and the step card it points at in the editor.
-
+// The map's tutorial: which card it shows, and the step card it points at in the editor. One Tutorial per window
+// (createTour makes it); the map's messages reach it through onTutorial.
 import * as vscode from 'vscode'
-import { gstate, journeys, mapPanel, state, tutorialSpot } from '../app'
-import { MapMessage } from '../journeys/mapPanel'
-import { fileOf, LoadedJourney } from '../journeys/steps'
+import type { MapPanel } from '../journeys/mapPanel'
+import type { Journeys } from '../journeys/journeys'
+import { stored } from '../platform/host'
+import { portsSlot } from '../platform/ports'
+import type { FromMap as MapMessage } from '../protocol/map'
+import { atOf, fileOf, LoadedJourney } from '../journeys/steps'
 import { openMap } from './commands'
 import { pickJourney } from './pick'
-import { card, tourState, walk } from './instances'
-import { MAP_KEY } from './state'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
+import type { StepCard, TutorialMark } from './card'
+import type { TourState } from './state'
+import type { TutorialSpot } from './tutorialSpot'
+import type { Walk } from './walk'
 
-export const TUTORIAL_KEY = 'codeNotes.tutorialSeen'
 
-/** What the map's tutorial shows (for the integration test). */
-const NOT_SEEN = { bar: 0, card: 0, done: 0, skip: 0, inside: 0 }
-export const tutorialSeen = { ...NOT_SEEN }
+/** What the tutorial has shown: how often the bar, its card now (0: none), a card about the inside, done and skip. */
+export interface TutorialSeen { bar: number; card: number; done: number; skip: number; inside: number }
+const NOT_SEEN: TutorialSeen = { bar: 0, card: 0, done: 0, skip: 0, inside: 0 }
 
-/** What the tutorial is pointing at in the step card now. */
-export let tutorialMark: '' | 'card' | 'links' = ''
+type TutorialMessage = Extract<MapMessage, { type: 'tutorial' }>
 
-/** The tutorial's card about the step card: a step open in the editor (where the walk is, else where it would start),
- *  its lines boxed, so the card above them is found at a glance. */
-async function tutorialInEditor(lj: LoadedJourney, what: 'card' | 'links'): Promise<void> {
-  // The card itself shows it: its buttons, or its linked phrases, on the search-match colour while the tutorial says so.
-  tutorialMark = what
-  const n = walk.startStep(lj)
-  await walk.goToStep(lj, n, { focus: false })
-  const at = lj.at[n - 1]
-  // The card moved on while the file opened: nothing.
-  if (!at || !tutorialSeen.card) return
-  card.show(lj, n)
-  tutorialSpot.show(vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n)), at.start - 1, at.end - 1)
-}
+export interface TutorialParts { state: TourState; card: StepCard; walk: Walk; spot: TutorialSpot; journeys: Journeys; mapPanel: MapPanel }
 
-/** The tutorial left the editor: no box, and the card as it normally looks. */
-function tutorialOutOfEditor(): void {
-  tutorialSpot.clear()
-  if (!tutorialMark) return
-  tutorialMark = ''
-  const lj = walk.tourJourney()
-  if (lj && tourState.step) card.show(lj, tourState.step)
-}
+export class Tutorial implements vscode.Disposable {
+  private markNow: TutorialMark = ''
+  private readonly seenNow: TutorialSeen = { ...NOT_SEEN }
+  private readonly changed = new vscode.EventEmitter<void>()
+  /** What it points at, or what it has shown, changed. */
+  readonly onDidChange = this.changed.event
 
-/** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. */
-export async function tutorial(): Promise<void> {
-  const lj = walk.tourJourney() ?? journeys.byPos(state.get<string>(MAP_KEY)) ?? (await pickJourney())
-  if (!lj) return
-  await openMap(lj)
-  mapPanel.send({ type: 'tutorial' })
-}
+  constructor(private readonly p: TutorialParts) {}
 
-/** A message from the map's tutorial: a card shown (and what it points at in the editor), skipped or done. */
-export function onTutorial(lj: LoadedJourney, m: Extract<MapMessage, { type: 'tutorial' }>): void {
-  if (m.action === 'bar') tutorialSeen.bar++
-  if (m.action === 'card') {
-    tutorialSeen.card = m.card ?? 0
-    tutorialSeen.inside = m.inside ? 1 : 0
-    if (m.editor) void tutorialInEditor(lj, m.editor === 'links' ? 'links' : 'card')
-    else tutorialOutOfEditor()
+  /** What it points at in the step card now (the card puts that on the search-match colour). */
+  get mark(): TutorialMark { return this.markNow }
+  /** What it has shown (the integration tests read it). */
+  get seen(): Readonly<TutorialSeen> { return this.seenNow }
+
+  dispose(): void { this.changed.dispose() }
+
+  /** Code Notes: Journey Tutorial: the map (the tour's, the last one, or picked) with the tutorial from card 1. */
+  async start(): Promise<void> {
+    const lj = this.p.walk.tourJourney() ?? this.p.journeys.byPos(stored().get(STATE.mapJourney)) ?? (await pickJourney())
+    if (!lj) return
+    await openMap(lj)
+    this.p.mapPanel.send({ type: 'tutorial' })
   }
-  if (m.action === 'skip' || m.action === 'done') {
-    tutorialSeen.card = 0
-    tutorialSeen[m.action]++
-    tutorialOutOfEditor()
-    void gstate.update(TUTORIAL_KEY, true).then(() => mapPanel.update())
+
+  /** A message from the map's tutorial: a card shown (and what it points at in the editor), skipped or done. */
+  onMessage(lj: LoadedJourney, m: TutorialMessage): void {
+    const seen = this.seenNow
+    switch (m.action) {
+      case 'bar':
+        seen.bar++
+        break
+      case 'card':
+        seen.card = m.card ?? 0
+        seen.inside = m.inside ? 1 : 0
+        if (m.editor) fireAndForget(this.inEditor(lj, m.editor), 'tutorial: inEditor')
+        else this.outOfEditor()
+        break
+      case 'skip':
+        seen.skip++
+        this.over()
+        break
+      case 'done':
+        seen.done++
+        this.over()
+        // Finish walks the steps: from where the tour is, else where the map's button would start.
+        fireAndForget(this.p.walk.goToStep(lj, this.p.walk.startStep(lj), { focus: false }), 'tutorial: walk.goToStep')
+        break
+    }
+    this.changed.fire()
   }
-  // Finish walks the steps: from where the tour is, else where the map's button would start.
-  if (m.action === 'done') void walk.goToStep(lj, walk.startStep(lj), { focus: false })
+
+  /** The tutorial as never seen (the integration tests start it over). */
+  async reset(): Promise<void> {
+    await stored().set(STATE.tutorialSeen, undefined)
+    Object.assign(this.seenNow, NOT_SEEN)
+    this.changed.fire()
+  }
+
+  /** Skipped or done: no card, nothing pointed at, and it is not offered again. */
+  private over(): void {
+    this.seenNow.card = 0
+    this.outOfEditor()
+    fireAndForget(stored().set(STATE.tutorialSeen, true).then(() => this.p.mapPanel.update()), 'tutorial: store tutorialSeen')
+  }
+
+  /** The tutorial's card about the step card: a step open in the editor (where the walk is, else where it would
+   *  start), its lines boxed, so the card above them is found at a glance. */
+  private async inEditor(lj: LoadedJourney, what: 'card' | 'links'): Promise<void> {
+    const { walk, card, spot } = this.p
+    // The card itself shows it: its buttons, or its linked phrases, on the search-match colour while the tutorial says so.
+    this.markNow = what
+    const n = walk.startStep(lj)
+    await walk.goToStep(lj, n, { focus: false })
+    const at = atOf(lj, n)
+    // The card moved on while the file opened: nothing.
+    if (!at || !this.seenNow.card) return
+    card.show(lj, n)
+    spot.show(vscode.Uri.joinPath(lj.folder.uri, fileOf(lj, n)), at.start - 1, at.end - 1)
+  }
+
+  /** The tutorial left the editor: no box, and the card as it normally looks. */
+  private outOfEditor(): void {
+    const { walk, card, spot, state } = this.p
+    spot.clear()
+    if (!this.markNow) return
+    this.markNow = ''
+    const lj = walk.tourJourney()
+    if (lj && state.step) card.show(lj, state.step)
+  }
 }
 
+const slot = portsSlot<Tutorial>('the tutorial')
+
+/** createTour only. */
+export const useTutorial = slot.set
+
+/** The tour's command (Journey Tutorial). */
+export const tutorial = (): Promise<void> => slot.get().start()
+/** The map's tutorial messages (mapMessages.ts). */
+export const onTutorial = (lj: LoadedJourney, m: TutorialMessage): void => slot.get().onMessage(lj, m)
 /** The tutorial as never seen (for the integration test). */
-export async function resetTutorial(): Promise<void> {
-  await gstate.update(TUTORIAL_KEY, undefined)
-  Object.assign(tutorialSeen, NOT_SEEN)
-}
+export const resetTutorial = (): Promise<void> => slot.get().reset()

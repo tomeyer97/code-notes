@@ -1,10 +1,11 @@
-// Compact anchors (v3): relocation as in docs/journey-format.md ("In the repo"), the same rules as journey.py.
+// Compact anchors (v3, src/core/anchors/compact.ts): relocation as in docs/journey-format.md ("In the repo"). Full-text
+// anchors (notes) are test/anchor.test.ts; both run the scenarios of test/fixtures/anchor-scenarios.json.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
-import { blockHash, compactOf, CompactAnchor, findCompact, toCompact } from '../src/compact'
-import { parseJourney } from '../src/journeyModel'
+import { blockHash, compactOf, findCompact, toCompact } from '../src/core/anchors/compact'
+import { compactCases } from './compactCases'
+import { RANGE, SCENARIOS, WAS } from './anchorScenarios'
+import { journeyOf } from './formats'
 
 const file = [
   'package main',                     // 0
@@ -23,6 +24,13 @@ const file = [
   'func other() {}',                  // 13
 ]
 const a = compactOf(file, 4, 11)!
+
+for (const sc of SCENARIOS) {
+  test(`scenario: ${sc.name}`, () => {
+    const f = findCompact(sc.now, compactOf(WAS, RANGE.start, RANGE.end)!, RANGE.start)
+    assert.deepEqual(f.state === 'gone' ? { state: 'gone' } : { state: f.state, ...f.loc }, sc.compact)
+  })
+}
 
 test('compactOf: head ≤ 3 and tail ≤ 2 non-blank lines, length, 12-hex hash, nearest non-blank before/after', () => {
   assert.equal(a.v, 3)
@@ -106,9 +114,9 @@ test('v2 full-text anchors are read as v3 in memory', () => {
   assert.equal(toCompact({ text: '\n\n', before: 'a', after: 'b' }), undefined, 'a step on blank lines keeps the context-only path')
 })
 
-test('parseJourney reads v3 anchors on steps and boxes (files v2 or v3); v2 anchors still read', () => {
-  const j = parseJourney(JSON.stringify({
-    version: 3, id: 'x', question: 'q', title: 't', summary: '',
+test('parseJourney reads compact anchors on steps and boxes; full-text anchors still read', () => {
+  const j = journeyOf(JSON.stringify({
+    version: 2, id: 'x', question: 'q', title: 't', summary: '',
     nodes: [{ id: 'm', kind: 'module', label: 'M', summary: '' }, { id: 'f', kind: 'function', label: 'F', parent: 'm', summary: '', at: { file: 'a.go', start: 5, end: 12, anchor: a } }],
     edges: [],
     steps: [
@@ -117,20 +125,16 @@ test('parseJourney reads v3 anchors on steps and boxes (files v2 or v3); v2 anch
       { id: 's3', title: 'three', node: 'f', file: 'a.go', range: { start: 6, end: 6 }, anchor: { v: 3, head: '' }, lead: '' },
     ],
   }), 'x')
-  assert.ok(typeof j === 'object')
   assert.deepEqual(j.steps[0].anchor, a)
   assert.deepEqual(j.steps[1].anchor, { text: 'x', before: '', after: '' })
   assert.equal(j.steps[2].anchor, undefined, 'a v3 anchor without a head is dropped (taken from the code instead)')
   assert.deepEqual(j.nodes[1].at?.anchor, a)
 })
 
-// The same cases run against the CLI's findAnchor (test/cli/units.test.mjs): both sides relocate alike.
-type SharedCase = { name: string; lines: string[]; anchor: CompactAnchor; hint: number; expected: { state: string; start?: number; end?: number } }
-const shared: SharedCase[] = JSON.parse(fs.readFileSync(path.join(__dirname, '../../test/fixtures/compact-cases.json'), 'utf8'))
-
-for (const c of shared) {
+// The same cases run against the CLI bundle (test/cli/units.test.mjs), which imports this implementation.
+for (const c of compactCases()) {
   test(`shared relocation case: ${c.name}`, () => {
-    const f = findCompact(c.lines, c.anchor, c.hint)
+    const f = findCompact(c.now, c.anchor, c.hint)
     assert.deepEqual(f.state === 'gone' ? { state: 'gone' } : { state: f.state, start: f.loc.start, end: f.loc.end }, c.expected)
   })
 }

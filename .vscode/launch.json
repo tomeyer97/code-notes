@@ -1,7 +1,7 @@
 {
   // Press F5: a second window (the "Extension Development Host") opens on the example workspace (examples/shop),
   // running Code Notes straight from this folder: nothing is installed. While it runs, the extension is rebuilt on
-  // every save and that window reloads itself (src/devReload.ts).
+  // every save and that window reloads itself (src/platform/devReload.ts).
   "version": "0.2.0",
   "configurations": [
     {

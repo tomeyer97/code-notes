@@ -1,0 +1,1222 @@
+[
+  {
+    "file": "api/orders.js",
+    "spans": [
+      {
+        "s": 0,
+        "e": 0,
+        "anchor": {
+          "v": 3,
+          "head": "// The shop's HTTP API. The web app places and reads orders; the worker takes jobs and reports results.",
+          "tail": "// The shop's HTTP API. The web app places and reads orders; the worker takes jobs and reports results.",
+          "lines": 1,
+          "hash": "f3cac056d94e",
+          "before": "",
+          "after": "import { createServer } from 'node:http'"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "s": 2,
+        "e": 6,
+        "anchor": {
+          "v": 3,
+          "head": "import { config } from '../config/load.js'\nimport { validateOrder } from './validate.js'\nimport { insertOrder, getOrder, markPaid, markFailed } from './store.js'",
+          "tail": "import { insertOrder, getOrder, markPaid, markFailed } from './store.js'\nimport { jobs } from './queue.js'",
+          "lines": 5,
+          "hash": "819bf46cf7ca",
+          "before": "import { createServer } from 'node:http'",
+          "after": "export async function createOrder(req, res) {"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 4,
+                "end": 8
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 36,
+        "e": 37,
+        "anchor": {
+          "v": 3,
+          "head": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}",
+          "tail": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}",
+          "lines": 2,
+          "hash": "908cceb7bf3d",
+          "before": "  const changed = result.paid ? markPaid(id, result.paymentId) : markFailed(id, result.error)",
+          "after": "const routes = ["
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 36,
+                "end": 37
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 38,
+                "end": 39
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 36,
+                "end": 37
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 36,
+                "end": 37
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 69,
+        "e": 71,
+        "anchor": {
+          "v": 3,
+          "head": "  res.end(body ? JSON.stringify(body) : undefined)\n}",
+          "tail": "  res.end(body ? JSON.stringify(body) : undefined)\n}",
+          "lines": 3,
+          "hash": "8c89ede7a00d",
+          "before": "  res.writeHead(status, { 'Content-Type': 'application/json' })",
+          "after": ""
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 69,
+                "end": 71
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 71,
+                "end": 73
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 69,
+                "end": 71
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 69,
+                "end": 71
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "api/store.js",
+    "spans": [
+      {
+        "s": 0,
+        "e": 0,
+        "anchor": {
+          "v": 3,
+          "head": "// The orders table. One row per order; its status goes from pending to paid or failed, once.",
+          "tail": "// The orders table. One row per order; its status goes from pending to paid or failed, once.",
+          "lines": 1,
+          "hash": "2ace4c567886",
+          "before": "",
+          "after": "import { DatabaseSync } from 'node:sqlite'"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "s": 2,
+        "e": 6,
+        "anchor": {
+          "v": 3,
+          "head": "import { config } from '../config/load.js'\nconst db = new DatabaseSync(process.env.SHOP_DB ?? 'shop.db')\ndb.exec(`CREATE TABLE IF NOT EXISTS orders (",
+          "tail": "const db = new DatabaseSync(process.env.SHOP_DB ?? 'shop.db')\ndb.exec(`CREATE TABLE IF NOT EXISTS orders (",
+          "lines": 5,
+          "hash": "9031c832402b",
+          "before": "import { DatabaseSync } from 'node:sqlite'",
+          "after": "  id          INTEGER PRIMARY KEY,"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 4,
+                "end": 8
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 23,
+        "e": 24,
+        "anchor": {
+          "v": 3,
+          "head": "  return getOrder(id)\n}",
+          "tail": "  return getOrder(id)\n}",
+          "lines": 2,
+          "hash": "a600ba1e8f33",
+          "before": "    .run(id, customer, JSON.stringify(items), total, 'pending', new Date().toISOString())",
+          "after": "export function getOrder(id) {"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 23,
+                "end": 24
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 25,
+                "end": 26
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 23,
+                "end": 24
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 23,
+                "end": 24
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 44,
+        "e": 46,
+        "anchor": {
+          "v": 3,
+          "head": "  return done.changes === 1\n}",
+          "tail": "  return done.changes === 1\n}",
+          "lines": 3,
+          "hash": "bff6c52d6a1c",
+          "before": "    .run(status, paymentId, error, id)",
+          "after": ""
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 44,
+                "end": 46
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 46,
+                "end": 48
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 44,
+                "end": 46
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 44,
+                "end": 46
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "worker/charge.js",
+    "spans": [
+      {
+        "s": 0,
+        "e": 0,
+        "anchor": {
+          "v": 3,
+          "head": "// Charges the card for one order. A declined card is final; an unreachable provider is tried again",
+          "tail": "// Charges the card for one order. A declined card is final; an unreachable provider is tried again",
+          "lines": 1,
+          "hash": "67e055fe937d",
+          "before": "",
+          "after": "// with the same key, so the provider never charges an order twice."
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "s": 2,
+        "e": 6,
+        "anchor": {
+          "v": 3,
+          "head": "import { config } from '../config/load.js'\nimport { createCharge, PaymentDeclined } from '../payments/client.js'\nexport async function chargeOrder(job) {",
+          "tail": "export async function chargeOrder(job) {\n  const idempotencyKey = `order-${job.orderId}`",
+          "lines": 5,
+          "hash": "de031df93ea8",
+          "before": "// with the same key, so the provider never charges an order twice.",
+          "after": "  const { maxAttempts, retryMs } = config.worker"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 4,
+                "end": 8
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 15,
+        "e": 16,
+        "anchor": {
+          "v": 3,
+          "head": "        idempotencyKey,\n      })",
+          "tail": "        idempotencyKey,\n      })",
+          "lines": 2,
+          "hash": "24c642b2299c",
+          "before": "        source: job.cardToken,",
+          "after": "      return { paid: true, paymentId: payment.id }"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 15,
+                "end": 16
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 17,
+                "end": 18
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 15,
+                "end": 16
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 15,
+                "end": 16
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 28,
+        "e": 30,
+        "anchor": {
+          "v": 3,
+          "head": "  return new Promise((resolve) => setTimeout(resolve, ms))\n}",
+          "tail": "  return new Promise((resolve) => setTimeout(resolve, ms))\n}",
+          "lines": 3,
+          "hash": "994d0e1a6bfc",
+          "before": "function sleep(ms) {",
+          "after": ""
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 28,
+                "end": 30
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 30,
+                "end": 32
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 28,
+                "end": 30
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 28,
+                "end": 30
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "web/src/checkout/placeOrder.ts",
+    "spans": [
+      {
+        "s": 0,
+        "e": 0,
+        "anchor": {
+          "v": 3,
+          "head": "// The shop page: every \"Buy now\" button places an order for one of that product, paid with the saved card.",
+          "tail": "// The shop page: every \"Buy now\" button places an order for one of that product, paid with the saved card.",
+          "lines": 1,
+          "hash": "b888edad50ef",
+          "before": "",
+          "after": "import { openOrderPage, watchOrder } from './OrderStatus'"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 0,
+                "end": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "s": 2,
+        "e": 6,
+        "anchor": {
+          "v": 3,
+          "head": "export interface OrderRequest {\n  customer: string\n  items: { sku: string; qty: number }[]",
+          "tail": "  items: { sku: string; qty: number }[]\n  cardToken: string",
+          "lines": 5,
+          "hash": "1fa994ead3a5",
+          "before": "import { openOrderPage, watchOrder } from './OrderStatus'",
+          "after": "}"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 3,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 5,
+                "end": 8
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 3,
+                "end": 6
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 3,
+                "end": 7
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 24,
+        "e": 25,
+        "anchor": {
+          "v": 3,
+          "head": "  }\n}",
+          "tail": "  }\n}",
+          "lines": 2,
+          "hash": "4a5d66b94d8b",
+          "before": "    })",
+          "after": "export async function placeOrder(request: OrderRequest): Promise<void> {"
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 24,
+                "end": 25
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 26,
+                "end": 27
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 24,
+                "end": 25
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 27,
+                "end": 28
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      },
+      {
+        "s": 46,
+        "e": 48,
+        "anchor": {
+          "v": 3,
+          "head": "  notice.hidden = false\n}",
+          "tail": "  notice.hidden = false\n}",
+          "lines": 3,
+          "hash": "6810b1857ad9",
+          "before": "  notice.textContent = text",
+          "after": ""
+        },
+        "found": [
+          {
+            "kind": "same",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 46,
+                "end": 48
+              }
+            }
+          },
+          {
+            "kind": "above",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 48,
+                "end": 50
+              }
+            }
+          },
+          {
+            "kind": "inside",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "removed",
+            "found": {
+              "state": "gone"
+            }
+          },
+          {
+            "kind": "reindented",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 46,
+                "end": 48
+              }
+            }
+          },
+          {
+            "kind": "duplicated",
+            "found": {
+              "state": "fresh",
+              "loc": {
+                "start": 46,
+                "end": 48
+              }
+            }
+          },
+          {
+            "kind": "truncated",
+            "found": {
+              "state": "gone"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

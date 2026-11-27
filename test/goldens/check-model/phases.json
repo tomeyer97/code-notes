@@ -1,0 +1,56 @@
+[
+  {
+    "prev": "starting",
+    "phases": [
+      "starting",
+      "reading the code",
+      "reading the code",
+      "starting",
+      "reading the change",
+      "writing questions",
+      "writing questions",
+      "checking",
+      "writing the tour",
+      "checking",
+      "starting",
+      "writing the tour",
+      "starting"
+    ]
+  },
+  {
+    "prev": "writing questions",
+    "phases": [
+      "writing questions",
+      "writing questions",
+      "writing questions",
+      "writing questions",
+      "reading the change",
+      "writing questions",
+      "writing questions",
+      "checking",
+      "writing the tour",
+      "checking",
+      "writing questions",
+      "writing the tour",
+      "writing questions"
+    ]
+  },
+  {
+    "prev": "writing the tour",
+    "phases": [
+      "writing the tour",
+      "writing the tour",
+      "writing the tour",
+      "writing the tour",
+      "reading the change",
+      "writing questions",
+      "writing questions",
+      "checking",
+      "writing the tour",
+      "checking",
+      "writing the tour",
+      "writing the tour",
+      "writing the tour"
+    ]
+  }
+]

@@ -1,0 +1,118 @@
+[
+  {
+    "name": "unchanged range ending in blank lines stays where it is",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 2,
+        "end": 7
+      }
+    }
+  },
+  {
+    "name": "moved range ending in blank lines keeps its blank lines",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 5,
+        "end": 10
+      }
+    }
+  },
+  {
+    "name": "one trailing blank line removed: ends at its last code line",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 2,
+        "end": 5
+      }
+    }
+  },
+  {
+    "name": "unchanged range without blank lines",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 10,
+        "end": 12
+      }
+    }
+  },
+  {
+    "name": "code edited inside: changed",
+    "found": {
+      "state": "changed",
+      "loc": {
+        "start": 0,
+        "end": 7
+      }
+    }
+  },
+  {
+    "name": "head gone: gone",
+    "found": {
+      "state": "gone"
+    }
+  },
+  {
+    "name": "hash over every line (blanks as empty) is fresh",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 2,
+        "end": 7
+      }
+    }
+  },
+  {
+    "name": "no hash: fresh wherever head and tail are",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 3,
+        "end": 8
+      }
+    }
+  },
+  {
+    "name": "two copies: the nearer one",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 4,
+        "end": 6
+      }
+    }
+  },
+  {
+    "name": "two copies: the nearer one (other hint)",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 0,
+        "end": 2
+      }
+    }
+  },
+  {
+    "name": "two copies: the one with the stored context wins over nearness",
+    "found": {
+      "state": "fresh",
+      "loc": {
+        "start": 4,
+        "end": 5
+      }
+    }
+  },
+  {
+    "name": "grown: the closest length, changed",
+    "found": {
+      "state": "changed",
+      "loc": {
+        "start": 0,
+        "end": 8
+      }
+    }
+  }
+]

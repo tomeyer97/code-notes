@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { placeFile, settingFolder } from '../src/paths'
+import { parentDirsGlob, placeFile, settingFolder } from '../src/core/paths'
 
 const root = '/home/dev/shop'
 
@@ -25,4 +25,12 @@ test('settingFolder: a folder setting as a slash path from the workspace folder'
   for (const v of ['notes', 'notes/', 'notes\\', './notes', '.\\notes', '././notes/']) assert.equal(settingFolder(v), 'notes', v)
   assert.equal(settingFolder('review\\notes'), 'review/notes')
   assert.equal(settingFolder('.code-notes'), '.code-notes')
+})
+
+test('parentDirsGlob: the folder and each one above it, as one glob', () => {
+  assert.equal(parentDirsGlob('.code-notes'), '.code-notes')
+  assert.equal(parentDirsGlob('docs/journeys'), '{docs,docs/journeys}')
+  assert.equal(parentDirsGlob('/a//b/c/'), '{a,a/b,a/b/c}')
+  assert.equal(parentDirsGlob(''), undefined)
+  assert.equal(parentDirsGlob('/'), undefined)
 })

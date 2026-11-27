@@ -1,6 +1,6 @@
 // Notes as review findings: R (resolve and next), severity order and icons, grouping by session or file, the
 // history of resolves and reopens, suggestions with Apply, file and folder notes, Add Note without commenting ranges.
-// Source: src/notes/ (commands, suggestions), src/threads/, src/sidebar/ (the tree), src/noteModel.ts (events,
+// Source: src/notes/ (commands, suggestions), src/threads/, src/sidebar/ (the tree), src/core/format/noteModel.ts (events,
 // unknown fields kept).
 import * as vscode from 'vscode'
 import * as fs from 'fs'
@@ -11,14 +11,43 @@ import { at, bodyOf, tour, closeAllEditors, ctx, journeysTree, noteById, notePat
 import { UNREAD_FINDING } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const SECOND_UNREAD = '20261111-200001-unr2'
-/** A finding R goes to after resolving UNREAD_FINDING; later the note whose history is checked. */
-const HIGH = '20261111-200101-sv2'
-const CRITICAL = '20261111-200103-sv4'
-const SUGGESTION = '20261111-200200-sug1'
+/** A note id in the note-ID format; only `tag` matters to these tests (a unique name). */
+const noteId = (time: string, tag: string) => `20261111-${time}-${tag}`
 
-/** HIGH's file as the agent resolved it (restored later as "an older version"). */
-let resolvedByAgent: any
+// The notes several tests here look at, by id.
+const SECOND_UNREAD = noteId('200001', 'unr2')
+/** A finding R goes to after resolving UNREAD_FINDING; later the note whose history is checked. */
+const HIGH = noteId('200101', 'sv2')
+const CRITICAL = noteId('200103', 'sv4')
+const SUGGESTION = noteId('200200', 'sug1')
+
+/** HIGH's file as the agent resolved it, as written ("an agent's resolve on disk…"; restored later as "an older
+ *  version" by "a restored older note file…"). */
+let resolvedByAgent: string | undefined
+
+/** A row of the Notes or Journeys view as the test API prints it (`kind:label · description [icon]`, two spaces per
+ *  level): parsed here once, so the tests compare fields. The label is what comes before the first " · ". */
+interface Row { depth: number; kind: string; label: string; description: string; icon?: string; text: string }
+function rowsOf(lines: string[]): Row[] {
+  return lines.map((text) => {
+    const depth = (text.length - text.trimStart().length) / 2
+    const iconAt = /\s\[([^\]]+)\](?: \{collapsed\})?$/.exec(text)
+    const body = (iconAt ? text.slice(0, iconAt.index) : text).trimStart()
+    const colon = body.indexOf(':')
+    const [label, ...rest] = body.slice(colon + 1).split(' · ')
+    return { depth, kind: body.slice(0, colon), label, description: rest.join(' · '), icon: iconAt?.[1], text }
+  })
+}
+const notesRows = () => rowsOf(notesTree())
+
+/** The command links in a comment's markdown, as VS Code runs them when clicked: the command and its arguments. */
+function commandLinks(markdown: string): { command: string; args: unknown[] }[] {
+  return [...markdown.matchAll(/\(command:([\w.]+)(?:\?([^ )]+))?/g)].map((m) => {
+    let args: unknown = []
+    try { if (m[2]) args = JSON.parse(decodeURIComponent(m[2])) } catch { assert.fail(`the arguments of the ${m[1]} link do not parse: ${m[2]}`) }
+    return { command: m[1], args: Array.isArray(args) ? args : [args] }
+  })
+}
 
 export const notesReviewTests = [
   test('R resolves the note at the cursor (recorded in "events") and opens the next unread note', async () => {
@@ -50,15 +79,15 @@ export const notesReviewTests = [
     await until('review loaded', () => snap().notes.filter((x: any) => x.session === 'Review').length === 4)
     await vscode.commands.executeCommand('codeNotes.groupBySession')
     await until('grouped by session', () => snap().groupBy === 'session' && notesTree().some((l: string) => l.startsWith('session:Review')))
-    const rows = notesTree()
-    const session = rows.findIndex((l) => l.startsWith('session:Review'))
-    const kids = rows.slice(session + 1, session + 7).filter((l) => l.startsWith('    note:'))
-    assert.deepEqual(kids.map((l) => l.trim().split(' · ')[0]), ['note:high finding', 'note:none finding', 'note:critical finding', 'note:low finding'], `severity order: ${kids.join(' | ')}`)
-    assert.match(kids[0], /\[flame\]$/)
-    assert.match(kids[3], /\[triangle-down\]$/)
-    assert.match(kids[1], /\[circle-filled\]$/, 'no severity, unread: the blue dot')
+    const rows = notesRows()
+    const session = rows.findIndex((r) => r.kind === 'session' && r.label.startsWith('Review'))
+    // Under the session, the notes under its file row (session > file > note).
+    const kids = rows.slice(session + 1, session + 7).filter((r) => r.kind === 'note' && r.depth === 2)
+    const shown = kids.map((r) => r.text).join(' | ')
+    assert.deepEqual(kids.map((r) => r.label), ['high finding', 'none finding', 'critical finding', 'low finding'], `severity order: ${shown}`)
+    assert.deepEqual(kids.map((r) => r.icon), ['flame', 'circle-filled', kids[2]?.icon, 'triangle-down'], `icons (no severity, unread: the blue dot): ${shown}`)
     await vscode.commands.executeCommand('codeNotes.markAllRead')
-    await until('read: who spoke last (an agent)', () => notesTree().some((l) => /none finding.*\[sparkle\]$/.test(l)))
+    await until('read: who spoke last (an agent)', () => notesRows().some((r) => r.label.includes('none finding') && r.icon === 'sparkle'))
     void vscode.commands.executeCommand('codeNotes.resolve', { thread: await until('thread', () => ctx.api.thread(CRITICAL)) })
     await until('critical resolved', () => readJson(notePath(CRITICAL)).status === 'resolved')
     assert.equal(readJson(notePath(CRITICAL)).severity, 'critical', 'unknown severity kept')
@@ -70,12 +99,14 @@ export const notesReviewTests = [
     // File puts every non-journey note under its file; a file with one note is one row (file:line).
     await vscode.commands.executeCommand('codeNotes.groupByFile')
     await until('grouped by file', () => snap().groupBy === 'file')
-    const rows = notesTree()
-    assert.ok(!rows.some((l) => l.startsWith('session:Review')), 'no Review session in file mode')
-    assert.ok(!rows.some((l) => l.startsWith('journeys:')) && journeysTree().some((l) => l.startsWith('jgroup:All')), 'journeys stay in their own view')
-    assert.ok(rows.some((l) => /^file:flow\.ts/.test(l)), 'flow.ts row')
-    const solo = rows.find((l) => /^note:.* · .*renamed\.ts:\d+/.test(l)) ?? rows.find((l) => /^note:/.test(l) && /\.ts:\d+/.test(l))
-    assert.ok(solo, `a single-note file is one row with file:line:\n${rows.join('\n')}`)
+    const rows = notesRows()
+    const all = rows.map((r) => r.text).join('\n')
+    const top = rows.filter((r) => r.depth === 0)
+    assert.ok(!rows.some((r) => r.kind === 'session' && r.label.startsWith('Review')), 'no Review session in file mode')
+    assert.ok(!rows.some((r) => r.kind === 'journeys') && rowsOf(journeysTree()).some((r) => r.kind === 'jgroup' && r.label.startsWith('All')), 'journeys stay in their own view')
+    assert.ok(top.some((r) => r.kind === 'file' && r.label.startsWith('flow.ts')), `flow.ts row:\n${all}`)
+    const solo = top.find((r) => r.kind === 'note' && /renamed\.ts:\d+/.test(r.description)) ?? top.find((r) => r.kind === 'note' && /\.ts:\d+/.test(r.text))
+    assert.ok(solo, `a single-note file is one row with file:line:\n${all}`)
   }),
 
   test('an agent\'s resolve on disk is recorded and unread; resolve/reopen lines in the thread', async () => {
@@ -85,9 +116,9 @@ export const notesReviewTests = [
     await until('read', () => noteById(HIGH).unread === 0)
     await closeAllEditors()
     await settle(600, 'closing saves the notes\' anchors: the agent\'s write comes after that')
-    resolvedByAgent = readJson(notePath(HIGH))
-    resolvedByAgent.status = 'resolved'
-    fs.writeFileSync(notePath(HIGH), JSON.stringify(resolvedByAgent, null, 2))
+    const resolved = { ...readJson(notePath(HIGH)), status: 'resolved' }
+    resolvedByAgent = JSON.stringify(resolved, null, 2)
+    fs.writeFileSync(notePath(HIGH), resolvedByAgent)
     await until('agent resolve recorded and unread', () => noteById(HIGH)?.unread === 1 && noteById(HIGH).events?.at(-1)?.by === 'claude').catch((e) => { console.log(JSON.stringify(noteById(HIGH)), fs.readFileSync(notePath(HIGH), 'utf8')); throw e })
     await until('written to the file', () => readJson(notePath(HIGH)).events?.at(-1)?.type === 'resolved')
     await until('thread still shown', () => ctx.api.thread(HIGH))
@@ -110,8 +141,9 @@ export const notesReviewTests = [
 
   test('a restored older note file writes no events', async () => {
     // An older version of the file restored (git checkout): its status comes back, no event is invented.
-    const eventsBefore = (resolvedByAgent.events ?? []).length
-    fs.writeFileSync(notePath(HIGH), JSON.stringify(resolvedByAgent, null, 2))
+    assert.ok(resolvedByAgent !== undefined, 'needs the test "an agent\'s resolve on disk is recorded…" to have passed first')
+    const eventsBefore = (JSON.parse(resolvedByAgent).events ?? []).length
+    fs.writeFileSync(notePath(HIGH), resolvedByAgent)
     await until('restore read', () => noteById(HIGH)?.status === 'resolved')
     await quiet(700, 'an event written for the restore')
     assert.equal((readJson(notePath(HIGH)).events ?? []).length, eventsBefore, `no event written for a restore: ${JSON.stringify(readJson(notePath(HIGH)).events)}`)
@@ -128,9 +160,9 @@ export const notesReviewTests = [
     appendMessage(notePath(SUGGESTION), { author: 'claude', role: 'agent', body: 'Yes:\n\n```suggestion\n  return 3 // three\n```', at: now() })
     await until('suggestion loaded', () => noteById(SUGGESTION)?.messages.length === 2)
     const thread = await until('suggestion thread', () => ctx.api.thread(SUGGESTION))
-    const body = await until('apply link', () => thread.comments.map(bodyOf).find((b: string) => b.includes('command:codeNotes.applySuggestion')))
-    const args = JSON.parse(decodeURIComponent(/command:codeNotes\.applySuggestion\?([^ )]+)/.exec(body)![1]))
-    await vscode.commands.executeCommand('codeNotes.applySuggestion', ...args) // the link's click
+    const apply = await until('the Apply link', () => thread.comments.flatMap((c: vscode.Comment) => commandLinks(bodyOf(c))).find((l) => l.command === 'codeNotes.applySuggestion'))
+    const args = apply.args as [unknown, number, number]
+    await vscode.commands.executeCommand(apply.command, ...args) // the link's click
     await until('applied', () => flowDoc.lineAt(line - 1).text === '  return 3 // three')
     await quiet(600, 'the note marked stale by its own suggestion')
     assert.equal(noteById(SUGGESTION).stale, false, 'not stale after its own suggestion')
@@ -170,10 +202,10 @@ export const notesReviewTests = [
     writeNote(ctx.notesDir, '20261111-200301-agf2', agentNote('src/flow2.ts', undefined, 'Agent file note', { target: 'file' }))
     await until('agent folder/file notes', () => noteById('20261111-200300-agf1')?.target === 'folder' && noteById('20261111-200301-agf2')?.target === 'file')
     assert.equal(snap().broken, 0, 'not reported as broken')
-    const rows = notesTree()
-    console.log(rows.map((l) => `      | ${l}`).join('\n'))
-    assert.ok(rows.some((l) => /^file:src · 2\b.*\[folder\]$/.test(l)), 'a folder row holding the two folder notes')
-    assert.ok(rows.some((l) => /Agent file note.*flow2\.ts|flow2\.ts/.test(l)), 'file note listed')
+    const rows = notesRows()
+    const all = rows.map((r) => r.text).join('\n')
+    assert.ok(rows.some((r) => r.depth === 0 && r.kind === 'file' && r.label === 'src' && /^2\b/.test(r.description) && r.icon === 'folder'), `a folder row holding the two folder notes:\n${all}`)
+    assert.ok(rows.some((r) => r.text.includes('flow2.ts')), `file note listed:\n${all}`)
     // A file note survives edits to the file (stays on line 1, never stale).
     const flow2 = await vscode.window.showTextDocument(vscode.Uri.file(wsPath('src', 'flow2.ts')))
     await flow2.edit((b) => b.insert(new vscode.Position(0, 0), '// new first line\n'))

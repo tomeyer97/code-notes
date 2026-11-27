@@ -1,32 +1,70 @@
-// Claude answers notes: headless Claude Code (claude.ts) run on a note, a few at a time, the rest queued. Only in a
-// trusted folder. Failures are shown in the thread and kept until retried or dismissed.
+// Claude answers notes: the agent runner (platform/agent) run on a note, a few at a time, the rest queued (queue.ts).
+// Only in a trusted folder. Failures are shown in the thread and kept until retried or dismissed.
 
 import * as vscode from 'vscode'
-import { byId, cfg, firstFolder, log, now, state, store, understanding } from '../app'
-import { Ask, AskResult, modelProblem } from '../claude'
-import { shape, shapeOf } from '../notes/changedOnDisk'
+import { codeColumn, notesStore } from './ports'
+import { byId } from '../notes/visible'
+import { firstFolder, log, now, stored } from '../platform/host'
+import type { AskResult } from '../platform/agent/claude'
+import { AgentProblem, agentRunner } from '../platform/agent/runner'
 import { createNote } from '../notes/create'
-import { docUri, linesOfUri } from '../notes/location'
+import { docUri } from '../notes/location'
+import { linesOfUri } from '../platform/documents'
 import { reveal } from '../notes/reveal'
-import { refreshAll } from '../refresh'
-import { markRead } from '../seen'
-import { Note } from '../store'
-import { plural } from '../text'
-import { revealed, syncThread } from '../threads/sync'
-import { walk } from '../tour/instances'
-import { checkHint, claudePrompt, stepAskHint } from './prompts'
-import { claudeCli } from './settings'
-import { claudeAllowed, skillAccess, trusted } from './trust'
+import { me } from '../notes/identity'
+import { NotesApi, notesChanged, selection, whileTyping } from '../notes/model'
+import { markRead } from '../notes/seen'
+import { Note } from '../notes/store'
+import { plural } from '../core/text'
+import { syncThread } from '../threads/sync'
+import { askHandlerOf, askHints } from './handlers'
+import { CLAUDE_AUTHOR, claudePrompt, stepAskHint } from './prompts'
+import { AskQueue, AskRun } from './queue'
+import { skillAccess } from './skills'
+import { fireAndForget } from '../platform/run'
+import { STATE } from '../platform/state'
+import { HiddenCmd } from '../platform/commands'
 
-/** A note Claude is answering (or that waits its turn): the answer so far and what Claude is doing. */
-interface Asking { ask?: Ask; text: string; activity?: string; started: number; cancelled?: boolean }
-/** note id -> its run */
-export const asking = new Map<string, Asking>()
-/** note id -> why Claude couldn't answer */
-export const askErrors = new Map<string, string>()
-const askQueue: string[] = []
 /** Runs at once; more wait in the queue. */
 const MAX_ASKS = 3
+
+let queue: AskQueue | undefined
+
+/** The queue, kept over a reload through the workspace state (ask/index.ts makes it). */
+export function createAskQueue(): AskQueue {
+  queue = new AskQueue({
+    load: () => stored().get(STATE.askErrors),
+    save: (failures) => fireAndForget(stored().set(STATE.askErrors, failures), 'run: save ask failures'),
+  }, MAX_ASKS)
+  return queue
+}
+
+/** The state of note `id` (undefined before ask/ started, or when Claude has nothing to do with it). */
+export const askState = (id: string) => queue?.state(id)
+
+/** A note Claude is answering or that waits its turn, as the thread and the list show it. */
+export interface Asking {
+  text: string
+  activity?: string
+  started: number
+}
+
+/** Claude's run on note `id`, or its place in the queue ("Queued…"); for the thread and the list. */
+export const asking = {
+  has: (id: string): boolean => !!queue?.busy(id),
+  get: (id: string): Asking | undefined => {
+    const run = queue?.run(id)
+    if (run) return run
+    const since = queue?.queuedSince(id)
+    return since === undefined ? undefined : { text: '', activity: 'Queued…', started: since }
+  },
+}
+
+/** Why Claude couldn't answer note `id`, until retried or dismissed. */
+export const askErrors = {
+  has: (id: string): boolean => queue?.state(id) === 'failed',
+  get: (id: string): string | undefined => queue?.failure(id),
+}
 
 /** A new note on lines of a file with this question, asked to Claude, and shown. */
 export async function askAbout(file: string, start: number, end: number, question: string, extra: Record<string, unknown>): Promise<void> {
@@ -34,106 +72,88 @@ export async function askAbout(file: string, start: number, end: number, questio
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folder.uri, file))
   const n = await createNote(doc, { start: start - 1, end: end - 1 }, question, undefined, extra)
   if (!n) return
-  await reveal(n, walk.codeColumn())
+  await reveal(n, codeColumn())
   await askClaude(n)
 }
 
-/** Failures survive a reload: kept per workspace until retried or dismissed. */
-const ASK_ERR_KEY = 'codeNotes.askErrors'
-const saveAskErrors = () => state.update(ASK_ERR_KEY, Object.fromEntries(askErrors))
-/** The failures stored before the reload. */
-export function loadAskErrors(): void {
-  for (const [k, v] of Object.entries(state.get<Record<string, string>>(ASK_ERR_KEY) ?? {})) askErrors.set(k, v)
-}
-
-/** Claude asked to answer the note: now, or queued behind MAX_ASKS runs. A check question asks what to explain. */
+/** Claude asked to answer the note: now, or queued behind MAX_ASKS runs. A feature's own notes go to that feature. */
 export async function askClaude(n: Note, text?: string): Promise<void> {
-  if (understanding?.isCheck(n)) return askAboutCheckQuestion(n, text)
-  if (asking.has(n.data.id) || askQueue.includes(n.data.id)) return
-  if (!claudeAllowed('answer notes')) return
-  if (askErrors.delete(n.data.id)) void saveAskErrors()
-  if (asking.size >= MAX_ASKS) {
-    askQueue.push(n.data.id)
-    asking.set(n.data.id, { text: '', activity: 'Queued…', started: Date.now() })
-    refreshAll()
-    return
+  const handler = askHandlerOf(n)
+  if (handler) return handler.ask(n, text)
+  const q = queue!
+  if (q.busy(n.data.id)) return
+  if (!agentRunner().allowed('answer notes')) return
+  if (q.add(n.data.id)) await runAsk(n.data.id)
+}
+
+/** The next note in the queue, if any, is answered (on its own: not part of the run that just ended). */
+function runNext(): void {
+  const next = queue!.next()
+  if (next) fireAndForget(runAsk(next), 'run: next in the queue')
+}
+
+/** What is said in the thread, and logged, when a run can't start. */
+function cantRun(p: Exclude<AgentProblem, { kind: 'untrusted' }>): { said: string; logged: string } {
+  switch (p.kind) {
+    case 'no-cli':
+      return {
+        said: 'Claude Code (the `claude` CLI) was not found. Install it, or set **Code Notes › Claude: Path**.',
+        logged: 'Ask Claude failed: the claude CLI was not found (setting codeNotes.claude.path, PATH)',
+      }
+    case 'bad-model':
+      return { said: `${p.message} (setting Code Notes › Claude: Model)`, logged: `Ask Claude not run: ${p.message}` }
   }
-  await runAsk(n.data.id)
 }
 
-/** A check question: what do you want to know? The answer goes in a note of its own, never in the check's thread. */
-async function askAboutCheckQuestion(n: Note, text?: string): Promise<void> {
-  const q = understanding!.questionOf(n)
-  const box = { title: 'Ask Claude about this code', prompt: 'Claude explains the code; the check question stays yours.', placeHolder: 'What do you want to know?' }
-  const ask = text?.trim() || await vscode.window.showInputBox(box)
-  if (!ask?.trim()) return
-  const extra = { ...(q ? { checkAsk: q.text } : {}), ...understanding!.branchOf(n) }
-  await askAbout(n.data.file, n.data.range.start, n.data.range.end, ask.trim(), extra)
-}
-
-/** The next note in the queue, if any, is answered. */
-async function runNext(): Promise<void> {
-  const next = askQueue.shift()
-  if (next) await runAsk(next)
-}
-
-/** A run that couldn't start: why, in its thread. */
-function cantRun(id: string, error: string, logLine: string): void {
-  asking.delete(id)
-  askErrors.set(id, error)
-  log.error(`note ${id}: ${logLine}`)
-  void saveAskErrors()
-  refreshAll()
-}
-
-const NO_CLI = 'Claude Code (the `claude` CLI) was not found. Install it, or set **Code Notes › Claude: Path**.'
-
-/** Claude answers note `id`. Each way out says why, and moves the queue on (with no CLI, each note waiting says so). */
+/**
+ * Claude answers note `id`. However it ends, the note leaves the running list and the queue moves on (with no CLI,
+ * each note waiting says so).
+ */
 async function runAsk(id: string): Promise<void> {
+  try {
+    await answer(id)
+  } finally {
+    queue!.finish(id)
+    runNext()
+  }
+}
+
+async function answer(id: string): Promise<void> {
   const n = byId(id)
   if (!n) return
-  // Trust was taken back while it waited in the queue: the queue empties.
-  if (!trusted()) {
-    asking.delete(id)
-    refreshAll()
-    await runNext()
+  const q = queue!
+  const entry = q.start(id)
+  const runner = agentRunner()
+  const model = runner.model('note')
+  const ready = await runner.ready(model)
+  // Trust was taken back while it waited in the queue: the queue empties, quietly.
+  if (ready.kind === 'untrusted') return
+  if (ready.kind !== 'ready') {
+    const { said, logged } = cantRun(ready)
+    log().error(`note ${id}: ${logged}`)
+    q.fail(id, said)
     return
   }
-  const cli = claudeCli()
-  if (!cli) {
-    cantRun(id, NO_CLI, 'Ask Claude failed: the claude CLI was not found (setting codeNotes.claude.path, PATH)')
-    await runNext()
-    return
-  }
-  const bad = modelProblem(cfg().get<string>('claude.model') || undefined)
-  if (bad) {
-    cantRun(id, `${bad} (setting Code Notes › Claude: Model)`, `Ask Claude not run: ${bad}`)
-    await runNext()
-    return
-  }
-  const entry: Asking = { text: '', activity: 'Starting Claude…', started: Date.now() }
-  asking.set(id, entry)
-  refreshAll()
-  const ask = await startAsk(n, cli, entry)
-  log.info(`note ${id}: asking Claude${n.data.claudeSession ? ' (follow-up)' : ''}`)
-  const res = await ask.done
-  asking.delete(id)
+  const run = await startAsk(n, ready.cli, model, entry)
+  log().info(`note ${id}: asking Claude${n.data.claudeSession ? ' (follow-up)' : ''}`)
+  const res = await run.done
+  // The answer is shown without the "answering" row.
+  q.finish(id)
   await recordAnswer(id, entry, res)
-  refreshAll()
-  await runNext()
 }
 
 /** Claude started on the note with its prompt, skills and model; its progress goes into the thread. */
-async function startAsk(n: Note, cli: string, entry: Asking): Promise<Ask> {
+async function startAsk(n: Note, cli: string, model: string | undefined, entry: AskRun) {
   const id = n.data.id
   const code = n.data.target ? undefined : await linesOfUri(docUri(n))
-  const skills = skillAccess()
-  const ask = new Ask({
-    cli, cwd: n.folder.uri.fsPath,
-    prompt: claudePrompt(n, code) + checkHint(n) + stepAskHint(n) + skills.hint,
+  const skills = await skillAccess()
+  const run = agentRunner().start(cli, { key: `note:${id}`, purpose: 'note', label: n.data.messages[0]?.body ?? id }, {
+    cwd: n.folder.uri.fsPath,
+    prompt: claudePrompt(n, code, me()) + askHints(n) + stepAskHint(n) + skills.hint,
     resume: n.data.claudeSession,
-    extraTools: skills.tools, addDirs: skills.dirs,
-    model: cfg().get<string>('claude.model') || undefined,
+    extraTools: skills.tools,
+    addDirs: skills.dirs,
+    model,
     onProgress: (p) => {
       entry.text = p.text
       entry.activity = p.activity
@@ -141,64 +161,72 @@ async function startAsk(n: Note, cli: string, entry: Asking): Promise<Ask> {
       if (x) syncThread(x)
     },
   })
-  entry.ask = ask
-  if (entry.cancelled) ask.cancel() // Cancel was pressed while it was starting
-  return ask
+  entry.run = run
+  if (entry.cancelled) run.cancel() // Cancel was pressed while it was starting
+  return run
+}
+
+/** The answer as the newest message of the note, saved; on a failed save the note is left as it was. */
+async function saveAnswer(n: Note, res: AskResult): Promise<boolean> {
+  const before = { messages: n.data.messages.length, session: n.data.claudeSession }
+  n.data.messages.push({ author: CLAUDE_AUTHOR, role: 'agent', body: res.text.trim(), at: now() })
+  if (res.sessionId) n.data.claudeSession = res.sessionId
+  if (await notesStore().save(n)) return true
+  n.data.messages.length = before.messages
+  if (before.session) n.data.claudeSession = before.session; else delete n.data.claudeSession
+  return false
 }
 
 /** What the run ended with: cancelled (logged), a failure (kept for the thread), or the answer (saved to the note). */
-async function recordAnswer(id: string, entry: Asking, res: AskResult): Promise<void> {
+async function recordAnswer(id: string, entry: AskRun, res: AskResult): Promise<void> {
   const answered = byId(id)
-  if (res.cancelled) log.info(`note ${id}: Claude cancelled`)
-  else if (res.error || !res.text.trim()) {
-    askErrors.set(id, res.error ?? 'Claude returned no answer.')
-    log.error(`note ${id}: Ask Claude failed: ${res.error ?? 'no answer'}`)
-    void saveAskErrors()
-  } else if (answered) {
-    answered.data.messages.push({ author: 'Claude', role: 'agent', body: res.text.trim(), at: now() })
-    if (res.sessionId) answered.data.claudeSession = res.sessionId
-    shape.set(id, shapeOf(answered))
-    await store.save(answered)
-    const secs = Math.round((Date.now() - entry.started) / 1000)
-    log.info(`note ${id}: Claude answered in ${secs}s${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
-    // The person is looking at this note: the answer counts as read, with its "new" label for the visit.
-    if (revealed.id === id) await markRead([answered], answered)
+  if (res.cancelled) { log().info(`note ${id}: Claude cancelled`); return }
+  if (res.error || !res.text.trim()) {
+    log().error(`note ${id}: Ask Claude failed: ${res.error ?? 'no answer'}`)
+    queue!.fail(id, res.error ?? 'Claude returned no answer.')
+    return
   }
+  if (!answered) return
+  if (!(await saveAnswer(answered, res))) {
+    log().error(`note ${id}: Claude's answer could not be saved`)
+    queue!.fail(id, "Claude's answer could not be saved.")
+    return
+  }
+  const secs = Math.round((Date.now() - entry.started) / 1000)
+  log().info(`note ${id}: Claude answered in ${secs}s${res.costUsd ? `, $${res.costUsd.toFixed(3)}` : ''}`)
+  // The person is looking at this note: the answer counts as read, with its "new" label for the visit.
+  if (selection().revealed === id) await markRead([answered], answered)
 }
 
 /** Cancel: stops Claude on the note, takes it out of the queue, or dismisses its failure. */
 export function cancelAsk(id: string): void {
-  if (!asking.has(id) && askErrors.delete(id)) {
-    void saveAskErrors()
-    refreshAll()
-    return
-  }
-  const queued = askQueue.indexOf(id)
-  if (queued >= 0) {
-    askQueue.splice(queued, 1)
-    asking.delete(id)
-    refreshAll()
-    return
-  }
-  const a = asking.get(id)
+  const q = queue!
+  const state = q.state(id)
+  if (state === 'failed') { q.dismiss(id); return }
+  if (state === 'queued') { q.finish(id); return }
+  const a = q.run(id)
   if (!a) return
   a.cancelled = true
   a.activity = 'Stopping…'
-  a.ask?.cancel()
+  a.run?.cancel()
 }
 
-/** The status bar item that says Claude is answering. */
-export let askStatusItem: vscode.StatusBarItem
-
-export function createAskStatusItem(): void {
-  askStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50)
+/** The status bar item that says Claude is answering (how many notes); no note counter otherwise: the activity bar
+ *  badge is the one unread count. It follows Claude's work on notes. */
+export function askStatusItem(model: NotesApi): vscode.Disposable {
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50)
+  const refresh = () => {
+    const busy = queue?.size ?? 0
+    if (!busy) { item.hide(); return }
+    item.text = `$(sync~spin) Claude · ${busy}`
+    item.tooltip = `Claude is answering ${plural(busy, 'note')}`
+    item.command = HiddenCmd.notesFocus
+    item.show()
+  }
+  const sub = model.onDidChange((c) => { if (!whileTyping(c)) refresh() })
+  return vscode.Disposable.from(item, sub)
 }
 
-/** Shown while Claude answers (how many notes); no note counter otherwise: the activity bar badge is the one unread count. */
-export function refreshAskStatus(): void {
-  if (!asking.size) { askStatusItem.hide(); return }
-  askStatusItem.text = `$(sync~spin) Claude · ${asking.size}`
-  askStatusItem.tooltip = `Claude is answering ${plural(asking.size, 'note')}`
-  askStatusItem.command = 'codeNotes.notes.focus'
-  askStatusItem.show()
-}
+/** Every change of a note's state is a change of its thread and row. */
+export const announceAskChanges = (q: AskQueue): vscode.Disposable =>
+  q.onDidChange((id) => notesChanged({ kind: 'activity', ids: [id] }))

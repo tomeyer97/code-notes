@@ -1,0 +1,95 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "cart refunds",
+  "sort": "area",
+  "searchSort": "name",
+  "kind": "all",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "fallback": {
+    "missing": [],
+    "note": "No journey has every word; showing any"
+  },
+  "sections": [
+    {
+      "id": "results",
+      "label": "3 found",
+      "keys": [
+        "k20",
+        "k29",
+        "k10"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [],
+      "children": [
+        {
+          "id": "area:api",
+          "label": "api",
+          "keys": [
+            "k10"
+          ]
+        },
+        {
+          "id": "area:payments",
+          "label": "payments",
+          "keys": [
+            "k29"
+          ]
+        },
+        {
+          "id": "area:web",
+          "label": "web",
+          "keys": [
+            "k20"
+          ]
+        }
+      ]
+    }
+  ],
+  "count": 3,
+  "total": 35,
+  "hits": {
+    "k10": [
+      "refunds"
+    ],
+    "k20": [
+      "cart"
+    ],
+    "k29": [
+      "refund"
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+[
+  {
+    "name": "not json",
+    "why": "not valid JSON (Unexpected end of JSON input)",
+    "title": null
+  },
+  {
+    "name": "number",
+    "why": "not a JSON object",
+    "title": null
+  },
+  {
+    "name": "array",
+    "why": "missing \"file\"",
+    "title": null
+  },
+  {
+    "name": "no file",
+    "why": "missing \"file\"",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "bad target",
+    "why": "\"target\" is \"line\": use \"file\" or \"folder\" (or leave it out for lines)",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "no range",
+    "why": "\"range\" needs integer start and end (or \"target\": \"file\" for a whole file)",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "range not integers",
+    "why": "\"range\" needs integer start and end (or \"target\": \"file\" for a whole file)",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "range from 0",
+    "why": "\"range.start\" is 0: lines are 1-based",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "range backwards",
+    "why": "\"range\" ends (2) before it starts (4)",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "bad status",
+    "why": "\"status\" is \"done\": use \"open\" or \"resolved\"",
+    "title": "Why is this retried?"
+  },
+  {
+    "name": "messages not a list",
+    "why": "\"messages\" must be an array",
+    "title": null
+  },
+  {
+    "name": "no messages",
+    "why": "\"messages\" is empty: a note needs at least one message",
+    "title": null
+  },
+  {
+    "name": "message without body",
+    "why": "message 2 needs a \"body\" string",
+    "title": "Why is this retried?"
+  }
+]

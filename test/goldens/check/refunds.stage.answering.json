@@ -1,0 +1,346 @@
+{
+  "status": {
+    "branch": "feat/refunds",
+    "file": "understanding/feat-refunds.json",
+    "base": "<sha1>",
+    "baseRef": "main",
+    "head": "<sha2>",
+    "change": {
+      "files": 6,
+      "added": 67,
+      "removed": 1,
+      "exempt": [],
+      "exemptOnly": false,
+      "docsOnly": false,
+      "renamed": []
+    },
+    "changed": 68,
+    "exists": true,
+    "check": {
+      "version": 1,
+      "branch": "feat/refunds",
+      "base": "<sha1>",
+      "head": "<sha2>",
+      "diffStat": {
+        "files": 6,
+        "added": 67,
+        "removed": 1
+      },
+      "answeredBy": {
+        "name": "Ada",
+        "email": "ada@example.com"
+      },
+      "createdAt": "<time>",
+      "questions": [
+        {
+          "id": "q1",
+          "kind": "failure",
+          "text": "If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?",
+          "file": "worker/notify.js",
+          "start": 33,
+          "end": 39,
+          "anchor": {
+            "v": 3,
+            "head": "// A refund was made: tell the customer how much comes back to their card.\nasync function refundNotice({ number, refund }) {\n  const { rows: [r] } = await pool.query(",
+            "tail": "  await sendMail(r.email, `Refund for order #${number}`, text)\n}",
+            "lines": 7,
+            "hash": "06c5014e5e18",
+            "before": "}",
+            "after": "const handlers = { order_confirmation: orderConfirmation, refund_notice: refundNotice }"
+          },
+          "attempts": [
+            {
+              "answer": "tick() catches it and retries the job, so the mail may go out twice.",
+              "at": "<time>",
+              "verdict": "pass",
+              "feedback": "Right: the retry sends it again.",
+              "hint": "",
+              "gradedAt": "<time>",
+              "hash": "637bee888a22"
+            }
+          ]
+        },
+        {
+          "id": "q2",
+          "kind": "edge",
+          "text": "What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?",
+          "file": "api/refunds.js",
+          "start": 11,
+          "end": 13,
+          "anchor": {
+            "v": 3,
+            "head": "  const { rows: [prev] } = await pool.query(\n    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n  if (prev) return { refund: prev, replayed: true }",
+            "tail": "    'SELECT * FROM refunds WHERE order_number = $1 AND idempotency_key = $2', [number, key])\n  if (prev) return { refund: prev, replayed: true }",
+            "lines": 3,
+            "hash": "3fcd2a81cd17",
+            "before": "  if (!Number.isInteger(amount) || amount < 1) throw new RefundError(422, 'The amount must be a whole number of cents.')",
+            "after": "  const client = await pool.connect()"
+          },
+          "attempts": [
+            {
+              "at": "<time>",
+              "verdict": "retry",
+              "feedback": "Look at what the lookup does before the lock.",
+              "hint": "What does the UNIQUE key do to the second insert?",
+              "gradedAt": "<time>"
+            },
+            {
+              "at": "<time>",
+              "verdict": "explained",
+              "feedback": "The lookup runs before the lock, so both miss it; the second insert then fails on the UNIQUE key.",
+              "hint": "",
+              "topic": "idempotency",
+              "concern": "The second request gets a 500 instead of the first refund.",
+              "gradedAt": "<time>"
+            },
+            {
+              "answer": "Both miss the lookup; the unique key makes the second one fail.",
+              "at": "<time>",
+              "verdict": "restated",
+              "feedback": "Yes.",
+              "hint": "",
+              "gradedAt": "<time>",
+              "hash": "0c37a64327dc"
+            }
+          ],
+          "concern": {
+            "text": "The second request gets a 500 instead of the first refund.",
+            "flagged": false,
+            "at": "<time>"
+          }
+        },
+        {
+          "id": "q3",
+          "kind": "why",
+          "text": "Why is the order row locked before the remaining refundable amount is checked?",
+          "file": "api/refunds.js",
+          "start": 18,
+          "end": 20,
+          "anchor": {
+            "v": 3,
+            "head": "    const { rows: [order] } = await client.query('SELECT number, total, refunded FROM orders WHERE number = $1 FOR UPDATE', [number])\n    if (!order) throw new RefundError(404, 'Order not found')\n    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)",
+            "tail": "    if (!order) throw new RefundError(404, 'Order not found')\n    if (order.refunded + amount > order.total) throw new RefundError(422, `Only ${order.total - order.refunded} can still be refunded.`)",
+            "lines": 3,
+            "hash": "67596c93f04f",
+            "before": "    await client.query('BEGIN')",
+            "after": "    const { rows: [refund] } = await client.query("
+          },
+          "attempts": [
+            {
+              "answer": "So two refunds for one order run one after the other.",
+              "at": "<time>",
+              "verdict": "pass",
+              "feedback": "Right.",
+              "hint": "",
+              "partial": true,
+              "gradedAt": "<time>",
+              "hash": "8ee16a59571b"
+            }
+          ]
+        },
+        {
+          "id": "q4",
+          "kind": "failure",
+          "text": "Where do the low-stock alerts end up once this runs in production?",
+          "file": "worker/alerts.js",
+          "start": 5,
+          "end": 12,
+          "anchor": {
+            "v": 3,
+            "head": "const OPS_EMAIL = process.env.OPS_EMAIL\nexport async function checkStock() {\n  const { rows } = await pool.query('SELECT id, name, stock, low_at FROM products WHERE stock < low_at')",
+            "tail": "  await sendMail(OPS_EMAIL, `Low stock: ${rows.length} products`, text)\n  return rows.length",
+            "lines": 8,
+            "hash": "e0e46c0b7751",
+            "before": "import { sendMail } from './notify.js'",
+            "after": "}"
+          },
+          "attempts": [
+            {
+              "answer": "They are emailed to OPS_EMAIL.",
+              "at": "<time>",
+              "verdict": "pass",
+              "feedback": "That is what the code does.",
+              "hint": "",
+              "concern": "OPS_EMAIL is never set in the worker chart: the alerts go nowhere.",
+              "gradedAt": "<time>",
+              "hash": "4cfb8aa47e82"
+            }
+          ],
+          "concern": {
+            "text": "OPS_EMAIL is never set in the worker chart: the alerts go nowhere.",
+            "flagged": true,
+            "at": "<time>"
+          }
+        },
+        {
+          "id": "q5",
+          "kind": "why",
+          "text": "Why does every refunded unit go back into product stock, even when staff refund without a return?",
+          "file": "api/restock.js",
+          "start": 3,
+          "end": 6,
+          "anchor": {
+            "v": 3,
+            "head": "  for (const { sku, qty } of items) {\n    await client.query('INSERT INTO refund_items (order_number, sku, qty) VALUES ($1, $2, $3)', [number, sku, qty])\n    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])",
+            "tail": "    await client.query('UPDATE products SET stock = stock + $2 WHERE sku = $1', [sku, qty])\n  }",
+            "lines": 4,
+            "hash": "5467cf1983f2",
+            "before": "export async function refundItems(client, number, items) {",
+            "after": "}"
+          }
+        },
+        {
+          "id": "q6",
+          "kind": "edge",
+          "text": "What does the refund handler answer for an order that was never paid at all?",
+          "file": "api/refunds.js",
+          "target": "file"
+        }
+      ],
+      "result": {
+        "done": 4,
+        "passed": 4,
+        "total": 6,
+        "needed": 4,
+        "verdict": "fail",
+        "at": "<time>"
+      }
+    },
+    "summary": {
+      "total": 6,
+      "passed": 4,
+      "done": 4,
+      "explained": 0,
+      "restated": 1,
+      "retry": 0,
+      "todo": 2,
+      "ungraded": 0,
+      "open": 2,
+      "needed": 4,
+      "met": false,
+      "states": [
+        "pass",
+        "restated",
+        "pass",
+        "pass",
+        "todo",
+        "todo"
+      ]
+    },
+    "drift": {
+      "lines": 0,
+      "approx": false
+    },
+    "pending": {
+      "lines": 0,
+      "approx": false
+    },
+    "dirty": true,
+    "untracked": true,
+    "state": {
+      "passed": 4,
+      "done": 4,
+      "total": 6,
+      "needed": 4,
+      "maxDrift": 40,
+      "grew": 0,
+      "phase": "answering"
+    },
+    "next": "Answer all 6 · 4 must pass · ~1 min left."
+  },
+  "words": {
+    "tone": "todo",
+    "bar": "Understanding 4/6",
+    "title": "4 of 6 done",
+    "line": "Answer all 6 · 4 must pass · ~1 min left.",
+    "rule": "Answer all 6 · 4 must pass"
+  },
+  "view": {
+    "branch": "feat/refunds",
+    "file": "understanding/feat-refunds.json",
+    "tone": "todo",
+    "title": "4 of 6 done",
+    "line": "Answer all 6 · 4 must pass · ~1 min left.",
+    "rows": [
+      {
+        "id": "q1",
+        "n": 1,
+        "kind": "Failure",
+        "text": "If sendMail throws in refundNotice after the mail server already accepted the message, what happens to the job?",
+        "where": "worker/notify.js:33",
+        "also": [],
+        "state": "pass",
+        "word": ""
+      },
+      {
+        "id": "q2",
+        "n": 2,
+        "kind": "Edge case",
+        "text": "What happens when two refund requests with the same Idempotency-Key for one order arrive at the same time?",
+        "where": "api/refunds.js:11",
+        "also": [],
+        "state": "restated",
+        "word": "in your words",
+        "flag": "concern"
+      },
+      {
+        "id": "q3",
+        "n": 3,
+        "kind": "Why",
+        "text": "Why is the order row locked before the remaining refundable amount is checked?",
+        "where": "api/refunds.js:18",
+        "also": [],
+        "state": "pass",
+        "word": ""
+      },
+      {
+        "id": "q4",
+        "n": 4,
+        "kind": "Failure",
+        "text": "Where do the low-stock alerts end up once this runs in production?",
+        "where": "worker/alerts.js:5",
+        "also": [],
+        "state": "pass",
+        "word": "",
+        "flag": "flagged for review"
+      },
+      {
+        "id": "q5",
+        "n": 5,
+        "kind": "Why",
+        "text": "Why does every refunded unit go back into product stock, even when staff refund without a return?",
+        "where": "api/restock.js:3",
+        "also": [],
+        "state": "ungraded",
+        "word": "checking…"
+      },
+      {
+        "id": "q6",
+        "n": 6,
+        "kind": "Edge case",
+        "text": "What does the refund handler answer for an order that was never paid at all?",
+        "where": "api/refunds.js",
+        "also": [],
+        "state": "todo",
+        "word": ""
+      }
+    ],
+    "tour": {
+      "label": "Write a tour",
+      "action": "write"
+    },
+    "answer": {
+      "id": "q5",
+      "n": 5,
+      "open": true,
+      "draft": "",
+      "checking": true
+    }
+  },
+  "bar": {
+    "text": "$(checklist) Understanding 4/6",
+    "tip": "4 of 6 done · Answer all 6 · 4 must pass · ~1 min left.",
+    "warn": false
+  },
+  "run": "walk"
+}

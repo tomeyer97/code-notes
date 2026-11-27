@@ -1,20 +1,20 @@
 // The model of the journey lists (journeyList.ts) as this window feeds it: the journeys, the active file and the
-// function under the cursor, the sort and the panel home's query.
+// function under the cursor, the sort and the panel home's query. Each piece of state has one owner (below); a change
+// that both views show is announced (onDidChangeListState), so neither view knows about the other.
 
 import * as vscode from 'vscode'
-import { journeys, state } from '../app'
-import { blockAt } from '../codeBlocks'
-import { blocksOf } from '../symbolBlocks'
-import { buildList, ListItem, ListKind, ListModel, Sort } from '../journeyList'
+import { journeys, tour } from './ports'
+import { stored } from '../platform/host'
+import { blockAt } from '../core/codeBlocks'
+import { blocksOf } from '../platform/symbolBlocks'
+import { buildList, ListItem, ListKind, ListModel, Sort } from '../core/list/journeyList'
 import { LoadedJourney, posKey } from '../journeys/steps'
-import { isNewJourney } from '../seen'
-import { relPath } from '../notes/location'
-import { tourState, walk } from '../tour/instances'
+import { isNewJourney } from '../notes/seen'
+import { relPath } from '../platform/documents'
 import { refreshing } from '../write/refreshJourney'
+import { STATE } from '../platform/state'
 
-export const SORT_KEY = 'codeNotes.journeySort'
-
-export const listSort = (): Sort => state.get<Sort>(SORT_KEY) ?? 'area'
+export const listSort = (): Sort => stored().get(STATE.journeySort)
 
 /** The active editor's file, relative to its folder. */
 export function activeRel(): string | undefined {
@@ -25,9 +25,11 @@ export function activeRel(): string | undefined {
 
 /** Journeys only: a branch's understanding check lives in the Check view, not in these lists. */
 export function listItems(): ListItem[] {
-  const pos = walk.positions()
-  return journeys.all().map((lj) => {
-    const walking = lj.key === tourState.key && tourState.step > 0
+  const t = tour()
+  const pos = t.positions()
+  const { key: walked, step } = t.state
+  return journeys().all().map((lj) => {
+    const walking = lj.key === walked && step > 0
     return {
       key: lj.key,
       kind: 'journey' as const,
@@ -43,7 +45,7 @@ export function listItems(): ListItem[] {
       staleSteps: staleSteps(lj),
       isNew: isNewJourney(lj),
       ...(refreshing.has(lj.key) ? { refreshing: true } : {}),
-      resume: walking ? tourState.step : walk.resumeAt(lj),
+      resume: walking ? step : t.resumeAt(lj),
       ...(walking ? { walking: true } : {}),
       walkedAt: Date.parse(pos[posKey(lj)]?.at ?? '') || undefined,
       ...(lj.j.start ? { start: true } : {}),
@@ -59,28 +61,64 @@ export function staleLine(lj: LoadedJourney): string {
   return `⚠ ${which} changed since it was written${n.length < lj.j.steps.length ? '; the rest still match' : ''}`
 }
 
-/** What the lists depend on besides the journeys: the function under the cursor in the active editor (1-based; "In
- *  this file" ranks by it), "In this file" in full (sidebar and panel), the last model the sidebar drew (rows' area and
- *  age for journeyItem), and the panel home's own search, chips and sort (the sidebar searches with a picker). */
-export const listState: {
-  cursorSpan?: { start: number; end: number }
-  hereAll: boolean
-  last?: ListModel
-  homeQuery: { query: string; kind: ListKind | 'all'; area: string; searchSort?: Sort | 'best' }
-} = { hereAll: false, homeQuery: { query: '', kind: 'all', area: '' } }
+/** The function (1-based lines) around the cursor in the active editor: "In this file" ranks by it. */
+export interface CursorContext { span?: { start: number; end: number } }
+/** "In this file" in full (the sidebar's "Show all", and the panel home's), until the editor changes. */
+export interface HereState { hereAll: boolean }
+/** The panel home's own search, chips and sort (the sidebar searches with a picker). */
+export interface PanelHomeState { query: string; kind: ListKind | 'all'; area: string; searchSort?: Sort | 'best' }
+
+/** Written by updateCursorSpan only. */
+const cursor: CursorContext = {}
+const here: HereState = { hereAll: false }
+let panelHome: PanelHomeState = { query: '', kind: 'all', area: '' }
+
+const changed = new vscode.EventEmitter<{ editorChanged: boolean }>()
+/** What both views list changed (the cursor's function or file, "In this file" in full, the sort): each draws again. */
+export const onDidChangeListState = changed.event
+
+/** "In this file" in full, in both views. */
+export function showAllHere(): void {
+  here.hereAll = true
+  changed.fire({ editorChanged: false })
+}
+
+/** Another editor: "In this file" is capped again (the cursor's move that follows redraws). */
+export function capHere(): void { here.hereAll = false }
+
+/** The sort was picked: both views draw again. */
+export const sortChanged = () => changed.fire({ editorChanged: false })
+
+/** The model the Journeys view drew last (journeysTree.ts gives it). */
+let drawnModel: () => ListModel | undefined = () => undefined
+export function useDrawnModel(f: () => ListModel | undefined): void { drawnModel = f }
+
+/**
+ * The state above as one object, for code that reads it so: the panel's controller (tour/mapMessages.ts: the home's
+ * query, "Show all" without the sidebar's redraw) and the group rows (rowItems.ts: the groups drawn). New code uses
+ * the typed state and functions above.
+ */
+export const listState = {
+  get cursorSpan() { return cursor.span },
+  get hereAll() { return here.hereAll },
+  set hereAll(v: boolean) { here.hereAll = v },
+  get last(): ListModel | undefined { return drawnModel() },
+  get homeQuery(): PanelHomeState { return panelHome },
+  set homeQuery(q: PanelHomeState) { panelHome = q },
+}
 
 /** The function (1-based lines) around the cursor in the active editor: "In this file" ranks by it. */
 export async function updateCursorSpan(): Promise<void> {
   const e = vscode.window.activeTextEditor
-  if (!e || e.document.uri.scheme !== 'file') { listState.cursorSpan = undefined; return }
+  if (!e || e.document.uri.scheme !== 'file') { cursor.span = undefined; return }
   const line = e.selection.active.line
   // The whole function around the cursor: every line of it ranks the same.
   const b = blockAt(line, (await blocksOf(e.document)).blocks)
-  listState.cursorSpan = b ? { start: b.start + 1, end: b.end + 1 } : { start: line + 1, end: line + 1 }
+  cursor.span = b ? { start: b.start + 1, end: b.end + 1 } : { start: line + 1, end: line + 1 }
 }
 
 /** The editor or the caret moved: the cursor's function is found again a moment later (once the moves stop), and
- *  `changed` is told when the file or the function is another one (always for another editor). */
+ *  onDidChangeListState fires when the file or the function is another one (always for another editor). */
 let followTimer: NodeJS.Timeout | undefined
 let followedSpan = ''
 
@@ -88,19 +126,21 @@ let followedSpan = ''
 const FOLLOW_EDITOR_MS = 50
 const FOLLOW_CARET_MS = 300
 
-export function followCursor(editorChanged: boolean, changed: (editorChanged: boolean) => void): void {
+export function followCursor(editorChanged: boolean): void {
   clearTimeout(followTimer)
   followTimer = setTimeout(async () => {
     await updateCursorSpan()
-    const span = `${activeRel()}|${listState.cursorSpan?.start}-${listState.cursorSpan?.end}`
+    const span = `${activeRel()}|${cursor.span?.start}-${cursor.span?.end}`
     if (span === followedSpan && !editorChanged) return
     followedSpan = span
-    changed(editorChanged)
+    changed.fire({ editorChanged })
   }, editorChanged ? FOLLOW_EDITOR_MS : FOLLOW_CARET_MS)
 }
 
-export function listModel(o: { query?: string; kind?: ListKind | 'all'; area?: string; searchSort?: Sort | 'best' } = {}): ListModel {
-  return buildList(listItems(), { activeFile: activeRel(), activeSpan: listState.cursorSpan, hereAll: listState.hereAll, sort: listSort(), ...o })
+/** The lists' model now; `o`: the panel home's search, chips and sort. */
+export function listModel(o: Partial<PanelHomeState> = {}): ListModel {
+  const now = { activeFile: activeRel(), activeSpan: cursor.span, hereAll: here.hereAll, sort: listSort() }
+  return buildList(listItems(), { ...now, ...o })
 }
 
 /** Steps whose code can't be found now (the picker says so). */

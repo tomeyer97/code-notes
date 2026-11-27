@@ -67,112 +67,11 @@ the repository's copy wins.
 
 ## Understanding check
 
-**Code Notes: Check my understanding** (or **Understanding: start** in the status bar) has Claude Code read your
-branch's change and ask a few questions about it (1 for a small change, documentation or a removal, up to 5 for a big one): how a part behaves, why
-it is built this way, how it fails. The first question opens as a thread on its lines; the list is the **Check** view
-in the Code Notes sidebar. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
-replies in the thread, naming the code it means as links you can click. A miss gets a hint and a second try; a second
-miss gets the explanation, which you may say back in one sentence (a right one counts as passed). Ctrl+' D goes to
-the next open question. You can also answer in the Check view: the selected question has a box there (Ctrl+Enter
-sends, Esc goes back to the code).
-
-Right after the questions, Claude writes a **tour of the change**: a short journey through the changed code and the code
-it depends on, in the order things happen, with each question placed after the step that shows its answer (2-3 steps
-for a few lines, documentation or a removal). The questions
-can be answered while it is written (about 3 minutes). **Walk the tour** in the Check view (or Check my understanding)
-opens it in the journey panel: Next walks the steps and stops at each open question, with its thread on the code. The
-Check view's rows say which step a question belongs to and go straight there. Walking it is optional.
-
-Questions and answers are saved in `understanding/<branch>.json`. The rule, shown the same way everywhere: answer all
-questions, and enough must pass (60 % by default). Then **Commit & push** in the Check view commits the file and
-pushes; the first check in a repository also adds the `.gitattributes` line that folds check files in GitLab and GitHub
-diffs (the button's line says so). When the grader finds a problem in the code itself, the thread offers **Suggest a fix**, **Add TODO** and **Flag for
-reviewer** (flagged ones go on the merge request). When you push a branch that has no check yet, its questions are written in the background
-(the status bar says "3 questions ready"; setting `codeNotes.understanding.background`).
-
-Everything runs on your machine. The merge request check only verifies the file: it belongs to this change, every
-question is done, the recorded verdicts meet the threshold. It calls no model and needs no key. Once the check is done
-it posts the questions and answers on the merge request for the reviewer (while it is in progress, only "2 of 4 done"). It is easy to cheat by editing the file; it is there to
-make you look, not to police.
-
-- **Every change with code** gets a check; only code lines count (not comments or blank lines). Files that should
-  never count go in `exempt` (none by default).
-- **The change grew** by more than 40 code lines since the questions: run the command again; it adds 1-2 questions
-  about the new part only. Merging the target branch in doesn't count.
-- **Skip it:** label the merge request `skip-understanding`. Any approval by someone other than the author waives the
-  check (re-run the job after the approval; on GitHub the review re-runs it).
-- **Settings** for a repository (a merge request is judged by its target branch's): `understanding/config.json`, e.g.
-  `{ "exempt": ["docs/**", "*.md", "package-lock.json"], "passRatio": 0.6, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
-
-Only the final answer to each question is kept in the file; earlier tries keep their verdict, not their text.
-
-**Without VS Code**, teammates use [Claude Code](https://claude.com/claude-code): `/understanding-check` asks the
-questions one at a time in the chat, grades each answer with the same rules, records it in the same file and commits
-it. Run `node cli/understanding.mjs init` once and commit what it prints: it puts the skill in
-`.claude/skills/understanding-check/`, adds `understanding/*.json gitlab-generated linguist-generated` to
-`.gitattributes` (collapsed in GitLab and GitHub diffs; `understanding/config.json` stays visible) and `understanding/`
-to `.ignore` (skipped by ripgrep and VS Code's search), never twice.
-
-The command line, [cli/understanding.mjs](cli/understanding.mjs) (Node 18+, no dependencies): `status`, `validate`,
-`grade` (local; Claude Code or `ANTHROPIC_API_KEY`), `next`, `flag`, `commit`, `init` and `ci`. Design: [docs/understanding-check.md](docs/understanding-check.md).
-
-### In CI
-
-GitLab (`.gitlab-ci.yml`). `GITLAB_TOKEN`: a project access token with `api` scope (CI/CD variable, masked), used to
-read labels and approvals and to write the comment. Without it the check still runs, without the comment and the skip
-label.
-
-```yaml
-understanding:
-  image: node:22
-  stage: .post       # the last stage, so a missing check never skips lint or tests
-  needs: []          # but it starts at once: a failing test never skips it either
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-  variables:
-    GIT_DEPTH: "0"
-  allow_failure:
-    exit_codes: [3]   # advisory mode: "passed with warnings", never blocks
-  script:
-    - curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.24.0/cli/understanding.mjs -o /tmp/understanding.mjs
-    - node /tmp/understanding.mjs ci
-```
-
-GitHub Actions (`.github/workflows/understanding.yml`); an approving review re-runs it by itself:
-
-```yaml
-name: Understanding check
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted]
-permissions:
-  contents: read
-  pull-requests: write
-jobs:
-  understanding:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: |
-          curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.24.0/cli/understanding.mjs -o /tmp/understanding.mjs
-          node /tmp/understanding.mjs ci
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-**Advisory first.** Start with `"mode": "advisory"` in `understanding/config.json` for a month, then switch to
-`"required"` (the default; `UNDERSTANDING_MODE` overrides the file). In advisory mode the job and the merge request
-comment work as usual, but a failure doesn't block: on GitLab the job exits 3 and shows "passed with warnings" (the
-`allow_failure` above); on GitHub, where a step can't allow one exit code, it adds a warning annotation and passes.
-
-To review the script once and keep it, commit a copy (e.g. `tools/understanding.mjs`) and run that instead.
+**Code Notes: Check my understanding** has Claude Code ask a few questions about your branch's change. You answer
+them next to the code, Claude grades each answer, and a short tour of the change walks you through the code that holds
+the answers. The answers are saved in `understanding/<branch>.json`; a CI job on GitLab or GitHub (no model, no key)
+checks that file on the merge request. How to use it, its settings and the CI recipes:
+[docs/understanding-check.md](docs/understanding-check.md).
 
 ## Keys
 
@@ -211,13 +110,28 @@ too.
 
 The extension turns on smooth editor scrolling by default, so the editor glides between a journey's steps. Set
 `editor.smoothScrolling` to `false` to switch that off. All other settings are under **Code Notes** in the Settings
-editor.
+editor, named by what they are about:
+
+| Prefix | About |
+|---|---|
+| `codeNotes.*` (no group) | notes: your name, their folder and git, how they show in the editor |
+| `codeNotes.claude.*` | the Claude Code CLI that answers notes: on or off, its path, model and skills |
+| `codeNotes.claudeLinks` | code links in a Claude Code chat |
+| `codeNotes.journeys.*` | journeys: their folder, the code lens, author mode, the model that writes them |
+| `codeNotes.listen.*` | listening to a journey: how long the code waits for you |
+| `codeNotes.understanding.*` | the understanding check: the model that writes and grades it, background questions |
+
+The settings that choose what runs (the CLI, the models, the skills) are taken only from your user settings in a
+workspace you have not trusted.
 
 ## Development
 
 ```sh
 npm ci
-npm test                    # unit tests
+npm run build               # the extension, the CLI bundle and the pages (scripts/build.mjs)
+npm run lint                # ESLint, and the layers of src/ and their import cycles (scripts/check-layers.mjs)
+npm test                    # unit tests, golden tests included (test/README.md)
+npm run test:goldens        # only the golden tests; UPDATE_GOLDENS=1 rewrites them
 npm run test:integration    # the extension in a real VS Code (needs a display, or xvfb)
 npm run package             # code-notes-<version>.vsix
 ```

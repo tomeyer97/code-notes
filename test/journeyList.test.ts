@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, seeAlso } from '../src/journeyList'
-import { NOW, items } from './fixtures/journeyList'
-// The word-level rules the list's search uses (queryWords, stem, matchScore: src/match.ts) are tested in match.test.ts.
+import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchedStep, seeAlso } from '../src/core/list/journeyList'
+import { NAMED, NOW, STORE, items } from './fixtures/journeyList'
+// The word-level rules the list's search uses (queryWords, stem, matchScore: src/core/list/match.ts) are tested in match.test.ts.
 
 /** A journey item titled `title` whose steps (all in api/x.js) have these titles. */
 const journeyItem = (key: string, title: string, steps: string[], summary = ''): ListItem => ({
@@ -87,58 +87,61 @@ test('Newest: ties of the same age say when; a search keeps the sort that was pi
 })
 
 test('sections: Continue, In <file>, New, then by area; the sidebar\'s groups from the same model; no checks', () => {
-  const m = buildList(items(), { activeFile: 'api/store.js', now: NOW })
+  const m = buildList(items(), { activeFile: STORE, now: NOW })
   assert.deepEqual(m.sections.map((s) => s.id).slice(0, 3), ['continue', 'here', 'new'])
   assert.equal(m.sections[1].label, 'In store.js')
   assert.ok(m.sections.slice(3).every((s) => s.id.startsWith('area:')))
   assert.deepEqual(m.groups.map((g) => g.id), ['here', 'continue', 'all'])
   assert.deepEqual(m.groups[2].children!.map((c) => c.label), ['api', 'config', 'payments', 'web', 'worker'])
-  assert.equal(m.rows.k1.meta, 'api · 5 steps · 3 d')
+  assert.equal(m.rows[NAMED.newest].meta, 'api · 5 steps · 3 d')
   // One count everywhere: the panel's total is the sidebar's All.
   assert.equal(m.total, m.groups[2].children!.reduce((a, c) => a + c.keys.length, 0))
   // Sorted by date: one flat "Newest" section after the personal ones; the sidebar's All is flat too.
   const n = buildList(items(), { sort: 'newest', now: NOW })
   assert.equal(n.sections.at(-1)!.label, 'Newest')
-  assert.equal(n.rows[n.sections.at(-1)!.keys[0]].key, 'k1')
+  assert.equal(n.sections.at(-1)!.keys[0], NAMED.newest)
   assert.equal(n.groups.at(-1)!.children, undefined)
-  assert.equal(buildList(items(), { area: 'config', now: NOW }).count, 3)
+  assert.equal(buildList(items(), { area: 'config', now: NOW }).count, NAMED.config.length)
 })
 
 test('Continue: past step 1 only (opening is not reading), the walk being walked first', () => {
   const its = items()
-  its[0].resume = 1
-  its[1].resume = 1; its[1].walking = true
+  const opened = its[0], walked = its[1]
+  opened.resume = 1
+  walked.resume = 1; walked.walking = true
   const m = buildList(its, { now: NOW })
   const cont = m.sections.find((s) => s.id === 'continue')!.keys
-  assert.ok(!cont.includes('k1'), 'left at step 1: not Continue')
-  assert.equal(cont[0], 'k2', 'the walk itself, first')
-  assert.ok(cont.includes('k13') && cont.includes('k26'))
+  assert.ok(!cont.includes(opened.key), 'left at step 1: not Continue')
+  assert.equal(cont[0], walked.key, 'the walk itself, first')
+  assert.deepEqual(cont.slice(1), NAMED.leftAtStep2, 'then the ones left past step 1, the last walked first')
 })
 
 test('In this file: ranked (a step at the cursor\'s function, then steps here), capped with "more", in full on demand', () => {
-  const m = buildList(items(), { activeFile: 'api/store.js', activeSpan: { start: 136, end: 136 }, now: NOW })
+  const { atCursor, inStore, twoInStore } = NAMED
+  const m = buildList(items(), { activeFile: STORE, activeSpan: atCursor.span, now: NOW })
   const here = m.sections.find((s) => s.id === 'here')!
   assert.equal(here.keys.length, HERE_CAP)
-  assert.equal(here.more, 2)
-  assert.equal(here.keys[0], 'k25', 'its step is at the cursor')
-  assert.deepEqual(here.keys.slice(1, 4).sort(), ['k10', 'k20', 'k30'], 'then two steps here')
-  assert.equal(m.rows.k10.hereText, '2 of 7 steps here')
+  assert.equal(here.more, inStore.length - HERE_CAP)
+  assert.equal(here.keys[0], atCursor.key, 'its step is at the cursor')
+  assert.deepEqual(here.keys.slice(1, 4).sort(), twoInStore, 'then two steps here')
+  assert.equal(m.rows[twoInStore[0]].hereText, '2 of 7 steps here')
   assert.equal(m.groups[0].keys.length, HERE_CAP)
-  assert.equal(m.groups[0].more, 2)
-  const all = buildList(items(), { activeFile: 'api/store.js', hereAll: true, now: NOW })
-  assert.equal(all.sections.find((s) => s.id === 'here')!.keys.length, 7)
+  assert.equal(m.groups[0].more, inStore.length - HERE_CAP)
+  const all = buildList(items(), { activeFile: STORE, hereAll: true, now: NOW })
+  assert.deepEqual(all.sections.find((s) => s.id === 'here')!.keys.sort(), [...inStore].sort())
   assert.equal(all.groups[0].more, undefined)
   // The "In store.js" chip: one section, every one of them.
-  const chip = buildList(items(), { activeFile: 'api/store.js', area: 'here', now: NOW })
+  const chip = buildList(items(), { activeFile: STORE, area: 'here', now: NOW })
   assert.deepEqual(chip.sections.map((s) => s.id), ['here'])
-  assert.equal(chip.count, 7)
+  assert.equal(chip.count, inStore.length)
 })
 
 test('Stale: a chip with its count; rows say which steps', () => {
   const m = buildList(items(), { now: NOW })
-  assert.equal(m.staleCount, 3)
+  assert.equal(m.staleCount, NAMED.stale.length)
   const s = buildList(items(), { area: 'stale', now: NOW })
-  assert.equal(s.count, 3)
+  assert.equal(s.count, NAMED.stale.length)
+  assert.deepEqual(s.sections.flatMap((x) => x.keys).sort(), [...NAMED.stale].sort())
   assert.ok(Object.values(s.rows).filter((r) => r.stale).every((r) => r.staleSteps!.length === 2))
 })
 
@@ -154,4 +157,10 @@ test('See also: the journey step on those lines first, then the journey with mos
   assert.deepEqual(seeAlso([a, b, c], ['api/store.js', 'web/x.ts', 'api/orders.js']), { key: 'a', step: 1 })
   assert.equal(seeAlso([a, b, c], ['worker/w.js']), undefined)
   assert.equal(seeAlso([{ ...a, kind: 'check' }], ['web/x.ts']), undefined, 'checks are never "see also"')
+})
+
+test('a search result says which step matched', () => {
+  const m = buildList(items(), { query: 'retry', now: NOW })
+  assert.equal(matchedStep(m.rows[NAMED.retries]), 'The worker retries a failed charge with the same key')
+  assert.equal(matchedStep(m.rows[NAMED.newest]), '', 'nothing matched')
 })

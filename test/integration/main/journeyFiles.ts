@@ -1,30 +1,69 @@
 // A journey's files changing under it: the journey file deleted mid-walk, a step's file renamed (on disk, with git mv),
 // changed on disk with no editor open, refreshed by the journey writer; and a long file: the map follows the step,
 // cards stay in view after jumps, arriving at a step reads no note, leaving for another journey says so, a step whose
-// file is gone opens no stand-in tab. Source: src/journeys/, src/gitRenames.ts, src/anchor.ts, src/compact.ts.
+// file is gone opens no stand-in tab. Source: src/journeys/, src/platform/gitRenames.ts, src/core/anchors/anchor.ts, src/core/anchors/compact.ts.
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import { execFileSync } from 'child_process'
-import { settle, test, untilEqual } from '../helpers'
+import { settle, test, Test, untilEqual } from '../helpers'
 import { agentNote, journey, step, writeJourney, writeLines, writeNote } from '../fixtures'
-import { at, closeAllEditors, ctx, journeyById, journeysDir, lenses, noteById, notePath, snap, tour, until, wsPath } from './context'
+import { at, closeAllEditors, ctx, journeyById, journeysDir, lenses, noteById, snap, tour, until, wsPath } from './context'
 import { demoPath, writeDemo } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Where step 1 of journey `id` is now ({ file, start, end, stale, removed }). */
 const firstStepOf = (id: string) => journeyById(id)?.at[0]
 
-/** git in the workspace, as a test user. */
+/** git in the workspace, as a test user (its own name and address: no git config needed). */
 const git = (...args: string[]) => execFileSync('git', ['-C', ctx.ws, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { stdio: 'pipe' })
 
 /** An unread agent note on the long journey's second step. */
 const ON_STEP = '20261111-200300-onstep'
-/** The journey "long" (src/long.ts), from its first test until the last one of this file removes it. */
-let longPath = ''
 
-export const journeyFilesTests = [
+/** The long file: its length, and its three steps low in it (first lines, 1-based), each STEP_LINES long. */
+const LONG_FILE_LINES = 220
+const STEPS = { l1: 20, l2: 150, l3: 190 }
+const STEP_LINES = 3
+/** The reference on step 1 into its own file (1-based lines). */
+const REF = { start: 100, end: 104 }
+/** 0-based editor lines: the card's (two above its step's first line) and the step's last one. */
+const cardLine = (step: number) => step - 1 - 2
+const lastLine = (step: number) => step - 1 + STEP_LINES - 1
+
+/** Files the tests of this file leave for later tests of it (the long journey, its note): removed by cleanUp. */
+const made = new Set<string>()
+const keep = (file: string) => { made.add(file); return file }
+
+/** The journeys and the note the tests made are removed, the walk ended. */
+async function cleanUp(): Promise<void> {
+  if (tour().touring) await vscode.commands.executeCommand('codeNotes.endJourney')
+  for (const f of made) fs.rmSync(f, { force: true })
+  made.clear()
+  await until('cleaned', () => !snap().journeys.some((x: any) => x.id === 'long' || x.id === 'gonefile') && !noteById(ON_STEP))
+}
+
+/**
+ * `tests`, then `after` as a last step; `after` also runs when one of them fails (the run stops there), so nothing
+ * they made is left for the files that run later.
+ */
+function withAfter(tests: Test[], after: () => Promise<void>): Test[] {
+  const always = (t: Test): Test => ({
+    ...t,
+    fn: async () => {
+      try {
+        return await t.fn()
+      } catch (e) {
+        await after().catch((c) => console.log(`  (cleaning up after the failure failed too: ${c})`))
+        throw e
+      }
+    },
+  })
+  return [...tests.map(always), test('what the journey files tests made is removed', after)]
+}
+
+export const journeyFilesTests = withAfter([
   test('a journey deleted mid-tour ends the tour', async () => {
     await vscode.commands.executeCommand('codeNotes.startJourney', 'demo')
     await until('touring', () => tour().touring)
@@ -67,13 +106,19 @@ export const journeyFilesTests = [
   test('a file renamed with git mv: the step follows it from git, in a journey read afterwards', async () => {
     // The `git mv` is made before the journey is read: git says where the file went.
     writeLines(wsPath('src', 'receipt.ts'), ['// receipt', 'export function render() {', '  return "the receipt is rendered here, long enough"', '}'])
-    git('init', '-q'); git('add', 'src/receipt.ts'); git('commit', '-qm', 'receipt')
-    git('mv', 'src/receipt.ts', 'src/receiptTemplate.ts')
-    const gitMvPath = writeJourney(journeysDir(), journey('gitmv', [step('src/receipt.ts', 2, 3, { id: 'r1', title: 'Rendered', node: 'r', anchor: { text: 'export function render() {\n  return "the receipt is rendered here, long enough"', before: '// receipt', after: '}' } })],
-      { question: 'Where is the receipt rendered?', title: 'Git mv', nodes: [{ id: 'r', kind: 'function', label: 'render' }] }))
-    await until('the step follows the git rename', () => { const x = journeyById('gitmv'); return x && x.at[0].file === 'src/receiptTemplate.ts' && !x.at[0].stale }, 8000)
-    fs.unlinkSync(gitMvPath)
-    fs.rmSync(wsPath('.git'), { recursive: true, force: true })
+    // The workspace is a git repository for this test only: removed whatever happens, so no later test runs in one.
+    git('init', '-q')
+    let gitMvPath = ''
+    try {
+      git('add', 'src/receipt.ts'); git('commit', '-qm', 'receipt')
+      git('mv', 'src/receipt.ts', 'src/receiptTemplate.ts')
+      gitMvPath = writeJourney(journeysDir(), journey('gitmv', [step('src/receipt.ts', 2, 3, { id: 'r1', title: 'Rendered', node: 'r', anchor: { text: 'export function render() {\n  return "the receipt is rendered here, long enough"', before: '// receipt', after: '}' } })],
+        { question: 'Where is the receipt rendered?', title: 'Git mv', nodes: [{ id: 'r', kind: 'function', label: 'render' }] }))
+      await until('the step follows the git rename', () => { const x = journeyById('gitmv'); return x && x.at[0].file === 'src/receiptTemplate.ts' && !x.at[0].stale }, 8000)
+    } finally {
+      if (gitMvPath) fs.rmSync(gitMvPath, { force: true })
+      fs.rmSync(wsPath('.git'), { recursive: true, force: true })
+    }
     await until('gitmv gone', () => !snap().journeys.some((x: any) => x.id === 'gitmv'))
   }),
 
@@ -107,29 +152,28 @@ export const journeyFilesTests = [
   }),
 
   test('a long file: one inline card and no marker lens; a ref into the step\'s own file peeks under the card', async () => {
-    // A 220-line file, three steps low in it (20, 150, 190), each three lines long.
-    writeLines(wsPath('src', 'long.ts'), Array.from({ length: 220 }, (_, i) => `export const v${i} = ${i} // line ${i + 1} of a long file`))
-    const longStep = (id: string, node: string, line: number, over: object = {}) => step('src/long.ts', line, line + 2, { id, title: `At line ${line}`, node, lead: `Line ${line}.`, ...over })
-    longPath = writeJourney(journeysDir(), journey('long', [longStep('l1', 'f1', 20, { refs: ['src/long.ts:100-104'] }), longStep('l2', 'f2', 150), longStep('l3', 'f3', 190)], {
+    writeLines(wsPath('src', 'long.ts'), Array.from({ length: LONG_FILE_LINES }, (_, i) => `export const v${i} = ${i} // line ${i + 1} of a long file`))
+    const longStep = (id: string, node: string, line: number, over: object = {}) => step('src/long.ts', line, line + STEP_LINES - 1, { id, title: `At line ${line}`, node, lead: `Line ${line}.`, ...over })
+    keep(writeJourney(journeysDir(), journey('long', [longStep('l1', 'f1', STEPS.l1, { refs: [`src/long.ts:${REF.start}-${REF.end}`] }), longStep('l2', 'f2', STEPS.l2), longStep('l3', 'f3', STEPS.l3)], {
       question: 'How long is it?', title: 'Long', summary: 'Long.',
       nodes: [{ id: 'A', kind: 'system', label: 'A' }, { id: 'B', kind: 'system', label: 'B' }, { id: 'f1', kind: 'function', label: 'f1', parent: 'A' }, { id: 'f2', kind: 'function', label: 'f2', parent: 'A' }, { id: 'f3', kind: 'function', label: 'f3', parent: 'A' }],
       edges: [{ from: 'A', to: 'B', label: 'uses' }],
-    }))
+    })))
     await until('long loaded', () => snap().journeys.some((x: any) => x.id === 'long'))
     await vscode.commands.executeCommand('codeNotes.openJourney', 'long')
     await until('long map', () => tour().map === 'long' && tour().mapBoxes === 5, 10000)
     await vscode.commands.executeCommand('codeNotes.startJourney', 'long')
-    await until('inline card for step 1', () => tour().step === 1 && tour().card?.title === 'At line 20' && !tour().panelCard, 8000)
+    await until('inline card for step 1', () => tour().step === 1 && tour().card?.title === `At line ${STEPS.l1}` && !tour().panelCard, 8000)
     const longUri = vscode.Uri.file(wsPath('src', 'long.ts'))
     assert.ok(!(await lenses(longUri)).some((t) => /Step 1\/3/.test(t)), 'no marker line above the step (it was the panel mode\'s)')
     // A ref from the card (inside More) into the step's own file: a peek of a read-only copy under the card,
     // the step's editor stays.
     await vscode.commands.executeCommand('codeNotes.stepDetails', true)
-    await until('More open', () => /long\.ts:100/.test(tour().card?.body ?? ''))
-    await vscode.commands.executeCommand('codeNotes.openAt', ctx.folder.uri.toString(), 'src/long.ts', 100, 104, 1)
-    await until('ref peeked', () => /^code-notes-ref:.*long\.ts/.test(tour().peek?.uri ?? '') && tour().peek!.start === 99 && tour().peek!.end === 103 && !tour().ref)
+    await until('More open', () => (tour().card?.body ?? '').includes(`long.ts:${REF.start}`))
+    await vscode.commands.executeCommand('codeNotes.openAt', ctx.folder.uri.toString(), 'src/long.ts', REF.start, REF.end, 1)
+    await until('ref peeked', () => /^code-notes-ref:.*long\.ts/.test(tour().peek?.uri ?? '') && tour().peek!.start === REF.start - 1 && tour().peek!.end === REF.end - 1 && !tour().ref)
     await vscode.commands.executeCommand('closeReferenceSearch').then(undefined, () => undefined)
-    await until('still at the step', () => /^src\/long\.ts:/.test(at()) && tour().card?.title === 'At line 20')
+    await until('still at the step', () => /^src\/long\.ts:/.test(at()) && tour().card?.title === `At line ${STEPS.l1}`)
   }),
 
   test('the map follows the step, there and back (0.21: the whole map, centred on the step\'s box)', async () => {
@@ -138,26 +182,26 @@ export const journeyFilesTests = [
     await vscode.commands.executeCommand('codeNotes.previousStep')
     await until('step 1', () => tour().step === 1)
     await until('the map followed the step back to f1', () => tour().mapFocus === 'f1' && tour().mapBoxes === 5)
-    await until('the card is back on step 1', () => tour().card?.title === 'At line 20')
+    await until('the card is back on step 1', () => tour().card?.title === `At line ${STEPS.l1}`)
   }),
 
   test('a jump lower in the file (Next, a storyline row) shows the card and the step; arriving at a step reads no note there', async () => {
     // An unread reply on the next step's lines stays unread when the journey arrives there.
-    writeNote(ctx.notesDir, ON_STEP, agentNote('src/long.ts', 150, 'Reply on a step'))
+    keep(writeNote(ctx.notesDir, ON_STEP, agentNote('src/long.ts', STEPS.l2, 'Reply on a step')))
     await until('unread on the step', () => noteById(ON_STEP)?.unread === 1)
     // A jump lower in the same file shows the card's line and the step's lines.
     await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('step 2 card', () => tour().step === 2 && tour().card?.title === 'At line 150')
+    await until('step 2 card', () => tour().step === 2 && tour().card?.title === `At line ${STEPS.l2}`)
     await settle(700, 'the step\'s delayed reveals')
     const shown2 = vscode.window.activeTextEditor!.visibleRanges[0]
-    assert.ok(shown2.start.line <= 148 && shown2.end.line >= 151, `card line 148 and the step (150-152) in view: ${shown2.start.line}-${shown2.end.line}`)
+    assert.ok(shown2.start.line <= cardLine(STEPS.l2) && shown2.end.line >= lastLine(STEPS.l2), `card line ${cardLine(STEPS.l2)} and step 2 (to ${lastLine(STEPS.l2)}) in view: ${shown2.start.line}-${shown2.end.line}`)
     assert.equal(noteById(ON_STEP).unread, 1, 'arriving at a step is not reading the note there')
     // A step from the storyline: the same.
     ctx.api.mapSend({ type: 'test', click: '.story .st[data-n="3"]' })
-    await until('step 3 from the storyline', () => tour().step === 3 && tour().card?.title === 'At line 190')
+    await until('step 3 from the storyline', () => tour().step === 3 && tour().card?.title === `At line ${STEPS.l3}`)
     await settle(700, 'the step\'s delayed reveals')
     const shown3 = vscode.window.activeTextEditor!.visibleRanges[0]
-    assert.ok(shown3.start.line <= 188 && shown3.end.line >= 191, `storyline jump: card line 188 and the step in view: ${shown3.start.line}-${shown3.end.line}`)
+    assert.ok(shown3.start.line <= cardLine(STEPS.l3) && shown3.end.line >= lastLine(STEPS.l3), `storyline jump: card line ${cardLine(STEPS.l3)} and step 3 in view: ${shown3.start.line}-${shown3.end.line}`)
   }),
 
   test('another journey started mid-way: the first one is left with a way back', async () => {
@@ -167,16 +211,13 @@ export const journeyFilesTests = [
   }),
 
   test('a step whose file is gone: no stand-in tab; the card (in the map) says so', async () => {
-    const gonePath = writeJourney(journeysDir(), journey('gonefile', [step('src/nope_gone.ts', 3, 4, { id: 'g', title: 'Here', node: 'x', lead: 'Was here.' })],
-      { question: 'Where?', title: 'Gone file', nodes: [{ id: 'x', kind: 'function', label: 'x' }] }))
+    keep(writeJourney(journeysDir(), journey('gonefile', [step('src/nope_gone.ts', 3, 4, { id: 'g', title: 'Here', node: 'x', lead: 'Was here.' })],
+      { question: 'Where?', title: 'Gone file', nodes: [{ id: 'x', kind: 'function', label: 'x' }] })))
     await until('gonefile loaded', () => snap().journeys.some((x: any) => x.id === 'gonefile'))
     await closeAllEditors()
     await vscode.commands.executeCommand('codeNotes.startJourney', 'gonefile')
     await until('file gone card', () => tour().journey === 'gonefile' && tour().fileGone && /File moved or deleted/.test(tour().panelCard?.staleText ?? ''), 8000)
     assert.ok(!vscode.window.tabGroups.all.some((g) => g.tabs.some((x) => /not found/.test(x.label))), 'no "(not found)" tab')
     await vscode.commands.executeCommand('codeNotes.endJourney')
-    for (const f of [gonePath, longPath]) fs.unlinkSync(f)
-    fs.unlinkSync(notePath(ON_STEP))
-    await until('cleaned', () => !snap().journeys.some((x: any) => x.id === 'long' || x.id === 'gonefile') && !noteById(ON_STEP))
   }),
-]
+], cleanUp)

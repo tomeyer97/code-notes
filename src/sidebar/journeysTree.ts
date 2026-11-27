@@ -1,92 +1,104 @@
-// The Journeys view: the journey lists by group (In this file, Continue, All by area), searching and sorting them.
-// Its rows are drawn by rowItems.ts (a journey's: journeyRows.ts); its model is listModel.ts.
+// The Journeys view: the journey lists by group (In this file, Continue, All by area), sorting them, and revealing
+// rows in it. Its rows are drawn by rowItems.ts (a journey's: journeyRows.ts); its model is listModel.ts; searching
+// is journeySearch.ts.
 
 import * as vscode from 'vscode'
-import { journeys, mapPanel, state } from '../app'
-import { Group, SORTS } from '../journeyList'
-import { pickOne } from '../quickPick'
-import { walkJourney } from '../tour/commands'
+import { journeys, tour } from './ports'
+import { stored } from '../platform/host'
+import { Group, ListModel, SORTS } from '../core/list/journeyList'
+import type { Journeys } from '../journeys/journeys'
+import type { LoadedJourney } from '../journeys/steps'
 import { badJourneyNodes, jgroupNode, jmoreNode, journeyRowNode, Node } from './nodes'
-import { journeyQuestionRows, questionRows, revealHereGroup } from './journeyRows'
-import { followCursor, listModel, listSort, listState, SORT_KEY } from './listModel'
+import { journeyQuestionRows, questionRows } from './journeyRows'
+import { nestsQuestions } from './journeyRowText'
+import { activeRel as activeFile, capHere, followCursor, listModel, listSort, onDidChangeListState, showAllHere, sortChanged, useDrawnModel } from './listModel'
 import { itemOf } from './rowItems'
 import { ViewSync } from './viewSync'
+import { STATE } from '../platform/state'
 
-/** Where a row's parent is kept (set while the rows are made, read back by getParent): the same strings both ways. */
-const parentKey = {
-  group: (id: string) => `group:${id}`,
-  row: (group: string, key: string) => `${group}:${key}`,
-  more: (group: string) => `more:${group}`,
-}
-
-/** The groups under which a journey's row lists its step questions (a row is listed once there). */
-const nestsQuestions = (group: string | undefined) => group === 'all' || !!group?.startsWith('area:')
+/** How long the Journeys view waits before a reveal (revealSettled): the walk's row once the walk's redraw is done; the
+ *  editor's "In this file" once the editor stayed (the cursor's follow, listModel.ts, redraws before it). */
+const REVEAL_WALK_MS = 300
+const REVEAL_EDITOR_MS = 700
 
 class JourneysTree implements vscode.TreeDataProvider<Node> {
-  private parents = new Map<string, Node>()
+  /** Each row's parent, set while the rows are made and read back by getParent (rows are one object each: nodes.ts). */
+  private parents = new Map<Node, Node>()
+  /** The model the view drew: made when VS Code asks for the top rows (a drawing; `refresh` only asks for one). */
+  private drawn: ListModel | undefined
+  private view: vscode.TreeView<Node> | undefined
+  private revealTimer: NodeJS.Timeout | undefined
   /** One redraw for a burst of changes (a step, the editor, the cursor): VS Code asked for the children of a group
    *  from one drawing after the next had dropped it ("Failed to resolve tree node"). Reveals: `revealRow`. */
   readonly sync = new ViewSync<Node>(80)
   refresh() { this.sync.refresh() }
 
+  /** The model of the last drawing (undefined before the first). */
+  drawnModel(): ListModel | undefined { return this.drawn }
+
+  /** The view showing this tree (createJourneysView). */
+  attach(view: vscode.TreeView<Node>): void { this.view = view }
+
   /** Selects or expands the row `target()` names once the view holds it (viewSync.ts). */
   revealRow(target: () => Node | undefined, o: { select: boolean; expand: boolean }): void {
-    this.sync.reveal(journeysView, this, target, { ...o, focus: false })
+    if (this.view) this.sync.reveal(this.view, this, target, { ...o, focus: false })
+  }
+
+  /**
+   * A reveal goes only to a node the view holds now and keeps holding: a reveal of a node that a redraw dropped
+   * meanwhile (the "In this file" group of the file before) logged "Failed to resolve tree node". So: once things
+   * settle (`wait`), against the model as it is then, and only for groups that don't come and go with the editor.
+   */
+  revealSettled(f: (m: ListModel) => Node | undefined, o: { select: boolean; expand: boolean }, wait: number): void {
+    clearTimeout(this.revealTimer)
+    if (!this.view?.visible) return
+    const file = activeFile()
+    this.revealTimer = setTimeout(() => this.revealRow(() => (activeFile() === file ? f(listModel()) : undefined), o), wait)
   }
 
   /** The group a journey is listed under in "All" (for reveal). */
   groupOf(key: string): string | undefined {
-    const m = listState.last ?? listModel()
-    const all = m.groups.find((g) => g.id === 'all')
+    const all = (this.drawn ?? listModel()).groups.find((g) => g.id === 'all')
     if (!all) return undefined
     if (all.keys.includes(key)) return 'all'
     return all.children?.find((c) => c.keys.includes(key))?.id
   }
 
   private rowsOf(g: Group, parent: Node): Node[] {
-    const rows: Node[] = g.keys.map((k) => {
-      const n: Node = journeyRowNode(journeys.list.get(k)!, g.id)
-      this.parents.set(parentKey.row(g.id, k), parent)
-      return n
-    }).filter((n) => n.kind !== 'journey' || !!n.lj)
+    const rows: Node[] = g.keys.map((k) => journeyRowNode(journeys().list.get(k)!, g.id))
+      .filter((n) => n.kind !== 'journey' || !!n.lj)
     // "Show all": the rest of a capped group (In this file).
-    if (g.more) {
-      rows.push(jmoreNode(g))
-      this.parents.set(parentKey.more(g.id), parent)
-    }
+    if (g.more) rows.push(jmoreNode(g))
+    for (const r of rows) this.parents.set(r, parent)
     return rows
   }
 
   getChildren(node?: Node): Node[] {
     if (!node) {
-      listState.last = listModel()
+      const m = this.drawn = listModel()
       this.parents.clear()
       const bad = badJourneyNodes()
-      if (!listState.last.total) return bad
-      return [...listState.last.groups.map(jgroupNode), ...bad]
+      if (!m.total) return bad
+      return [...m.groups.map(jgroupNode), ...bad]
     }
     if (node.kind === 'jgroup') {
       if (!node.g.children) return this.rowsOf(node.g, node)
-      return node.g.children.map((c) => {
-        this.parents.set(parentKey.group(c.id), node)
-        return jgroupNode(c)
-      })
+      const groups = node.g.children.map(jgroupNode)
+      for (const g of groups) this.parents.set(g, node)
+      return groups
     }
     // A journey's step questions: under its row in "All" only.
-    if (node.kind === 'journey' && nestsQuestions(node.group)) return journeyQuestionRows(node.lj)
+    if (node.kind === 'journey' && node.group && nestsQuestions(node.group)) return journeyQuestionRows(node.lj)
     if (node.kind === 'questions') return questionRows(node.notes)
     return []
   }
 
   getParent(node: Node): Node | undefined {
-    if (node.kind === 'jgroup') return this.parents.get(parentKey.group(node.g.id))
-    if (node.kind === 'journey' && node.group) return this.parents.get(parentKey.row(node.group, node.lj.key))
-    if (node.kind === 'jmore') return this.parents.get(parentKey.more(node.g))
     if (node.kind === 'questions') {
       const g = this.groupOf(node.lj.key)
       return g ? journeyRowNode(node.lj, g) : undefined
     }
-    return undefined
+    return this.parents.get(node)
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -94,69 +106,55 @@ class JourneysTree implements vscode.TreeDataProvider<Node> {
   }
 }
 
-export let journeysTree: JourneysTree
-
-export let journeysView: vscode.TreeView<Node>
-
-/** Search every journey (title, question, summary, step titles, files): a picker, best match first (or the view's sort). */
-export async function searchJourneys(): Promise<void> {
-  const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { key: string }>()
-  qp.placeholder = 'Search journeys: words of the title, question, steps or file paths'
-  // The results follow the view's sort when one was picked (else best match first).
-  const sort = listSort()
-  if (sort !== 'area') qp.title = `Search journeys · ${SORTS.find((x) => x.id === sort)!.label}`
-  qp.matchOnDescription = true
-  qp.matchOnDetail = true
-  const fill = () => {
-    const m = listModel({ query: qp.value })
-    const keys = m.sections.flatMap((s) => s.keys)
-    // The order is ours (best first): VS Code filters our results again by label/description/detail, so they carry the words.
-    const rows = [...new Set(keys)].map((k) => {
-      const r = m.rows[k]
-      const stepHit = r.hits.length ? [r.stepTitles.find((t) => r.hits.some((h) => t.toLowerCase().includes(h))) ?? ''] : []
-      return { key: k, label: r.title, description: r.meta, detail: [r.question, ...stepHit].filter(Boolean).join(' · '), alwaysShow: true }
-    })
-    // No journey has every word: the ones with any, under one line saying so.
-    qp.items = m.fallback ? [{ key: '', label: m.fallback.note, kind: vscode.QuickPickItemKind.Separator }, ...rows] : rows
-  }
-  qp.onDidChangeValue(fill)
-  fill()
-  // Not awaited: the command returns while the pick is open.
-  void pickOne(qp).then((it) => {
-    const lj = it && journeys.list.get(it.key)
-    if (lj) void walkJourney(lj)
-  })
-}
+/** The Journeys view's rows; shown once createJourneysView has made the view. */
+export const journeysTree = new JourneysTree()
+useDrawnModel(() => journeysTree.drawnModel())
 
 export async function sortJourneys(): Promise<void> {
   const cur = listSort()
   const items = SORTS.map((x) => ({ label: x.label, id: x.id, description: x.id === cur ? 'current' : undefined }))
   const pick = await vscode.window.showQuickPick(items, { title: 'Sort journeys' })
   if (!pick) return
-  await state.update(SORT_KEY, pick.id)
-  journeysTree.refresh()
-  mapPanel.update()
+  await stored().set(STATE.journeySort, pick.id)
+  sortChanged()
 }
 
 /** The Journeys view; its "In this file" follows the editor (capped again), ranked by the cursor's function, and in view. */
 export function createJourneysView(context: vscode.ExtensionContext): void {
-  journeysTree = new JourneysTree()
-  journeysView = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree.sync.provider(journeysTree), showCollapseAll: true })
+  const view = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree.sync.provider(journeysTree), showCollapseAll: true })
+  journeysTree.attach(view)
   const editorChanged = vscode.window.onDidChangeActiveTextEditor(() => {
-    listState.hereAll = false
-    followCursor(true, cursorMoved)
+    capHere()
+    followCursor(true)
   })
   const selectionChanged = vscode.window.onDidChangeTextEditorSelection((e) => {
-    if (e.textEditor === vscode.window.activeTextEditor) followCursor(false, cursorMoved)
+    if (e.textEditor === vscode.window.activeTextEditor) followCursor(false)
   })
-  context.subscriptions.push(journeysView, editorChanged, selectionChanged, ...journeysTree.sync.watch(journeysView))
+  // The file or the function under the cursor changed, or the sort: the view follows; another file shows its "In this file".
+  const listChanged = onDidChangeListState((e) => {
+    journeysTree.refresh()
+    if (e.editorChanged) revealHereGroup()
+  })
+  context.subscriptions.push(view, editorChanged, selectionChanged, listChanged, ...journeysTree.sync.watch(view))
 }
 
-/** The file or the function under the cursor changed: the lists follow; another file shows its "In this file". */
-function cursorMoved(editorChanged: boolean): void {
-  journeysTree.refresh()
-  if (mapPanel) mapPanel.update()
-  if (editorChanged) revealHereGroup()
+/** "Show all" under "In this file". */
+export const journeysHereAll = () => showAllHere()
+
+/** The rows follow where the journeys' steps are (stale counts). */
+export const followJourneyMoves = (j: Journeys) => j.onDidMoveSteps(() => journeysTree.refresh())
+
+/** The walk's row in Continue (where a walk is listed first): never deep in All, which scrolled the view away. */
+export function revealJourneyRow(lj: LoadedJourney): void {
+  const inContinue = (m: ListModel) => m.groups.find((x) => x.id === 'continue')?.keys.includes(lj.key)
+  journeysTree.revealSettled((m) => (inContinue(m) ? journeyRowNode(lj, 'continue') : undefined), { select: true, expand: false }, REVEAL_WALK_MS)
 }
 
-export const journeysHereAll = () => { listState.hereAll = true; journeysTree.refresh(); mapPanel.update() }
+/** The editor changed (and stayed): the Journeys view shows "In this file" (the top), not a row deep in All. */
+export function revealHereGroup(): void {
+  if (tour().touring()) return
+  journeysTree.revealSettled((m) => {
+    const g = m.groups.find((x) => x.id === 'here')
+    return g ? jgroupNode(g) : undefined
+  }, { select: false, expand: true }, REVEAL_EDITOR_MS)
+}

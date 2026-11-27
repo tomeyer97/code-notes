@@ -1,0 +1,21 @@
+{
+  // The webview pages' scripts (media/*.js): type-checked as ES modules with the message types of src/protocol/
+  // (scripts/build/pages.mjs runs it before esbuild bundles each page into out/pages/). Plain JS with JSDoc types for
+  // now (no implicit-any errors yet); a file moves to TS once that is mechanical. Node's types are in only for the
+  // extension's modules the protocol types import.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["*.js", "types.d.ts"]
+}

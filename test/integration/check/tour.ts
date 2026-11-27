@@ -6,8 +6,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 import assert from 'assert'
 import { quiet, settle, test, untilEqual } from '../helpers'
-import { boxFocused, cdp, clickToast, codeColumns, pageShot, ui } from '../devtools'
+import { boxFocused, clickToast, codeColumns, pageShot, ui } from '../devtools'
 import { CHECK_WAIT_MS, api, checkFile, chk, codeEditor, devtools, dumpState, git, inLines, limitsPath, readTour, setDumpState, tour, tourFile, tourNote, until, view, ws } from './context'
+import { fakeHolding, fakeWritesTours, releaseFake, setFakeScenario } from './fakeGrader'
+import { clickInCheckView, commandLinks, withWindowSize } from './support'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -16,7 +18,7 @@ export const tourTests = [
     git('checkout', '-q', '-b', 'feat/third')
     fs.writeFileSync(path.join(ws, 'api', 'third.js'), 'export const third = 3\n')
     git('add', '-A', 'api/third.js'); git('commit', '-qm', 'third')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('no check yet on feat/third', () => view()?.title === 'No check yet for feat/third')
     const where = vscode.window.activeTextEditor?.document.uri.fsPath
     // As in real use, VS Code's git has seen the branch before it is pushed.
@@ -29,7 +31,7 @@ export const tourTests = [
     await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
     await until('a click opens q1', () => codeEditor()?.document.uri.fsPath === path.join(ws, 'api/third.js') && chk().item === '$(checklist) Understanding 0/1')
     git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('feat/limits once more', () => chk().item === '$(pass) Understanding')
   }),
 
@@ -37,25 +39,26 @@ export const tourTests = [
   // stops between the steps; a pass stays, Next walks on; rows of the Check view and of the storyline go to their step
   // and question.
   test('the tour is written right after the questions; a branch switch stops it and it goes on on return: each question after a step; rows say "step n"; not listed as a journey', async () => {
-    fs.rmSync(path.join(ws, '.git', 'fake-no-tour'), { force: true })
+    fakeWritesTours()
     git('checkout', '-q', '-b', 'feat/tour', 'main')
     git('checkout', 'feat/limits', '--', 'api/limits.js')
     git('commit', '-qm', 'limits for the tour')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('no check yet on feat/tour', () => view()?.title === 'No check yet for feat/tour')
     // The branch is switched while the tour is written: it stops (nothing written to the other branch) and goes on
     // once the branch is back.
-    fs.writeFileSync(path.join(ws, '.git', 'fake-tour-wait'), '')
-    await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-    await until('q1 opens before the tour is there', () => tourNote('q1')?.threadExpanded)
-    await until('the tour is being written', () => fs.existsSync(path.join(ws, '.git', 'fake-tour-wait-waiting')) && view()?.tour?.label?.startsWith('Writing the tour'), 20000)
-    git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
-    await until('switched away: the tour stops, said nowhere on feat/limits', () => !chk().tourBusy && chk().item === '$(pass) Understanding' && !view()?.tour?.label?.startsWith('Writing'))
-    fs.rmSync(path.join(ws, '.git', 'fake-tour-wait')); fs.rmSync(path.join(ws, '.git', 'fake-tour-wait-waiting'), { force: true })
+    setFakeScenario({ hold: 'tour' })
+    try {
+      await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+      await until('q1 opens before the tour is there', () => tourNote('q1')?.threadExpanded)
+      await until('the tour is being written', () => fakeHolding('tour') && view()?.tour?.label?.startsWith('Writing the tour'), 20000)
+      git('checkout', '-q', 'feat/limits')
+      void api.checkRefresh()
+      await until('switched away: the tour stops, said nowhere on feat/limits', () => !chk().tourBusy && chk().item === '$(pass) Understanding' && !view()?.tour?.label?.startsWith('Writing'))
+    } finally { releaseFake() }
     assert.equal(fs.readFileSync(checkFile, 'utf8').includes('"journey"'), false, 'no tour written into feat/limits\'s check')
     git('checkout', '-q', 'feat/tour')
-    api.checkRefresh()
+    void api.checkRefresh()
     const t0 = Date.now()
     await until('back: the tour goes on', () => chk().tourBusy || (fs.existsSync(tourFile) && readTour().journey), 20000)
     await until('the tour, right after the questions', () => fs.existsSync(tourFile) && readTour().journey?.steps.length === 6, 30000)
@@ -67,28 +70,39 @@ export const tourTests = [
     return `${((Date.now() - t0) / 1000).toFixed(1)} s with the fake`
   }),
 
-  test('Walk it: step 1 with the questions as rows between the steps; Next past step 2 opens q1 (keyboard in its answer box; card: "Question ›"); a pass stays, Next walks on to step 3', async () => {
-    if (cdp) await clickToast(/The tour of your change is ready/, 'Walk it')
-    else api.checkPanelSend({ type: 'test', click: 'button.tour' })
+  test('the toast\'s Walk it starts the tour', async () => {
+    await clickToast(/The tour of your change is ready/, 'Walk it')
+  }, devtools),
+
+  test('walking: step 1 with the questions as rows between the steps; Next past step 2 opens q1 (card: "Question ›")', async () => {
     await until('walking: step 1, the map', () => { const t = tour(); return t.journey === 'check-feat-tour' && t.step === 1 && t.map === 'check-feat-tour' }, 15000)
     await untilEqual('walking: 6 steps with the questions between them', () => [tour().story?.steps, tour().story?.stops.join(), !!tour().story?.cur], [6, 'q1,q2,q3', false], CHECK_WAIT_MS)
     await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('step 2: its card\'s Next is "Question ›"', () => tour().step === 2 && /\[Question ›\]\(command:codeNotes\.nextStep\)/.test(tour().card?.body ?? ''))
+    await until('step 2: its card\'s Next is "Question ›"', () => tour().step === 2 && cardLinks().some((l) => l.label === 'Question ›' && l.command === 'codeNotes.nextStep'))
     await pageShot('tour-1-step')
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('at q1: its thread open, its row the current one', () => { const t = tour(); return t.step === 2 && t.cp === 'q1' && t.story?.cur === 'q1' && tourNote('q1')?.threadExpanded && inLines(3, 7) })
-    if (cdp) await until('the keyboard in q1\'s answer box', async () => (await boxFocused()) === 'q1')
+  }),
+
+  test('at a question of the tour the keyboard is in its answer box', async () => {
+    await until('the keyboard in q1\'s answer box', async () => (await boxFocused()) === 'q1')
+  }, devtools),
+
+  test('a pass at a question of the tour stays there; Next walks on to step 3', async () => {
     await pageShot('tour-2-question')
     await vscode.commands.executeCommand('codeNotes.answerCheck', { thread: api.thread(tourNote('q1').id), text: 'GOOD: after an hour the count starts again at one.' })
-    // A pass keeps the editor on the question (its feedback is the lesson); Next walks on.
+    // Its feedback is the lesson.
     await until('a pass stays on q1', () => tour().step === 2 && tour().cp === 'q1' && /^✓/.test(tourNote('q1').messages.at(-1).body))
     await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('Next walks on: step 3', () => tour().step === 3 && !tour().cp)
   }),
 
-  test('rows of the Check view and of the storyline go to their step and question; Next/Previous move between the questions after a step; the last step says "See also: Order and payment, step 3"', async () => {
-    api.checkPanelSend({ type: 'test', click: 'button.open[data-id="q3"]' })
+  test('a row of the Check view goes to its step and its question', async () => {
+    await clickInCheckView('button.open[data-id="q3"]')
     await until('a Check view row: its step and its question', () => tour().step === 4 && tour().cp === 'q3' && tourNote('q3')?.threadExpanded)
+  }, devtools),
+
+  test('a row of the storyline goes to its question; Next/Previous move between the questions after a step; the last step says "See also: Order and payment, step 3"', async () => {
     api.mapSend({ type: 'test', click: '.story .cp[data-q="q2"]' })
     await until('a storyline row: its question', () => tour().step === 4 && tour().cp === 'q2' && tour().story?.cur === 'q2' && tourNote('q2')?.threadExpanded)
     await vscode.commands.executeCommand('codeNotes.nextStep')
@@ -98,7 +112,7 @@ export const tourTests = [
     await vscode.commands.executeCommand('codeNotes.nextStep'); await vscode.commands.executeCommand('codeNotes.nextStep')
     await until('then step 5', () => tour().step === 5 && !tour().cp)
     await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('the last step: See also the journey that walks the same code', () => tour().step === 6 && /See also: \[Order and payment, step 3\]\(command:codeNotes\.openStepLink/.test(tour().card?.body ?? ''))
+    await until('the last step: See also the journey that walks the same code', () => tour().step === 6 && (tour().card?.body ?? '').includes('See also: ') && cardLinks().some((l) => l.label === 'Order and payment, step 3' && l.command === 'codeNotes.openStepLink'))
     await pageShot('tour-3-last-step')
     assert.deepEqual(tour().story!.overflow, [], 'nothing in the storyline is cut or sticks out')
   }),
@@ -113,65 +127,28 @@ export const tourTests = [
   }),
 
   test('a 1280 px window: the tour walks with the step card only, "Question ›" opens no panel; typing after a step\'s code link changes nothing', async () => {
-    // A 1280 px window (zoom 0, the sidebar open): the walk keeps 80 columns of code (the step card only, no panel),
-    // and "Question ›" opens no panel. A code link in a step card only lights its lines: typing next changes nothing.
-    const page = await ui()
-    const session = await page.context().newCDPSession(page)
-    const zoom = vscode.workspace.getConfiguration('window').inspect<number>('zoomLevel')?.globalValue
+    // Zoom 0, the sidebar open: the walk keeps 80 columns of code (the step card only, no panel). A code link in a
+    // step card only lights its lines.
     await vscode.commands.executeCommand('codeNotes.endJourney')
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
     // The secondary side bar (Chat) closed, as in the reported window: its width is the reader's to give.
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
-    await vscode.workspace.getConfiguration('window').update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
-    // The window's size as the workbench sees it (Electron has no Browser.setWindowBounds over DevTools).
-    await session.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
-    await until('a 1280 px window', async () => (await page.evaluate('innerWidth')) === 1280)
-    await vscode.commands.executeCommand('codeNotes.check.focus')
-    await settle(500, 'the Check view takes the side bar at the new width')
     const dumpBefore = dumpState
     setDumpState(() => ({ tour: { ...tour(), story: undefined }, width: 1280 }))
-    await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
-    await until('walking the tour at 1280 px: the step card only', () => tour().journey === 'check-feat-tour' && tour().touring && !!tour().card && !tour().map)
-    // Back from the last step to step 3: through the questions after step 4 (each opens its thread, never the panel).
-    for (const want of ['5', 'q3', 'q2', '4', '3']) {
-      await vscode.commands.executeCommand('codeNotes.previousStep')
-      await until(`back to ${want}`, () => (want.startsWith('q') ? tour().cp === want : tour().step === Number(want) && !tour().cp) && !tour().map)
-    }
-    await until('step 3, its card with the code link "the count"', () => tour().step === 3 && />count<\/span>\]\(command:codeNotes\.codeLink/.test(tour().card?.body ?? '') && !tour().map)
-    await settle(600, 'the step card and its code laid out at 1280 px before the columns are counted')
-    await pageShot('tour-4-1280-step')
-    let cols = await codeColumns(page)
-    assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns with the tour open: ${cols}`)
-    // The code link, clicked for real; then keys, as someone reading on would type them.
-    const limitsNow = fs.readFileSync(limitsPath, 'utf8')
-    await page.locator('.review-widget .comment-body a', { hasText: 'count' }).first().click()
-    await until('the link\'s lines lit', () => api.snapshot().tour.codeLinks.active === 0)
-    await page.keyboard.type('zz'); await page.keyboard.press('Enter')
-    await quiet(400, 'the keys reaching the code')
-    const limitsDoc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === limitsPath)
-    assert.ok(!limitsDoc?.isDirty && limitsDoc?.getText() === limitsNow, 'typing after a step\'s code link does not touch the code')
-    // "Question ›": the question's thread, still no panel.
-    await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('step 4', () => tour().step === 4 && !tour().cp)
-    await vscode.commands.executeCommand('codeNotes.nextStep')
-    await until('Question ›: q2, no panel', () => tour().cp === 'q2' && tourNote('q2')?.threadExpanded)
-    await quiet(800, 'a panel opening for the question')
-    assert.ok(!tour().map, 'a question opens no panel')
-    cols = await codeColumns(page)
-    assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns at a question: ${cols}`)
-    await pageShot('tour-5-1280-question')
-    // Hovers and the status item (a Trusted Types error was reported around them): the console is checked at the end.
+    try {
+      // The window's size as the workbench sees it (Electron has no Browser.setWindowBounds over DevTools).
+      return await withWindowSize(1280, 800, walkAt1280)
+    } finally { setDumpState(dumpBefore) }
+  }, devtools),
+
+  test('hovers on a code link and on the status item, and the status item\'s click (a Trusted Types error was reported around them; run.ts checks the console at the end)', async () => {
+    const page = await ui()
     await page.locator('.review-widget .comment-body a').first().hover().catch(() => undefined)
     await settle(800, 'the link\'s hover shows (the console is checked for its errors at the end)')
     const item = page.locator('.statusbar-item', { hasText: /Understanding/ }).first()
     await item.hover(); await settle(800, 'the status item\'s hover shows')
     await item.click(); await settle(800, 'the status item\'s click is handled')
     await vscode.commands.executeCommand('codeNotes.endJourney')
-    await vscode.workspace.getConfiguration('window').update('zoomLevel', zoom, vscode.ConfigurationTarget.Global)
-    await session.send('Emulation.clearDeviceMetricsOverride')
-    setDumpState(dumpBefore)
-    await settle(500, 'the window back at its own size and zoom')
-    return `${Math.min(...cols)} columns of code`
   }, devtools),
 
   test('another branch: that tour is gone', async () => {
@@ -179,7 +156,48 @@ export const tourTests = [
     // Nothing of feat/limits' .gitattributes may be left untracked here before the checkout (force: usually none).
     for (const f of ['.gitattributes', '.ignore']) fs.rmSync(path.join(ws, f), { force: true })
     git('checkout', '-q', 'feat/limits')
-    api.checkRefresh()
+    void api.checkRefresh()
     await until('feat/limits: no tour of feat/tour shown', () => chk().item === '$(pass) Understanding' && !(api.snapshot().tour.journey ?? '').startsWith('check-feat-tour'))
   }),
 ]
+
+/** The command links of the step card on screen. */
+const cardLinks = () => commandLinks(tour().card?.body ?? '')
+
+/** The 1280 px walk (inside withWindowSize): back from the last step to step 3, its code link, then q2; returns the columns. */
+async function walkAt1280(page: import('playwright').Page): Promise<string> {
+  await until('a 1280 px window', async () => (await page.evaluate('innerWidth')) === 1280)
+  await vscode.commands.executeCommand('codeNotes.check.focus')
+  await settle(500, 'the Check view takes the side bar at the new width')
+  await vscode.commands.executeCommand('codeNotes.checkUnderstanding')
+  await until('walking the tour at 1280 px: the step card only', () => tour().journey === 'check-feat-tour' && tour().touring && !!tour().card && !tour().map)
+  // Through the questions after step 4: each opens its thread, never the panel.
+  for (const want of ['5', 'q3', 'q2', '4', '3']) {
+    await vscode.commands.executeCommand('codeNotes.previousStep')
+    await until(`back to ${want}`, () => (want.startsWith('q') ? tour().cp === want : tour().step === Number(want) && !tour().cp) && !tour().map)
+  }
+  await until('step 3, its card with the code link "the count"', () => tour().step === 3 && cardLinks().some((l) => l.label === 'the count' && l.command === 'codeNotes.codeLink') && !tour().map)
+  await settle(600, 'the step card and its code laid out at 1280 px before the columns are counted')
+  await pageShot('tour-4-1280-step')
+  let cols = await codeColumns(page)
+  assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns with the tour open: ${cols}`)
+  // The code link, clicked for real; then keys, as someone reading on would type them.
+  const limitsNow = fs.readFileSync(limitsPath, 'utf8')
+  await page.locator('.review-widget .comment-body a', { hasText: 'count' }).first().click()
+  await until('the link\'s lines lit', () => api.snapshot().tour.codeLinks.active === 0)
+  await page.keyboard.type('zz'); await page.keyboard.press('Enter')
+  await quiet(400, 'the keys reaching the code')
+  const limitsDoc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === limitsPath)
+  assert.ok(!limitsDoc?.isDirty && limitsDoc?.getText() === limitsNow, 'typing after a step\'s code link does not touch the code')
+  // "Question ›": the question's thread, still no panel.
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('step 4', () => tour().step === 4 && !tour().cp)
+  await vscode.commands.executeCommand('codeNotes.nextStep')
+  await until('Question ›: q2, no panel', () => tour().cp === 'q2' && tourNote('q2')?.threadExpanded)
+  await quiet(800, 'a panel opening for the question')
+  assert.ok(!tour().map, 'a question opens no panel')
+  cols = await codeColumns(page)
+  assert.ok(cols.length && Math.min(...cols) >= 80, `the code keeps 80 columns at a question: ${cols}`)
+  await pageShot('tour-5-1280-question')
+  return `${Math.min(...cols)} columns of code`
+}

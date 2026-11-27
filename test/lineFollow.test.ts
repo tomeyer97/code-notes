@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { LineEdit, findLine, followLine, shiftLine } from '../src/lineFollow'
+import { LineEdit, findLine, followLine, shiftLine } from '../src/core/anchors/lineFollow'
 
-test('findLine: the written line, the nearest moved one, or gone', () => {
+test('findLine (0-based, like shiftLine): the written line, the nearest moved one, or gone', () => {
   const lines = ['a()', '  store(run)', 'b()', '  store(run)', 'c()']
-  assert.equal(findLine(lines, 2, 'store(run)'), 1)
-  assert.equal(findLine(lines, 5, 'store(run)'), 3) // moved: the nearest line that still says so
-  assert.equal(findLine(lines, 3, 'gone()'), -1)
-  assert.equal(findLine(lines, 3, '  '), -1)
+  assert.equal(findLine(lines, 1, 'store(run)'), 1)
+  assert.equal(findLine(lines, 4, 'store(run)'), 3) // moved: the nearest line that still says so
+  assert.equal(findLine(lines, 2, 'gone()'), -1)
+  assert.equal(findLine(lines, 2, '  '), -1)
 })
 
 /** Lines start..end replaced by `text`. */

@@ -4,7 +4,7 @@
     {
       "label": "code-notes: watch",
       "type": "shell",
-      "command": "npm run -s vendor && npm run -s pages && npx tsc -w -p .",
+      "command": "npm run -s watch",
       "isBackground": true,
       "problemMatcher": "$tsc-watch",
       "presentation": { "reveal": "never" }

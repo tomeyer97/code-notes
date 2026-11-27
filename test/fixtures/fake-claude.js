@@ -1,46 +1,77 @@
 #!/usr/bin/env node
-// A stand-in for the `claude` CLI in integration tests: records its arguments, streams a canned answer.
+// A stand-in for the `claude` CLI in integration tests: records its arguments, then plays the scenario its prompt asks
+// for (below) and streams a canned answer. The stream format: streamJson.js.
 const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { execFileSync } = require('child_process')
+const stream = require('./streamJson')
+
 const args = process.argv.slice(2)
-fs.appendFileSync(process.env.FAKE_CLAUDE_LOG || require('path').join(require('os').tmpdir(), 'fake-claude.log'), JSON.stringify(args) + '\n')
+fs.appendFileSync(process.env.FAKE_CLAUDE_LOG || path.join(os.tmpdir(), 'fake-claude.log'), JSON.stringify(args) + '\n')
 const prompt = args[args.indexOf('-p') + 1] || ''
-const say = (o) => process.stdout.write(JSON.stringify(o) + '\n')
-const delay = /slow/.test(prompt) ? 30000 : 150
-// "Use the code-journey skill to answer: …": write a journey file, as journey.py would, into the staging
-// folder the prompt names (--dir <folder>); a resumed session (an answer to its question) writes one too.
-// A request with "unclear" in it: no journey, a clarifying question instead.
-const jq = /code-journey skill to answer: (.*)/.exec(prompt)
-const dirArg = /--dir (\S+?)`/.exec(prompt)
 const resumed = args.includes('--resume')
-const clarify = jq && /unclear/.test(jq[1]) && !resumed
-// "already": no new journey; the answer names the one that exists.
-const exists = jq && /already/.test(jq[1]) && !resumed
-if ((jq || (resumed && dirArg)) && !clarify && !exists) {
-  const path = require('path')
-  const dir = dirArg ? path.join(process.cwd(), dirArg[1]) : path.join(process.cwd(), '.code-notes', 'journeys')
+/** The staging folder the prompt names (`--dir <folder>`), relative to the repository. */
+const dirArg = /--dir (\S+?)`/.exec(prompt)?.[1]
+/** "Use the code-journey skill to answer: <question>". */
+const question = /code-journey skill to answer: (.*)/.exec(prompt)?.[1]
+
+/** A question with "unclear" in it: no journey, a clarifying question instead (its answer resumes the session). */
+const clarify = question !== undefined && /unclear/.test(question) && !resumed
+/** A question with "already" in it: no new journey; the answer names the one that exists. */
+const exists = question !== undefined && /already/.test(question) && !resumed
+
+/** Scenario "journey": a journey file written into the staging folder, as journey.py would (also after a clarify). */
+function writeJourney() {
+  const dir = dirArg ? path.join(process.cwd(), dirArg) : path.join(process.cwd(), '.code-notes', 'journeys')
   fs.mkdirSync(dir, { recursive: true })
-  const q = jq ? jq[1].trim() : 'How is a note saved?'
-  const j = { version: 2, id: 'written', question: q, title: 'Written by the agent', summary: '', model: 'fake-model', createdAt: new Date().toISOString(),
-    nodes: [{ id: 'app', kind: 'system', label: 'App', summary: '' }, { id: 'f', kind: 'function', label: 'main', parent: 'app', summary: '' }],
-    edges: [], steps: [{ id: 'm', title: 'main reads the token', node: 'f', file: 'src/renamed.ts', range: { start: 1, end: 1 }, lead: 'Here.', refs: [] }] }
+  const j = {
+    version: 2, id: 'written', question: question ? question.trim() : 'How is a note saved?',
+    title: 'Written by the agent', summary: '', model: 'fake-model', createdAt: new Date().toISOString(),
+    nodes: [
+      { id: 'app', kind: 'system', label: 'App', summary: '' },
+      { id: 'f', kind: 'function', label: 'main', parent: 'app', summary: '' },
+    ],
+    edges: [],
+    steps: [{ id: 'm', title: 'main reads the token', node: 'f', file: 'src/renamed.ts', range: { start: 1, end: 1 }, lead: 'Here.', refs: [] }],
+  }
   fs.writeFileSync(path.join(dir, '.written.json.tmp'), JSON.stringify(j, null, 2))
   fs.renameSync(path.join(dir, '.written.json.tmp'), path.join(dir, 'written.json'))
 }
-// "The journey "<slug>" is out of date: …" (Refresh): re-point its steps in the staged copy, as `restep … range`
-// does (here: every step's range kept, its anchor taken from the code there now).
-const refresh = /The journey "([\w.-]+)" is out of date/.exec(prompt)
-if (refresh && dirArg) {
-  const f = require('path').join(process.cwd(), dirArg[1], `${refresh[1]}.json`)
-  const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+
+/**
+ * Scenario "refresh" ("The journey "<slug>" is out of date: …"): its steps re-pointed in the staged copy, as
+ * `restep … range` does (here: every step's range kept, its anchor taken from the code there now).
+ */
+function refreshJourney(slug) {
+  const j = JSON.parse(fs.readFileSync(path.join(process.cwd(), dirArg, `${slug}.json`), 'utf8'))
   const py = /by their full path \((\S+)\/scripts\//.exec(prompt)[1] + '/scripts/journey.py'
-  j.steps.forEach((st, i) => require('child_process').execFileSync('python3', [py, '--dir', dirArg[1], 'restep', process.cwd(), refresh[1], String(i + 1), 'range', st.file, String(st.range.start), String(st.range.end)], { cwd: process.cwd(), stdio: 'ignore' }))
+  j.steps.forEach((st, i) => {
+    const restep = [py, '--dir', dirArg, 'restep', process.cwd(), slug, String(i + 1), 'range', st.file, String(st.range.start), String(st.range.end)]
+    execFileSync('python3', restep, { cwd: process.cwd(), stdio: 'ignore' })
+  })
 }
-say({ type: 'system', subtype: 'init' })
-say({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/repo/src/renamed.ts' } }] } })
-const words = exists ? ['The ', 'journey ', 'you ', 'need ', 'is ', 'already ', 'in ', '`journeys/saving.json`.'] : clarify ? ['Which ', 'part ', 'do ', 'you ', 'mean: ', '**saving** ', 'or ', 'loading?'] : ['The ', 'token ', 'is ', 'read ', 'once ', 'in ', '`src/renamed.ts:3`.']
+
+/** The answer, word by word. */
+const ANSWERS = {
+  exists: 'The journey you need is already in `journeys/saving.json`.',
+  clarify: 'Which part do you mean: **saving** or loading?',
+  answer: 'The token is read once in `src/renamed.ts:3`.',
+}
+const words = (text) => text.split(/(?<= )/)
+
+if ((question !== undefined || (resumed && dirArg)) && !clarify && !exists) writeJourney()
+const refresh = /The journey "([\w.-]+)" is out of date/.exec(prompt)
+if (refresh && dirArg) refreshJourney(refresh[1])
+
+stream.init()
+stream.toolUse('Read', { file_path: '/repo/src/renamed.ts' })
+const answer = words(exists ? ANSWERS.exists : clarify ? ANSWERS.clarify : ANSWERS.answer)
+// "slow" in the prompt: a run long enough to cancel.
+const delay = /slow/.test(prompt) ? 30000 : 150
 let i = 0
 const tick = setInterval(() => {
-  if (i < words.length) { say({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: words[i++] } } }); return }
+  if (i < answer.length) { stream.textDelta(answer[i++]); return }
   clearInterval(tick)
-  say({ type: 'result', result: words.join(''), session_id: clarify ? 'sess-clarify' : 'sess-123', total_cost_usd: 0.01, is_error: false })
+  stream.result(answer.join(''), { session: clarify ? 'sess-clarify' : 'sess-123', cost: 0.01 })
 }, delay)

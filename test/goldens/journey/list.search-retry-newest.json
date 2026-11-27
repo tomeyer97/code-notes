@@ -1,0 +1,67 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "retry",
+  "sort": "newest",
+  "searchSort": "newest",
+  "kind": "all",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [
+    {
+      "id": "results",
+      "label": "2 found",
+      "keys": [
+        "k11",
+        "k18"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [
+        "k11",
+        "k18"
+      ]
+    }
+  ],
+  "count": 2,
+  "total": 35,
+  "hits": {
+    "k11": [
+      "retries"
+    ],
+    "k18": [
+      "retries"
+    ]
+  }
+}

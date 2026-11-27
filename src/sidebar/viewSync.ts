@@ -28,33 +28,49 @@ export class ViewSync<T extends object> {
   /** The rows VS Code was given since the last redraw, and the rows whose children it was given. */
   private readonly held = new Set<T>()
   private readonly opened = new Set<T | typeof TOP>()
-  /** Rows the person expanded (true) or folded (false) since they were drawn. */
-  private readonly expanded = new WeakMap<T, boolean>()
+  /** What the person expanded (true) or folded (false), by row id: rows are made again, their ids stay. */
+  private readonly expanded = new Map<string, boolean>()
+  /** The rows' provider (set by `provider`). */
+  private rows: vscode.TreeDataProvider<T> | undefined
   private redrawTimer: NodeJS.Timeout | undefined
   private retryTimer: NodeJS.Timeout | undefined
   private revealing: Promise<void> | undefined
   private redrawWaits = false
   private lastRedraw = 0
 
-  /** `wait`: one redraw for a burst of changes this long. */
-  constructor(private readonly wait: number) {}
+  /** `wait`: one redraw for a burst of changes this long. `keepFolds`: a row drawn again (after a filter hid it, say)
+   *  is expanded or folded as the person left it, not as its row says. */
+  constructor(private readonly wait: number, private readonly o: { keepFolds?: boolean } = {}) {}
 
   /** The provider to give VS Code: `rows`'s, with what VS Code is given noted. (The tests' snapshots call `rows`.) */
   provider(rows: vscode.TreeDataProvider<T>): vscode.TreeDataProvider<T> {
+    this.rows = rows
     return {
       onDidChangeTreeData: this.onDidChangeTreeData,
-      getTreeItem: (x) => rows.getTreeItem(x),
+      getTreeItem: (x) => (this.o.keepFolds ? this.asLeft(itemOf(rows, x)) : rows.getTreeItem(x)),
       getParent: (x) => rows.getParent!(x),
       getChildren: (x) => this.given(x, (rows.getChildren(x) ?? []) as T[]),
     }
   }
 
-  /** Follows what the person expands and folds in `view`. */
+  /** Follows what the person expands and folds in `view` (by row id). */
   watch(view: vscode.TreeView<T>): vscode.Disposable[] {
+    const note = (row: T, open: boolean) => {
+      const id = this.rows && itemOf(this.rows, row).id
+      if (id) this.expanded.set(id, open)
+    }
     return [
-      view.onDidExpandElement((e) => this.expanded.set(e.element, true)),
-      view.onDidCollapseElement((e) => this.expanded.set(e.element, false)),
+      view.onDidExpandElement((e) => note(e.element, true)),
+      view.onDidCollapseElement((e) => note(e.element, false)),
     ]
+  }
+
+  /** `item` expanded or folded as the person left its row, when they did and it can be. */
+  private asLeft(item: vscode.TreeItem): vscode.TreeItem {
+    const open = item.id === undefined ? undefined : this.expanded.get(item.id)
+    const foldable = item.collapsibleState !== undefined && item.collapsibleState !== vscode.TreeItemCollapsibleState.None
+    if (open !== undefined && foldable) item.collapsibleState = open ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
+    return item
   }
 
   private given(parent: T | undefined, children: T[]): T[] {
@@ -80,7 +96,10 @@ export class ViewSync<T extends object> {
   }
 
   /** Reveals the row `target()` names, once VS Code can find it (tried again a few times); the last reveal asked wins. */
-  reveal(view: vscode.TreeView<T>, rows: vscode.TreeDataProvider<T>, target: () => T | undefined, o: { select?: boolean; focus?: boolean; expand?: boolean }, tries = RETRIES): void {
+  reveal(
+    view: vscode.TreeView<T>, rows: vscode.TreeDataProvider<T>, target: () => T | undefined,
+    o: { select?: boolean; focus?: boolean; expand?: boolean }, tries = RETRIES,
+  ): void {
     clearTimeout(this.retryTimer)
     if (!view.visible) return
     const node = target()
@@ -92,17 +111,17 @@ export class ViewSync<T extends object> {
   /** VS Code holds the row and its parents; or holds the parents, and the row's siblings are asked for only by the
    *  reveal (not given yet, and the parent folded: an expanded one's are asked for by the window, at the same time). */
   findable(rows: vscode.TreeDataProvider<T>, node: T): boolean {
-    const parents: T[] = []
-    for (let p = rows.getParent!(node) as T | undefined; p; p = rows.getParent!(p) as T | undefined) parents.push(p)
+    const parents = [...parentsOf(rows, node)]
     if (!parents.every((p) => this.held.has(p))) return false
     if (this.held.has(node)) return true
     return parents.length > 0 && !this.opened.has(parents[0]) && !this.isExpanded(rows, parents[0])
   }
 
   private isExpanded(rows: vscode.TreeDataProvider<T>, node: T): boolean {
-    const known = this.expanded.get(node)
+    const item = itemOf(rows, node)
+    const known = item.id === undefined ? undefined : this.expanded.get(item.id)
     if (known !== undefined) return known
-    return (rows.getTreeItem(node) as vscode.TreeItem).collapsibleState === vscode.TreeItemCollapsibleState.Expanded
+    return item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded
   }
 
   /** A reveal under way: a redraw meanwhile waits for it (not longer than REVEAL_HOLDS_MS). */
@@ -116,4 +135,13 @@ export class ViewSync<T extends object> {
     })
     this.revealing = revealing
   }
+}
+
+/** A row's item (both trees build theirs at once, not as a promise). */
+const itemOf = <T>(rows: vscode.TreeDataProvider<T>, node: T) => rows.getTreeItem(node) as vscode.TreeItem
+
+/** A row's parents, nearest first. */
+function* parentsOf<T>(rows: vscode.TreeDataProvider<T>, node: T): Generator<T> {
+  const parentOf = (x: T) => (rows.getParent?.(x) ?? undefined) as T | undefined
+  for (let p = parentOf(node); p !== undefined; p = parentOf(p)) yield p
 }

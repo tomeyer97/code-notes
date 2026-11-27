@@ -1,0 +1,13 @@
+{
+  "src": "src",
+  "layers": [
+    { "name": "core", "members": ["core"], "forbid": ["vscode"] },
+    { "name": "platform", "members": ["platform", "webview"] },
+    { "name": "features", "members": ["notes", "threads", "journeys", "tour", "podcast", "marks", "ask", "write", "check", "codeLinks"] },
+    { "name": "ui", "members": ["sidebar"] },
+    { "name": "composition", "members": ["*.ts"] }
+  ],
+  "shared": ["protocol"],
+  "maxScc": 55,
+  "maxSccIn": { "check": 9 }
+}

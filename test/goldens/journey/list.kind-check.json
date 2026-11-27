@@ -1,0 +1,49 @@
+{
+  "rows": "35 rows, as in list.default",
+  "query": "",
+  "sort": "area",
+  "searchSort": "best",
+  "kind": "check",
+  "area": "",
+  "kinds": [
+    {
+      "id": "journey",
+      "count": 35
+    }
+  ],
+  "areas": [
+    {
+      "name": "api",
+      "count": 10
+    },
+    {
+      "name": "web",
+      "count": 9
+    },
+    {
+      "name": "worker",
+      "count": 8
+    },
+    {
+      "name": "payments",
+      "count": 5
+    },
+    {
+      "name": "config",
+      "count": 3
+    }
+  ],
+  "staleCount": 3,
+  "sections": [],
+  "groups": [
+    {
+      "id": "all",
+      "label": "All",
+      "keys": [],
+      "children": []
+    }
+  ],
+  "count": 0,
+  "total": 35,
+  "hits": {}
+}

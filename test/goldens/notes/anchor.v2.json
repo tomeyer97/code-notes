@@ -1,0 +1,1194 @@
+[
+  {
+    "file": "api/orders.js",
+    "spans": [
+      {
+        "s": 2,
+        "e": 4,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 4,
+                "end": 6
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "import { config } from '../config/load.js'\nimport { validateOrder } from './validate.js'\nimport { insertOrder, getOrder, markPaid, markFailed } from './store.js'",
+              "now": "import { config } from '../config/load.js'\nimport { validateOrder } from './validate.js' // changed\nimport { insertOrder, getOrder, markPaid, markFailed } from './store.js'"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 2
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          }
+        ]
+      },
+      {
+        "s": 36,
+        "e": 39,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 39
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 38,
+                "end": 41
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 39
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}\n\nconst routes = [",
+              "now": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n} // changed\n\nconst routes = ["
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 39
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 39
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 39
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 36,
+                "end": 36
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "  send(res, changed ? 200 : 409, { order: getOrder(id) })\n}\n\nconst routes = [",
+              "now": "  send(res, changed ? 200 : 409, { order: getOrder(id) })"
+            }
+          }
+        ]
+      },
+      {
+        "s": 68,
+        "e": 70,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 70
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 70,
+                "end": 72
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 70
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "  res.writeHead(status, { 'Content-Type': 'application/json' })\n  res.end(body ? JSON.stringify(body) : undefined)\n}",
+              "now": "  res.writeHead(status, { 'Content-Type': 'application/json' })\n  res.end(body ? JSON.stringify(body) : undefined) // changed\n}"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 68
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 70
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 70
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 68,
+                "end": 68
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "  res.writeHead(status, { 'Content-Type': 'application/json' })\n  res.end(body ? JSON.stringify(body) : undefined)\n}",
+              "now": "  res.writeHead(status, { 'Content-Type': 'application/json' })"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "api/store.js",
+    "spans": [
+      {
+        "s": 2,
+        "e": 4,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 4,
+                "end": 6
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "import { config } from '../config/load.js'\n\nconst db = new DatabaseSync(process.env.SHOP_DB ?? 'shop.db')",
+              "now": "import { config } from '../config/load.js'\n // changed\nconst db = new DatabaseSync(process.env.SHOP_DB ?? 'shop.db')"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 2
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "import { config } from '../config/load.js'\n\nconst db = new DatabaseSync(process.env.SHOP_DB ?? 'shop.db')",
+              "now": "import { config } from '../config/load.js'"
+            }
+          }
+        ]
+      },
+      {
+        "s": 23,
+        "e": 26,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 26
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 25,
+                "end": 28
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 26
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "  return getOrder(id)\n}\n\nexport function getOrder(id) {",
+              "now": "  return getOrder(id)\n} // changed\n\nexport function getOrder(id) {"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 26
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 26
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 26
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 23,
+                "end": 23
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "  return getOrder(id)\n}\n\nexport function getOrder(id) {",
+              "now": "  return getOrder(id)"
+            }
+          }
+        ]
+      },
+      {
+        "s": 43,
+        "e": 45,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 45
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 47
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 45
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "    .run(status, paymentId, error, id)\n  return done.changes === 1\n}",
+              "now": "    .run(status, paymentId, error, id)\n  return done.changes === 1 // changed\n}"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 43
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 45
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 45
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 43,
+                "end": 43
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "    .run(status, paymentId, error, id)\n  return done.changes === 1\n}",
+              "now": "    .run(status, paymentId, error, id)"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "worker/charge.js",
+    "spans": [
+      {
+        "s": 2,
+        "e": 4,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 4,
+                "end": 6
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "import { config } from '../config/load.js'\nimport { createCharge, PaymentDeclined } from '../payments/client.js'\n",
+              "now": "import { config } from '../config/load.js'\nimport { createCharge, PaymentDeclined } from '../payments/client.js' // changed\n"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 2
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "import { config } from '../config/load.js'\nimport { createCharge, PaymentDeclined } from '../payments/client.js'\n",
+              "now": "import { config } from '../config/load.js'"
+            }
+          }
+        ]
+      },
+      {
+        "s": 15,
+        "e": 18,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 18
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 17,
+                "end": 20
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 18
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "        idempotencyKey,\n      })\n      return { paid: true, paymentId: payment.id }\n    } catch (err) {",
+              "now": "        idempotencyKey,\n      }) // changed\n      return { paid: true, paymentId: payment.id }\n    } catch (err) {"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 18
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 18
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 18
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 15,
+                "end": 15
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          }
+        ]
+      },
+      {
+        "s": 27,
+        "e": 29,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 29
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 29,
+                "end": 31
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 29
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "function sleep(ms) {\n  return new Promise((resolve) => setTimeout(resolve, ms))\n}",
+              "now": "function sleep(ms) {\n  return new Promise((resolve) => setTimeout(resolve, ms)) // changed\n}"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 27
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 29
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 29
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 27,
+                "end": 27
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "function sleep(ms) {\n  return new Promise((resolve) => setTimeout(resolve, ms))\n}",
+              "now": "function sleep(ms) {"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "file": "web/src/checkout/placeOrder.ts",
+    "spans": [
+      {
+        "s": 2,
+        "e": 4,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 4,
+                "end": 6
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "\nexport interface OrderRequest {\n  customer: string",
+              "now": "\nexport interface OrderRequest { // changed\n  customer: string"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 4
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 2,
+                "end": 2
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          }
+        ]
+      },
+      {
+        "s": 24,
+        "e": 27,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 24,
+                "end": 27
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 26,
+                "end": 29
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 24,
+                "end": 27
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "  }\n}\n\nexport async function placeOrder(request: OrderRequest): Promise<void> {",
+              "now": "  }\n} // changed\n\nexport async function placeOrder(request: OrderRequest): Promise<void> {"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 20,
+                "end": 23
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 24,
+                "end": 27
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 29,
+                "end": 32
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 24,
+                "end": 24
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "removed": true
+            }
+          }
+        ]
+      },
+      {
+        "s": 45,
+        "e": 47,
+        "found": [
+          {
+            "kind": "same",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 47
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "above",
+            "result": {
+              "loc": {
+                "start": 47,
+                "end": 49
+              },
+              "stale": false,
+              "moved": true
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "inside",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 47
+              },
+              "stale": true,
+              "moved": false
+            },
+            "stale": {
+              "was": "  notice.textContent = text\n  notice.hidden = false\n}",
+              "now": "  notice.textContent = text\n  notice.hidden = false // changed\n}"
+            }
+          },
+          {
+            "kind": "removed",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 45
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "removed": true
+            }
+          },
+          {
+            "kind": "reindented",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 47
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "duplicated",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 47
+              },
+              "stale": false,
+              "moved": false
+            },
+            "stale": "[undefined]"
+          },
+          {
+            "kind": "truncated",
+            "result": {
+              "loc": {
+                "start": 45,
+                "end": 45
+              },
+              "stale": true,
+              "moved": true
+            },
+            "stale": {
+              "was": "  notice.textContent = text\n  notice.hidden = false\n}",
+              "now": "  notice.textContent = text"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
