@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Docs match the extension.** The GitLab recipe for the understanding check uses the `test` stage, so it also runs
+  as a project's only job (GitLab creates no pipeline with only `.post` jobs). Skipping the check is described as it
+  works: the label plus an approval by someone else. The README lists the two VS Code defaults the extension changes
+  and how to undo them, no longer mentions a gutter `+` or a status bar bell, and ships the docs it links;
+  development moved to CONTRIBUTING.md.
+
 ## 0.26.0
 
 ### Added
@@ -39,7 +49,7 @@
   (after a second miss) the explanation, naming the code as clickable links. The **Check** view in the sidebar lists
   the questions; the status bar says where the check stands; **Commit & push** finishes it. Answers are saved in
   `understanding/<branch>.json` for a merge request check that needs no model (`cli/understanding.mjs ci`, GitLab and
-  GitHub recipes in the README). The bundled `understanding-check` skill writes the questions.
+  GitHub recipes in [docs/understanding-check.md](docs/understanding-check.md)). The bundled `understanding-check` skill writes the questions.
 - **Finding journeys:** journeys have their own **Journeys** view: In this file, Continue, Checks, then All by area,
   with search and sort. The panel's Journeys list gets a search field, chips, the same sections and a preview of the
   selected journey (its map, small, and its steps); a click selects, Enter or **Walk** starts it.

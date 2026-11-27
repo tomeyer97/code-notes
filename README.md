@@ -13,11 +13,9 @@ Three things for understanding code you did not write, in VS Code:
 
 ## Notes
 
-- **Add one:** select code, press **Ctrl+'** then **C**, type, Ctrl+Enter. Or use the gutter `+`, or right-click →
-  **Add Note**. A note can also be on a whole file or folder (right-click it in the Explorer).
+- **Add one:** select code, press **Ctrl+'** then **C**, type, Ctrl+Enter. Or right-click → **Add Note**. A note can also be on a whole file or folder (right-click it in the Explorer).
 - **Threads:** each note is a comment thread on its lines. Reply in the thread.
-- **Answers from an agent** arrive as unread: a dot in the sidebar, a badge on the Code Notes icon, a bell in the
-  status bar. With the [Claude Code](https://claude.com/claude-code) CLI installed, **Ask Claude** on a note answers
+- **Answers from an agent** arrive as unread: a dot in the sidebar and a badge on the Code Notes icon. With the [Claude Code](https://claude.com/claude-code) CLI installed, **Ask Claude** on a note answers
   it right there; any other agent can answer by editing the note files (see [Storage](#storage)).
 - **Resolve:** ✓ on the thread or the list row; tick several and resolve them together. Resolved notes are hidden.
 - **Suggestions:** an agent's ` ```suggestion ` block gets **Apply suggestion**, which replaces the note's lines.
@@ -108,9 +106,14 @@ too.
 
 ## Settings
 
-The extension turns on smooth editor scrolling by default, so the editor glides between a journey's steps. Set
-`editor.smoothScrolling` to `false` to switch that off. All other settings are under **Code Notes** in the Settings
-editor, named by what they are about:
+The extension changes two VS Code defaults; a value in your own settings wins:
+
+| Default | Why | To undo |
+|---|---|---|
+| `comments.openView`: `never` | the Comments panel doesn't pop up for every note (this applies to other comment extensions too) | `"comments.openView": "firstFile"` |
+| `editor.smoothScrolling`: `true` | the editor glides between a journey's steps | `"editor.smoothScrolling": false` |
+
+All other settings are under **Code Notes** in the Settings editor, named by what they are about:
 
 | Prefix | About |
 |---|---|
@@ -123,22 +126,6 @@ editor, named by what they are about:
 
 The settings that choose what runs (the CLI, the models, the skills) are taken only from your user settings in a
 workspace you have not trusted.
-
-## Development
-
-```sh
-npm ci
-npm run build               # the extension, the CLI bundle and the pages (scripts/build.mjs)
-npm run lint                # ESLint, and the layers of src/ and their import cycles (scripts/check-layers.mjs)
-npm test                    # unit tests, golden tests included (test/README.md)
-npm run test:goldens        # only the golden tests; UPDATE_GOLDENS=1 rewrites them
-npm run test:integration    # the extension in a real VS Code (needs a display, or xvfb)
-npm run package             # code-notes-<version>.vsix
-```
-
-Open the folder in VS Code and press F5 ("Code Notes (dev)") for a window that reloads itself when the code changes.
-
-Releases: see [CHANGELOG.md](CHANGELOG.md). Pushing a tag `v<version>` publishes that version.
 
 ## License
 

@@ -16,7 +16,7 @@ branch's change and ask a few questions about it (1 for a small change, document
 it is built this way, how it fails. The first question opens as a thread on its lines; the list is the **Check** view
 in the Code Notes sidebar. Answer in 1-3 sentences and press Ctrl+Enter: Claude checks the answer against the code and
 replies in the thread, naming the code it means as links you can click. A miss gets a hint and a second try; a second
-miss gets the explanation, which you may say back in one sentence (a right one counts as passed). Ctrl+' D goes to
+miss gets the explanation, which you may say back in one sentence (a right one counts as passed). **Next question ›** goes to
 the next open question. You can also answer in the Check view: the selected question has a box there (Ctrl+Enter
 sends, Esc goes back to the code).
 
@@ -43,8 +43,8 @@ make you look, not to police.
   never count go in `exempt` (none by default).
 - **The change grew** by more than 40 code lines since the questions: run the command again; it adds 1-2 questions
   about the new part only. Merging the target branch in doesn't count.
-- **Skip it:** label the merge request `skip-understanding`. Any approval by someone other than the author waives the
-  check (re-run the job after the approval; on GitHub the review re-runs it).
+- **Skip it:** add the label `skip-understanding` and get an approval from someone other than the author, then re-run
+  the job (on GitHub the review re-runs it).
 - **Settings** for a repository (a merge request is judged by its target branch's): `understanding/config.json`, e.g.
   `{ "exempt": ["docs/**", "*.md", "package-lock.json"], "passRatio": 0.6, "maxDrift": 40, "skipLabel": "skip-understanding", "mrComment": true }`.
 
@@ -80,7 +80,8 @@ The command line, [cli/understanding.mjs](../cli/understanding.mjs) (Node 18+, n
    (e.g. a bad merge of the file) — not a security measure.
 6. **The answers help the reviewer.** Once the check is done, CI posts the questions and answers on the merge request
    (never while it is in progress: no grading in public).
-7. **Good faith over enforcement.** Least friction wins: an approval waives the check, every message is one short line.
+7. **Good faith over enforcement.** Least friction wins: the skip label and an approval waive the check,
+   every message is one short line.
 
 ## Flow
 
@@ -114,7 +115,7 @@ The command line, [cli/understanding.mjs](../cli/understanding.mjs) (Node 18+, n
    **Next question ›** appears. An unsent answer is kept per question in the workspace's state (never in the file).
    The list is the **Check** view in the Code Notes sidebar (the only list of them: the
    Code Notes tree doesn't repeat them, and steps aside while a check is open and there are no other notes): where the check stands,
-   one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions;
+   one row per question, one button (Start, Add questions, Commit & push). Ctrl+' D / A walk the open questions (the tour's steps while it is walked);
    journey lenses step aside in the function of an open question (the rest of the file keeps them); another branch's check threads (and notes made from them) are hidden. Threads
    follow the file on disk: a changed question gets a new thread, a removed one loses it, and an answer is stored
    only for the question text it was shown with.
@@ -128,7 +129,7 @@ The command line, [cli/understanding.mjs](../cli/understanding.mjs) (Node 18+, n
    the smallest change: one sentence and a suggestion block with Apply; Undo takes it back), **Add TODO** (the whole concern, wrapped at
    100 characters, above the line it names at its indentation, or inside the block a "} catch {" line opens; the thread
    says where it went), **Flag for reviewer** (independent of the TODO). After a grade the editor stays on the question and the
-   reply box is empty; **Next question ›** under the grade (or Ctrl+' D) moves on.
+   reply box is empty; **Next question ›** under the grade moves on (Ctrl+' D follows the tour while one is walked).
    "Ask Claude" on a check question asks what you want to know and answers in a separate note; Claude is told never
    to write the check's answer.
 5. When the rule is met the status bar says `✓ Understanding` and the view offers **Commit & push** right under
@@ -442,8 +443,8 @@ ask a reviewer to approve, then re-run this job." The size is honest: "3 questio
 ## Skipping
 
 No size limit: every change with code lines needs the check (only exempt files or comment-only changes pass by
-themselves). To skip one: add the label `skip-understanding`; any approval by someone other than the author waives the
-check (GitLab approvals API; GitHub reviews API). The feature relies on good faith, so no reason is asked; the job and the
+themselves). To skip one: add the label `skip-understanding` and get an approval from someone other than the author
+(GitLab approvals API; GitHub reviews API); neither alone skips. The feature relies on good faith, so no reason is asked; the job and the
 comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an approval: the message says to re-run it
 (GitHub's recipe re-runs on the review).
 
@@ -459,8 +460,8 @@ label.
 ```yaml
 understanding:
   image: node:22
-  stage: .post       # the last stage, so a missing check never skips lint or tests
-  needs: []          # but it starts at once: a failing test never skips it either
+  stage: test        # if you list stages:, use your last one (not .post: see below)
+  needs: []          # it starts at once: a failing test never skips it
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -508,9 +509,9 @@ comment work as usual, but a failure doesn't block: on GitLab the job exits 3 an
 
 To review the script once and keep it, commit a copy (e.g. `tools/understanding.mjs`) and run that instead.
 
-GitLab: a job on `merge_request_event` that runs on its own (`stage: .post`, `needs: []`) with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
-`api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. The last stage, because GitLab skips every later stage after a failed job: in `.pre`,
-a missing check would skip lint and tests. `needs: []` starts it at once anyway, so a failing test never skips it either.
+GitLab: a job on `merge_request_event` that runs on its own (`needs: []`) with plain `node` (no LLM CLI, no model key); `GITLAB_TOKEN` (project token,
+`api` scope) for labels/approvals/comment; `allow_failure: { exit_codes: [3] }`. In the last stage, because GitLab skips every later stage after a failed job,
+but not in `.pre`/`.post`: GitLab creates no pipeline whose only jobs are there, so as a project's only job it would never run.
 GitHub Actions: same CLI, `GITHUB_TOKEN`.
 
 **Advisory mode** (`"mode": "advisory"`, or `UNDERSTANDING_MODE=advisory`, which overrides the file): start advisory for
