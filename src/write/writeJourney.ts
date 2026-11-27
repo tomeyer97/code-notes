@@ -18,6 +18,7 @@ import { elapsed as clock, minutes } from '../core/clock'
 import { showClarify } from './clarify'
 import { journeyJob, journeyPy, JourneyRunReady, prepareJourneyRun, reportNotReady, runJourneySkill } from './claudeRun'
 import { answeredBy, journeyPrompt, journeyRules } from './prompts'
+import { clarified } from './questions'
 
 interface WriteOptions { model?: string; resume?: { session: string; reply: string } }
 
@@ -41,10 +42,11 @@ export async function writeJourney(question: string, o: WriteOptions = {}): Prom
   const prompt = o.resume
     ? `${o.resume.reply}\n\n${journeyRules(ready.skill, ready.staging.stage, jf)}`
     : journeyPrompt(question, ready.skill, ready.staging.stage, jf, ready.bundled)
-  const job = journeyJob(ready, 'write', question)
-  const answered = o.resume ? ' (with your answer to its question)' : ''
-  log().info(`journey: Claude (${job.model}) is writing one for "${question}"${answered}`)
-  const res = await runJourneySkill(job, `Writing: ${shortQ(question)}`, ready, {
+  // Listed by the question as your answer made it, so the job you answered is the one you see going on.
+  const asked = o.resume ? clarified(question, o.resume.reply) : question
+  const job = journeyJob(ready, 'write', asked)
+  log().info(`journey: Claude (${job.model}) is writing one for "${asked}"`)
+  const res = await runJourneySkill(job, `Writing: ${shortQ(asked)}`, ready, {
     prompt, resume: o.resume?.session, cache: true,
   })
   const took = Date.now() - job.started
