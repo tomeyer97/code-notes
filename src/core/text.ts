@@ -13,8 +13,10 @@ const oneSpaced = (s: string) => s.replace(/\s+/g, ' ').trim()
 /** At most `max` characters: a longer text ends in "…". */
 const cut = (t: string, max: number) => (t.length > max ? `${t.slice(0, max - 1)}…` : t)
 
-/** One line of a markdown message (its first with text), as plain text. */
-export function plain(s: string, max = 80): string {
+/** One line of a markdown message (its first with text), as plain text. Anything but a string (a note file written
+ *  by hand or by an old bug) is no text. */
+export function plain(s: unknown, max = 80): string {
+  if (typeof s !== 'string') return ''
   const line = s.split('\n').find((x) => x.trim()) ?? ''
   return cut(oneSpaced(markdownAsText(line)), max)
 }

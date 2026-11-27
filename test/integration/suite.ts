@@ -11,6 +11,7 @@ import { journeyTourTests } from './main/journeyTour'
 import { keysAndMapTests } from './main/keysAndMap'
 import { journeyFilesTests } from './main/journeyFiles'
 import { notesReviewTests } from './main/notesReview'
+import { notesAddTests } from './main/notesAdd'
 import { writeJourneyTests } from './main/writeJourney'
 import { repoJourneysTests } from './main/repoJourneys'
 import { requestsTests } from './main/requests'
@@ -39,6 +40,8 @@ export const chapters: Chapter[] = [
     covers: 'a journey\'s files changing under it   journeys/, gitRenames.ts, anchor.ts, compact.ts' },
   { name: 'notesReview', file: 'main/notesReview.ts', tests: notesReviewTests, ...fakeClaude,
     covers: 'findings: R, severity, history, suggestions, file and folder notes   notes/, sidebar/, noteModel.ts' },
+  { name: 'notesAdd', file: 'main/notesAdd.ts', tests: notesAddTests, ...fakeClaude,
+    covers: 'adding a note: the box keeps the keyboard, Esc, file and folder notes, untitled files   notes/create.ts, notes/commentRanges.ts' },
   { name: 'writeJourney', file: 'main/writeJourney.ts', tests: writeJourneyTests, ...fakeClaude,
     covers: 'the agent writes a journey   write/, writing.ts, claude.ts' },
   { name: 'repoJourneys', file: 'main/repoJourneys.ts', tests: repoJourneysTests, ...fakeClaude,
