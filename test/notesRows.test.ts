@@ -10,7 +10,7 @@ import { NodeCache } from '../src/sidebar/nodeCache'
 import { BrokenNode, keyOf, NoteNode, noteNode } from '../src/sidebar/noteNodes'
 import { LayoutInput, NotesLayout, rowOrder } from '../src/sidebar/noteGroups'
 import { NOTE_FLAGS, rowContext, ROW_WORDS } from '../src/sidebar/rowContext'
-import { shortDir, whereLabel } from '../src/sidebar/rowText'
+import { groupCounts, resolvedLabel, shortDir, unreadMessages, whereLabel } from '../src/sidebar/rowText'
 
 const folder = { uri: { toString: () => 'file:///w' } } as unknown as Note['folder']
 
@@ -51,50 +51,96 @@ test('node cache: one object per key, its fields replaced; rows not asked for du
   assert.notEqual(cache.get('gone', { kind: 'y' }), undefined)
 })
 
-test('layout: a file with one note is that note\'s row; a file row holds the others, in the sidebar\'s order', () => {
+test('layout: every file is a file row, one note or several, by path; notes in the sidebar\'s order', () => {
   const solo = note('solo', { file: 'src/b.ts' })
   const low = note('low', { severity: 'low', range: { start: 2, end: 2 } })
   const high = note('high', { severity: 'high', range: { start: 9, end: 9 } })
   const whole = note('whole', { target: 'file' })
-  const l = layout([solo, low, high, whole])
-  assert.deepEqual(shape(l), [['file:|file:///w|src/a.ts', ['note:high', 'note:whole', 'note:low']], 'note:solo'])
-  const fileRow = l.roots[0]
+  const first = note('first', { file: 'docs/z.md' })
+  const l = layout([solo, low, high, whole, first])
+  assert.deepEqual(shape(l), [
+    ['file:|file:///w|docs/z.md', ['note:first']],
+    ['file:|file:///w|src/a.ts', ['note:high', 'note:whole', 'note:low']],
+    ['file:|file:///w|src/b.ts', ['note:solo']],
+  ])
+  const fileRow = l.roots[1]
   assert.equal(l.parent(noteNode(low)), fileRow, 'the parent recorded while the rows were made')
   assert.equal(l.parent(fileRow), undefined)
-  assert.equal(l.parent(noteNode(solo)), undefined)
-  assert.ok(l.alone(solo) && !l.alone(low))
+  assert.equal(l.parent(noteNode(solo)), l.roots[2], 'a one-note file is a group of one')
+  assert.ok(!l.alone(solo) && !l.alone(low), 'under a file row: the row says its lines')
   assert.deepEqual([low, high, whole].sort(rowOrder).map((n) => n.data.id), ['high', 'whole', 'low'])
 })
 
-test('layout: by session, sessions with unread notes first then the newest, each with its counts', () => {
-  const a1 = note('a1', { session: 'A', createdAt: '2026-01-01' })
-  const a2 = note('a2', { session: 'A', createdAt: '2026-01-02', status: 'resolved' })
+test('layout: by session, sessions with unread notes first then the newest, each a flat list, most severe first', () => {
+  const a1 = note('a1', { session: 'A', createdAt: '2026-01-01', severity: 'low' })
+  const a2 = note('a2', { session: 'A', createdAt: '2026-01-02', status: 'resolved', file: 'src/b.ts', severity: 'high' })
+  const a3 = note('a3', { session: 'A', createdAt: '2026-01-02', file: 'src/a.ts', range: { start: 7, end: 7 }, severity: 'high' })
   const b1 = note('b1', { session: 'B', createdAt: '2026-01-03' })
   const loose = note('loose', { file: 'src/c.ts' })
-  const filteredOut = note('a3', { session: 'A', status: 'resolved', file: 'src/z.ts' })
+  const filteredOut = note('a4', { session: 'A', status: 'resolved', file: 'src/z.ts' })
   const broken: BrokenNode = { kind: 'broken', uri: 'file:///w/.code-notes/x.json', why: 'bad JSON' }
-  const l = layout([a1, a2, b1, loose], {
-    visible: [a1, a2, b1, loose, filteredOut], broken: [broken],
+  const l = layout([a1, a2, a3, b1, loose], {
+    visible: [a1, a2, a3, b1, loose, filteredOut], broken: [broken],
     scopeOf: (n) => n.data.session,
     unread: (n) => (n === a1 ? 2 : 0),
   })
   assert.deepEqual(shape(l), [
     'broken:file:///w/.code-notes/x.json',
-    ['session:A', [['file:A|file:///w|src/a.ts', ['note:a1', 'note:a2']]]],
+    ['session:A', ['note:a3', 'note:a2', 'note:a1']],
     ['session:B', ['note:b1']],
-    'note:loose',
+    ['file:|file:///w|src/c.ts', ['note:loose']],
   ])
-  assert.deepEqual(l.session('A'), { unread: 1, resolved: 2, total: 3 }, 'resolved out of all of the session\'s notes')
-  assert.deepEqual(l.file('A|file:///w|src/a.ts'), { stale: 0, newMessages: 2 })
+  assert.deepEqual(l.session('A'), { unread: 1, resolved: 2, total: 4 }, 'resolved out of all of the session\'s notes')
+  assert.ok(l.alone(a1) && l.alone(b1), 'in a session the row names its file')
   const session = l.roots[1]
   assert.equal(l.parent(noteNode(b1)), l.roots[2])
-  assert.equal(l.parent(l.children(session)[0]), session)
+  assert.equal(l.parent(noteNode(a2)), session)
 })
 
-test('layout: a note not listed (a step\'s question) is alone unless two listed notes share its file', () => {
+test('layout: two sessions of 9 findings on the same files: 2 + 18 rows, each session most severe first', () => {
+  const sevs = ['low', 'high', 'nit', 'medium', 'high', 'low', 'medium', 'nit', 'high'] as const
+  const files = ['src/store.ts', 'src/run.ts', 'src/text.ts']
+  const review = (s: string) => sevs.map((severity, i) => note(`${s}${i}`, { session: s, severity, file: files[i % 3], range: { start: i + 1, end: i + 1 } }))
+  const notes = [...review('P'), ...review('Q')]
+  const l = layout(notes, { scopeOf: (n) => n.data.session })
+  const rows = l.roots.flatMap((r) => [r, ...l.children(r)])
+  assert.equal(rows.length, 20)
+  assert.deepEqual(l.roots.map((r) => r.kind), ['session', 'session'])
+  for (const s of l.roots) {
+    const kids = l.children(s).map((r) => (r.kind === 'note' ? r.note.data.severity : r.kind))
+    assert.deepEqual(kids, ['high', 'high', 'high', 'medium', 'medium', 'low', 'low', 'nit', 'nit'])
+    assert.ok(l.children(s).every((r) => r.kind === 'note' && l.alone(r.note)))
+  }
+})
+
+test('layout: a file row counts its notes with something unread and its stale ones', () => {
+  const a = note('a'), b = note('b', { range: { start: 4, end: 4 }, stale: true })
+  const l = layout([a, b], { unread: (n) => (n === a ? 3 : 0) })
+  assert.deepEqual(l.file('|file:///w|src/a.ts'), { stale: 1, unread: 1 })
+})
+
+test('layout: a note not listed (a step\'s question) has no file row above it: its row names its file', () => {
   const q = note('q')
   assert.ok(layout([note('x')]).alone(q))
-  assert.ok(!layout([note('x'), note('y')]).alone(q))
+  assert.ok(layout([note('x'), note('y')]).alone(q))
+})
+
+test('row counts: a group says what it counts; "new" is unread messages; a resolve by someone else says who', () => {
+  const me = (m: { author: string }) => m.author === 'me'
+  assert.deepEqual(groupCounts(2, 1), ['2 notes', '1 new'])
+  assert.deepEqual(groupCounts(1, 0), ['1 note', ''])
+  // An agent's one-message note, resolved by the agent: one new (the message), not two (message + resolve).
+  const perf = note('perf', {
+    status: 'resolved', messages: [{ author: 'review-bot', role: 'agent', body: 'Perf finding 8' }],
+    events: [{ type: 'resolved', by: 'review-bot', role: 'agent', at: '2026-01-01T00:00:00Z' }],
+  })
+  assert.equal(unreadMessages(perf, 0, me), 1)
+  assert.equal(unreadMessages(perf, 1, me), 0)
+  assert.equal(resolvedLabel(perf, (e) => e.by === 'me'), 'resolved by review-bot')
+  assert.equal(resolvedLabel(perf, (e) => e.by === 'review-bot'), 'resolved')
+  assert.equal(resolvedLabel(note('r', { status: 'resolved' }), () => false), 'resolved', 'no history: just resolved')
+  const mine = note('m', { messages: [{ author: 'me', role: 'human', body: 'q' }, { author: 'bot', role: 'agent', body: 'a' }] })
+  assert.equal(unreadMessages(mine, 0, me), 1, 'your own message is never new')
 })
 
 test('where a note row says it is: lines under a file row, else the file, the whole file or the folder', () => {
