@@ -9,11 +9,32 @@ import { UPDATE_ASK } from '../tour/texts'
 /** The author of Claude's answers in a thread. */
 export const CLAUDE_AUTHOR = 'Claude'
 
+/** What ends an answer stopped part-way: the text Claude had written is kept, marked. */
+export const STOPPED_MARK = '_(stopped)_'
+
+/** An answer Claude was stopped in (its `stopped` field): kept for the person, never sent back as said. */
+export const isStopped = (m: Message) => m.extra?.stopped === true
+
 /**
- * One of Claude's own answers: an agent's message by Claude (the check's questions and other agents' messages are
- * agent messages too, and are part of what Claude has not seen).
+ * One of Claude's own, whole answers: an agent's message by Claude (the check's questions and other agents' messages
+ * are agent messages too, and are part of what Claude has not seen).
  */
-export const isClaudeAnswer = (m: Message) => m.role === 'agent' && m.author === CLAUDE_AUTHOR
+export const isClaudeAnswer = (m: Message) => m.role === 'agent' && m.author === CLAUDE_AUTHOR && !isStopped(m)
+
+/** The messages said since Claude's last whole answer (all of them before one), the stopped ones left out. */
+function saidSince(n: Note): { lastAnswer: number; fresh: Message[] } {
+  const lastAnswer = n.data.messages.map(isClaudeAnswer).lastIndexOf(true)
+  return { lastAnswer, fresh: n.data.messages.slice(lastAnswer + 1).filter((m) => !isStopped(m)) }
+}
+
+/**
+ * Nothing for Claude to answer: its last answer is the newest thing said. Asking then would send an empty turn (a
+ * paid run that can only say it got nothing); the person replies to ask more.
+ */
+export const nothingToAnswer = (n: Note): boolean => saidSince(n).fresh.length === 0
+
+/** What is said when Ask has nothing to answer. */
+export const REPLY_TO_ASK_MORE = 'Reply to ask more'
 
 /** A prompt written as one sentence or clause per line, read as one paragraph. */
 export const lines = (...parts: string[]) => parts.join(' ')
@@ -62,9 +83,9 @@ function placeOf(n: Note): string {
 }
 
 /** A follow-up (Claude answered before, in session `claudeSession`): only what was said since its last answer. */
-function followUpPrompt(n: Note, lastAnswer: number): string {
+function followUpPrompt(n: Note, said: Message[]): string {
   const d = n.data
-  const fresh = d.messages.slice(lastAnswer + 1).map((m) => `${m.author}: ${m.body}`).join('\n\n')
+  const fresh = said.map((m) => `${m.author}: ${m.body}`).join('\n\n')
   const changed = d.stale ? ', and the code there changed' : ''
   return `Follow-up on the same note (now on ${placeOf(n)}${changed}):\n\n${fresh}\n\nAnswer it. ${RULES}`
 }
@@ -81,7 +102,7 @@ function firstPrompt(n: Note, code: string[] | undefined, me: string): string {
     d.selection ? `It is about this exact text: \`${d.selection.text}\`` : '',
     d.stale && d.anchor.text ? `Originally:\n${fenced(d.anchor.text)}` : '',
     'The conversation so far:',
-    d.messages.map(said).join('\n\n'),
+    d.messages.filter((m) => !isStopped(m)).map(said).join('\n\n'),
     `Answer ${me}'s latest message. ${RULES}`,
   ]
   return parts.filter(Boolean).join('\n\n')
@@ -89,6 +110,6 @@ function firstPrompt(n: Note, code: string[] | undefined, me: string): string {
 
 /** The prompt for a note (`me`: the person's name): a follow-up in Claude's session, else the first one. */
 export function claudePrompt(n: Note, code: string[] | undefined, me: string): string {
-  const lastAnswer = n.data.messages.map(isClaudeAnswer).lastIndexOf(true)
-  return n.data.claudeSession && lastAnswer >= 0 ? followUpPrompt(n, lastAnswer) : firstPrompt(n, code, me)
+  const { lastAnswer, fresh } = saidSince(n)
+  return n.data.claudeSession && lastAnswer >= 0 ? followUpPrompt(n, fresh) : firstPrompt(n, code, me)
 }
