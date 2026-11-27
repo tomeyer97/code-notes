@@ -5,11 +5,12 @@
 
 import * as vscode from 'vscode'
 import { activateAsk } from './ask'
+import { activateBridge } from './bridge'
 import { activateCheck, CheckFeature } from './check'
 import { ChordSteppers } from './chords'
 import { activateCodeLinks } from './codeLinks'
 import { activateJourneys } from './journeys'
-import { activateNotes, inNotesFolder } from './notes'
+import { activateNotes, addAgentNote, inNotesFolder } from './notes'
 import { activatePodcast } from './podcast'
 import { prefixUsed, startChordKey } from './platform/chordKey'
 import { checkouts } from './platform/checkout'
@@ -105,6 +106,7 @@ async function compose(context: vscode.ExtensionContext) {
     store: notes.store, mapPanel: journeys.mapPanel, tour: tour.api, refreshJourneyList,
   }, steppers)
   later.check.set(checkFeature)
+  const bridge = activateBridge(context, { claudeLinks: codeLinks.claudeLinks, journeys: journeys.journeys, addNote: addAgentNote })
   registerCommands(context, {
     [Cmd.next]: (a?: unknown) => steppers.step(1, a),
     [Cmd.previous]: (a?: unknown) => steppers.step(-1, a),
@@ -136,5 +138,6 @@ async function compose(context: vscode.ExtensionContext) {
   await tour.restore()
   await checkFeature.start().catch((e) => host.log.error(`understanding check: ${e}`))
   write.takeRequests()
-  return { host, journeys, codeLinks, notes, tour, threads, ask, podcast, sidebar, write, check: checkFeature }
+  bridge.start()
+  return { host, journeys, codeLinks, notes, tour, threads, ask, podcast, sidebar, write, check: checkFeature, bridge }
 }

@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.27.0
+
+### Added
+
+- **A bridge for local programs.** A program on your computer (a desktop assistant, a script) can drive Code Notes
+  over a WebSocket: light lines with its explanation beside them, play a journey from a step, add a note, and read
+  which file, lines and selection you have in front of you. It writes `~/.code-notes/bridge.json` while it runs (in
+  WSL, the Windows user's file is found too); Code Notes connects, and reconnects when the program restarts. Settings:
+  `codeNotes.bridge.enabled`, `codeNotes.bridge.discovery`. The protocol: [docs/bridge.md](docs/bridge.md).
 
 ### Fixed
 

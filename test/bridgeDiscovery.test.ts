@@ -1,0 +1,126 @@
+// The bridge's discovery (src/core/bridge/discovery.ts, watch.ts): the file a controller writes, where it is looked
+// for (inside WSL also the Windows user's home), and the file followed as it appears, changes and goes.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import * as path from 'path'
+import { discoveryPaths, isLocalWs, isWsl, parseBridgeFile, RunProgram, windowsHomeInWsl } from '../src/core/bridge/discovery'
+import { DiscoveryWatch, findTarget } from '../src/core/bridge/watch'
+import type { BridgeTarget } from '../src/core/bridge/discovery'
+
+const file = (o: object) => JSON.stringify(o)
+const good = { url: 'ws://127.0.0.1:7777/v1/bridge', token: 't0k', name: 'Desk' }
+
+test('parseBridgeFile: url, token and name; a missing name reads "Controller"', () => {
+  assert.deepEqual(parseBridgeFile(file(good)), good)
+  assert.deepEqual(parseBridgeFile(file({ ...good, name: '' })), { ...good, name: 'Controller' })
+  assert.deepEqual(parseBridgeFile(file({ ...good, name: '  Desk  ', extra: 1 })), good, 'trimmed; unknown fields ignored')
+})
+
+test('parseBridgeFile: unusable files are none (no token, not JSON, not a local ws:// URL)', () => {
+  for (const bad of ['', 'not json', '[]', 'null', file({ ...good, token: '' }), file({ url: good.url }),
+    file({ ...good, url: 'wss://127.0.0.1:1/x' }), file({ ...good, url: 'ws://example.com:1/x' }),
+    file({ ...good, url: 'http://127.0.0.1:1/x' }), file({ ...good, url: 'ws://10.0.0.2:1/x' }), file({ ...good, url: 42 })]) {
+    assert.equal(parseBridgeFile(bad), undefined, bad)
+  }
+})
+
+test('isLocalWs: loopback hosts only', () => {
+  assert.equal(isLocalWs('ws://127.0.0.1:1/'), true)
+  assert.equal(isLocalWs('ws://127.1.2.3:1/'), true)
+  assert.equal(isLocalWs('ws://localhost:1/'), true)
+  assert.equal(isLocalWs('ws://[::1]:1/'), true)
+  assert.equal(isLocalWs('ws://127.0.0.1.example.com:1/'), false)
+  assert.equal(isLocalWs('ws://192.168.1.2:1/'), false)
+  assert.equal(isLocalWs('nonsense'), false)
+})
+
+test('discoveryPaths: the home\'s file; in WSL also the Windows home\'s; the setting alone when set', () => {
+  const join = path.posix.join
+  assert.deepEqual(discoveryPaths({ home: '/home/u', join }), ['/home/u/.code-notes/bridge.json'])
+  assert.deepEqual(discoveryPaths({ home: '/home/u', windowsHome: '/mnt/c/Users/U', join }),
+    ['/home/u/.code-notes/bridge.json', '/mnt/c/Users/U/.code-notes/bridge.json'])
+  assert.deepEqual(discoveryPaths({ override: ' /tmp/b.json ', home: '/home/u', windowsHome: '/mnt/c/Users/U', join }), ['/tmp/b.json'])
+  assert.deepEqual(discoveryPaths({ override: '  ', home: '/home/u', join }), ['/home/u/.code-notes/bridge.json'], 'a blank setting is no setting')
+})
+
+test('windowsHomeInWsl: %USERPROFILE% from cmd.exe, then wslpath', async () => {
+  const calls: string[] = []
+  const run: RunProgram = async (f, args) => {
+    calls.push([f, ...args].join(' '))
+    if (f === 'cmd.exe') return 'C:\\Users\\Sam\r\n'
+    if (f === 'wslpath') return `/mnt/c/Users/${args[1].split('\\').pop()}\n`
+    throw new Error('unexpected')
+  }
+  assert.equal(await windowsHomeInWsl(run), '/mnt/c/Users/Sam')
+  assert.deepEqual(calls, ['cmd.exe /c echo %USERPROFILE%', 'wslpath -u C:\\Users\\Sam'])
+})
+
+test('windowsHomeInWsl: none when interop is off, the variable is unset or wslpath fails', async () => {
+  assert.equal(await windowsHomeInWsl(async () => { throw new Error('ENOENT') }), undefined)
+  assert.equal(await windowsHomeInWsl(async () => '%USERPROFILE%\r\n'), undefined, 'cmd.exe echoes an unset variable as it is')
+  assert.equal(await windowsHomeInWsl(async (f) => { if (f === 'wslpath') throw new Error('bad'); return 'C:\\Users\\Sam' }), undefined)
+  assert.equal(await windowsHomeInWsl(async (f) => (f === 'wslpath' ? '' : 'C:\\Users\\Sam')), undefined)
+})
+
+test('isWsl: the distro variable, or a Microsoft kernel', () => {
+  assert.equal(isWsl({ WSL_DISTRO_NAME: 'Ubuntu' }, ''), true)
+  assert.equal(isWsl({}, 'Linux version 6.6.87.2-microsoft-standard-WSL2'), true)
+  assert.equal(isWsl({}, 'Linux version 6.8.0-generic'), false)
+})
+
+test('findTarget: the first usable file in order', async () => {
+  const files: Record<string, string> = { '/b': 'broken', '/c': file(good), '/d': file({ ...good, name: 'Other' }) }
+  const read = async (p: string) => files[p]
+  assert.deepEqual(await findTarget(['/a', '/b', '/c', '/d'], read), { target: good, path: '/c' })
+  assert.equal(await findTarget(['/a', '/b'], read), undefined)
+})
+
+/** Timers run by hand: tick() runs what is due. */
+function manualTimers() {
+  let due: { fn: () => void; ms: number }[] = []
+  return {
+    set: (fn: () => void, ms: number) => { const t = { fn, ms }; due.push(t); return t },
+    clear: (h: unknown) => { due = due.filter((t) => t !== h) },
+    pending: () => due.map((t) => t.ms),
+    tick: () => { const now = due; due = []; for (const t of now) t.fn() },
+  }
+}
+
+test('DiscoveryWatch: silent with no file; the target when it appears, changes and goes; none after stop', async () => {
+  const files: Record<string, string> = {}
+  const timers = manualTimers()
+  const changes: (string | undefined)[] = []
+  const watch = new DiscoveryWatch({
+    paths: async () => ['/home/u/.code-notes/bridge.json', '/mnt/c/Users/U/.code-notes/bridge.json'],
+    read: async (p) => files[p], timers, pollMs: 50,
+    changed: (t: BridgeTarget | undefined, p) => changes.push(t ? `${t.name} ${t.url} @${p}` : undefined),
+  })
+  const poll = async () => { timers.tick(); await watch.check() }
+  await watch.start()
+  assert.deepEqual(changes, [], 'no file: nothing to say')
+  assert.deepEqual(timers.pending(), [50], 'read again later')
+
+  files['/mnt/c/Users/U/.code-notes/bridge.json'] = file(good)
+  await poll()
+  assert.deepEqual(changes, ['Desk ws://127.0.0.1:7777/v1/bridge @/mnt/c/Users/U/.code-notes/bridge.json'])
+  await poll()
+  assert.equal(changes.length, 1, 'the same file again: no change')
+
+  files['/mnt/c/Users/U/.code-notes/bridge.json'] = file({ ...good, url: 'ws://127.0.0.1:8888/v1/bridge' })
+  await poll()
+  assert.equal(changes.at(-1), 'Desk ws://127.0.0.1:8888/v1/bridge @/mnt/c/Users/U/.code-notes/bridge.json', 'a new port: the new target')
+
+  delete files['/mnt/c/Users/U/.code-notes/bridge.json']
+  await poll()
+  assert.equal(changes.at(-1), undefined, 'the file gone: no target')
+  assert.equal(changes.length, 3)
+
+  files['/home/u/.code-notes/bridge.json'] = file(good)
+  watch.stop()
+  assert.deepEqual(timers.pending(), [], 'stopped: no more reads')
+  await watch.check()
+  assert.equal(changes.length, 3, 'a read after stop says nothing')
+  await watch.start()
+  assert.equal(changes.at(-1), 'Desk ws://127.0.0.1:7777/v1/bridge @/home/u/.code-notes/bridge.json', 'started again: said again')
+  watch.stop()
+})

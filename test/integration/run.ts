@@ -164,7 +164,9 @@ async function launch(suite: Suite): Promise<void> {
   console.log(`\n${suite.name}: ${suite.covers}`)
   const ws = suite.workspace()
   const userData = profileDir(suite.name, ws)
-  userSettings(userData, suite.settings, { overwrite: suite.overwriteSettings })
+  // A controller running on this machine is never found: the bridge looks in the profile (the bridge chapter writes
+  // its own file).
+  userSettings(userData, { 'codeNotes.bridge.discovery': path.join(userData, 'bridge.json'), ...suite.settings }, { overwrite: suite.overwriteSettings })
   // The DevTools port: real clicks in webviews (devtools.ts) and the workbench's own console (Trusted Types errors
   // and the like live there, not in the extension host).
   const port = await freePort()

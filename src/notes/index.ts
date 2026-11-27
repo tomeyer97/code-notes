@@ -42,6 +42,8 @@ import { CommandArg, pickNotes } from './which'
 export type { NotesFeaturePorts } from './ports'
 /** A file in the notes folder (the store watches it: no note or step is on it). */
 export { inNotesFolder } from './notesFolder'
+/** A note another program writes through the extension (the bridge). */
+export { addAgentNote } from './agentNote'
 
 /** The id VS Code knows the notes' comment threads by. */
 const CONTROLLER_ID = 'codeNotes'

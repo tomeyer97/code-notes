@@ -89,6 +89,7 @@ export const Cmd = {
   sortJourneys: 'codeNotes.sortJourneys', // Sort Journeys
   refreshJourney: 'codeNotes.refreshJourney', // Refresh Journey
   journeysHereAll: 'codeNotes.journeysHereAll', // Show All Journeys in This File
+  dismissExplanation: 'codeNotes.dismissExplanation', // Dismiss Explanation
 } as const
 
 /**
