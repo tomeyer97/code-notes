@@ -450,7 +450,7 @@ comment record "waived (approved by @bob)". GitLab doesn't re-run the job on an 
 
 ## In CI
 
-The recipes below download the CLI of the release they were written for (`v0.27.0`, this version);
+The recipes below download the CLI of the release they were written for (`v0.27.1`, this version);
 test/docs.test.ts keeps that tag and the actions' pins in step with the repository.
 
 GitLab (`.gitlab-ci.yml`). `GITLAB_TOKEN`: a project access token with `api` scope (CI/CD variable, masked), used to
@@ -469,7 +469,7 @@ understanding:
   allow_failure:
     exit_codes: [3]   # advisory mode: "passed with warnings", never blocks
   script:
-    - curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.27.0/cli/understanding.mjs -o /tmp/understanding.mjs
+    - curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.27.1/cli/understanding.mjs -o /tmp/understanding.mjs
     - node /tmp/understanding.mjs ci
 ```
 
@@ -496,7 +496,7 @@ jobs:
         with:
           node-version: 22
       - run: |
-          curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.27.0/cli/understanding.mjs -o /tmp/understanding.mjs
+          curl -fsSL https://raw.githubusercontent.com/tomeyer97/code-notes/v0.27.1/cli/understanding.mjs -o /tmp/understanding.mjs
           node /tmp/understanding.mjs ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

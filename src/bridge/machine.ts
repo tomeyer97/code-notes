@@ -1,11 +1,13 @@
 // The machine the extension runs on, for the bridge: its home, the discovery file's places (inside WSL also the
-// Windows user's home, asked once), reading a file, and dialling a WebSocket (Node's own: no dependency).
+// Windows user's home, asked once), reading a file, inside WSL the Windows host's address, and dialling a WebSocket
+// (Node's own: no dependency).
 import { execFile } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { discoveryPaths, isWsl, RunProgram, windowsHomeInWsl } from '../core/bridge/discovery'
 import type { SocketLike } from '../core/bridge/client'
+import { defaultGateway } from '../core/bridge/wslHost'
 
 /** cmd.exe and wslpath answer in well under a second; one that hangs (interop stuck) is given up. */
 const RUN_TIMEOUT_MS = 5_000
@@ -27,6 +29,16 @@ export async function bridgePaths(override: string): Promise<string[]> {
 }
 
 export const readText = (file: string) => fs.promises.readFile(file, 'utf8').catch(() => undefined)
+
+/** Inside WSL, the Windows host's address (the default gateway), read once: a controller there may list it. */
+let wslHosts: Promise<readonly string[]> | undefined
+export const bridgeHosts = () => (wslHosts ??= windowsHosts())
+
+async function windowsHosts(): Promise<readonly string[]> {
+  if (!isWsl(process.env, kernel())) return []
+  const host = defaultGateway(await readText('/proc/net/route') ?? '')
+  return host ? [host] : []
+}
 
 /** The WSL distro this runs in (none outside WSL). */
 export const wslDistro = () => process.env.WSL_DISTRO_NAME || null

@@ -12,6 +12,8 @@ export interface WatchDeps {
   paths(): Promise<string[]>
   /** A file's text; undefined when it can't be read (missing). */
   read(path: string): Promise<string | undefined>
+  /** Hosts besides loopback the token may go to (inside WSL: the Windows host); none when not given. */
+  hosts?(): Promise<readonly string[]>
   /** The target changed (undefined: there is none now). */
   changed(target: BridgeTarget | undefined, path: string | undefined): void
   timers: Timers
@@ -19,10 +21,10 @@ export interface WatchDeps {
 }
 
 /** The first usable discovery file among `paths`, with its path. */
-export async function findTarget(paths: string[], read: WatchDeps['read']): Promise<{ target: BridgeTarget; path: string } | undefined> {
+export async function findTarget(paths: string[], read: WatchDeps['read'], hosts: readonly string[] = []): Promise<{ target: BridgeTarget; path: string } | undefined> {
   for (const path of paths) {
     const text = await read(path)
-    const target = text === undefined ? undefined : parseBridgeFile(text)
+    const target = text === undefined ? undefined : parseBridgeFile(text, hosts)
     if (target) return { target, path }
   }
   return undefined
@@ -59,12 +61,16 @@ export class DiscoveryWatch {
   private async readOnce(): Promise<void> {
     if (this.stopped) return
     if (this.timer !== undefined) this.deps.timers.clear(this.timer)
-    const found = await findTarget(await this.deps.paths(), this.deps.read).catch(() => undefined)
+    const found = await this.find().catch(() => undefined)
     if (this.stopped) return
     if (!sameTarget(found?.target, this.current)) {
       this.current = found?.target
       this.deps.changed(found?.target, found?.path)
     }
     this.timer = this.deps.timers.set(() => { this.timer = undefined; this.check().catch(() => undefined) }, this.deps.pollMs ?? POLL_MS)
+  }
+
+  private async find() {
+    return findTarget(await this.deps.paths(), this.deps.read, (await this.deps.hosts?.()) ?? [])
   }
 }

@@ -1,19 +1,51 @@
-// The bridge's discovery (src/core/bridge/discovery.ts, watch.ts): the file a controller writes, where it is looked
-// for (inside WSL also the Windows user's home), and the file followed as it appears, changes and goes.
+// The bridge's discovery (src/core/bridge/discovery.ts, watch.ts, wslHost.ts): the file a controller writes (one
+// address or several), where it is looked for (inside WSL also the Windows user's home), the Windows host's address
+// inside WSL, and the file followed as it appears, changes and goes.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'path'
 import { discoveryPaths, isLocalWs, isWsl, parseBridgeFile, RunProgram, windowsHomeInWsl } from '../src/core/bridge/discovery'
 import { DiscoveryWatch, findTarget } from '../src/core/bridge/watch'
 import type { BridgeTarget } from '../src/core/bridge/discovery'
+import { defaultGateway } from '../src/core/bridge/wslHost'
 
 const file = (o: object) => JSON.stringify(o)
 const good = { url: 'ws://127.0.0.1:7777/v1/bridge', token: 't0k', name: 'Desk' }
+/** `good` as a target: its one address. */
+const goodTarget: BridgeTarget = { urls: [good.url], token: 't0k', name: 'Desk' }
 
 test('parseBridgeFile: url, token and name; a missing name reads "Controller"', () => {
-  assert.deepEqual(parseBridgeFile(file(good)), good)
-  assert.deepEqual(parseBridgeFile(file({ ...good, name: '' })), { ...good, name: 'Controller' })
-  assert.deepEqual(parseBridgeFile(file({ ...good, name: '  Desk  ', extra: 1 })), good, 'trimmed; unknown fields ignored')
+  assert.deepEqual(parseBridgeFile(file(good)), goodTarget)
+  assert.deepEqual(parseBridgeFile(file({ ...good, name: '' })), { ...goodTarget, name: 'Controller' })
+  assert.deepEqual(parseBridgeFile(file({ ...good, name: '  Desk  ', extra: 1 })), goodTarget, 'trimmed; unknown fields ignored')
+})
+
+test('parseBridgeFile: `urls` after `url`, in order, each once; unusable ones left out', () => {
+  const a = 'ws://127.0.0.1:1/b', b = 'ws://localhost:2/b'
+  assert.deepEqual(parseBridgeFile(file({ ...good, urls: [a, b] }))?.urls, [good.url, a, b])
+  assert.deepEqual(parseBridgeFile(file({ token: 't', urls: [a, b] }))?.urls, [a, b], '`urls` alone is enough')
+  assert.deepEqual(parseBridgeFile(file({ token: 't', url: a, urls: [b, a, ` ${b} `] }))?.urls, [a, b])
+  assert.deepEqual(parseBridgeFile(file({ token: 't', urls: ['ws://10.0.0.2:1/x', 7, '', b] }))?.urls, [b])
+  assert.equal(parseBridgeFile(file({ token: 't', urls: ['ws://10.0.0.2:1/x'] })), undefined, 'no usable address')
+  assert.equal(parseBridgeFile(file({ token: 't', urls: 'ws://127.0.0.1:1/x' })), undefined, '`urls` is a list')
+})
+
+test('parseBridgeFile: a host allowed besides loopback (the Windows host inside WSL)', () => {
+  const host = 'ws://172.20.48.1:7777/v1/bridge'
+  assert.equal(parseBridgeFile(file({ token: 't', urls: [host] })), undefined, 'not allowed by default')
+  assert.deepEqual(parseBridgeFile(file({ ...good, urls: [host] }), ['172.20.48.1'])?.urls, [good.url, host])
+  assert.equal(parseBridgeFile(file({ token: 't', urls: ['ws://172.20.48.2:1/x'] }), ['172.20.48.1']), undefined, 'only that host')
+})
+
+test('defaultGateway: the default route\'s gateway in /proc/net/route, as a dotted address', () => {
+  const table = [
+    'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT',
+    'eth0\t0030A8C0\t00000000\t0001\t0\t0\t0\t00F0FFFF\t0\t0\t0',
+    'eth0\t00000000\t0130A8AC\t0003\t0\t0\t0\t00000000\t0\t0\t0',
+  ].join('\n')
+  assert.equal(defaultGateway(table), '172.168.48.1')
+  assert.equal(defaultGateway(table.split('\n').slice(0, 2).join('\n')), undefined, 'no default route')
+  assert.equal(defaultGateway(''), undefined)
 })
 
 test('parseBridgeFile: unusable files are none (no token, not JSON, not a local ws:// URL)', () => {
@@ -24,7 +56,9 @@ test('parseBridgeFile: unusable files are none (no token, not JSON, not a local 
   }
 })
 
-test('isLocalWs: loopback hosts only', () => {
+test('isLocalWs: loopback hosts, and the hosts it is given', () => {
+  assert.equal(isLocalWs('ws://172.20.48.1:1/', ['172.20.48.1']), true)
+  assert.equal(isLocalWs('wss://172.20.48.1:1/', ['172.20.48.1']), false, 'ws:// only')
   assert.equal(isLocalWs('ws://127.0.0.1:1/'), true)
   assert.equal(isLocalWs('ws://127.1.2.3:1/'), true)
   assert.equal(isLocalWs('ws://localhost:1/'), true)
@@ -71,7 +105,7 @@ test('isWsl: the distro variable, or a Microsoft kernel', () => {
 test('findTarget: the first usable file in order', async () => {
   const files: Record<string, string> = { '/b': 'broken', '/c': file(good), '/d': file({ ...good, name: 'Other' }) }
   const read = async (p: string) => files[p]
-  assert.deepEqual(await findTarget(['/a', '/b', '/c', '/d'], read), { target: good, path: '/c' })
+  assert.deepEqual(await findTarget(['/a', '/b', '/c', '/d'], read), { target: goodTarget, path: '/c' })
   assert.equal(await findTarget(['/a', '/b'], read), undefined)
 })
 
@@ -93,7 +127,7 @@ test('DiscoveryWatch: silent with no file; the target when it appears, changes a
   const watch = new DiscoveryWatch({
     paths: async () => ['/home/u/.code-notes/bridge.json', '/mnt/c/Users/U/.code-notes/bridge.json'],
     read: async (p) => files[p], timers, pollMs: 50,
-    changed: (t: BridgeTarget | undefined, p) => changes.push(t ? `${t.name} ${t.url} @${p}` : undefined),
+    changed: (t: BridgeTarget | undefined, p) => changes.push(t ? `${t.name} ${t.urls.join(' ')} @${p}` : undefined),
   })
   const poll = async () => { timers.tick(); await watch.check() }
   await watch.start()
@@ -122,5 +156,23 @@ test('DiscoveryWatch: silent with no file; the target when it appears, changes a
   assert.equal(changes.length, 3, 'a read after stop says nothing')
   await watch.start()
   assert.equal(changes.at(-1), 'Desk ws://127.0.0.1:7777/v1/bridge @/home/u/.code-notes/bridge.json', 'started again: said again')
+  watch.stop()
+})
+
+test('DiscoveryWatch: the hosts it is given allow their addresses; a new address list is a new target', async () => {
+  const path = '/home/u/.code-notes/bridge.json'
+  const files: Record<string, string> = { [path]: file({ ...good, urls: ['ws://172.20.48.1:7777/v1/bridge'] }) }
+  const timers = manualTimers()
+  const changes: string[][] = []
+  const watch = new DiscoveryWatch({
+    paths: async () => [path], read: async (p) => files[p], hosts: async () => ['172.20.48.1'], timers,
+    changed: (t) => changes.push(t?.urls ?? []),
+  })
+  await watch.start()
+  assert.deepEqual(changes, [[good.url, 'ws://172.20.48.1:7777/v1/bridge']])
+  files[path] = file({ ...good, urls: ['ws://127.0.0.2:7777/v1/bridge'] })
+  timers.tick()
+  await watch.check()
+  assert.deepEqual(changes.at(-1), [good.url, 'ws://127.0.0.2:7777/v1/bridge'])
   watch.stop()
 })

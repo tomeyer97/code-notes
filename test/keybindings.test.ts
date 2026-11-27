@@ -40,7 +40,7 @@ test('one chord scheme on two prefixes: Ctrl+< by scan code (ISO key) and Ctrl+\
       }
     }
   }
-  assert.equal(keys.length, PREFIXES.length * Object.keys(CHORDS).length * 2 + 3, 'nothing else but Esc and Enter (below)')
+  assert.equal(keys.length, PREFIXES.length * Object.keys(CHORDS).length * 2 + 4, 'nothing else but Esc and Enter (below)')
   // VS Code shows the last binding of a command: the plain chord, "Ctrl+' D".
   for (const command of Object.values(CHORDS)) assert.equal(keys.filter((k) => k.command === command).pop()!.key.replace(/^\S+ /, ''), Object.keys(CHORDS).find((k) => CHORDS[k] === command))
   assert.ok(keys.some((k) => k.key === 'escape' && k.command === 'codeNotes.cancelMove'))
@@ -54,6 +54,8 @@ test('outside the chords: Esc and Enter only where they belong to Code Notes', (
     { command: 'codeNotes.moveToSelection', key: 'enter', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible' },
     // Esc in an empty new note box of ours closes it (the draft is kept); other comment boxes keep their Esc.
     { command: 'codeNotes.closeNoteBox', key: 'escape', when: 'commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty' },
+    // Esc puts away a controller's explanation (the bridge's hint), when the editor has no other use for it.
+    { command: 'codeNotes.dismissExplanation', key: 'escape', when: 'codeNotes.explanationShown && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !inSnippetMode && !codeNotes.moving' },
   ])
 })
 

@@ -36,7 +36,7 @@ export type BridgeMethod = typeof BRIDGE_METHODS[number]
 /** 1-based, inclusive lines of a file: workspace-relative (in the window's first folder that has it) or absolute. */
 export interface BridgeLines { file: string; start: number; end: number }
 
-/** reveal: the lines opened and lit; `text` shown beside them until the reader dismisses it. */
+/** reveal: the lines opened and lit; `text` shown beside them as a hint until the reader moves on. */
 export interface RevealParams extends BridgeLines { text?: string }
 /** journey.play: a journey (its id) walked from step `step` (its number, or its id; none: 1). */
 export interface JourneyPlayParams { id: string; step?: number | string; folder?: string }

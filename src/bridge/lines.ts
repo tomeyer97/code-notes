@@ -1,4 +1,4 @@
-// The two requests about lines of a file: reveal (lit, with the controller's text beside them) and note.add.
+// The two requests about lines of a file: reveal (lit, with the controller's text as a hint beside them) and note.add.
 import * as vscode from 'vscode'
 import type { NoteAddParams, RevealParams } from '../protocol/bridge'
 import { addNote, claudeLinks } from './ports'
@@ -14,14 +14,14 @@ async function fileOf(file: string) {
   return uri
 }
 
-/** Opens the file, lights the lines (Back above them) and shows the text under them until dismissed. */
+/** Opens the file, lights the lines (Back above them) and shows the text beside them, until the reader moves on. */
 export async function reveal(p: RevealParams, c: HandlerContext): Promise<{ start: number; end: number }> {
   const uri = await fileOf(p.file)
   await claudeLinks().light(uri, p.start - 1, p.end - 1)
   const lines = editorOf(uri)?.document.lineCount ?? p.end
   const end = Math.max(p.start, Math.min(p.end, lines))
-  if (p.text) c.callout.show(uri, p.start - 1, end - 1, p.text, c.controller.name)
-  else c.callout.dismiss()
+  if (p.text) c.hint.show(uri, p.start - 1, end - 1, p.text, c.controller.name)
+  else c.hint.dismiss()
   return { start: p.start, end }
 }
 

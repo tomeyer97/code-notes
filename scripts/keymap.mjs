@@ -32,6 +32,8 @@ export const OTHERS = [
   { command: 'codeNotes.moveToSelection', key: 'enter', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible' },
   // Esc in an empty new note box closes it and keeps the draft.
   { command: 'codeNotes.closeNoteBox', key: 'escape', when: 'commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty' },
+  // Esc puts away a controller's explanation beside the code (the bridge), unless the editor has its own use for it.
+  { command: 'codeNotes.dismissExplanation', key: 'escape', when: 'codeNotes.explanationShown && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !inSnippetMode && !codeNotes.moving' },
 ]
 
 /**
