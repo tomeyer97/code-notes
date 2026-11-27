@@ -1,16 +1,17 @@
 // Background questions: when a branch is pushed (it has an upstream and nothing left to push, after it had something
-// or no upstream), has code changes and no check, and is not a default branch, its questions are written quietly. One
-// run at a time; never twice for the same commit. Setting codeNotes.understanding.background (SETTINGS.background).
+// or no upstream), has code changes and no check, is not a default branch, and the repository uses the check, its
+// questions are written quietly (backgroundRule.ts decides). One run at a time; never twice for the same commit.
+// Setting codeNotes.understanding.background (SETTINGS.background).
 import * as vscode from 'vscode'
 import * as path from 'path'
-import { BG_COMMITS_KEPT, REFRESH_SOON_MS, SETTINGS } from './constants'
+import { REFRESH_SOON_MS, SETTINGS } from './constants'
+import { BackgroundWrites } from './backgroundRule'
 import type { CheckHost } from './host'
 import { PushWatch } from './pushSeen'
 import type { CheckCore } from './state'
 import type { Writer } from './writer'
 import { fireAndForget } from '../platform/run'
 import { cfg } from '../platform/settings'
-import { STATE, type StateStore } from '../platform/state'
 
 /** The parts of VS Code's git extension API used here. */
 export interface GitRepo {
@@ -19,21 +20,13 @@ export interface GitRepo {
 }
 export interface GitApi { repositories: GitRepo[]; onDidOpenRepository: vscode.Event<GitRepo> }
 
-/** What background questions need: the state, a refresh, the log, the workspace memory and the writer. */
+/** What background questions need: the state, a refresh, the log, the workspace memory, the git reads and the writer. */
 export interface BackgroundPorts extends Pick<CheckCore, 'state' | 'refresh' | 'log'> {
   host: Pick<CheckHost, 'stored'>
   refreshSoon(ms: number, force: boolean): void
+  /** The repository uses the check (backgroundRule.ts usesCheck). */
+  usesCheck(refs: string[]): Promise<boolean>
   writer: Pick<Writer, 'writing' | 'write'>
-}
-
-/** The commits whose background questions were written (the last BG_COMMITS_KEPT), in the workspace's memory. */
-export class BackgroundRuns {
-  constructor(private stored: Pick<StateStore, 'get' | 'set'>) {}
-  has(commit: string): boolean { return this.stored.get(STATE.checkBackgroundHeads).includes(commit) }
-  async add(commit: string): Promise<void> {
-    const done = this.stored.get(STATE.checkBackgroundHeads)
-    await this.stored.set(STATE.checkBackgroundHeads, [...done.slice(-BG_COMMITS_KEPT), commit])
-  }
 }
 
 /** How many lines of what the push watcher saw are kept for the integration test (also in the log, at debug). */
@@ -42,10 +35,14 @@ const TRACE_KEPT = 10
 export class BackgroundQuestions implements vscode.Disposable {
   private seen: string[] = []
   private subs: vscode.Disposable[] = []
-  private readonly runs: BackgroundRuns
+  private readonly writes: BackgroundWrites
 
   constructor(private ports: BackgroundPorts) {
-    this.runs = new BackgroundRuns(ports.host.stored)
+    this.writes = new BackgroundWrites({
+      state: ports.state, refresh: ports.refresh, stored: ports.host.stored, writer: ports.writer, usesCheck: ports.usesCheck,
+      // Its default (on) is package.json's.
+      enabled: () => cfg().get<boolean>(SETTINGS.background) !== false,
+    })
   }
 
   /** What the push watcher saw last (read by the integration test through the controller's snapshot). */
@@ -89,23 +86,7 @@ export class BackgroundQuestions implements vscode.Disposable {
     const look = watch.look(h)
     if (!look) return
     this.saw(look.line)
-    if (look.pushedNow) fireAndForget(this.pushed(look.branch, h?.commit), 'background: pushed')
-  }
-
-  /** `branch` was just pushed at `commit`: its questions, if it needs some (see the top of this file). */
-  private async pushed(branch: string, commit: string | undefined): Promise<void> {
-    const ports = this.ports
-    // Its default (on) is package.json's.
-    const on = cfg().get<boolean>(SETTINGS.background) !== false
-    if (!on || ports.writer.writing || !commit) return
-    if (this.runs.has(commit)) return
-    await ports.refresh()
-    const st = ports.state.st
-    if (!st || st.branch !== branch || st.state.phase !== 'none') return
-    // A default branch (the CLI's isDefaultBranch: origin's HEAD, else main or master; or the branch compared with).
-    if (st.onBase) return
-    await this.runs.add(commit)
-    await ports.writer.write(false, { background: true })
+    if (look.pushedNow) fireAndForget(this.writes.pushed(look.branch, h?.commit), 'background: pushed')
   }
 
   dispose(): void { for (const s of this.subs) s.dispose() }

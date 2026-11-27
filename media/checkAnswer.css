@@ -16,7 +16,6 @@
 /* "Next question ›": a `.link` (common.css). */
 .check .answer .next { margin-top: 4px; }
 .check .answer .concern p { margin: 4px 0 0; overflow-wrap: anywhere; }
-.check .answer .concern p:first-child { color: var(--warn); }
 .check .answer .concern .link { display: inline; }
 .check .answer .concern .applied { color: var(--muted); }
-.check .answer .failed { margin: 4px 0 0; color: var(--warn); overflow-wrap: anywhere; }
+.check .answer .failed { margin: 4px 0 0; overflow-wrap: anywhere; }

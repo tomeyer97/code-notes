@@ -49,8 +49,11 @@ export const branchesTests = [
       // Notes made from the check (Ask Claude on a question, Suggest a fix) belong to the branch too: hidden, never "file not found".
       await until('notes from the check hidden on main', () => !notesFromCheck().length && !api.thread(left.askedNote.id) && !api.thread(left.fixNote.id))
       assert.equal(left.askedNote.extra?.checkFile, 'understanding/feat-limits.json')
+      // The default branch with no check file: codeNotes.checkOnBase hides the Check view (package.json).
+      await until('codeNotes.checkOnBase on main', () => chk().onBase === true)
     } finally { backTo('feat/limits') }
     await until('back on the branch', () => checkNotes().length === 3 && notesFromCheck().every((n) => !n.missing))
+    assert.equal(chk().onBase, false, 'a feature branch shows the Check view')
   }),
 
   test('a branch switch while questions are written: they are written for the branch and commit they were started on, kept in .code-notes/.cache (git-ignored), nothing touches the branch checked out, and they are put in place on return', async () => {
