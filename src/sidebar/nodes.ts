@@ -7,6 +7,7 @@ import { Group } from '../core/list/journeyList'
 import { LoadedJourney } from '../journeys/steps'
 import { Note } from '../notes/store'
 import { NodeCache } from './nodeCache'
+import type { JourneyJob } from '../write/journeyJobs'
 import { noteNodes, NoteNode } from './noteNodes'
 
 export type { NoteNode } from './noteNodes'
@@ -20,6 +21,8 @@ export type JourneyNode =
   | { kind: 'badJourney'; uri: vscode.Uri; why: string }
   | { kind: 'intro' }
   | { kind: 'questions'; lj: LoadedJourney; notes: Note[] }
+  /** A journey Claude is writing now (journeyRows.ts writingItem). */
+  | { kind: 'writing'; job: JourneyJob }
 
 /** A row of either view (the Journeys view also lists note rows: the questions asked from a step). */
 export type Node = NoteNode | JourneyNode

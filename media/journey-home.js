@@ -4,7 +4,7 @@
 // draw it. Styles in journey-home.css; its words in home/text.js. journey-map.js makes it and draws it in place of the
 // journey while it is in front; what it posts is typed by src/protocol/map.ts FromMap.
 import { el, button, baseName, runKey, itemAt, rovingKeys } from './common.js'
-import { SORTS, staleTip, walkLabel, podcastBadge, escapeRegExp } from './home/text.js'
+import { SORTS, staleTip, walkLabel, inProgress, podcastBadge, escapeRegExp } from './home/text.js'
 
 /**
  * What the home needs of the page (journey-map.js): its root element (emptied and drawn again on every render),
@@ -252,9 +252,10 @@ export function JourneyHome(host) {
     b.setAttribute('aria-selected', String(k === sel))
     const t = el('span', 'jtop')
     t.append(marked(r.title, r.hits))
-    if (r.start) t.append(el('span', 'jstart', 'Start here'))
+    // "Start here" is for a journey not begun yet: one in progress says where it is instead.
+    if (r.start && !inProgress(r)) t.append(el('span', 'jstart', 'Start here'))
     if (r.isNew) t.append(el('span', 'jnew', 'new'))
-    if (r.walking || r.resume > 1) {
+    if (inProgress(r)) {
       const where = r.walking ? `Walking: step ${r.resume} of ${r.steps}` : `Left at step ${r.resume} of ${r.steps}`
       t.append(badge('jat', `${r.resume}/${r.steps}`, where))
     }
@@ -312,7 +313,7 @@ export function JourneyHome(host) {
     return p
   }
 
-  /** Walk (or Resume, Back to step n); Refresh when steps are stale. */
+  /** Walk, or Resume · n/N; Refresh when steps are stale. */
   function previewActions(r, hasStale) {
     const acts = el('div', 'pacts')
     const go = button('walkb', walkLabel(r), () => host.walk(r.key))

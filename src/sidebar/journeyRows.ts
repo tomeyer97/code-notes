@@ -24,7 +24,8 @@ import { fileName } from '../platform/jsonFolder'
 import { STATE } from '../platform/state'
 import { cmdLink, Cmd } from '../platform/commands'
 import { trustedMarkdown } from '../platform/commandLinks'
-import { journeyDescription, journeyLabel, JourneyRowState, journeyTooltip, nestsQuestions, podcastContext } from './journeyRowText'
+import { journeyDescription, journeyLabel, JourneyRowState, journeyTooltip, nestsQuestions, podcastContext, writingRowText } from './journeyRowText'
+import { journeyJobs } from '../write/journeyJobs'
 
 /** Every journey's row, then the journey files that can't be read. */
 export const journeyRows = (): Node[] => [...journeys().all().map(journeyNode), ...badJourneyNodes()]
@@ -103,7 +104,7 @@ export function journeyRowState(lj: LoadedJourney, questions: Note[], model: Lis
 /**
  * A journey's row. The short title is the row; the question is the tooltip. The description is state only.
  * `group`: the Journeys view's group it is listed in (its id says which; only All and the areas nest its questions).
- * `model`: the list model the view drew (the row's area, age and "here" text).
+ * `model`: the list model the view drew (the row's "here" text).
  */
 export function journeyItem(lj: LoadedJourney, group?: string, model: ListModel | undefined = journeysTree.drawnModel()): vscode.TreeItem {
   const q = questionsNode(lj)
@@ -153,6 +154,35 @@ export function badJourneyItem(node: Extract<Node, { kind: 'badJourney' }>): vsc
   item.accessibilityInformation = { label: `${name}: can't be read` }
   item.command = { command: 'vscode.open', title: 'Open file', arguments: [node.uri] }
   item.contextValue = 'badJourney'
+  return item
+}
+
+/** A journey Claude is writing now: a row at the top of the Journeys view while it runs (its notification can be
+ *  closed). A journey being refreshed is not one: its own row says Refreshing…. */
+export type WritingNode = Extract<Node, { kind: 'writing' }>
+
+/** The writing rows last drawn, by job id: one object per row, so a row's own redraw (its clock) finds it. */
+let writing = new Map<string, WritingNode>()
+
+/** The writing rows now (the view's top rows): the ones drawn before kept, the ended ones dropped. */
+export function writingNodes(): WritingNode[] {
+  const jobs = journeyJobs().filter((job) => job.kind === 'write')
+  writing = new Map(jobs.map((job) => [job.id, writing.get(job.id) ?? { kind: 'writing' as const, job }]))
+  return [...writing.values()]
+}
+
+/** The writing rows the view was given last (their clocks redraw them alone). */
+export const drawnWritingNodes = (): WritingNode[] => [...writing.values()]
+
+export function writingItem(node: WritingNode, now = Date.now()): vscode.TreeItem {
+  const t = writingRowText(node.job, now)
+  const item = new vscode.TreeItem(isolate(t.label))
+  item.id = `writing:${node.job.id}`
+  item.description = t.description
+  item.tooltip = t.tooltip
+  item.iconPath = new vscode.ThemeIcon('loading~spin')
+  item.accessibilityInformation = { label: t.a11y }
+  item.contextValue = 'journeyWriting'
   return item
 }
 

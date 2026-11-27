@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { expectGolden } from './golden'
 import { FIXTURES, parsed } from './goldenJourneys'
 import { matchScore, queryWords, scoreJourney, tellingWords } from '../src/core/list/match'
-import { ageOf, areaOf, buildList, seeAlso, stamp } from '../src/core/list/journeyList'
+import { FLAT_UNDER, ageOf, areaOf, buildList, seeAlso, stamp } from '../src/core/list/journeyList'
 import { NOW, items } from './fixtures/journeyList'
 
 const AREA = 'journey'
@@ -57,6 +57,21 @@ test('golden: the Journeys list model (35 journeys): sorts, searches, chips, the
     const hits = Object.fromEntries(Object.entries(m.rows).filter(([, r]) => r.hits.length).map(([k, r]) => [k, r.hits]))
     expectGolden(AREA, `list.${name}`, FULL.includes(name) ? m : { ...m, rows: `${Object.keys(m.rows).length} rows, as in list.default`, hits })
   }
+})
+
+test('golden: the Journeys view\'s groups for a few journeys and for more, and a walked journey', () => {
+  const plain = items().map((it) => ({ ...it, resume: 0, walkedAt: undefined }))
+  const groups = (l: typeof plain) => {
+    const m = buildList(l, { now: NOW })
+    return { flat: m.flat, groups: m.groups }
+  }
+  expectGolden(AREA, 'list.groups', {
+    one: groups(plain.slice(0, 1)),
+    few: groups(plain.slice(0, FLAT_UNDER - 1)),
+    nine: groups(plain.slice(0, 9)),
+    oneWalked: groups([{ ...plain[0], resume: 1, walking: true }]),
+    nineOneWalked: groups([{ ...plain[0], resume: 1, walking: true }, ...plain.slice(1, 9)]),
+  })
 })
 
 test('golden: list helpers: area, age, stamp, see also', () => {

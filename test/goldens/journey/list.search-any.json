@@ -79,6 +79,7 @@
       ]
     }
   ],
+  "flat": false,
   "count": 3,
   "total": 35,
   "hits": {

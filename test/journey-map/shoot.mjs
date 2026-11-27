@@ -81,7 +81,7 @@ const SHOP = path.join(ROOT, 'examples/shop/journeys/place-order.json')
 const extra = JOURNEYS ? jsonIn(JOURNEYS) : []
 const real = [...jsonIn(SAMPLES), ...extra]
 /** The home's journeys: those of the folder named, else fixtures/home.json; the first is "here", the second left at
- *  step 4 and marked "Start here". */
+ *  step 4 and marked "Start here" (a journey in progress shows where it is instead). */
 const list = extra.length
   ? extra.map((f, i) => ({
     key: `k-${path.basename(f)}`, title: path.basename(f, '.json'), question: JSON.parse(fs.readFileSync(f, 'utf8')).question,
@@ -534,8 +534,8 @@ async function handoffRecord(p) {
 async function home(p) {
   await p.open(journey, { current: 2 })
   await p.clickPosts('.homeb', { type: FROM.home, on: true }, '‹ Journeys')
-  // Each row the title (+ "Start here" on one), where it was left right after it, the question under it (the list
-  // model, journeyList.ts; its own checks are in test/journey-list/shoot.mjs). A click selects; Enter walks.
+  // Each row the title (no "Start here" on one in progress), where it was left right after it, the question under it
+  // (the list model, journeyList.ts; its own checks are in test/journey-list/shoot.mjs). A click selects; Enter walks.
   const h = await p.page.evaluate(() => ({
     rows: [...document.querySelectorAll('.jrow .jtop')].map((r) => r.textContent),
     qs: [...document.querySelectorAll('.jrow .jq')].map((r) => r.textContent),
@@ -544,8 +544,8 @@ async function home(p) {
     map: !!document.querySelector('.hbody > .hlist .gmap'),
     h: document.querySelector('.home h1')?.textContent,
   }))
-  if (h.rows.length !== list.length || h.map || !h.rows.includes(`${list[1].title}Start here4/13`) || h.h !== 'Journeys') p.problem(`home ${JSON.stringify(h)}`)
-  if (h.start.join() !== list[1].title) p.problem(`"Start here" on ${JSON.stringify(h.start)}, want only ${list[1].title}`)
+  if (h.rows.length !== list.length || h.map || !h.rows.includes(`${list[1].title}4/13`) || h.h !== 'Journeys') p.problem(`home ${JSON.stringify(h)}`)
+  if (h.start.length) p.problem(`"Start here" on ${JSON.stringify(h.start)}, a journey in progress (it says where it is)`)
   if (h.qs.length !== list.length || !h.qs.includes(list[1].question)) p.problem(`home questions ${JSON.stringify(h.qs)}`)
   if (h.gap < 0 || h.gap > 20) p.problem(`home "n/N" is ${h.gap}px from its title (want right after it)`)
   await p.check('home', { current: false })

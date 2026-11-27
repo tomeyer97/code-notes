@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HERE_CAP, ListItem, ageOf, areaOf, buildList, matchedStep, seeAlso } from '../src/core/list/journeyList'
+import { FLAT_UNDER, HERE_CAP, ListItem, ageOf, areaOf, buildList, matchedStep, seeAlso } from '../src/core/list/journeyList'
 import { NAMED, NOW, STORE, items } from './fixtures/journeyList'
 // The word-level rules the list's search uses (queryWords, stem, matchScore: src/core/list/match.ts) are tested in match.test.ts.
 
@@ -94,8 +94,10 @@ test('sections: Continue, In <file>, New, then by area; the sidebar\'s groups fr
   assert.deepEqual(m.groups.map((g) => g.id), ['here', 'continue', 'all'])
   assert.deepEqual(m.groups[2].children!.map((c) => c.label), ['api', 'config', 'payments', 'web', 'worker'])
   assert.equal(m.rows[NAMED.newest].meta, 'api · 5 steps · 3 d')
-  // One count everywhere: the panel's total is the sidebar's All.
-  assert.equal(m.total, m.groups[2].children!.reduce((a, c) => a + c.keys.length, 0))
+  // One count everywhere: each journey once in the sidebar's Continue or All, as in the panel.
+  const listed = [...m.groups[1].keys, ...m.groups[2].children!.flatMap((c) => c.keys)]
+  assert.equal(new Set(listed).size, listed.length, 'a journey in Continue is not in All again')
+  assert.equal(m.total, listed.length)
   // Sorted by date: one flat "Newest" section after the personal ones; the sidebar's All is flat too.
   const n = buildList(items(), { sort: 'newest', now: NOW })
   assert.equal(n.sections.at(-1)!.label, 'Newest')
@@ -163,4 +165,32 @@ test('a search result says which step matched', () => {
   const m = buildList(items(), { query: 'retry', now: NOW })
   assert.equal(matchedStep(m.rows[NAMED.retries]), 'The worker retries a failed charge with the same key')
   assert.equal(matchedStep(m.rows[NAMED.newest]), '', 'nothing matched')
+})
+
+test('the sidebar: under FLAT_UNDER journeys one flat All, no areas; from FLAT_UNDER on, All by area', () => {
+  const few = items().slice(0, FLAT_UNDER - 1).map((it) => ({ ...it, resume: 0, walkedAt: undefined }))
+  const f = buildList(few, { now: NOW })
+  assert.deepEqual(f.groups.map((g) => [g.id, g.label, g.keys.length, g.children]), [['all', 'All', FLAT_UNDER - 1, undefined]])
+  assert.equal(f.flat, true, 'its rows are the view\'s top rows, no "All" heading')
+  assert.equal(buildList(few.slice(0, 1), { now: NOW }).flat, true, 'one journey: one row')
+  // A step in the active file: "In this file" has a heading, so All keeps its own.
+  assert.equal(buildList(few, { activeFile: STORE, now: NOW }).flat, false)
+  const many = items().slice(0, FLAT_UNDER).map((it) => ({ ...it, resume: 0, walkedAt: undefined }))
+  const g = buildList(many, { now: NOW })
+  assert.equal(g.groups.length, 1)
+  assert.equal(g.flat, false)
+  assert.equal(buildList(many, { sort: 'name', now: NOW }).flat, false, 'flat All from FLAT_UNDER on keeps its heading')
+  assert.ok(g.groups[0].children!.length > 0, 'by area')
+  assert.ok(g.groups[0].children!.every((c) => c.id.startsWith('area:') && c.label !== 'All'), 'no area group named All')
+})
+
+test('the sidebar: a walked journey is listed once, in Continue; All keeps the rest, or is left out when empty', () => {
+  const one = { ...items()[0], resume: 1, walking: true }
+  const m = buildList([one], { now: NOW })
+  assert.deepEqual(m.groups.map((g) => [g.id, g.keys]), [['continue', [one.key]]])
+  assert.equal(m.flat, false, 'a lone Continue keeps its heading')
+  const two = buildList([one, { ...items()[1], resume: 0, walkedAt: undefined }], { now: NOW })
+  assert.deepEqual(two.groups.map((g) => [g.id, g.keys]), [['continue', [one.key]], ['all', [items()[1].key]]])
+  // Opened and closed at step 1: not Continue, a plain row again.
+  assert.deepEqual(buildList([{ ...one, walking: false }], { now: NOW }).groups.map((g) => g.id), ['all'])
 })
