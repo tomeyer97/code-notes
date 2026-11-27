@@ -74,6 +74,8 @@ export const marksTests = [
     await pause()
     await seekTo(12, `back on the beat, line ${END_LINE} not lit`, () => onScreen(3) && !pod().applying && !litOn(END_LINE))
     await play()
+    // Playing, the step card above the lines shrinks to its header line: the lines shift once it does.
+    await podUntil('the header-only card', () => tour().card?.body === '', QUICK_MS)
     await outlast(AFTER_OWN_MOVE_MS, 'the walk\'s own move, so the scroll is the reader\'s')
     codeEditor()!.revealRange(new vscode.Range(40, 0, 40, 0), vscode.TextEditorRevealType.AtTop)
     await podUntil('not following', () => pod().follow === false, QUICK_MS)
