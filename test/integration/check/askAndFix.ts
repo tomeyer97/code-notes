@@ -48,8 +48,10 @@ export const askAndFixTests = [
   }),
 
   test('a concern dismissed with a reason (Dismiss, beside Mark fixed): kept in the file, gone from the thread, the row and the merge request', async () => {
-    const actions = threadComments(noteOf('q3').id).flatMap(linksOf).filter((l) => l.command === 'codeNotes.checkConcern').map((l) => `${l.label}:${l.args[1]}`)
-    assert.deepEqual(actions.slice(-2), ['Mark fixed:fixed', 'Dismiss:dismiss'], `the quiet actions, Dismiss beside Mark fixed: ${actions}`)
+    // The concern's actions are the thread's menu (named buttons), not links in its text: Mark fixed once flagged, Dismiss.
+    const words = String(api.thread(noteOf('q3').id)?.contextValue).split(';')
+    assert.ok(['concern', 'flagged'].every((w) => words.includes(w)), `the menu's words: ${words}`)
+    assert.deepEqual(threadComments(noteOf('q3').id).flatMap(linksOf).filter((l) => l.command === 'codeNotes.checkConcern'), [], 'no action links in the text')
     await vscode.commands.executeCommand('codeNotes.checkConcern', noteOf('q3').id, 'dismiss', 'A restart is fine: counts are per hour anyway.')
     await until('dismissed', () => readCheck().questions[2].concern?.dismissed?.reason === 'A restart is fine: counts are per hour anyway.' && readCheck().questions[2].concern.flagged === false && !view().rows[2].flag)
     await until('gone from the thread', () => !threadComments(noteOf('q3').id).some((c) => /Found while grading/.test(String((c.author as any)?.name))))

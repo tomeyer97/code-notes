@@ -10,7 +10,7 @@ import * as path from 'path'
 import assert from 'assert'
 import { EXT_ID, claudeRuns, fakeCalls, flag, quiet, readJson, test, untilEqual } from '../helpers'
 import { readResult, requestFile, writeRequest } from '../fixtures'
-import { closeAllEditors, ctx, noteById, setting, snap, until } from './context'
+import { closeAllEditors, commandLinksIn, ctx, noteById, setting, snap, until } from './context'
 import { repoJourneysDir, savingJourney } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -171,7 +171,7 @@ export const requestsTests = [
     await untilEqual('its thread open, titled by the question', () => [!!noteById(asked.id)?.threadExpanded, noteById(asked.id)?.threadLabel], [true, 'Where is the note written?'])
     await until('Claude answered in it', () => noteById(asked.id)?.messages.at(-1)?.author === 'Claude', 10000)
     // The answer as the thread shows it (once re-rendered): its reference is a link.
-    await until('the answer\'s reference is a link', () => ctx.api.thread(asked.id)?.comments.some((c: vscode.Comment) => c.author.name === 'Claude' && /\[`src\/renamed\.ts:3`\]\(command:codeNotes\.openAt\?/.test((c.body as vscode.MarkdownString).value)))
+    await until('the answer\'s reference is a link', () => ctx.api.thread(asked.id)?.comments.some((c: vscode.Comment) => c.author.name === 'Claude' && commandLinksIn((c.body as vscode.MarkdownString).value).some((l) => l.label === '`src/renamed.ts:3`' && l.command === 'codeNotes.openAt')))
     fs.unlinkSync(asked.path)
   }),
 
