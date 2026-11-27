@@ -2,7 +2,7 @@
   "name": "code-notes",
   "displayName": "Code Notes",
   "description": "Understand code you did not write: notes your coding agent answers, journeys through how it works, and an understanding check before you merge.",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "publisher": "tomeyer97",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -52,6 +52,7 @@
     "skills/understanding-check/scripts/questions.mjs",
     "cli/understanding.mjs",
     "docs/agent-protocol.md",
+    "docs/bridge.md",
     "docs/journey-format.md",
     "docs/podcast-format.md",
     "docs/understanding-check.md",
@@ -534,6 +535,12 @@
         "category": "Code Notes"
       },
       {
+        "command": "codeNotes.dismissExplanation",
+        "title": "Dismiss Explanation",
+        "category": "Code Notes",
+        "icon": "$(close)"
+      },
+      {
         "command": "codeNotes.pickJourneyStep",
         "title": "Pick a Journey Step Here",
         "category": "Code Notes"
@@ -975,6 +982,11 @@
         }
       ],
       "comments/commentThread/title": [
+        {
+          "command": "codeNotes.dismissExplanation",
+          "group": "navigation@9",
+          "when": "commentController == codeNotes.bridge"
+        },
         {
           "command": "codeNotes.cancelClaude",
           "group": "navigation@1",
@@ -1522,6 +1534,10 @@
         {
           "command": "codeNotes.concernDismiss",
           "when": "false"
+        },
+        {
+          "command": "codeNotes.dismissExplanation",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -1631,6 +1647,17 @@
           "type": "boolean",
           "default": true,
           "description": "Code links in a Claude Code chat (\"[the phrase](src/file.ts#L12-L20)\") light the lines they open, with \"← Back\" above them to where you were."
+        },
+        "codeNotes.bridge.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Let a program on this computer drive Code Notes (show lines with an explanation, play a journey, add a note, read where you are). It connects only while such a program runs. See [the bridge](https://github.com/tomeyer97/code-notes/blob/main/docs/bridge.md)."
+        },
+        "codeNotes.bridge.discovery": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Path of the file a program writes to be found (bridge.json). Empty: ~/.code-notes/bridge.json, and in WSL also the Windows user's."
         },
         "codeNotes.journeys.codeLens": {
           "type": "boolean",

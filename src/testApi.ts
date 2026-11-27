@@ -3,6 +3,7 @@
 // only outside Production (extension.ts loads this file then); a shipped extension has no test surface.
 
 import * as vscode from 'vscode'
+import type { BridgeFeature } from './bridge'
 import type { CheckFeature } from './check'
 import type { CodeLinksFeature } from './codeLinks'
 import type { JourneysFeature } from './journeys'
@@ -84,6 +85,7 @@ export interface TestedFeatures {
   tour: TourFeature
   check: CheckFeature
   podcast: PodcastFeature
+  bridge: BridgeFeature
 }
 
 export function testApi(f: TestedFeatures) {
@@ -109,6 +111,8 @@ export function testApi(f: TestedFeatures) {
       },
     }),
     thread: (id: string) => threads.get(id),
+    /** The bridge (src/bridge/index.ts): the discovery file used, the connection, the explanation shown. */
+    bridge: () => f.bridge.snapshot(),
     /** The list model (journeyList.ts) as the sidebar draws it, and the Journeys view as text. */
     journeyList: (o?: { query?: string }) => listModel(o),
     journeysTree: () => treeAsText(journeysTree),

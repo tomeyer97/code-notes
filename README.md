@@ -71,6 +71,14 @@ the answers. The answers are saved in `understanding/<branch>.json`; a CI job on
 checks that file on the merge request. How to use it, its settings and the CI recipes:
 [docs/understanding-check.md](docs/understanding-check.md).
 
+## Driving Code Notes from another program
+
+A program on your computer (a desktop assistant, a script) can show you lines with an explanation beside them, play
+a journey from a step, add a note, and ask which file and lines you are looking at. It writes
+`~/.code-notes/bridge.json` while it runs; Code Notes finds it and connects. Nothing connects when no such program
+runs, and `codeNotes.bridge.enabled` turns it off. The protocol, for a program's author:
+[docs/bridge.md](docs/bridge.md).
+
 ## Keys
 
 One chord: **Ctrl+'** (or **Ctrl+<** on ISO keyboards), then a letter.
@@ -120,6 +128,7 @@ All other settings are under **Code Notes** in the Settings editor, named by wha
 | `codeNotes.*` (no group) | notes: your name, their folder and git, how they show in the editor |
 | `codeNotes.claude.*` | the Claude Code CLI that answers notes: on or off, its path, model and skills |
 | `codeNotes.claudeLinks` | code links in a Claude Code chat |
+| `codeNotes.bridge.*` | a program on this computer that drives Code Notes: on or off, where its file is |
 | `codeNotes.journeys.*` | journeys: their folder, the code lens, author mode, the model that writes them |
 | `codeNotes.listen.*` | listening to a journey: how long the code waits for you |
 | `codeNotes.understanding.*` | the understanding check: the model that writes and grades it, background questions |
