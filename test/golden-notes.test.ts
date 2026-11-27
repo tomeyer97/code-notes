@@ -71,6 +71,32 @@ test('golden: crafted notes read and written back; files that are not notes, and
   expectGolden(AREA, 'notes.invalid', BAD_NOTES.map(([name, raw]) => ({ name, why: parsedOrWhy(raw, 'x'), title: titleOf(raw) ?? null })))
 })
 
+/** A note as an agent or a newer version may write it: fields this version doesn't know inside a message, the range
+ *  and the anchor, and events of other types (one malformed). */
+const withNestedExtras = note({
+  range: { start: 3, end: 5, rangeExtra: 'r' },
+  anchor: { text: 'a', before: '', after: '', anchorExtra: 'a', hash: { algo: 'x', v: 1 } },
+  messages: [msg({ msgExtra: 'keep-me', attachments: ['a.png'] }), msg({ author: 'Claude', role: 'agent', body: 'Seen.', at: '2026-11-17T10:05:00Z', tool: { name: 'Read' } })],
+  events: [{ type: 'assigned', by: 'bot', at: '2026-11-17T10:01:00Z' }, { type: 'resolved', by: 'ann', at: '2026-11-17T10:02:00Z', why: 'fixed' }, { type: 'reopened' }],
+  custom: true,
+})
+
+test('golden: fields this version doesn\'t know, nested too, written back after a resolve, a reply and a move', () => {
+  const read = () => parsedOrWhy(JSON.stringify(withNestedExtras), 'n1') as NoteData
+  const resolved = read()
+  resolved.status = 'resolved'
+  resolved.events = [...resolved.events!, { type: 'resolved', by: 'ann', role: 'human', at: '2026-11-17T12:00:00Z' }]
+  const replied = read()
+  replied.messages.push({ author: 'ann', role: 'human', body: 'Thanks.', at: '2026-11-17T12:00:00Z' })
+  const moved = read()
+  moved.range = { start: 8, end: 10 }
+  moved.anchor = captureAnchor(['x', 'y', 'z'], 1, 1)
+  expectGolden(AREA, 'nested-extras', {
+    parsed: read(),
+    written: Object.fromEntries(([['resolved', resolved], ['replied', replied], ['moved', moved]] as const).map(([k, d]) => [k, serialize(d)])),
+  })
+})
+
 test('golden: the three-way merge of a note changed on disk and in memory', () => {
   const base = parsedOrWhy(JSON.stringify(note({ events: [{ type: 'resolved', by: 'ann', at: 't1' }] })), 'n') as NoteData
   const with_ = (o: Partial<NoteData>): NoteData => ({ ...base, ...o })
@@ -85,6 +111,13 @@ test('golden: the three-way merge of a note changed on disk and in memory', () =
     ['we cleared the severity they set', with_({ severity: undefined }), with_({ severity: 'high', target: undefined })],
     ['they removed the events', base, with_({ events: undefined })],
     ['they changed the id and createdAt (theirs kept)', with_({ id: 'ours', createdAt: 'a' }), with_({ id: 'theirs', createdAt: 'b' })],
+    ['they added fields this version doesn\'t know, nested too, while we resolved', with_({ status: 'resolved' }), with_({
+      messages: [{ ...base.messages[0], extra: { attachments: ['a.png'] } }, { ...m2, extra: { tool: 'Read' } }],
+      rangeExtra: { r: 1 }, anchorExtra: { a: 1 }, otherEvents: [{ index: 0, event: { type: 'assigned', at: 't0' } }],
+    })],
+    ['both have fields this version doesn\'t know in their new messages; we moved, they kept the range\'s', with_({
+      range: { start: 9, end: 9 }, messages: [...base.messages, { ...m3, extra: { ours: 1 } }], rangeExtra: { r: 1 },
+    }), with_({ messages: [...base.messages, { ...m2, extra: { theirs: 1 } }], rangeExtra: { r: 1 } })],
   ]
   expectGolden(AREA, 'merge', cases.map(([name, ours, theirs]) => { const m = merge(base, ours, theirs); return { name, merged: m, written: serialize(m) } }))
 })

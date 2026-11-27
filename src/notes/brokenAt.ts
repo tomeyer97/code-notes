@@ -16,11 +16,42 @@ const FIELDS: [string, (v: Record<string, any>) => boolean][] = [
   ['messages', (v) => Array.isArray(v.messages) && v.messages.length > 0 && v.messages.every((m: any) => typeof m?.body === 'string')],
 ]
 
-/** Where in `text` (a note file) the cursor goes to fix it: the end when it is not JSON, a wrong field's name, or the
- *  top (0) when no field is to blame. */
+/** Where the parser stops in `text` (its error says "at position N", or that the text ended too soon); undefined: it
+ *  parses, or its error names no place ("Unexpected token 'x'"). */
+function stopsAt(text: string): number | undefined {
+  try { JSON.parse(text); return undefined } catch (e) {
+    const m = (e as Error).message
+    const at = /\bposition (\d+)/.exec(m)
+    if (at) return Math.min(Number(at[1]), text.length)
+    return /end of JSON input/.test(m) ? text.length : undefined
+  }
+}
+
+/** Whether `text` is wrong before its end (not only cut off). */
+const wrongBeforeEnd = (text: string) => {
+  try { JSON.parse(text); return false } catch { return (stopsAt(text) ?? -1) < text.length }
+}
+
+/** Where the parser stopped in `text`, which is not JSON: as its error says, else the shortest start of the text that
+ *  is already wrong ends there. Cut off: the end. */
+function syntaxErrorAt(text: string): number {
+  const named = stopsAt(text)
+  if (named !== undefined) return named
+  let ok = 0
+  let wrong = text.length
+  while (wrong - ok > 1) {
+    const mid = (ok + wrong) >> 1
+    if (wrongBeforeEnd(text.slice(0, mid))) wrong = mid
+    else ok = mid
+  }
+  return wrong - 1
+}
+
+/** Where in `text` (a note file) the cursor goes to fix it: where the parser stopped when it is not JSON, a wrong
+ *  field's name, or the top (0) when no field is to blame. */
 export function brokenOffset(text: string): number {
   const json = parseJson(text)
-  if (!json.ok) return text.length
+  if (!json.ok) return syntaxErrorAt(text)
   const v = json.value
   if (!v || typeof v !== 'object' || Array.isArray(v)) return 0
   const field = FIELDS.find(([, ok]) => !ok(v as Record<string, any>))?.[0]

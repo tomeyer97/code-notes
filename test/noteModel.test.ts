@@ -96,6 +96,48 @@ test('merge: messages and events append; other fields are ours if we changed the
   assert.ok(!('target' in m) && !('events' in merge(base, base, base)), 'no empty optional fields')
 })
 
+test('parseNote and serialize: fields this version doesn\'t know inside messages, events, range and anchor, and events of other types, are written back', () => {
+  const file = {
+    file: 'src/a.ts', range: { start: 3, end: 5, rangeExtra: 'r' }, anchor: { text: 'x', anchorExtra: 'a' }, status: 'open',
+    messages: [{ author: 'ann', role: 'human', body: 'Why?', msgExtra: 'keep-me', attachments: ['a.png'] }],
+    events: [{ type: 'assigned', by: 'bot', at: 't0' }, { type: 'resolved', by: 'ann', at: 't1', why: 'fixed' }, 'odd'],
+  }
+  const d = noteOf(JSON.stringify(file))
+  assert.deepEqual(d.messages[0].extra, { msgExtra: 'keep-me', attachments: ['a.png'] })
+  assert.deepEqual(d.events, [{ type: 'resolved', by: 'ann', at: 't1', extra: { why: 'fixed' } }], 'the events this version reads')
+  assert.deepEqual(d.otherEvents, [{ index: 0, event: file.events[0] }, { index: 2, event: 'odd' }])
+  // Resolved, replied to and moved: nothing of theirs is lost.
+  d.status = 'resolved'
+  d.events!.push({ type: 'resolved', by: 'me', at: 't2' })
+  d.messages.push({ author: 'me', body: 'Done.' })
+  d.range = { start: 7, end: 9 }
+  d.anchor = { text: 'y', before: '', after: '' }
+  const back = JSON.parse(serialize(d))
+  assert.deepEqual(back.messages[0], file.messages[0])
+  assert.deepEqual(back.range, { start: 7, end: 9, rangeExtra: 'r' })
+  assert.deepEqual(back.anchor, { text: 'y', before: '', after: '', anchorExtra: 'a' })
+  assert.deepEqual(back.events, [...file.events, { type: 'resolved', by: 'me', at: 't2' }])
+  assert.ok(!('otherEvents' in back) && !('rangeExtra' in back) && !('extra' in back.messages[0]), 'nothing of memory\'s own in the file')
+  assert.equal(serialize(noteOf(serialize(d))), serialize(d), 'read and written again: the same')
+  // A file or folder note has no range or anchor: none of theirs either.
+  assert.deepEqual(Object.keys(JSON.parse(serialize(noteOf(JSON.stringify({ ...file, target: 'file' }))))).filter((k) => k === 'range' || k === 'anchor'), [])
+})
+
+test('merge: fields this version doesn\'t know, nested ones too, are kept from both sides', () => {
+  const base = parsed()
+  const ours = { ...structuredClone(base), status: 'resolved' as const, messages: [...base.messages, { author: 'me', body: 'mine', extra: { ours: 1 } }] }
+  const theirs = {
+    ...structuredClone(base), messages: [{ ...base.messages[0], extra: { attachments: ['a.png'] } }, { author: 'agent', body: 'theirs', extra: { tool: 'Read' } }],
+    rangeExtra: { r: 1 }, anchorExtra: { a: 1 }, otherEvents: [{ index: 0, event: { type: 'assigned', at: 't0' } }], extra: { custom: true },
+  }
+  const m = merge(base, ours, theirs)
+  assert.equal(m.status, 'resolved')
+  assert.deepEqual(m.messages.map((x) => x.extra), [{ attachments: ['a.png'] }, { tool: 'Read' }, { ours: 1 }])
+  assert.deepEqual([m.rangeExtra, m.anchorExtra, m.otherEvents, m.extra], [theirs.rangeExtra, theirs.anchorExtra, theirs.otherEvents, theirs.extra])
+  const gone = merge(theirs, theirs, { ...structuredClone(base), status: 'open' })
+  assert.ok(!('rangeExtra' in gone) && !('otherEvents' in gone), 'removed on disk: removed (no empty fields)')
+})
+
 test('merge: a message on both sides is not doubled', () => {
   const base = parsed()
   const reply = { author: 'agent', body: 'same', at: 't' }
