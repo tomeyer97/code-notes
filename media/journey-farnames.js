@@ -1,6 +1,6 @@
 // The map's names when zoomed out (journey-graph.js `farNames`): a block of leaves, a system or a lone box gets its
 // name (and its step numbers) at a size you can read, in screen space, where it overlaps nothing placed before it.
-// Exports measure(names) and place(items, taken, ring).
+// Exports measure(names) and place(items, taken, ring, bounds).
 import { overlapArea, edgesOf } from './common.js'
 
 /** A chip's padding, both sides together (px). */
@@ -197,17 +197,20 @@ function blockCandidates(variants, blockRect, isCurrentBlock) {
 
 /**
  * Places the far names `items` where each overlaps nothing in `taken` (screen rectangles { x, y, w, h }; each name
- * placed is added to it) nor the current step's `ring` (its screen rectangle, if shown). In rank order (0 first),
- * bigger boxes first (`size`: the box's area); a name with no free place is hidden. The current step's own names
- * (rank 0) go over the ring rather than nowhere.
+ * placed is added to it) nor the current step's `ring` (its screen rectangle, if shown), wholly inside `bounds` (the
+ * drawing, when given: a name its edge cuts reads as another word). In rank order (0 first), bigger boxes first (`size`: the
+ * box's area); a name with no free place is hidden. The current step's own names (rank 0) go over the ring rather
+ * than nowhere.
  * @param {{ name: MeasuredName, blockRect: { x: number, y: number, w: number, h: number }, isCurrentBlock: boolean,
  *   rank: number, size: number }[]} items
  * @param {{ x: number, y: number, w: number, h: number }[]} taken
  * @param {{ x: number, y: number, w: number, h: number } | undefined} ring
+ * @param {{ x: number, y: number, w: number, h: number }} [bounds] none: anywhere
  */
-function place(items, taken, ring) {
+function place(items, taken, ring, bounds) {
   const clashes = (r, q) => overlapArea(edgesOf(r), edgesOf(q)) > 0
-  const free = (r, { allowRing = false } = {}) => !taken.some((q) => clashes(r, q)) && (allowRing || !ring || !clashes(r, ring))
+  const inside = (r) => !bounds || r.x >= bounds.x && r.y >= bounds.y && r.x + r.w <= bounds.x + bounds.w && r.y + r.h <= bounds.y + bounds.h
+  const free = (r, { allowRing = false } = {}) => inside(r) && !taken.some((q) => clashes(r, q)) && (allowRing || !ring || !clashes(r, ring))
   const rectOf = (c) => ({ x: c.x, y: c.y, w: c.variant.w, h: c.variant.h })
   items.sort((a, b) => a.rank - b.rank || b.size - a.size)
   for (const { name, blockRect, isCurrentBlock, rank } of items) {

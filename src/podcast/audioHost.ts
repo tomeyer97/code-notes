@@ -11,6 +11,9 @@
 //
 //   listen --(Listen view locked, panel unlocked and showing the journey)--> panel
 //   panel --(the panel closes, or shows another journey)--> listen
+//
+// One player at a time: while the panel has the audio the Listen view is not there (statusItem.ts), and VS Code drops
+// its page then; the audio going back makes it again (paused where it was: a new page needs a click to play).
 import * as vscode from 'vscode'
 import type { FromListen } from '../protocol/listen'
 import type { FromPlayer, PodcastAsk, PodcastEpisode, PodcastHostState, PodcastUnavailable, ToPlayer } from '../protocol/podcast'
@@ -47,6 +50,8 @@ export interface AudioHostClient {
   end(lj: LoadedJourney, action: 'walk' | 'next'): Promise<void>
   /** The Listen view went with the audio in it. */
   lost(): void
+  /** The audio moved to the other player. */
+  moved(): void
 }
 
 export class AudioHost implements vscode.Disposable {
@@ -86,6 +91,8 @@ export class AudioHost implements vscode.Disposable {
   alive(): boolean {
     return this.where === 'panel' ? !!this.hostKey && this.ports.mapPanel().journey?.key === this.hostKey : this.listen.alive
   }
+  /** The journey panel has the audio (its player is the one on screen; the Listen view goes). */
+  get panelHosts(): boolean { return this.where === 'panel' && this.alive() }
   /** The host has journey `key`'s episode and takes commands. */
   has(key: string): boolean { return this.hostKey === key && this.alive() }
 
@@ -142,13 +149,25 @@ export class AudioHost implements vscode.Disposable {
     this.listen.send({ type: 'podcast', episode: this.client.episodeFor(lj, (u) => this.listen.toUri(u)) })
     this.send({ type: 'podcastRole', role: 'host', ...cue })
     this.log().info(`podcast ${lj.j.id}: the audio plays in the ${to === 'panel' ? 'journey panel' : 'Listen view'}${cue.play ? '' : ' (paused)'}`)
+    this.client.moved()
+  }
+
+  /** The panel's audio back to the Listen view: at once when the view is there, else once it is made again (the
+   *  panel stops being the host now: it may be showing another journey already). */
+  private backToListen(lj: LoadedJourney, cue: Cue): void {
+    if (this.listen.alive) { this.moveTo('listen', lj, cue); return }
+    if (this.ports.mapPanel().journey) this.ports.mapPanel().send({ type: 'podcastRole', role: 'remote' })
+    this.where = 'listen'
+    this.forget()
+    this.client.moved()
+    fireAndForget(this.load(lj, cue).then((ok) => { if (!ok) this.client.lost() }), 'podcast: load the host')
   }
 
   /** The panel is about to show `lj`: playing another journey's audio, that audio goes to the Listen view first. */
   panelShows(lj: LoadedJourney): void {
     if (this.where === 'panel' && this.hostKey && this.hostKey !== lj.key) {
       const was = this.journey(this.hostKey)
-      if (was) this.moveTo('listen', was, { at: this.client.nowOf(was), play: this.client.playing() })
+      if (was) this.backToListen(was, { at: this.client.nowOf(was), play: this.client.playing() })
       else this.where = 'listen'
     }
     this.listen.send({ type: 'panel', key: lj.key })
@@ -160,8 +179,8 @@ export class AudioHost implements vscode.Disposable {
     this.unlocked.panel = false
     if (this.where !== 'panel') return
     const lj = this.journey(this.hostKey)
-    this.where = 'listen'
-    if (lj) this.moveTo('listen', lj, { at: this.client.nowOf(lj), play: this.client.playing() })
+    if (lj) this.backToListen(lj, { at: this.client.nowOf(lj), play: this.client.playing() })
+    else this.where = 'listen'
   }
 
   /**

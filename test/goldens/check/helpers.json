@@ -256,10 +256,10 @@
         "done": 3
       },
       {
-        "tone": "warn",
-        "bar": "Needs top-up: +60 lines",
-        "title": "Needs top-up: +60 lines",
-        "line": "Add 1–2 questions about the new lines.",
+        "tone": "todo",
+        "bar": "Understanding: +1 question",
+        "title": "Your change grew by 60 code lines",
+        "line": "Add 1 question about the new lines.",
         "rule": "Answer all 3 · 2 must pass"
       }
     ],
@@ -271,10 +271,10 @@
         "commitFirst": true
       },
       {
-        "tone": "warn",
-        "bar": "Needs top-up: +60 lines",
-        "title": "Needs top-up: +60 lines",
-        "line": "Commit, then add 1–2 questions about the new lines.",
+        "tone": "todo",
+        "bar": "Understanding: +1 question",
+        "title": "Your change grew by 60 code lines",
+        "line": "Commit, then add 1 question about the new lines.",
         "rule": ""
       }
     ],

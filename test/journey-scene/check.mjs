@@ -4,7 +4,8 @@
 // box (or text no check covers: selectors.mjs), anything sticking out of an actor box, any visible text in the scene
 // smaller than 11 px on screen (font-size × the world's scale), the scene column narrower than 400 px, the keyboard
 // focus leaving the scene, a last beat without "Next step ›" (but on the last step), anything moving with reduced
-// motion, or a scene whose names are Object.prototype's keys not drawing like any other.
+// motion, a scene whose names are Object.prototype's keys not drawing like any other, or the beat's lines shown
+// under the caption while the step's code is open beside the panel.
 //   node test/journey-scene/check.mjs <journey.json> [<dir for screenshots>]
 // Needs Playwright with Chromium (test/harness/page.mjs launchChromium: PLAYWRIGHT, CHROME). The panel's harness
 // (test/journey-map/harness.html) loads out/vendor/elk.bundled.js and the page's bundle, out/pages/map.js: run
@@ -279,9 +280,40 @@ async function checkPrototypeKeyNames() {
   await page.close()
 }
 
+/** The step card as the extension sends it when the step's code is gone (src/protocol/map.ts PanelCard). */
+const PANEL_CARD = { n: 1, title: 'Step', lead: 'Its code was deleted.', refs: '', stale: false, staleText: '', open: true, paths: [] }
+
+/** The beat's lines under the caption only when the step's code is not open beside the panel: hidden while it is
+ *  (the editor shows and lights them), shown when the step's card lives in the panel (its code is gone). */
+async function checkCodeExcerpt() {
+  const n = animated[0]
+  const { page, errors } = await openJourney({ w: 1300, theme: 'dark' }, journey, n)
+  const send = (m) => page.evaluate((x) => window.postMessage(x, '*'), m)
+  const code = { file: journey.steps[n - 1].file || 'src/a.js', line: 3, from: 1, lines: ['const a = 1', 'const b = 2', 'check(a, b)', 'done()'] }
+  const excerpt = async () => {
+    await send({ type: 'code', n, i: 0, code })
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    return page.evaluate(() => { const c = document.querySelector('.scn-code'); return !!c && !c.hidden && c.getClientRects().length > 0 })
+  }
+  const problems = []
+  try {
+    await startAnimation(page, n)
+    await still(page, 1, journey.steps[n - 1].scene.beats.length)
+    if (await excerpt()) problems.push('the beat\'s lines are shown while the step\'s code is open beside the panel')
+    await send({ type: 'tour', ...tour({ current: n, card: { ...PANEL_CARD, n } }) })
+    await page.waitForSelector('.scn', { timeout: 5000 })
+    if (!(await excerpt())) problems.push('the beat\'s lines are not shown when the step\'s card is in the panel (no code beside it)')
+  } catch (e) { problems.push(`didn't run: ${e.message.split('\n')[0]}`) }
+  problems.push(...errors)
+  if (problems.length) fail('code excerpt', problems)
+  else console.log('code excerpt ok')
+  await page.close()
+}
+
 const browser = await launchChromium()
 for (const pass of PASSES) await checkPass(pass)
 await checkPrototypeKeyNames()
+await checkCodeExcerpt()
 await browser.close()
 console.log(`smallest text: ${smallest.px.toFixed(1)} px (${smallest.cls} "${smallest.text}", ${smallest.at})`)
 console.log(failures.length ? `FAILED (${failures.length})` : 'ok')

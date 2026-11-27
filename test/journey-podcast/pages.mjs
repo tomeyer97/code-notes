@@ -46,14 +46,14 @@ export const tour = (current) => ({ current, marks: {}, resume: 0, legendHidden:
 /**
  * The extension's part. `fixture`: the journey, the model's episode (`ep`) and the episode as the pages get it.
  * `st` keeps what happened: the views the walk was put on (`applied`), the host's reports (`times`, `seeks`,
- * `lastT`, `playing`), its log lines (`told`), the end's buttons (`ends`), the remotes' asks (`asks`).
+ * `lastT`, `playing`), the speeds they said (`rates`), its log lines (`told`), the end's buttons (`ends`), the remotes' asks (`asks`).
  */
 export class Extension {
   constructor(fixture, episode, toListen, toMap) {
     this.fixture = fixture
     this.episode = episode
     this.toMap = toMap
-    this.st = { cur: 0, want: undefined, applied: [], seeks: 0, times: 0, lastT: 0, playing: false, told: [], ends: [], asks: [] }
+    this.st = { cur: 0, want: undefined, applied: [], seeks: 0, times: 0, lastT: 0, playing: false, told: [], ends: [], asks: [], rates: [] }
     this.lj = { key: episode.key, j: { id: episode.key, title: episode.journey } }
     /** The journey the panel shows (undefined: closed). */
     this.panelJourney = undefined
@@ -80,8 +80,8 @@ export class Extension {
       nowOf: () => st.lastT,
       listening: () => (this.host.key ? this.lj : undefined),
       playing: () => st.playing,
-      time: (_lj, m) => this.followTime(m),
-      state: (m) => { this.host.relayState(m) },
+      time: (_lj, m) => { st.rates.push(m.rate); this.followTime(m) },
+      state: (m) => { st.rates.push(m.rate); this.host.relayState(m) },
       error: (_lj, message) => { st.told.push(message) },
       meta: () => {},
       ask: async (_lj, m) => this.ask(m),
@@ -89,6 +89,7 @@ export class Extension {
       open: async () => {},
       end: async (_lj, action) => { st.ends.push(action) },
       lost: () => {},
+      moved: () => {},
     }
   }
 

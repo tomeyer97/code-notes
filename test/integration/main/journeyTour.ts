@@ -8,8 +8,9 @@ import * as path from 'path'
 import assert from 'assert'
 import { appendMessage, now, quiet, settle, test, windowShot } from '../helpers'
 import { shotsInBothThemes } from './themeShots'
-import { journey, step, writeLines } from '../fixtures'
-import { at, bodyOf, codeLenses, commandLinksIn, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
+import { journey, step, writeJourney, writeLines } from '../fixtures'
+import { cdp, codeColumns, ui } from '../devtools'
+import { at, bodyOf, closeAllEditors, commandLinksIn, codeLenses, ctx, journeysDir, journeysTree, lenses, notesTree, setting, snap, tabOpen, tour, until, wsPath } from './context'
 import { demoPath, demoStep, demoSteps, writeDemo } from './shared'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -73,6 +74,38 @@ function writeTopJourney(): string {
 /** The step lenses ("◇ Step n of …") on a file, as "line:title". */
 const stepLenses = async (u: vscode.Uri) => (await lenses(u)).filter((x) => x.includes('◇'))
 const flowUri = () => vscode.Uri.file(wsPath('src', 'flow.ts'))
+
+/** Runs `fn` with the workbench `width` px wide at zoom 0 (the DevTools window emulation); size and zoom come back. */
+async function withWindowWidth<T>(width: number, fn: (page: import('playwright').Page) => Promise<T>): Promise<T> {
+  const page = await ui()
+  const session = await page.context().newCDPSession(page)
+  const win = () => vscode.workspace.getConfiguration('window')
+  const zoom = win().inspect<number>('zoomLevel')?.globalValue
+  await win().update('zoomLevel', 0, vscode.ConfigurationTarget.Global)
+  await session.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false })
+  try { return await fn(page) } finally {
+    await session.send('Emulation.clearDeviceMetricsOverride')
+    await win().update('zoomLevel', zoom, vscode.ConfigurationTarget.Global)
+    await session.detach()
+  }
+}
+
+/** Next, or Previous on the last step: another step of the demo journey, its card shown. */
+async function anotherStep(): Promise<void> {
+  const n = tour().step
+  await vscode.commands.executeCommand(n < 3 ? 'codeNotes.nextStep' : 'codeNotes.previousStep')
+  await until(`a step after ${n}, its card shown`, () => tour().touring && tour().step !== n && !!tour().card, 10000)
+}
+
+/** The demo's steps with one on a binary file (src/sound.mp3) in the middle. */
+const withBinaryStep = () => journey('binary', [
+  demoStep('x-a', 'a calls b', 'fa', 'src/flow.ts', 2),
+  step('src/sound.mp3', 1, 3, { id: 'x-mp3', title: 'A sound', node: 'fb' }),
+  demoStep('x-c', 'Then c', 'fc', 'src/flow2.ts', 2),
+], { title: 'Binary' })
+
+/** The demo's steps as the journey "moving", in a folder of the repository (`steps`: from the second on). */
+const moving = (title: string, from = 0) => journey('moving', demoSteps.slice(from).map((x) => ({ ...x, id: `m-${x.id}` })), { title })
 
 export const journeyTourTests = [
   test('v2 journeys load (v1 and broken files skipped); steps are not notes; the group lists titles, new ones marked', async () => {
@@ -362,4 +395,81 @@ export const journeyTourTests = [
     writeDemo()
     await until('back to 3 steps', () => snap().journeys[0]?.steps === 3)
   }),
+
+  test('a step on a binary file: its card in the map, out of date; Next and a click on it throw nothing, the last card goes', async () => {
+    // NUL bytes on lines 1-3 and after: binary to VS Code, yet the step's lines are there (not "removed").
+    fs.writeFileSync(wsPath('src', 'sound.mp3'), Buffer.from([0x49, 0x44, 0x33, 0, 0x0a, 0, 0, 0x0a, 0, 0, 0x0a, ...new Array<number>(64).fill(0)]))
+    const file = writeJourney(journeysDir(), withBinaryStep())
+    try {
+      await until('the journey listed', () => snap().journeys.some((x: any) => x.id === 'binary'), 8000)
+      await vscode.commands.executeCommand('codeNotes.startJourney', 'binary')
+      await until('step 1, its card above the code', () => tour().journey === 'binary' && tour().step === 1 && tour().card?.title === 'a calls b', 10000)
+      // VS Code refuses to show the file as text: the command resolves all the same.
+      await vscode.commands.executeCommand('codeNotes.nextStep')
+      const inMap = () => tour().step === 2 && !tour().card && tour().panelCard?.title === 'A sound' && tour().panelCard?.stale && tour().map === 'binary'
+      await until('step 2: no card left on step 1\'s code; its card in the map, out of date', inMap, 10000)
+      // The step clicked on the map, from step 3.
+      await vscode.commands.executeCommand('codeNotes.nextStep')
+      await until('step 3', () => tour().step === 3 && tour().card?.title === 'Then c', 10000)
+      ctx.api.mapMessage({ type: 'step', n: 2 })
+      await until('step 2 again from the map', inMap, 10000)
+    } finally {
+      await vscode.commands.executeCommand('codeNotes.endJourney')
+      fs.rmSync(file, { force: true })
+      fs.rmSync(wsPath('src', 'sound.mp3'), { force: true })
+    }
+    await until('the journey gone', () => !snap().journeys.some((x: any) => x.id === 'binary'))
+  }),
+
+  test('Journeys: Folder changed mid-walk: the walk and the panel follow the same journey in the new folder, never "deleted"', async () => {
+    const first = writeJourney(wsPath('journeys'), moving('Moving'))
+    const alt = writeJourney(wsPath('alt-journeys'), moving('Moving (alt)', 1))
+    try {
+      await until('the journey listed', () => snap().journeys.some((x: any) => x.id === 'moving'), 8000)
+      await vscode.commands.executeCommand('codeNotes.startJourney', 'moving')
+      await until('walking it at step 1', () => tour().map === 'moving' && tour().journey === 'moving' && tour().step === 1, 10000)
+      await vscode.commands.executeCommand('codeNotes.nextStep')
+      await until('step 2', () => tour().step === 2 && tour().card?.title === 'b returns', 10000)
+      const keyBefore = tour().mapKey
+      await setting('journeys.folder', 'alt-journeys')
+      await until('the panel shows the journey from the new folder', () => /\/alt-journeys\/moving\.json$/.test(tour().mapKey ?? '') && tour().mapTitle === 'Moving (alt)', 10000)
+      assert.notEqual(tour().mapKey, keyBefore)
+      // The same step (by id), numbered as the new file has it; the walk never ended.
+      assert.ok(tour().touring && tour().journey === 'moving' && tour().step === 1 && tour().card?.title === 'b returns', `still walking it: ${JSON.stringify({ step: tour().step, card: tour().card?.title })}`)
+    } finally {
+      await setting('journeys.folder', undefined)
+      await vscode.commands.executeCommand('codeNotes.endJourney')
+      fs.rmSync(first, { force: true })
+      fs.rmSync(path.dirname(alt), { recursive: true, force: true })
+    }
+    await until('the journey gone', () => !snap().journeys.some((x: any) => x.id === 'moving'))
+  }),
+
+  test('a 1440 px window with the sidebar: the code keeps 80 columns, on a step beside the panel and from the tutorial', async () => {
+    await vscode.commands.executeCommand('codeNotes.openJourney', 'demo')
+    await until('walking the demo beside its map', () => tour().map === 'demo' && tour().touring && !!tour().card, 10000)
+    const cols = await withWindowWidth(1440, async (page) => {
+      const keeps80 = async (what: string) => {
+        await settle(600, 'the code laid out at 1440 px before its columns are counted')
+        const c = await codeColumns(page)
+        assert.ok(c.length && Math.min(...c) >= 80, `${what}: the code keeps 80 columns (${tour().map ? 'beside the panel' : 'the step card alone'}): ${c}`)
+        return Math.min(...c)
+      }
+      // The panel opened in a wider window: the next step gives the code its room.
+      await anotherStep()
+      await keeps80('a step with the panel open')
+      await vscode.commands.executeCommand('codeNotes.endJourney')
+      await closeAllEditors()
+      await until('no map', () => tour().map === undefined)
+      await vscode.commands.executeCommand('codeNotes.tutorial')
+      await until('the tutorial: its map, or the step card alone', () => tour().map === 'demo' || (tour().touring && !!tour().card), 10000)
+      if (!tour().touring) await vscode.commands.executeCommand('codeNotes.nextStep')
+      await until('a step shown', () => tour().touring && !!tour().card, 10000)
+      await keeps80('the tutorial')
+      await anotherStep()
+      return keeps80('the step after it')
+    })
+    await vscode.commands.executeCommand('codeNotes.endJourney')
+    return `${cols} columns`
+  }, { when: () => cdp, whenNot: 'no DevTools' }),
 ]

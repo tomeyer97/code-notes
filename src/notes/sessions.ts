@@ -9,17 +9,24 @@ import { hint } from './hint'
 import { isRow, SessionRow } from './model/rows'
 import { folderName } from './notesFolder'
 import { resolve, trash } from './status'
+import { markRead, unread } from './seen'
+import { threads } from '../threads/sync'
 
-/** Hides or shows sessions; `only` shows these and hides every other one. */
+/** The note's thread is open in the editor. Folding or removing it would make VS Code ask (modal) whether to drop
+ *  a reply being typed, and hold every later command until answered. */
+const threadOpen = (id: string) => threads.get(id)?.collapsibleState === vscode.CommentThreadCollapsibleState.Expanded
+
+/** Hides or shows sessions; `only` shows these and hides every other one. An open thread stays (see threadOpen). */
 export async function setSessionHidden(names: string[], hidden: boolean, only = false): Promise<void> {
   const model = notesModel()
+  model.query.keepInEditor = threadOpen
   const h = only ? new Set(visibleNotes().map(sessionOf).filter((x) => !names.includes(x))) : new Set(model.hiddenSessions())
   if (!only) for (const name of names) hidden ? h.add(name) : h.delete(name)
   await model.setHiddenSessions(h, () => {
-    // The note just opened from the list is folded when its session is hidden now.
+    // The note just opened from the list, folded, is no longer shown when its session is hidden now.
     const id = revealedId()
     const r = id ? byId(id) : undefined
-    if (!r || !h.has(sessionOf(r))) return
+    if (!r || !h.has(sessionOf(r)) || threadOpen(r.data.id)) return
     forgetRevealed(r.data.id)
     foldThread(r.data.id)
   })
@@ -53,8 +60,13 @@ export const showOnlySession = withSession((session) => setSessionHidden([sessio
 export const showAllSessions = () => notesModel().setHiddenSessions([])
 
 export const resolveSession = withSession(async (session) => {
-  const open = visibleNotes().filter((n) => sessionOf(n) === session && n.data.status === 'open')
+  const notes = visibleNotes().filter((n) => sessionOf(n) === session)
+  const open = notes.filter((n) => n.data.status === 'open')
   await resolve(open, session ? ` in "${session}"` : '')
+  // Cancelled (or not saved): nothing else. Done: the ones resolved by others are read too, or they stay listed as new.
+  if (open.some((n) => n.data.status === 'open')) return
+  const resolvedUnread = notes.filter((n) => n.data.status === 'resolved' && unread(n) > 0)
+  if (resolvedUnread.length) await markRead(resolvedUnread)
   // "Show only" this session, and it is done: show the others again.
   const h = notesModel().hiddenSessions()
   const rest = new Set(visibleNotes().filter((n) => n.data.status === 'open').map(sessionOf))
