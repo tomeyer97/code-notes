@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DIR, SELF, SKILL_DIR } from './constants'
 import { gitOk } from './git'
+import { SKILL_FILES } from './skillFiles'
 
 /**
  * What `init` makes sure of: the check files collapsed in merge request diffs (GitLab reads `gitlab-generated`, GitHub
@@ -65,38 +66,45 @@ export const foldDiffs = (repo: string): string[] => initRepo(repo, { only: '.gi
 export const FOLD_TEXT = 'also folds check files in diffs (.gitattributes)'
 
 
-/** What installSkill copies: the skill's folder (SKILL.md, scripts/questions.mjs) and this CLI file. */
-export interface SkillSource { dir: string; cli: string }
+/** What installSkill writes: the skill's files (`files`: path in the skill → text) and this CLI file (`cli`). */
+export interface SkillSource { files: Readonly<Record<string, string>>; cli: string }
 
 /**
- * Where this copy of the CLI finds the skill to install: beside it, as it ships. The built cli/understanding.mjs (in
- * the extension and in its repository) has it at ../skills/understanding-check; the skill's own copy
- * (<skill>/scripts/understanding.mjs) is inside it. A copy elsewhere (a CI download) has none: undefined.
+ * The skill to install: the one beside this copy of the CLI, as it ships (the built cli/understanding.mjs has it at
+ * ../skills/understanding-check; the skill's own copy, <skill>/scripts/understanding.mjs, is inside it), else the copy
+ * this file carries (SKILL_FILES: a CLI copied elsewhere, e.g. tools/understanding.mjs, still installs it).
  */
-export function skillSource(cli: string = SELF): SkillSource | undefined {
+export function skillSource(cli: string = SELF): SkillSource {
   const here = path.dirname(cli)
-  const dir = [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')) && fs.existsSync(path.join(d, 'scripts/questions.mjs')))
-  return dir ? { dir, cli } : undefined
+  const names = Object.keys(SKILL_FILES)
+  const dir = cli ? [path.join(here, '../skills/understanding-check'), path.join(here, '..')].find((d) => names.every((f) => fs.existsSync(path.join(d, f)))) : undefined
+  const files = dir ? Object.fromEntries(names.map((f) => [f, fs.readFileSync(path.join(dir, f), 'utf8')])) : SKILL_FILES
+  return { files, cli }
 }
 /** The repository has the skill (`init` put it there). */
 export const hasSkill = (repo: string): boolean => fs.existsSync(path.join(repo, SKILL_DIR, 'SKILL.md'))
-/** The CLI the repository has committed already (e.g. tools/understanding.mjs), outside the skill's folder. */
-const committedCli = (repo: string): string | undefined => (gitOk(repo, ['ls-files', '--', ':(glob)**/understanding.mjs']) ?? '').split('\n').find((f) => f && !f.startsWith(`${SKILL_DIR}/`))
+/**
+ * The repository's own copy of the CLI outside the skill's folder (e.g. tools/understanding.mjs): committed, or this
+ * very file when it runs from inside the repository (copied in, not committed yet).
+ */
+function repoCli(repo: string, cli: string): string | undefined {
+  const committed = (gitOk(repo, ['ls-files', '--', ':(glob)**/understanding.mjs']) ?? '').split('\n').find((f) => f && !f.startsWith(`${SKILL_DIR}/`))
+  if (committed || !cli) return committed
+  const rel = path.relative(fs.realpathSync(repo), fs.realpathSync(cli)).split(path.sep).join('/')
+  return !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.startsWith(`${SKILL_DIR}/`) ? rel : undefined
+}
 
 /**
  * Puts the skill in the repository (SKILL_DIR: SKILL.md and its script), so anyone running Claude Code there can type
- * /understanding-check, and the CLI beside it unless the repository has a copy committed already (the script finds
- * that one). `from`: what to copy (skillSource: what ships beside this file). Written when missing or different;
- * returns the files written, or undefined when there is no skill to copy.
+ * /understanding-check, and the CLI beside it unless the repository has a copy of its own (the script finds that
+ * one). `from`: what to write (skillSource). Written when missing or different; returns the files written.
  */
-export function installSkill(repo: string, from: SkillSource | undefined = skillSource()): string[] | undefined {
-  if (!from) return undefined
-  const want: [string, string][] = [['SKILL.md', path.join(from.dir, 'SKILL.md')], ['scripts/questions.mjs', path.join(from.dir, 'scripts/questions.mjs')]]
-  if (!committedCli(repo)) want.push(['scripts/understanding.mjs', from.cli])
+export function installSkill(repo: string, from: SkillSource = skillSource()): string[] {
+  const want: [string, Buffer][] = Object.entries(from.files).map(([rel, text]) => [rel, Buffer.from(text)])
+  if (from.cli && !repoCli(repo, from.cli)) want.push(['scripts/understanding.mjs', fs.readFileSync(from.cli)])
   const out: string[] = []
-  for (const [rel, from] of want) {
+  for (const [rel, text] of want) {
     const to = path.join(repo, SKILL_DIR, rel)
-    const text = fs.readFileSync(from)
     let have: Buffer | undefined
     try { have = fs.readFileSync(to) } catch { /* new */ }
     if (have && have.equals(text)) continue

@@ -54,7 +54,11 @@ function showRuleBreaks(lj: LoadedJourney): void {
 /** A journey file that can't be read: back to its last good version. */
 function restoreLastGood(lj: LoadedJourney): void {
   const raw = journeys().lastGood.get(lj.key)
-  if (!raw) return
+  // Nothing to write back: said, not a click that does nothing.
+  if (!raw) {
+    vscode.window.setStatusBarMessage(`$(info) No earlier version of ${lj.j.title} to restore`, 4000)
+    return
+  }
   const restored = () => vscode.window.setStatusBarMessage(`$(check) Restored ${lj.j.title}`, 4000)
   const failed = (e: unknown) => {
     log().warn(`journey ${lj.j.id}: restoring its last good version failed: ${e}`)

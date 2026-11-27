@@ -6,8 +6,9 @@ import * as vscode from 'vscode'
 import type { StateStore } from '../../platform/state'
 import { STATE } from '../../platform/state'
 import { OWN_MOVE_MS } from '../../platform/timings'
+import { codeRoomMove } from './codeRoom'
 import {
-  EditorLayout, expandedOnFocus, groupWidths, grownSince, isFlatRow, layoutOfWidths, listeningShare, panelShare, withRoomForMap,
+  codeWidth, EditorLayout, expandedOnFocus, groupWidths, grownSince, isFlatRow, layoutOfWidths, listeningShare, panelShare, withRoomForMap,
 } from '../../core/panelWidth'
 
 /** A layout change VS Code reports this soon after the panel set one is the panel's own (the same settling time as
@@ -45,6 +46,9 @@ export class PanelLayout {
   private setAt = 0
   /** The groups' widths (px) as last seen settled (side by side only). */
   private known: number[] | undefined
+  /** The reader asked for the map's room (Ctrl+' V) while the panel is open: a step change keeps that layout, even
+   *  with the code under 80 columns. A drag is not told from a window resize, so it doesn't count. */
+  private readerChose = false
   private readonly now: () => number
 
   constructor(private readonly d: PanelLayoutDeps) {
@@ -94,12 +98,15 @@ export class PanelLayout {
     return { ...read, panel }
   }
 
+  /** The editor's font size and minimap (what 80 columns of code need). */
+  private editorLook(): { fontSize: number; minimap: boolean } {
+    const ed = vscode.workspace.getConfiguration('editor')
+    return { fontSize: ed.get<number>('fontSize') ?? 14, minimap: ed.get<boolean>('minimap.enabled') ?? true }
+  }
+
   /** The panel's share of an editor area `total` px wide (0: no room beside 80 columns of code). */
   private shareFor(total: number): number {
-    const ed = vscode.workspace.getConfiguration('editor')
-    const fontSize = ed.get<number>('fontSize') ?? 14
-    const minimap = ed.get<boolean>('minimap.enabled') ?? true
-    return panelShare(total, { fontSize, minimap, remembered: this.d.stored.get(STATE.panelShare) })
+    return panelShare(total, { ...this.editorLook(), remembered: this.d.stored.get(STATE.panelShare) })
   }
 
   /** Room for the panel beside the code (80 columns of it), in the editor area as it is now. */
@@ -113,9 +120,9 @@ export class PanelLayout {
   /**
    * A walk beside the code: the panel at the reader's width (else 35 %, at most 40 %), never squeezing the code below
    * 80 columns. A panel that is open is never closed from here (a reload, a row clicked again): too little room keeps
-   * the layout as it is; only opening a journey decides "the step card only" (cardOnly). The layout never changes on
-   * its own mid-walk. While an episode is on, the panel is as wide as its animation and player need (listeningShare)
-   * and the code gets the rest; it is not remembered as the reader's width.
+   * the layout as it is; only opening a journey decides "the step card only" (cardOnly), and a step change that finds
+   * the code under 80 columns (keepCodeRoom). While an episode is on, the panel is as wide as its animation and
+   * player need (listeningShare) and the code gets the rest; it is not remembered as the reader's width.
    */
   async codeGetsMoreRoom(): Promise<void> {
     const s = await this.sideBySide()
@@ -125,6 +132,31 @@ export class PanelLayout {
     const now = (s.layout.groups[s.panel].size ?? 0) / s.total
     if (Math.abs(now - share) < SHARE_TOLERANCE) return
     await this.setLayout({ orientation: 0, groups: s.layout.groups.map((_, i) => ({ size: i === s.panel ? share : 1 - share })) })
+  }
+
+  /**
+   * A step opened with the panel beside it: the code keeps its 80 columns. Squeezed under them (a panel opened by
+   * Ctrl+' V or left open while the window narrowed), the panel shrinks to leave them, or closes: the step card alone.
+   * The map's room asked for while the panel is open stays, and so does the listening width.
+   */
+  async keepCodeRoom(): Promise<void> {
+    if (!this.d.isOpen()) { this.readerChose = false; return }
+    if (this.d.episodeOn()) return
+    const s = await this.sideBySide()
+    if (!s) return
+    const look = this.editorLook()
+    const move = codeRoomMove({
+      codePx: s.layout.groups[1 - s.panel].size ?? 0,
+      needPx: codeWidth(80, look.fontSize, look.minimap),
+      share: this.shareFor(s.total),
+      readerChose: this.readerChose,
+    })
+    if (move === 'keep') return
+    if (move === 'cardOnly') { this.cardOnly(); return }
+    // Already at that share: VS Code's own rounding of the groups, not a squeeze.
+    if (Math.abs((s.layout.groups[s.panel].size ?? 0) / s.total - move.share) < SHARE_TOLERANCE) return
+    this.d.log.info('journey panel: the code was under 80 columns; the panel made narrower')
+    await this.setLayout({ orientation: 0, groups: s.layout.groups.map((_, i) => ({ size: i === s.panel ? move.share : 1 - move.share })) })
   }
 
   /** The layout as it is now is the one to keep (the reader dragged, groups opened or closed, the extension set it). */
@@ -194,6 +226,7 @@ export class PanelLayout {
     const mapCol = this.d.viewColumn()
     const now = await this.flatWidths()
     if (mapCol === undefined || !now) return
+    this.readerChose = true
     const i = mapCol - 1
     // Revealing the panel may just have had VS Code expand it (focused at its minimum): the widths before that count.
     const sizes = grownSince(this.known, now, i) ? [...this.known] : now
@@ -205,6 +238,7 @@ export class PanelLayout {
 
   /** The walk goes on with the step card in the editor; the panel (if open) closes. Said once per walk. */
   cardOnly(): void {
+    this.readerChose = false
     if (this.d.isOpen()) this.d.close()
     this.d.log.info('journey panel: no room beside 80 columns of code; the step card only')
     vscode.window.setStatusBarMessage(`$(info) Narrow window: the step card only (${this.d.chordKey()} V: the map)`, 6000)

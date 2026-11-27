@@ -42,6 +42,8 @@ export class NotesQuery {
   filter: Filter = 'all'
   showResolved = false
   groupMode: GroupMode = 'file'
+  /** Its thread is open in the editor: hiding its session leaves it (closing it would drop a reply being typed). */
+  keepInEditor: (id: string) => boolean = () => false
 
   constructor(private readonly facts: NoteFacts) {}
 
@@ -54,7 +56,8 @@ export class NotesQuery {
     if (this.facts.isCheck(n)) return false
     const open = n.data.status === 'open'
     switch (f) {
-      case 'unread': return this.facts.unread(n) > 0 || this.facts.revealed() === n.data.id
+      // Hidden resolved notes stay hidden here too (an unread resolve still shows under All).
+      case 'unread': return (open || this.showResolved) && (this.facts.unread(n) > 0 || this.facts.revealed() === n.data.id)
       case 'stale': return !!n.data.stale && (open || this.showResolved)
       default: return open || this.showResolved || this.facts.unread(n) > 0
     }
@@ -65,8 +68,11 @@ export class NotesQuery {
 
   isHidden(n: Note): boolean { return this.facts.hiddenSessions().has(sessionOf(n)) }
 
-  /** A note whose session is hidden is not drawn in the editor (unless it was just opened from the list). */
-  hiddenInEditor(n: Note): boolean { return this.facts.revealed() !== n.data.id && this.isHidden(n) }
+  /** A note whose session is hidden is not drawn in the editor (unless it was just opened from the list, or its
+   *  thread is open). */
+  hiddenInEditor(n: Note): boolean {
+    return this.facts.revealed() !== n.data.id && this.isHidden(n) && !this.keepInEditor(n.data.id)
+  }
 
   /** Grouped by session: when there are sessions and the person chose it. */
   bySessions(): boolean { return this.groupMode === 'session' && this.facts.notes().some((x) => x.data.session) }

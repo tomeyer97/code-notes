@@ -4,7 +4,7 @@
 // Checks), "In <file>" capped with "Show n more", a row click selects and previews (stale steps marked, Refresh),
 // the keyboard (↓ from the search into the rows, a visible focus ring, the focused row in view, chips one Tab stop
 // with ← →), Enter walks, Esc clears then goes back, "‹ Journeys" from a walk selects that journey, the heading is the
-// short title. The extension's part (the model) is out/src/core/list/journeyList.js, run here.
+// short title, a card says one verb per state (Resume · n/N or Walk; "Start here" only on one not begun). The extension's part (the model) is out/src/core/list/journeyList.js, run here.
 // The scenarios run in order on one page per width and theme: each starts where the one before left the home.
 // Usage (after `npm run build`): node test/journey-list/shoot.mjs [screenshot-dir]   (PLAYWRIGHT=…, CHROME=… as in journey-map)
 import fs from 'node:fs'
@@ -41,7 +41,8 @@ function fakeExtension(page, errors) {
   const posted = () => page.evaluate(() => window.__harness.posted)
   let state = { query: '', kind: 'all', area: '', sort: 'area' }
   let hereAll = false
-  const model = () => buildList(items(), { activeFile: ACTIVE, now: NOW, hereAll, ...state })
+  let source = items
+  const model = () => buildList(source(), { activeFile: ACTIVE, now: NOW, hereAll, ...state })
   const staleOf = (key) => (model().rows[key].staleSteps || []).map((n) => ({ n, when: 'a1b2c3d · 3 d ago' }))
   const answer = {
     list: async (m) => {
@@ -59,7 +60,10 @@ function fakeExtension(page, errors) {
     seen = ps.length
   }
   const settle = async () => { for (let i = 0; i < 4; i++) { await page.waitForTimeout(140); await pump() } }
-  return { send, posted, settle, model }
+  /** The journeys listed from now on (the next list the page asks for, or `show`). */
+  const use = (f) => { source = f }
+  const show = () => send({ type: 'tour', ...tour(model()) })
+  return { send, posted, settle, model, use, show }
 }
 
 /** What the home shows: sections, rows, the selection and the keyboard, the chips, the preview. */
@@ -254,7 +258,36 @@ async function backFromWalk({ page, ext, fail, shot }) {
   await shot('home-back')
 }
 
-const SCENARIOS = [opening, search, sortWhileSearching, fallback, escClears, keyboard, tabOrder, clickAndEnter, staleChip, showMore, escBack, backFromWalk]
+/**
+ * A card per state, one verb each: a "Start here" journey being walked at step 1 says "1/N" and its button "Resume ·
+ * 1/N", no "Start here"; one not begun says "Start here" and its button "Walk".
+ */
+async function cardStates({ page, ext, fail, shot }) {
+  const walked = 'k1', fresh = 'k2'
+  ext.use(() => items().map((it) => it.key === walked ? { ...it, start: true, resume: 1, walking: true }
+    : it.key === fresh ? { ...it, start: true, resume: 0, walkedAt: undefined } : it))
+  await ext.show()
+  await ext.settle()
+  const card = async (key) => {
+    await page.click(`.jrow[data-key="${key}"]`)
+    await ext.settle()
+    return page.evaluate((k) => ({
+      top: document.querySelector(`.jrow[data-key="${k}"] .jtop`)?.textContent,
+      start: !!document.querySelector(`.jrow[data-key="${k}"] .jstart`),
+      go: document.querySelector('.walkb')?.textContent,
+    }), key)
+  }
+  const n = (key) => ext.model().rows[key].steps
+  const w = await card(walked)
+  if (w.start || !w.top?.endsWith(`1/${n(walked)}`) || w.go !== `Resume · 1/${n(walked)}`) fail(`a journey in progress: ${JSON.stringify(w)}`)
+  await shot('home-resume')
+  const f = await card(fresh)
+  if (!f.start || f.go !== 'Walk') fail(`a journey not begun: ${JSON.stringify(f)}`)
+  for (const b of await overflows(page)) fail(`card states: ${b}`)
+  ext.use(items)
+}
+
+const SCENARIOS = [opening, search, sortWhileSearching, fallback, escClears, keyboard, tabOrder, clickAndEnter, staleChip, showMore, escBack, backFromWalk, cardStates]
 
 // ---------- the run ----------
 

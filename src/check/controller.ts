@@ -13,10 +13,11 @@ import { gradeFailure } from './failures'
 import { Coalesced } from '../core/serial'
 import { plural } from '../core/text'
 import { BackgroundQuestions } from './background'
+import { usesCheck } from './backgroundRule'
 import { CliThread } from './cliThread'
 import { Concerns } from './concern'
 import {
-  CHECK_OPEN_CONTEXT, FIX_REFRESH_MS, INSTALL_URL, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SETTINGS, settingId, SKILL, VIEW_ID,
+  CHECK_ON_BASE_CONTEXT, CHECK_OPEN_CONTEXT, FIX_REFRESH_MS, INSTALL_URL, REFRESH_SOON_MS, REPO_FILES, REVEAL_RETRY_MS, SETTINGS, settingId, SKILL, VIEW_ID,
 } from './constants'
 import { Grader } from './grading'
 import type { CheckHost } from './host'
@@ -33,6 +34,7 @@ import type { FromCheck, ToCheck } from '../protocol/check'
 import { Writer } from './writer'
 import { baseName } from '../core/paths'
 import { fireAndForget } from '../platform/run'
+import { setCtx } from '../platform/context'
 import { HiddenCmd } from '../platform/commands'
 import { checkLinkKey } from '../platform/keys'
 import { type CheckCore, CheckState, serialScoped } from './state'
@@ -109,6 +111,8 @@ export class CheckController implements CheckQuery, vscode.Disposable {
 
   /** The codeNotes.checkOpen context as last set. */
   private checkOpen: boolean | undefined
+  /** The codeNotes.checkOnBase context as last set. */
+  private onBase = false
   /** An opened question's reveal retries (REVEAL_RETRY_MS). */
   private revealTimers: NodeJS.Timeout[] = []
   private subs: vscode.Disposable[] = []
@@ -141,7 +145,10 @@ export class CheckController implements CheckQuery, vscode.Disposable {
       park: (branch) => this.parking.park(branch),
     })
     this.concerns = new Concerns({ ...core, host, push: this.push })
-    this.background = new BackgroundQuestions({ ...core, host, refreshSoon: (ms, force) => this.refreshSoon(ms, force), writer: this.writer })
+    this.background = new BackgroundQuestions({
+      ...core, host, refreshSoon: (ms, force) => this.refreshSoon(ms, force), writer: this.writer,
+      usesCheck: (refs) => (this.state.repo ? usesCheck(this.state.repo, refs) : Promise.resolve(false)),
+    })
     this.invalid = new InvalidFile(core)
     this.view = new CheckViewProvider(host.extUri, host.log, (m) => this.onView(m))
     this.subs.push(vscode.window.registerWebviewViewProvider(VIEW_ID, this.view, { webviewOptions: { retainContextWhenHidden: true } }))
@@ -287,6 +294,9 @@ export class CheckController implements CheckQuery, vscode.Disposable {
     if (st?.check) await this.threads.sync(st.check)
     // While there is a check, an empty Code Notes view steps aside: the Check view gets its room (package.json).
     this.setCheckOpen(!!st?.check)
+    // On a default branch with no check file there is nothing to check: the Check view is hidden (package.json).
+    this.onBase = !!st?.onBase && !st.exists
+    fireAndForget(setCtx(CHECK_ON_BASE_CONTEXT, this.onBase), 'controller: checkOnBase')
     // A file that can't be read (a bad edit, a conflict) keeps the tour shown as it was until it reads again.
     if (st?.state.phase !== 'invalid') await this.host.tourChanged(st?.check, this.state.abs, st?.branch)
     this.post()
@@ -622,7 +632,7 @@ export class CheckController implements CheckQuery, vscode.Disposable {
   snapshot() {
     const st = this.state.st, item = this.status.state()
     return {
-      itemLabel: item.label, tourBusy: !!this.writer.touring, bg: this.background.trace,
+      itemLabel: item.label, tourBusy: !!this.writer.touring, bg: this.background.trace, onBase: this.onBase,
       status: st && { ...st, check: undefined }, words: this.state.words, item: item.text, itemWarn: item.warn,
       view: this.current(), panel: this.view.state(), grading: [...this.grader.grading.keys()],
       errors: [...this.grader.errors.values()].map((e) => e.message), refreshes: { ...this.counts },

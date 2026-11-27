@@ -102,8 +102,6 @@
       "id": "all",
       "label": "All",
       "keys": [
-        "k13",
-        "k26",
         "k23",
         "k3",
         "k28",
@@ -140,6 +138,7 @@
       ]
     }
   ],
+  "flat": false,
   "count": 35,
   "total": 35,
   "hits": {}

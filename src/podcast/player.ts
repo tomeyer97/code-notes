@@ -167,6 +167,7 @@ export class Podcasts implements vscode.Disposable {
       open: () => this.openSessionMap(),
       end: (lj, action) => this.onEnd(lj, action),
       lost: () => this.hostLost(),
+      moved: () => this.renderItem(),
     }
   }
 
@@ -410,15 +411,22 @@ export class Podcasts implements vscode.Disposable {
     this.marks.show(lj, pod, t, false, this.session.playing, this.session.rate)
   }
 
-  /** The audio's state: the muting remembered; the episode's end said on the row and the status item. */
+  /** The audio's state: the speed and the muting remembered (a speed set before the audio is loaded is said only
+   *  here); the episode's end said on the row and the status item. */
   private onState(m: PodcastHostState): void {
     if (!this.host.relayState(m)) return
-    if (typeof m.muted === 'boolean') this.store.muted = m.muted
+    this.remember(m)
     if (m.ended !== this.session.ended) {
       this.session.ended = !!m.ended
       this.renderItem()
       this.ports.refreshJourneyList()
     }
+  }
+
+  /** The speed and the muting a player says or asks for, kept for every journey and the next window. */
+  private remember(m: { rate?: number; muted?: boolean }): void {
+    if (typeof m.rate === 'number' && m.rate > 0) this.store.rate = m.rate
+    if (typeof m.muted === 'boolean') this.store.muted = m.muted
   }
 
   /** The host loaded the audio of journey `of` (else the one shown): its real length, checked against the file (a
@@ -450,14 +458,15 @@ export class Podcasts implements vscode.Disposable {
   }
 
   /** The media pipeline's own words ("PIPELINE_ERROR_READ: FFmpegDemuxer …") mean nothing to an author: the file and
-   *  what it most likely is. */
+   *  what it most likely is, in the panel, on the row, and (the next scan reports it) in the Problems view on the
+   *  podcast's "audio" and in the output, with the pipeline's words. */
   private audioDamaged(lj: LoadedJourney, pod: Loaded, message: string): void {
     const name = vscode.workspace.asRelativePath(pod.audio, false)
     const text = `The audio ${name} (${fileSize(pod.audioSize)}) can't be played at ${clock(this.store.posOf(lj))}: the file looks cut off or damaged`
-    log().warn(`podcast ${pod.file.fsPath}: ${text} (${message})`)
-    if (!this.library.fault(lj.key, pod, text)) return
+    if (!this.library.fault(lj.key, pod, text, message)) return
     this.mapPanel.sendPodcast()
     this.ports.refreshJourneyList()
+    fireAndForget(this.scan(), 'podcast: scan')
   }
 
   /** The Listen view went with the audio in it: its place is kept. */
@@ -489,6 +498,8 @@ export class Podcasts implements vscode.Disposable {
     if (!this.library.has(key)) return
     const loaded = this.host.has(key)
     const { action } = m
+    // The reader's choice, also when no audio is loaded to take it.
+    if (action === 'rate' || action === 'mute') this.remember(m)
     if (action === 'play' || action === 'toggle') {
       // A ▶ in the panel while only the panel's audio may play: play() moves it there.
       if (loaded && this.session.is(key) && !(this.host.in === 'listen' && this.host.panelPlays(key))) {
@@ -706,7 +717,7 @@ export class Podcasts implements vscode.Disposable {
 
   /** The status item drawn for the session as it is. */
   private renderItem(): void {
-    this.statusItem.render({ journey: this.listening(), playing: this.session.playing, ended: this.session.ended, t: this.sessionTime, panelOnScreen: this.mapPanel.visible })
+    this.statusItem.render({ journey: this.listening(), playing: this.session.playing, ended: this.session.ended, t: this.sessionTime, panelOnScreen: this.mapPanel.visible, panelHosts: this.host.panelHosts })
   }
 
   dispose(): void { for (const d of this.subs) d.dispose() }

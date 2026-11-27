@@ -41,14 +41,8 @@
       "keys": []
     }
   ],
-  "groups": [
-    {
-      "id": "all",
-      "label": "All",
-      "keys": [],
-      "children": []
-    }
-  ],
+  "groups": [],
+  "flat": false,
   "count": 0,
   "total": 35,
   "hits": {}

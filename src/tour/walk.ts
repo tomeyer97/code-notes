@@ -5,7 +5,7 @@
 // the map beside it, the step's row in the list, the beat cleared and the notes folded under the card.
 import * as vscode from 'vscode'
 import { beats, codeLinks, isCheckLink, journeys, mapPanel } from './ports'
-import { now, stored } from '../platform/host'
+import { log, now, stored } from '../platform/host'
 import { ownSelection } from '../codeLinks/claudeChatLinks'
 import { atOf, fileOf, LoadedJourney, posKey, stepOf } from '../journeys/steps'
 import { revealJourneyRow } from '../sidebar/journeyRows'
@@ -14,7 +14,7 @@ import { refreshDecorations } from '../notes/decorations'
 import { wfs } from '../platform/workspaceFs'
 import type { StepCard } from './card'
 import { openCheckpoint, stopBy } from './checkTour'
-import { panelFits } from './panelLayout'
+import { panelFits, panelLayout } from './panelLayout'
 import { pickJourney } from './pick'
 import type { ShownAt, TourProbe, TourState } from './state'
 import type { Narration, WalkController } from './api'
@@ -52,6 +52,11 @@ export class Walk {
   private readonly restored = new vscode.EventEmitter<LoadedJourney>()
   /** The open step's opening: cancelled when another step starts opening. */
   private opening: vscode.CancellationTokenSource | undefined
+  /** The walked (or browsed) journey's folder and id (posKey): found again when its key changes (Journeys: Folder
+   *  set to a folder with the same journey). */
+  private walkedPos: string | undefined
+  /** Steps whose file VS Code can't show as text (a binary file), by journey key and step id: out of date. */
+  private readonly unopenable = new Set<string>()
   /** The walk moved, or the journeys changed under it (updateTour): what shows the walk follows. */
   readonly onDidChange = this.changed.event
   /** The same moment, as the podcast follows a reader's move (TourApi.onDidMove). */
@@ -104,7 +109,10 @@ export class Walk {
   }
 
   /** A journey's map is open with no step shown (no walk running). */
-  browse(lj: LoadedJourney): void { this.tour.browse(lj.key) }
+  browse(lj: LoadedJourney): void {
+    this.tour.browse(lj.key)
+    this.walkedPos = posKey(lj)
+  }
 
   /** More / Less on the step card (`open`: which; none: the other), the card drawn again for the step walked. */
   showDetails(open?: boolean): void {
@@ -131,6 +139,7 @@ export class Walk {
   /** The journey file changed during a tour: stay on the same step (by id); if it was removed, its neighbour. */
   followStep(): void {
     const { tour } = this
+    this.followMovedJourney()
     const lj = this.tourJourney()
     if (!lj || !tour.step) return
     const n = numberOf(lj, tour.stepId)
@@ -205,10 +214,25 @@ export class Walk {
     this.updateTour()
   }
 
-  /** Step number -> 'stale' (its code can't be found), for the map. */
+  /**
+   * The journey's file left the list but the same journey (folder and id) is listed from another file (Journeys:
+   * Folder changed): the walk and the panel follow it there, not "deleted".
+   */
+  private followMovedJourney(): void {
+    const { tour } = this
+    if (!tour.key || journeys().list.has(tour.key)) return
+    const again = journeys().byPos(this.walkedPos)
+    if (!again) return
+    log().info(`journey ${again.j.id}: now read from ${again.uri.path}; the walk follows it`)
+    const was = tour.key
+    tour.key = again.key
+    mapPanel().follow(was, again)
+  }
+
+  /** Step number -> 'stale' (its code can't be found, or its file can't be shown as text), for the map. */
   stepMarks(lj: LoadedJourney): Record<number, string> {
     const out: Record<number, string> = {}
-    lj.at.forEach((a, i) => { if (a.stale) out[i + 1] = 'stale' })
+    lj.at.forEach((a, i) => { if (a.stale || this.unopenable.has(stepKey(lj, i + 1))) out[i + 1] = 'stale' })
     return out
   }
 
@@ -218,6 +242,7 @@ export class Walk {
    */
   updateTour(): void {
     const { tour } = this
+    this.followMovedJourney()
     const lj = this.tourJourney()
     this.dropStaleLinkBack()
     if (tour.key && !lj) fireAndForget(this.end('deleted'), 'walk: end deleted')
@@ -377,7 +402,10 @@ export class Walk {
       return
     }
     const editor = await this.openStepFile(lj, n, uri, opts, token)
-    if (editor) await this.revealStep(lj, n, editor, uri)
+    if (!editor) return
+    await this.revealStep(lj, n, editor, uri)
+    // Beside an open panel the code keeps its 80 columns (the panel narrower, or the step card alone).
+    if (mapPanel().journey && this.tour.isAt(lj, n)) await panelLayout().keepCodeRoom()
   }
 
   /** The tour is on step n now (another journey's walk ended first), stored, its map and lists follow. False: superseded. */
@@ -399,6 +427,7 @@ export class Walk {
     }
     if (tour.step === 0 || tour.key !== lj.key || tour.step !== n) tour.detailsOpen = false
     tour.key = lj.key
+    this.walkedPos = posKey(lj)
     tour.step = n
     tour.finishedKey = undefined
     tour.stepId = stepOf(lj, n).id
@@ -428,18 +457,24 @@ export class Walk {
     if (this.superseded(token, lj, n)) return undefined
     this.markShown(lj, n, file, gone)
     // Its code was deleted: no code under the card pretending to be it; the card shows what it was.
-    if (gone || atOf(lj, n).removed) {
-      card.show(lj, n)
-      this.showMap(lj, true)
-      revealJourneyRow(lj)
-      return undefined
-    }
+    if (gone || atOf(lj, n).removed) return this.noCodeToShow(lj, n)
     const column = this.columnFor(uri)
     ownSelection(OWN_MOVE_MS) // the file's caret and the step's: not a chat link
     const shown = { preview: true, preserveFocus: opts.focus === false, ...(column ? { viewColumn: column } : {}) }
     // Already on screen and the keyboard stays where it is: nothing to show. Its column may be about to change (a
     // group closing renumbers those after it), and a show by an old number would open a new group.
-    const editor = (opts.focus === false ? this.shownOutsideMap(uri) : undefined) ?? await vscode.window.showTextDocument(uri, shown)
+    let editor: vscode.TextEditor
+    try {
+      editor = (opts.focus === false ? this.shownOutsideMap(uri) : undefined) ?? await vscode.window.showTextDocument(uri, shown)
+    } catch (e) {
+      // VS Code can't show it as text (a binary file): no code to sit on, as for a file that is gone.
+      log().info(`journey ${lj.j.id} step ${n}: ${file} can't be shown (${e instanceof Error ? e.message : String(e)})`)
+      if (this.superseded(token, lj, n)) return undefined
+      this.unopenable.add(stepKey(lj, n))
+      this.markShown(lj, n, file, true)
+      return this.noCodeToShow(lj, n)
+    }
+    this.unopenable.delete(stepKey(lj, n))
     if (this.superseded(token, lj, n)) return undefined
     if (editor.viewColumn) {
       tour.doc = { uri, column: editor.viewColumn }
@@ -450,6 +485,15 @@ export class Walk {
     if (this.superseded(token, lj, n)) return undefined
     this.markShown(lj, n, file, false)
     return editor
+  }
+
+  /** Step n has no code to show (its file is gone or can't be shown as text, or its code was deleted): its card is
+   *  in the map, which marks the step out of date. */
+  private noCodeToShow(lj: LoadedJourney, n: number): undefined {
+    this.card.show(lj, n)
+    this.showMap(lj, true)
+    revealJourneyRow(lj)
+    return undefined
   }
 
   /**
@@ -570,3 +614,6 @@ export class Walk {
     await this.goToStep(lj, this.resumeAt(lj) || 1)
   }
 }
+
+/** A step of a journey, by its id (a number moves when steps are inserted). */
+const stepKey = (lj: LoadedJourney, n: number) => `${lj.key}#${stepOf(lj, n)?.id ?? n}`

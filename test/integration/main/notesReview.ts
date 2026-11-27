@@ -75,8 +75,8 @@ export const notesReviewTests = [
     await until('grouped by session', () => snap().groupBy === 'session' && notesTree().some((l: string) => l.startsWith('session:Review')))
     const rows = notesRows()
     const session = rows.findIndex((r) => r.kind === 'session' && r.label.startsWith('Review'))
-    // Under the session, the notes under its file row (session > file > note).
-    const kids = rows.slice(session + 1, session + 7).filter((r) => r.kind === 'note' && r.depth === 2)
+    // Under the session, its notes as one list (no file rows inside a session).
+    const kids = rows.slice(session + 1, session + 5).filter((r) => r.kind === 'note' && r.depth === 1)
     const shown = kids.map((r) => r.text).join(' | ')
     assert.deepEqual(kids.map((r) => r.label), ['high finding', 'none finding', 'critical finding', 'low finding'], `severity order: ${shown}`)
     assert.deepEqual(kids.map((r) => r.icon), ['flame', 'circle-filled', kids[2]?.icon, 'triangle-down'], `icons (no severity, unread: the blue dot): ${shown}`)
@@ -89,18 +89,64 @@ export const notesReviewTests = [
     assert.equal(readJson(notePath(CRITICAL)).events.length, 1)
   }),
 
-  test('Group by File / Session toggles; single-note files are one row', async () => {
-    // File puts every non-journey note under its file; a file with one note is one row (file:line).
+  test('two review sessions of 9 findings: 2 + 18 rows, each a flat list, most severe first, "file:line"', async () => {
+    // The same 3 files in both sessions: no file rows repeated per session.
+    const sevs = ['low', 'high', 'nit', 'medium', 'high', 'low', 'medium', 'nit', 'high']
+    const files = ['src/flow.ts', 'src/flow2.ts', 'src/renamed.ts']
+    const written: string[] = []
+    for (const s of ['Perf A', 'Perf B']) {
+      sevs.forEach((severity, i) => written.push(writeNote(ctx.notesDir, noteId(`2005${s.endsWith('A') ? 0 : 1}${i}`, `prf${s.at(-1)!.toLowerCase()}${i}`),
+        agentNote(files[i % 3], 1 + Math.floor(i / 3), `${s} finding ${i}`, { session: s, severity }))))
+    }
+    await until('both reviews listed', () => notesRows().filter((r) => /^Perf [AB] finding/.test(r.label)).length === 18)
+    const rows = notesRows()
+    const all = rows.map((r) => r.text).join('\n')
+    for (const name of ['Perf A', 'Perf B']) {
+      const at = rows.findIndex((r) => r.kind === 'session' && r.label === name)
+      assert.ok(at >= 0 && rows[at].depth === 0, `a session row for ${name}:\n${all}`)
+      assert.match(rows[at].description, /^9 notes · 9 new\b/, `the session's counts say what they count:\n${all}`)
+      const kids = rows.slice(at + 1, at + 10)
+      assert.ok(kids.every((r) => r.kind === 'note' && r.depth === 1), `9 note rows right under the session:\n${all}`)
+      assert.deepEqual(kids.map((r) => r.icon), ['flame', 'flame', 'flame', 'triangle-up', 'triangle-up', 'triangle-down', 'triangle-down', 'dash', 'dash'], `most severe first:\n${all}`)
+      assert.ok(kids.every((r) => /\b(flow|flow2|renamed)\.ts:\d+\b/.test(r.description)), `each row names its file and line:\n${all}`)
+    }
+    for (const p of written) fs.unlinkSync(p)
+    await until('reviews gone', () => !notesRows().some((r) => r.kind === 'session' && /^Perf [AB]$/.test(r.label)))
+  }),
+
+  test('Resolve Session: the notes others resolved are read too, so the session leaves the list', async () => {
+    writeNote(ctx.notesDir, noteId('200600', 'dno1'), agentNote('src/flow.ts', 2, 'Done open finding', { session: 'Done review' }))
+    await until('loaded', () => notesRows().some((r) => r.label === 'Done open finding'))
+    await vscode.commands.executeCommand('codeNotes.markAllRead') // one read open note: Resolve Session asks nothing
+    await until('read', () => snap().notes.every((x: any) => x.unread === 0))
+    const byAgent = { status: 'resolved', events: [{ type: 'resolved', by: 'claude', role: 'agent', at: now() }] }
+    writeNote(ctx.notesDir, noteId('200601', 'dnr1'), agentNote('src/flow.ts', 3, 'Done by agent 1', { session: 'Done review', ...byAgent }))
+    writeNote(ctx.notesDir, noteId('200602', 'dnr2'), agentNote('src/flow2.ts', 1, 'Done by agent 2', { session: 'Done review', ...byAgent }))
+    await until('the agent\'s resolved notes listed as new', () => notesRows().filter((r) => /^Done by agent/.test(r.label) && /^1 new · resolved by claude\b/.test(r.description)).length === 2)
+    void vscode.commands.executeCommand('codeNotes.resolveSession', { kind: 'session', name: 'Done review', notes: [] }) // an Undo toast: not awaited
+    await until('no row of the session left', () => !notesRows().some((r) => /^Done (open finding|by agent)|^Done review$/.test(r.label)))
+    assert.ok(snap().notes.filter((x: any) => x.session === 'Done review').every((x: any) => x.unread === 0 && x.status === 'resolved'), 'none counts as new')
+  }),
+
+  test('Group by File: every file is a file row, also with one note; files by path', async () => {
+    const lone = writeNote(ctx.notesDir, noteId('200700', 'lon1'), agentNote('src/flow2.ts', 2, 'Lone note'))
     await vscode.commands.executeCommand('codeNotes.groupByFile')
-    await until('grouped by file', () => snap().groupBy === 'file')
+    await until('grouped by file, the lone note listed', () => snap().groupBy === 'file' && notesRows().some((r) => r.label === 'Lone note'))
     const rows = notesRows()
     const all = rows.map((r) => r.text).join('\n')
     const top = rows.filter((r) => r.depth === 0)
     assert.ok(!rows.some((r) => r.kind === 'session' && r.label.startsWith('Review')), 'no Review session in file mode')
     assert.ok(!rows.some((r) => r.kind === 'journeys') && rowsOf(journeysTree()).some((r) => r.kind === 'jgroup' && r.label.startsWith('All')), 'journeys stay in their own view')
-    assert.ok(top.some((r) => r.kind === 'file' && r.label.startsWith('flow.ts')), `flow.ts row:\n${all}`)
-    const solo = top.find((r) => r.kind === 'note' && /renamed\.ts:\d+/.test(r.description)) ?? top.find((r) => r.kind === 'note' && /\.ts:\d+/.test(r.text))
-    assert.ok(solo, `a single-note file is one row with file:line:\n${all}`)
+    assert.ok(top.every((r) => r.kind === 'file' || r.kind === 'broken'), `only file rows at the top:\n${all}`)
+    assert.ok(rows.filter((r) => r.kind === 'note').every((r) => r.depth === 1 && !/\.ts:\d+/.test(r.description)), `every note under its file row, by its lines:\n${all}`)
+    const files = top.filter((r) => r.kind === 'file')
+    const flow = files.find((r) => r.label === 'flow.ts'), renamed = files.find((r) => r.label === 'renamed.ts')
+    assert.ok(flow && /^\d+ notes?\b/.test(flow.description), `flow.ts row with its count:\n${all}`)
+    assert.ok(renamed && files.indexOf(flow!) < files.indexOf(renamed), `files by path (src/flow.ts before src/renamed.ts):\n${all}`)
+    const at = rows.findIndex((r) => r.kind === 'file' && r.label === 'flow2.ts')
+    assert.ok(at >= 0 && rows[at].description.startsWith('1 note · 1 new') && rows[at + 1]?.label === 'Lone note' && rows[at + 1].description === '1 new · L2', `a one-note file is a file row of one:\n${all}`)
+    fs.unlinkSync(lone)
+    await until('lone note gone', () => !notesRows().some((r) => r.label === 'Lone note'))
   }),
 
   test('an agent\'s resolve on disk is recorded and unread; resolve/reopen lines in the thread', async () => {

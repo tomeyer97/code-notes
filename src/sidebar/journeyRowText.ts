@@ -3,6 +3,7 @@
 
 import type { ListRow } from '../core/list/journeyList'
 import { plural } from '../core/text'
+import { ClaudeRun, runProgress } from '../core/agentRun'
 import { clock } from '../core/format/podcast/model'
 import type { PodcastStatus } from '../tour/api'
 
@@ -24,7 +25,7 @@ export interface JourneyRowState {
   stale: boolean
   unreadable: boolean
   isNew: boolean
-  /** Its row in the list model the Journeys view drew: area, age, "3 of 7 steps here" (none before a drawing). */
+  /** Its row in the list model the Journeys view drew: "3 of 7 steps here" (none before a drawing). */
   row?: ListRow
 }
 
@@ -32,24 +33,22 @@ const replies = (n: number) => plural(n, 'reply', 'replies')
 const unreadReplies = (n: number) => plural(n, 'unread reply', 'unread replies')
 
 /**
- * State only, muted and short: where it was left (step 3/14; while walking the icon says so and the card and status
- * bar have the position), else its area and age (journeyList.ts; under its area's group the area is not said again);
- * Refreshing… or ⚠ Stale; new replies; unreadable; new. No step count, no question count (the questions are the rows
- * below). In this file (`here`): how much of it is here ("3 of 7 steps here"), unless it is being walked or was left.
+ * Muted and short: where it was left (step 3/14; while walking the icon says so and the card and status bar have the
+ * position), else how long it is (10 steps); its podcast's length; Refreshing… or ⚠ Stale; new replies; unreadable;
+ * new. No age (the tooltip says when it was written), no question count (the questions are the rows below). In this
+ * file (`here`): how much of it is here ("3 of 7 steps here"), unless it is being walked or was left.
  */
 export function journeyDescription(s: JourneyRowState, group: string | undefined): string | undefined {
   const { row } = s
   const pod = podcastText(s.pod)
   if (group === 'here' && row && !(row.walking || row.resume > 1)) {
-    return [pod, row.hereText, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
+    return [row.hereText, pod, row.stale ? '⚠ Stale' : ''].filter(Boolean).join(' · ')
   }
-  const groupArea = group?.startsWith('area:') ? group.slice(5) : ''
-  const areaAndAge = row ? [groupArea && row.area === groupArea ? '' : row.area, row.age].filter(Boolean).join(' · ') : ''
   // Listened to: no step (the player has where it is).
-  const where = s.pod?.session ? '' : s.left ? `step ${s.left}/${s.steps}` : areaAndAge
+  const where = s.pod?.session ? '' : s.left ? `step ${s.left}/${s.steps}` : plural(s.steps, 'step')
   return [
-    pod,
     where,
+    pod,
     s.refreshing ? 'Refreshing…' : s.stale ? '⚠ Stale' : '',
     s.newReplies ? replies(s.newReplies) : '',
     s.unreadable ? '⚠ unreadable' : '',
@@ -80,4 +79,15 @@ export function journeyLabel(title: string, s: JourneyRowState): string {
   const where = s.active ? `walking, step ${s.left} of ${s.steps}` : s.left ? `left at step ${s.left} of ${s.steps}` : ''
   const listen = s.pod?.state === 'ok' ? `podcast ${clock(s.pod.duration ?? 0)}` : ''
   return [title, where, listen, s.newReplies ? unreadReplies(s.newReplies) : '', s.isNew ? 'new' : ''].filter(Boolean).join(', ')
+}
+
+/** A journey Claude is writing now, as its row says it: "Writing: <question>", then "1:20 · reading store.ts". */
+export function writingRowText(job: { question: string; model: string } & ClaudeRun, now: number): { label: string; description: string; tooltip: string; a11y: string } {
+  const q = job.question.replace(/\s+/g, ' ').trim()
+  return {
+    label: `Writing: ${q}`,
+    description: runProgress(job, now),
+    tooltip: `${q}\nClaude (${job.model}) is writing a journey for this question.`,
+    a11y: `Writing a journey: ${q}, ${runProgress(job, now)}`,
+  }
 }

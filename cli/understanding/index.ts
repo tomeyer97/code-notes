@@ -13,7 +13,7 @@ export { ciBranch, currentBranch, DEFAULT_BRANCHES, defaultBase, git, gitRun, ha
 export { counted, globRe, isDoc, own } from './changeFiles'
 export { commentStyle, isCode } from './comments'
 export { changedRanges, codeLines, codeStat, diffText, freshLines, hunksOf, linesOf, nearestChanged, newCodeLines, numberDiff, numstat, oldLineOf, rangesOf, removalPoints, stat } from './diff'
-export { changeKind, checkKind, evidenceText, minutesFor, questionsFor, questionsForChange, removedNames, searchNames, sizeText, sizeWords, tourSize } from './size'
+export { changeKind, checkKind, evidenceText, minutesFor, questionsFor, questionsForChange, removedNames, searchNames, sizeText, sizeWords, topUpQuestions, tourSize } from './size'
 export { addAttempt, attemptHash, CACHE, cachedFor, conflictOf, conflictSides, fileFor, flagConcern, gitIdentity, loadConfig, pruneAttempts, readCheck, slugOf, unknownSettings, writeCheck } from './checkFile'
 export { hashProblems, tourProblems, validateCheck } from './validate'
 export { checkState, driftOf, isDone, isPassed, localStatus, needed, nextQuestion, refreshInputs, ruleText, stamp, stateOf, stateWords, summarize } from './state'

@@ -51,7 +51,8 @@ export const TOUR_LINE = 'A guided tour of this change: open it in VS Code with 
 /** The project's repository: the docs, the CI recipes and the skill, for people who only have this file. */
 const REPO_URL = 'https://github.com/tomeyer97/code-notes'
 export const DOCS_URL = `${REPO_URL}/blob/main/docs/understanding-check.md`
-export const CI_URL = `${REPO_URL}#in-ci`
+/** The CI recipes: the docs' "In CI" section (the README has none). */
+export const CI_URL = `${DOCS_URL}#in-ci`
 /** The skill that writes the questions (and, in Claude Code without VS Code, asks them in the chat). */
 export const SKILL_URL = `${REPO_URL}/tree/main/skills/understanding-check`
 

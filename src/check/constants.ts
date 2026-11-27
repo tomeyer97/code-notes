@@ -14,6 +14,8 @@ export const VIEW_ID = 'codeNotes.check'
 export const STATUS_ITEM_ID = 'codeNotes.understanding'
 /** The context key that is true while there is a check (package.json: an empty Code Notes view steps aside). */
 export const CHECK_OPEN_CONTEXT = 'codeNotes.checkOpen'
+/** The context key that is true on a default branch with no check file (package.json: the Check view is hidden there). */
+export const CHECK_ON_BASE_CONTEXT = 'codeNotes.checkOnBase'
 /** Where the view's Install sends someone without Claude Code. */
 export const INSTALL_URL = 'https://claude.com/claude-code'
 

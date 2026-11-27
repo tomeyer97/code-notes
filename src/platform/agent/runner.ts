@@ -69,7 +69,7 @@ const MODEL_SETTING: Record<AgentPurpose, string | undefined> = {
 
 export class AgentRunner implements vscode.Disposable {
   readonly inProgress = new InProgress()
-  private readonly finder = new ClaudeCliFinder()
+  private readonly finder = new ClaudeCliFinder(undefined, skippedPath)
 
   /** Agents run tools in the repository (a skill's own scripts among them): only in a trusted folder. */
   trusted(): boolean { return vscode.workspace.isTrusted }
@@ -118,8 +118,22 @@ export class AgentRunner implements vscode.Disposable {
     return agentRun
   }
 
-  dispose(): void { this.inProgress.dispose() }
+  /**
+   * The window closes or reloads: note and journey runs stop with it (else a Claude that writes nothing outlives the
+   * window, still billed). The check's writer keeps running: a reloaded window finds it again by its pid.
+   */
+  dispose(): void {
+    for (const r of this.inProgress.list()) if (r.purpose !== 'check') r.cancel()
+    this.inProgress.dispose()
+  }
 }
+
+/** Claude: Path names no program: said in the log and the status bar, naming it (the newest install runs instead). */
+function skippedPath(setting: string, used: string | undefined): void {
+  log().warn(`Claude: Path ${setting} is not a program; ${used ? `running ${used} instead` : 'no other claude found'}`)
+  vscode.window.setStatusBarMessage(`$(warning) Claude: Path ${setting} is not a program`, SKIPPED_HINT_MS)
+}
+const SKIPPED_HINT_MS = 15000
 
 const cliSetting = () => cfg().get<string>('claude.path') || undefined
 

@@ -62,7 +62,7 @@ export function claudeArgs(o: AgentRunOptions): string[] {
 /** The four ways a run ends. */
 const outcome = {
   /** Cancel was pressed: what was written so far, and the session (a follow-up can go on with it). */
-  cancelled: (s: FoldState): AskResult => ({ text: s.text, cancelled: true, sessionId: s.result?.sessionId }),
+  cancelled: (s: FoldState): AskResult => ({ text: s.text, cancelled: true, sessionId: s.result?.sessionId, model: s.model }),
   /** Claude Code said it was done (with its answer, or its error). */
   finished: (s: FoldState & { result: AskResult }): AskResult => s.result,
   /** The process ended without a result: its exit code and the last lines it printed on stderr. */

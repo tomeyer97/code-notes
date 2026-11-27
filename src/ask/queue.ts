@@ -97,7 +97,11 @@ export class AskQueue implements vscode.Disposable {
     return true
   }
 
-  dispose(): void { this.changed.dispose() }
+  /** The window closes: nothing waiting starts any more. */
+  dispose(): void {
+    this.waiting.length = 0
+    this.changed.dispose()
+  }
 
   private forget(id: string): boolean {
     if (!this.failures.delete(id)) return false

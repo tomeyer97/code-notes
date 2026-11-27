@@ -227,7 +227,7 @@ export const cameraTests = [
     await podUntil('a wait', () => pod().camera.waiting === 'read', MOVE_MS)
     const a = await podUntil('the audio holds', async () => { const x = await listenAudio(); return x.paused && x }, QUICK_MS)
     assert.equal(a.note, '', 'no line under the player')
-    assert.match(pod().item, /^Listening · /, `the status item: ${pod().item}`)
+    assert.match(pod().item, /^Listening: .+ · /, `the status item: ${pod().item}`)
     assert.equal(tour().card?.body ?? '', '', 'the step card stays its header line')
     assert.equal(await playButtonOn(await frameOf('listen')), 'true', 'the Listen view shows ⏸')
     assert.equal(await playButtonOn(await frameOf('journey')), 'true', 'the panel shows ⏸')

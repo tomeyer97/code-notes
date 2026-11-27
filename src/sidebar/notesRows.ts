@@ -4,8 +4,8 @@
 import * as vscode from 'vscode'
 import { journeys } from './ports'
 import { askErrors, asking } from '../ask/run'
-import { mine } from '../notes/identity'
-import { unread } from '../notes/seen'
+import { evMine, mine } from '../notes/identity'
+import { seenCount, unread } from '../notes/seen'
 import { Note } from '../notes/store'
 import { ago, isolate, plain, plural, rangeLabel } from '../core/text'
 import { placement } from '../notes/location'
@@ -17,7 +17,7 @@ import { Cmd } from '../platform/commands'
 import { BrokenNode, FileNode, NoteNode, NoteRowNode, SessionNode } from './noteNodes'
 import { FileCounts, RowFacts, SessionCounts } from './noteGroups'
 import { rowContext } from './rowContext'
-import { shortDir, whereLabel } from './rowText'
+import { groupCounts, resolvedLabel, shortDir, unreadMessages, whereLabel } from './rowText'
 
 export const SEV_ICON: Record<Severity, [string, string]> = {
   high: ['flame', 'charts.red'], medium: ['triangle-up', 'charts.orange'], low: ['triangle-down', 'charts.blue'], nit: ['dash', 'descriptionForeground'],
@@ -41,8 +41,7 @@ function sessionItem(node: SessionNode, c: SessionCounts): vscode.TreeItem {
   const item = new vscode.TreeItem(node.name || 'Notes', fold)
   item.id = `session:${node.name}`
   item.description = description([
-    `${node.notes.length}`,
-    c.unread ? `${c.unread} new` : '',
+    ...groupCounts(node.notes.length, c.unread),
     c.resolved ? `${c.resolved}/${c.total} resolved` : '',
     hidden ? 'hidden' : '',
   ])
@@ -73,8 +72,7 @@ function fileItem(node: FileNode, c: FileCounts): vscode.TreeItem {
   const item = new vscode.TreeItem(baseName(node.file), vscode.TreeItemCollapsibleState.Expanded)
   item.id = `file:${node.key}`
   item.description = description([
-    `${node.notes.length}`,
-    c.newMessages ? `${c.newMessages} new` : '',
+    ...groupCounts(node.notes.length, c.unread),
     c.stale ? `${c.stale} stale` : '',
     shortDir(node.file),
   ])
@@ -88,8 +86,10 @@ function fileItem(node: FileNode, c: FileCounts): vscode.TreeItem {
 
 /** What a note's row shows besides its text. */
 interface NoteFlags {
-  /** Replies not seen yet. */
+  /** Messages and others' resolves not seen yet. */
   unread: number
+  /** Messages not seen yet (a resolve is not one: the row says who resolved it). */
+  newMessages: number
   /** Its file (or folder) is not found. */
   gone: boolean
   /** No file row above it: the row names the file. */
@@ -99,7 +99,8 @@ interface NoteFlags {
 function noteItem(node: NoteRowNode, alone: boolean): vscode.TreeItem {
   const n = node.note
   const d = n.data
-  const flags: NoteFlags = { unread: unread(n), gone: placement.missing(d.id), alone }
+  const newMessages = unreadMessages(n, seenCount(n), mine)
+  const flags: NoteFlags = { unread: unread(n), newMessages, gone: placement.missing(d.id), alone }
   const item = new vscode.TreeItem({ label: noteLabel(n, flags) })
   item.id = `note:${d.id}`
   item.description = noteDescription(n, flags)
@@ -127,12 +128,12 @@ function noteDescription(n: Note, f: NoteFlags): string {
   const d = n.data
   const replies = d.messages.length - 1
   return description([
-    f.unread ? `${f.unread} new` : '',
+    f.newMessages ? `${f.newMessages} new` : '',
     claudeState(d.id),
     f.gone ? 'file not found' : d.stale ? 'stale' : '',
-    d.status === 'resolved' ? 'resolved' : '',
+    d.status === 'resolved' ? resolvedLabel(n, evMine) : '',
     whereLabel(n, f.alone),
-    !f.unread && replies > 0 ? plural(replies, 'reply', 'replies') : '',
+    !f.newMessages && replies > 0 ? plural(replies, 'reply', 'replies') : '',
   ])
 }
 

@@ -2,7 +2,8 @@
 // and asserts what a person would notice. The map is the whole journey at once (journey-graph.js): no boxes
 // overlapping or sticking out of their container, no box text cut, arrow labels on their lines and never over a box
 // or each other, the current step's box ringed and in view (it follows the step), step numbers walk, boxes open code,
-// drag pans without clicking, Ctrl+wheel zooms, Fit shows it all with whole names; the home list; the storyline,
+// drag pans without clicking, Ctrl+wheel zooms, Fit shows it all with whole names; a journey opens on the whole map
+// (no text over another, nothing cut at its edge, the tutorial up or not); the home list; the storyline,
 // step card, problems, deleted and the tutorial as before; every bundled sample journey (and, optionally, every journey
 // in a folder you name) at every step; no console errors. Exits 1 on any failure.
 //
@@ -74,11 +75,13 @@ const journey = journeyFile(path.join(SAMPLES, 'v2-full.json'))
 const handoff = journeyFile(path.join(FIXTURES, 'handoff.json'))
 /** A generated journey's shape: a system of modules and functions, two top-level external boxes it calls. */
 const GENERATED = path.join(FIXTURES, 'billing-plan-change.json')
+/** The example repository's journey (four systems, a store in each, ten steps). */
+const SHOP = path.join(ROOT, 'examples/shop/journeys/place-order.json')
 // The bundled samples, then the journeys of the folder named on the command line.
 const extra = JOURNEYS ? jsonIn(JOURNEYS) : []
 const real = [...jsonIn(SAMPLES), ...extra]
 /** The home's journeys: those of the folder named, else fixtures/home.json; the first is "here", the second left at
- *  step 4 and marked "Start here". */
+ *  step 4 and marked "Start here" (a journey in progress shows where it is instead). */
 const list = extra.length
   ? extra.map((f, i) => ({
     key: `k-${path.basename(f)}`, title: path.basename(f, '.json'), question: JSON.parse(fs.readFileSync(f, 'utf8')).question,
@@ -247,7 +250,9 @@ async function dragThenNextStep(p) {
 
 /** Clicks: a step number walks there; a function box opens its code; a module zooms to it; a drag clicks nothing. */
 async function clicks(p) {
-  await p.open(journey, { current: 9, prov: PROV })
+  // Walked to step 9 (a journey opens on the whole map, where narrow panels show no box numbers).
+  await p.open(journey, { prov: PROV })
+  await p.tour({ current: 9, prov: PROV })
   await p.clickPosts('.gnum[data-n="9"]', { type: FROM.step, n: 9 }, 'a step number')
   const at = journey.nodes.find((n) => n.id === 'chargestatus').at
   await p.clickPosts('.gbox.leaf[data-id="chargestatus"] .glbl', { type: FROM.openPath, path: `${at.file}:${at.start}-${at.end}` }, 'a function box opens its code')
@@ -529,8 +534,8 @@ async function handoffRecord(p) {
 async function home(p) {
   await p.open(journey, { current: 2 })
   await p.clickPosts('.homeb', { type: FROM.home, on: true }, '‹ Journeys')
-  // Each row the title (+ "Start here" on one), where it was left right after it, the question under it (the list
-  // model, journeyList.ts; its own checks are in test/journey-list/shoot.mjs). A click selects; Enter walks.
+  // Each row the title (no "Start here" on one in progress), where it was left right after it, the question under it
+  // (the list model, journeyList.ts; its own checks are in test/journey-list/shoot.mjs). A click selects; Enter walks.
   const h = await p.page.evaluate(() => ({
     rows: [...document.querySelectorAll('.jrow .jtop')].map((r) => r.textContent),
     qs: [...document.querySelectorAll('.jrow .jq')].map((r) => r.textContent),
@@ -539,8 +544,8 @@ async function home(p) {
     map: !!document.querySelector('.hbody > .hlist .gmap'),
     h: document.querySelector('.home h1')?.textContent,
   }))
-  if (h.rows.length !== list.length || h.map || !h.rows.includes(`${list[1].title}Start here4/13`) || h.h !== 'Journeys') p.problem(`home ${JSON.stringify(h)}`)
-  if (h.start.join() !== list[1].title) p.problem(`"Start here" on ${JSON.stringify(h.start)}, want only ${list[1].title}`)
+  if (h.rows.length !== list.length || h.map || !h.rows.includes(`${list[1].title}4/13`) || h.h !== 'Journeys') p.problem(`home ${JSON.stringify(h)}`)
+  if (h.start.length) p.problem(`"Start here" on ${JSON.stringify(h.start)}, a journey in progress (it says where it is)`)
   if (h.qs.length !== list.length || !h.qs.includes(list[1].question)) p.problem(`home questions ${JSON.stringify(h.qs)}`)
   if (h.gap < 0 || h.gap > 20) p.problem(`home "n/N" is ${h.gap}px from its title (want right after it)`)
   await p.check('home', { current: false })
@@ -615,6 +620,34 @@ async function samples(p) {
   }
 }
 
+/**
+ * A journey opens readable: on step 1, with and without the tutorial started before its map is laid out, at the
+ * panel's width and in a 1440 × 900 window, no two texts of the map overlap (names, chip rows, titles, labels) and
+ * the drawing's edge cuts no text and no box (layoutChecks.js openViewProblems).
+ */
+async function opensReadable(p) {
+  let fresh = true
+  for (const f of [SHOP, GENERATED, path.join(SAMPLES, 'v2-full.json')]) {
+    const name = path.basename(f, '.json')
+    const j = journeyFile(f)
+    for (const width of [p.width, 1440]) for (const tutorial of [false, true]) {
+      // A fresh page each time (the page before checked for errors first).
+      if (!fresh) { await p.errorsSeen(); await p.reset() }
+      fresh = false
+      if (width !== p.width) await p.page.setViewportSize({ width, height: 900 })
+      if (tutorial) {
+        // The tutorial's first card is up before the map is laid out (ELK is async), as from the Tutorial command.
+        await p.send(p.toMap.journey(j, { current: 1, tutorial: true }))
+        await p.send({ type: 'tutorial' })
+        await p.page.waitForFunction((r) => window.__harness.posted.some((m) => m.type === r), FROM.rendered, { timeout: 15000 })
+        await p.settle()
+      } else await p.open(j, { current: 1 })
+      for (const x of await p.page.evaluate(() => window.__harness.openViewProblems())) p.problem(`${name} opened at ${width} px${tutorial ? ' under the tutorial' : ''}: ${x}`)
+      if (name === 'place-order') await p.shot(`13-open-${width}${tutorial ? '-tutorial' : ''}`)
+    }
+  }
+}
+
 /** In the page: a top-level external box sits next to what calls it, not in a far corner. */
 function externalsFarFromCallers(J) {
   const out = []
@@ -683,7 +716,7 @@ function stylesheetsAsInThePanel(fail) {
 const CHECKS = {
   header, mapPlacement, storylineFocus, walking, splitter, dragThenNextStep, clicks, zoom, legend, stepAnimates,
   endAndResume, stepCard, longStoryline, problems, tutorial, handoffRecord, home, finished, anotherOpensAtTop, samples,
-  resize,
+  resize, opensReadable,
 }
 const unknown = ONLY.filter((n) => !Object.hasOwn(CHECKS, n) && n !== 'firstOpen')
 if (unknown.length) { console.error(`no check ${unknown.join(', ')} (checks: ${[...Object.keys(CHECKS), 'firstOpen'].join(', ')})`); process.exit(2) }

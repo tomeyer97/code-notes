@@ -233,6 +233,41 @@
     return out
   }
 
+  // ---------- what a journey opens on ----------
+
+  /** The text the map shows now, near or far: frames' titles, box names and numbers, arrow labels, far names and
+   *  their numbers; each as { what, r } (what it says, where). Hidden ones are left out. */
+  function mapTexts(map) {
+    const shown = (e) => {
+      for (let x = e; x && x !== map; x = x.parentElement) {
+        const s = getComputedStyle(x)
+        if (s.display === 'none' || s.visibility === 'hidden' || x.hidden) return false
+      }
+      return e.getClientRects().length > 0
+    }
+    return [...map.querySelectorAll('.gtitle, .glbl, .gnums, .glabel, .gname .gnt, .gfnums')]
+      .filter(shown)
+      .map((e) => ({ what: `${e.className.split(' ')[0]} "${e.textContent.replace(/\s+/g, ' ').trim()}"`, r: rect(e) }))
+  }
+
+  /** As a journey opens: no two texts of the map over each other (names, chip rows, titles, labels), and no text or
+   *  box cut by the drawing's edge (each wholly inside it or wholly out of it). */
+  function openViewProblems() {
+    const map = document.querySelector('.gmap')
+    if (!map || !map.querySelector('.gworld')) return ['no map']
+    const out = []
+    const texts = mapTexts(map)
+    for (let i = 0; i < texts.length; i++) {
+      for (let k = i + 1; k < texts.length; k++) if (overlap(texts[i].r, texts[k].r, 0.5)) out.push(`${texts[i].what} and ${texts[k].what} overlap`)
+    }
+    const st = rect(map.querySelector('.gstage'))
+    const cut = (r) => r.right > st.left + 0.5 && r.left < st.right - 0.5 && r.bottom > st.top + 0.5 && r.top < st.bottom - 0.5 &&
+      (r.left < st.left - 0.5 || r.right > st.right + 0.5 || r.top < st.top - 0.5 || r.bottom > st.bottom + 0.5)
+    for (const t of texts) if (cut(t.r)) out.push(`${t.what} cut by the map's edge`)
+    for (const b of map.querySelectorAll('.gbox.leaf')) if (cut(rect(b))) out.push(`box ${b.dataset.id} cut by the map's edge`)
+    return out
+  }
+
   /** Every layout rule on what is shown now; `wantCurrent`: a step is being walked (its box must be ringed). */
   const H = (window.__harness = window.__harness || {})
   H.mapLayoutProblems = (wantCurrent) => {
@@ -251,6 +286,8 @@
   }
   /** Map text contrast (dark themes). */
   H.mapTextContrast = mapTextContrast
+  /** As a journey opens: its texts apart and none cut by the edge. */
+  H.openViewProblems = openViewProblems
   /** Fit and the far view: the map centred; far out, names apart, clear of the buttons, cut well, readable (`dark`);
    *  walking (step `cur`), the current step ringed and its number lit. */
   H.farViewProblems = (dark, cur) => {

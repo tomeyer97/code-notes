@@ -227,8 +227,8 @@ function itemLine(it: ReviewItem, url: string | undefined, { check, link, change
 }
 
 /**
- * "All answers", collapsed: each question once, with the answer that counts (a pass's, or a restatement's, marked);
- * an explained one only says so (its point is in "Worth discussing").
+ * "All answers", collapsed: each question once, with the answer that counts (a pass's or a restatement's; how many
+ * tries it took is never said); an explained one only says so (its point is in "Worth discussing").
  */
 function answersSection(check: Check, sum: Summary, link: (q: Spot) => string | undefined): string[] {
   const all: string[] = []
@@ -238,7 +238,7 @@ function answersSection(check: Check, sum: Summary, link: (q: Spot) => string | 
     const title = `**${questionText(q.text)}** · ${refText(q, link)}${q.suspect ? ' · may be a bug' : ''}`
     if (s === STATE.restated) {
       const a = as.findLast((x) => x.verdict === STATE.restated)
-      all.push('', `${title}${byText(a, check)} · restated after an explanation`, ...answer(a))
+      all.push('', `${title}${byText(a, check)}`, ...answer(a))
     } else if (s === STATE.explained) {
       all.push('', `${title} · explained`)
     } else {

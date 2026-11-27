@@ -55,7 +55,9 @@ export function makeAnimation(ctx, { isHome }) {
     scene.layout()
     const still = !!anim.stillAt[k]
     delete anim.stillAt[k]
-    scene.show(sceneOf(state, cur), k, { file: j.steps[cur - 1].file, next: cur < j.steps.length, beat: anim.beatAt[k] || 0, still })
+    // The step's card in the panel means its code is not open beside it (gone or deleted): only then its lines here.
+    const codeBeside = !state.walk.tour.card
+    scene.show(sceneOf(state, cur), k, { file: j.steps[cur - 1].file, next: cur < j.steps.length, beat: anim.beatAt[k] || 0, still, codeBeside })
     // The podcast moved it: the keyboard stays where it was (Space keeps pausing).
     if ((fresh || anim.focusScene) && anim.movedBy !== 'podcast') scene.focus()
     anim.focusScene = false

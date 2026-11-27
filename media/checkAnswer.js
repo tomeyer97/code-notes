@@ -42,6 +42,11 @@ function focusBox(w, caret) {
   return true
 }
 
+/** ⚠ then `text`: only the glyph takes the warning colour (amber text is too faint to read on light themes). */
+export function warned(text) {
+  return [el('span', 'warn-mark', '⚠'), ` ${text}`]
+}
+
 /**
  * The answer boxes of one page, posting with `post`. What they keep between renders lives here: what was typed, the
  * draft's timer, and the question whose answer was just sent.
@@ -128,7 +133,9 @@ export function answerBoxes(post) {
    *  code: said; it goes with Commit & push. */
   function concernBlock(a) {
     const c = el('div', 'concern')
-    c.append(el('p', null, `⚠ ${a.concern.text}`))
+    const said = el('p')
+    said.append(...warned(a.concern.text))
+    c.append(said)
     const acts = el('p', 'acts')
     const act = (label, action) => button('link', label, () => post({ type: 'concern', id: a.id, action }))
     if (a.concern.applied) {
@@ -174,7 +181,7 @@ export function answerBoxes(post) {
       // Couldn't grade it (the answer is kept): why, and Try again.
       else if (a.error) {
         const p = watched(el('p', 'failed'))
-        p.append(`⚠ ${a.error} `, button('link', 'Try again', () => post({ type: 'regrade', id: a.id })))
+        p.append(...warned(`${a.error} `), button('link', 'Try again', () => post({ type: 'regrade', id: a.id })))
         w.append(p)
       } else if (a.grade) w.append(gradeBlock(a, w))
       if (a.concern) w.append(concernBlock(a))
