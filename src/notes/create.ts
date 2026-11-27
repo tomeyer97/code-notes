@@ -5,6 +5,7 @@ import { store } from './ports'
 import { Loc } from '../core/anchors/anchor'
 import { chordKey } from '../platform/chordKey'
 import { log, now } from '../platform/host'
+import { fireAndForget } from '../platform/run'
 import { askClaude } from '../ask/run'
 import { askAlways, askOnQuestion } from '../ask/settings'
 import { me } from './identity'
@@ -22,7 +23,6 @@ import { openThread } from './threadView'
 import { linesAt } from './place'
 import { hint } from './hint'
 import { OncePerSubmit } from './submit'
-import { Poll, waitUntil } from './timing'
 
 /** The note box's words. */
 export const NOTE_OPTIONS: vscode.CommentOptions = { prompt: 'Reply', placeHolder: 'Note or reply…' }
@@ -280,20 +280,34 @@ const drafts = new Map<string, string>()
 let openBox: string | undefined
 const boxKey = (uri: vscode.Uri, line: number) => `${uri.toString()}#${line}`
 
-/** A box's input is a text editor of its own (scheme 'comment') once it has the keyboard: up to a second. */
-const BOX_INPUT: Poll = { tries: 20, everyMs: 50 }
-const boxInput = () => {
-  const e = vscode.window.activeTextEditor
-  return e?.document.uri.scheme === COMMENT_INPUT ? e : undefined
-}
+/** A box's input is a text editor of its own (scheme 'comment') once it has the keyboard. */
+const isBoxInput = (e: vscode.TextEditor | undefined) => e?.document.uri.scheme === COMMENT_INPUT
+const boxInput = () => (isBoxInput(vscode.window.activeTextEditor) ? vscode.window.activeTextEditor : undefined)
+/** A draft on its way into the box just opened, until that box has the keyboard. */
+let draftWaiting: vscode.Disposable | undefined
 
-/** The draft of a box closed on these lines, back in the box just opened there. */
+/**
+ * The draft of a box closed on these lines, back in the box just opened there: now, or once the box has the keyboard
+ * (VS Code lays it out first: seconds on a busy machine). Dropped when the keyboard goes elsewhere first.
+ */
 async function restoreDraft(key: string): Promise<void> {
-  const text = drafts.get(key)
-  if (text === undefined || !(await waitUntil(() => !!boxInput(), BOX_INPUT))) return
-  const input = boxInput()!
-  if (input.document.getText()) return
-  if (await input.edit((b) => b.insert(new vscode.Position(0, 0), text))) drafts.delete(key)
+  draftWaiting?.dispose()
+  draftWaiting = undefined
+  if (!drafts.has(key)) return
+  const put = async (input: vscode.TextEditor) => {
+    const text = drafts.get(key)
+    if (text === undefined || openBox !== key || input.document.getText()) return
+    if (await input.edit((b) => b.insert(new vscode.Position(0, 0), text))) drafts.delete(key)
+  }
+  const now = boxInput()
+  if (now) return put(now)
+  const waiting = vscode.window.onDidChangeActiveTextEditor((e) => {
+    if (!e) return
+    waiting.dispose()
+    if (draftWaiting === waiting) draftWaiting = undefined
+    if (isBoxInput(e)) fireAndForget(put(e), 'notes: a draft back in its box')
+  })
+  draftWaiting = waiting
 }
 
 /** Esc in a new note box: closed, its draft kept in memory (Add Note on those lines puts it back). The box is emptied

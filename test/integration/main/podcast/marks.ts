@@ -77,13 +77,16 @@ export const marksTests = [
     // Playing, the step card above the lines shrinks to its header line: the lines shift once it does.
     await podUntil('the header-only card', () => tour().card?.body === '', QUICK_MS)
     await outlast(AFTER_OWN_MOVE_MS, 'the walk\'s own move, so the scroll is the reader\'s')
-    codeEditor()!.revealRange(new vscode.Range(40, 0, 40, 0), vscode.TextEditorRevealType.AtTop)
+    const READER_LINE = 40
+    codeEditor()!.revealRange(new vscode.Range(READER_LINE, 0, READER_LINE, 0), vscode.TextEditorRevealType.AtTop)
     await podUntil('not following', () => pod().follow === false, QUICK_MS)
-    const top = codeEditor()!.visibleRanges[0].start.line
     await podUntil(`line ${END_LINE} lit`, () => litOn(END_LINE), 6000)
     await noChangeFor(500, `the editor moving to line ${END_LINE}`)
+    // Where the reader went: their line near the top. (VS Code settles a reveal over a few events, so the first
+    // visible line read just after it may still move by a few lines.)
     const now = codeEditor()!.visibleRanges[0]
-    assert.ok(Math.abs(now.start.line - top) <= 1 && !onScreen(END_LINE), `the editor stayed where the reader is (top ${top} → ${now.start.line}-${now.end.line})`)
+    const atReader = now.start.line <= READER_LINE && READER_LINE - now.start.line <= 8
+    assert.ok(atReader && !onScreen(END_LINE), `the editor stayed where the reader is (line ${READER_LINE}: ${now.start.line}-${now.end.line})`)
     await pause()
     await vscode.commands.executeCommand('codeNotes.podcastFollow')
   }),

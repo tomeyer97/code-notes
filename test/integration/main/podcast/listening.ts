@@ -44,6 +44,8 @@ export const listeningTests = [
     codeEditor()!.revealRange(new vscode.Range(185, 0, 185, 0), vscode.TextEditorRevealType.AtTop)
     await podUntil('not following: the card says Follow along', () => pod().follow === false && /Follow along/.test(tour().card?.body ?? ''), QUICK_MS)
     const top = () => codeEditor()!.visibleRanges[0].start.line
+    // VS Code settles a reveal over a few events: the reader's place is where it lands (line 185 near the top).
+    await podUntil('the reader\'s scroll landed', () => top() <= 185 && 185 - top() <= 8, QUICK_MS)
     const away = top()
     assert.ok(away >= 170, `scrolled: ${away}`)
     // Beat 2 (line 150, same file) at 12 s: lit, but the editor isn't moved.
