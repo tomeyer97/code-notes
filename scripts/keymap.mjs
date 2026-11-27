@@ -28,6 +28,10 @@ export const PREFIXES = [{ key: 'ctrl+[IntlBackslash]', arg: '<' }, { key: "ctrl
 /** Bindings outside the chord scheme. */
 export const OTHERS = [
   { command: 'codeNotes.cancelMove', key: 'escape', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible' },
+  // Moving a note: Enter puts it on the selected lines (the status bar item says so).
+  { command: 'codeNotes.moveToSelection', key: 'enter', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible' },
+  // Esc in an empty new note box closes it and keeps the draft.
+  { command: 'codeNotes.closeNoteBox', key: 'escape', when: 'commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty' },
 ]
 
 /**

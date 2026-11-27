@@ -40,10 +40,21 @@ test('one chord scheme on two prefixes: Ctrl+< by scan code (ISO key) and Ctrl+\
       }
     }
   }
-  assert.equal(keys.length, PREFIXES.length * Object.keys(CHORDS).length * 2 + 1 /* escape */, 'nothing else but escape')
+  assert.equal(keys.length, PREFIXES.length * Object.keys(CHORDS).length * 2 + 3, 'nothing else but Esc and Enter (below)')
   // VS Code shows the last binding of a command: the plain chord, "Ctrl+' D".
   for (const command of Object.values(CHORDS)) assert.equal(keys.filter((k) => k.command === command).pop()!.key.replace(/^\S+ /, ''), Object.keys(CHORDS).find((k) => CHORDS[k] === command))
   assert.ok(keys.some((k) => k.key === 'escape' && k.command === 'codeNotes.cancelMove'))
+})
+
+test('outside the chords: Esc and Enter only where they belong to Code Notes', () => {
+  const others = keys.filter((k) => !k.args)
+  assert.deepEqual(others, [
+    { command: 'codeNotes.cancelMove', key: 'escape', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible' },
+    // Moving a note: Enter puts it on the selection (the status bar item's action).
+    { command: 'codeNotes.moveToSelection', key: 'enter', when: 'codeNotes.moving && editorTextFocus && !suggestWidgetVisible' },
+    // Esc in an empty new note box of ours closes it (the draft is kept); other comment boxes keep their Esc.
+    { command: 'codeNotes.closeNoteBox', key: 'escape', when: 'commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty' },
+  ])
 })
 
 test('the chord table is the scheme as documented: letters for notes and journeys, arrows and space for listening', async () => {
@@ -63,7 +74,8 @@ test('the chord table is the scheme as documented: letters for notes and journey
   })
 })
 
-test('every bound command is contributed', () => {
+test('every bound command is contributed, except closing the note box (a key, not a verb for the palette)', () => {
   const cmds = new Set(pkg.contributes.commands.map((c: { command: string }) => c.command))
-  for (const k of keys) assert.ok(cmds.has(k.command), k.command)
+  for (const k of keys.filter((x) => x.command !== 'codeNotes.closeNoteBox')) assert.ok(cmds.has(k.command), k.command)
+  assert.ok(!cmds.has('codeNotes.closeNoteBox'))
 })

@@ -1,7 +1,7 @@
 {
   "name": "code-notes",
   "displayName": "Code Notes",
-  "description": "Notes on code that your coding agent answers in threads, and Code Journeys: guided, animated walks through how a codebase works.",
+  "description": "Understand code you did not write: notes your coding agent answers, journeys through how it works, and an understanding check before you merge.",
   "version": "0.26.0",
   "publisher": "tomeyer97",
   "license": "MIT",
@@ -51,7 +51,10 @@
     "skills/understanding-check/SKILL.md",
     "skills/understanding-check/scripts/questions.mjs",
     "cli/understanding.mjs",
+    "docs/agent-protocol.md",
+    "docs/journey-format.md",
     "docs/podcast-format.md",
+    "docs/understanding-check.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -81,7 +84,8 @@
         {
           "type": "webview",
           "id": "codeNotes.check",
-          "name": "Check"
+          "name": "Check",
+          "when": "!codeNotes.checkOnBase"
         },
         {
           "id": "codeNotes.journeys",
@@ -99,6 +103,10 @@
       {
         "view": "codeNotes.notes",
         "contents": "Select code and press Ctrl+' C to leave a note.\n[Add a Note](command:codeNotes.add)"
+      },
+      {
+        "view": "codeNotes.journeys",
+        "contents": "Ask how something works; Claude writes a walk through the code.\n[Ask a Question About the Code…](command:codeNotes.askQuestion)"
       }
     ],
     "commands": [
@@ -109,18 +117,13 @@
         "icon": "$(comment)"
       },
       {
-        "command": "codeNotes.addQuick",
-        "title": "Add One-Line Note",
-        "category": "Code Notes"
-      },
-      {
         "command": "codeNotes.reply",
         "title": "Reply",
         "category": "Code Notes"
       },
       {
         "command": "codeNotes.createFromThread",
-        "title": "Add Note",
+        "title": "Save Note",
         "category": "Code Notes"
       },
       {
@@ -248,11 +251,6 @@
         "icon": "$(copy)"
       },
       {
-        "command": "codeNotes.replyResolve",
-        "title": "Reply & Resolve",
-        "category": "Code Notes"
-      },
-      {
         "command": "codeNotes.hideSession",
         "title": "Hide Session in Editor",
         "category": "Code Notes",
@@ -266,7 +264,7 @@
       },
       {
         "command": "codeNotes.showOnlySession",
-        "title": "Show Only This Session",
+        "title": "Show Only This Session in Editor",
         "category": "Code Notes",
         "icon": "$(target)"
       },
@@ -353,7 +351,7 @@
       },
       {
         "command": "codeNotes.askQuestion",
-        "title": "Ask a Question About the Code…",
+        "title": "Find or Write a Journey…",
         "category": "Code Notes"
       },
       {
@@ -513,6 +511,26 @@
       {
         "command": "codeNotes.checkConcern",
         "title": "Act on a Concern Found During the Check",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.concernFix",
+        "title": "Suggest a Fix",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.concernTodo",
+        "title": "Add TODO",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.concernFlag",
+        "title": "Flag for Reviewer",
+        "category": "Code Notes"
+      },
+      {
+        "command": "codeNotes.concernDismiss",
+        "title": "Dismiss Concern",
         "category": "Code Notes"
       },
       {
@@ -885,6 +903,16 @@
         "command": "codeNotes.cancelMove",
         "key": "escape",
         "when": "codeNotes.moving && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible"
+      },
+      {
+        "command": "codeNotes.moveToSelection",
+        "key": "enter",
+        "when": "codeNotes.moving && editorTextFocus && !suggestWidgetVisible"
+      },
+      {
+        "command": "codeNotes.closeNoteBox",
+        "key": "escape",
+        "when": "commentEditorFocused && commentController == codeNotes && commentThreadIsEmpty"
       }
     ],
     "menus": {
@@ -919,18 +947,43 @@
           "command": "codeNotes.answerCheck",
           "group": "inline@1",
           "when": "commentController == codeNotes && !commentThreadIsEmpty && commentThread =~ /check/"
+        },
+        {
+          "command": "codeNotes.askClaude",
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /open/ && !(commentThread =~ /check/) && !(commentThread =~ /asking/) && codeNotes.claudeFound",
+          "group": "inline@2"
+        },
+        {
+          "command": "codeNotes.concernFix",
+          "when": "commentController == codeNotes && commentThread =~ /concern/",
+          "group": "inline@3"
+        },
+        {
+          "command": "codeNotes.concernTodo",
+          "when": "commentController == codeNotes && commentThread =~ /concern/ && !(commentThread =~ /todo/)",
+          "group": "inline@4"
+        },
+        {
+          "command": "codeNotes.concernFlag",
+          "when": "commentController == codeNotes && commentThread =~ /concern/",
+          "group": "inline@5"
+        },
+        {
+          "command": "codeNotes.concernDismiss",
+          "when": "commentController == codeNotes && commentThread =~ /concern/",
+          "group": "inline@6"
         }
       ],
       "comments/commentThread/title": [
         {
           "command": "codeNotes.cancelClaude",
-          "group": "navigation@0",
+          "group": "navigation@1",
           "when": "commentController == codeNotes && commentThread =~ /asking/"
         },
         {
           "command": "codeNotes.askClaude",
           "group": "navigation@0",
-          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && (commentThread =~ /open/ || commentThread =~ /check/) && !(commentThread =~ /asking/) && codeNotes.claudeFound"
+          "when": "commentController == codeNotes && config.codeNotes.claude.mode != 'off' && commentThread =~ /check/ && !(commentThread =~ /asking/) && codeNotes.claudeFound"
         },
         {
           "command": "codeNotes.resolve",
@@ -1018,6 +1071,16 @@
           "command": "codeNotes.sortJourneys",
           "when": "view == codeNotes.journeys",
           "group": "navigation@2"
+        },
+        {
+          "command": "codeNotes.refresh",
+          "when": "view == codeNotes.notes",
+          "group": "3_reload@1"
+        },
+        {
+          "command": "codeNotes.tutorial",
+          "when": "view == codeNotes.journeys && codeNotes.hasJourneys",
+          "group": "1_help@1"
         }
       ],
       "view/item/context": [
@@ -1198,11 +1261,11 @@
         },
         {
           "command": "codeNotes.showResolved",
-          "when": "false"
+          "when": "codeNotes.hasNotes && !codeNotes.showResolved"
         },
         {
           "command": "codeNotes.hideResolved",
-          "when": "false"
+          "when": "codeNotes.showResolved"
         },
         {
           "command": "codeNotes.resolve",
@@ -1231,10 +1294,6 @@
         {
           "command": "codeNotes.copyNotePrompt",
           "when": "codeNotes.cursorOnNote"
-        },
-        {
-          "command": "codeNotes.replyResolve",
-          "when": "false"
         },
         {
           "command": "codeNotes.openAt",
@@ -1282,7 +1341,7 @@
         },
         {
           "command": "codeNotes.showAllSessions",
-          "when": "false"
+          "when": "codeNotes.hasHiddenSessions"
         },
         {
           "command": "codeNotes.applySuggestion",
@@ -1290,11 +1349,11 @@
         },
         {
           "command": "codeNotes.groupByFile",
-          "when": "false"
+          "when": "codeNotes.groupBy == 'session'"
         },
         {
           "command": "codeNotes.groupBySession",
-          "when": "false"
+          "when": "codeNotes.groupBy == 'file' && codeNotes.hasSessions"
         },
         {
           "command": "codeNotes.openJourney",
@@ -1341,10 +1400,6 @@
           "when": "codeNotes.hasJourneys"
         },
         {
-          "command": "codeNotes.addQuick",
-          "when": "false"
-        },
-        {
           "command": "codeNotes.addPathNote",
           "when": "false"
         },
@@ -1370,27 +1425,27 @@
         },
         {
           "command": "codeNotes.markAllRead",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.resolveAll",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.deleteResolved",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.nextUnread",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.previousUnread",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.filter",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.find",
@@ -1398,7 +1453,7 @@
         },
         {
           "command": "codeNotes.copyAgentPrompt",
-          "when": "false"
+          "when": "codeNotes.hasNotes"
         },
         {
           "command": "codeNotes.resolveNext",
@@ -1410,10 +1465,6 @@
         },
         {
           "command": "codeNotes.askFromThread",
-          "when": "false"
-        },
-        {
-          "command": "codeNotes.refresh",
           "when": "false"
         },
         {
@@ -1438,6 +1489,38 @@
         },
         {
           "command": "codeNotes.journeysHereAll",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.refreshJourney",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.playPodcast",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.sortJourneys",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.toggleAnimation",
+          "when": "codeNotes.hasJourneys"
+        },
+        {
+          "command": "codeNotes.concernFix",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.concernTodo",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.concernFlag",
+          "when": "false"
+        },
+        {
+          "command": "codeNotes.concernDismiss",
           "when": "false"
         }
       ],
@@ -1476,7 +1559,7 @@
         "codeNotes.highlight": {
           "type": "boolean",
           "default": true,
-          "description": "Tint lines that have an open note."
+          "description": "Show a bar beside lines with an open note."
         },
         "codeNotes.showResolvedInEditor": {
           "type": "boolean",
@@ -1490,18 +1573,29 @@
             "always",
             "off"
           ],
+          "enumItemLabels": [
+            "When I ask",
+            "Every note",
+            "Never"
+          ],
           "default": "button",
           "enumDescriptions": [
             "An \"Ask Claude\" button on the note box, threads and the list.",
             "Every new note and reply goes to Claude right away.",
             "No Claude."
           ],
-          "description": "Answer notes with Claude Code (the newest `claude` CLI found, your existing login). Claude can read the code but not change it (and can use the skills in Code Notes › Claude: Skills). Ask Claude shows only when the `claude` CLI is found (install Claude Code, or set Code Notes › Claude: Path)."
+          "description": "Claude Code answers notes. It can read code, never change it."
         },
         "codeNotes.claude.model": {
           "type": "string",
           "default": "",
-          "description": "Model for answers (e.g. \"sonnet\" for cheaper, faster answers). Empty: Claude Code's default."
+          "examples": [
+            "sonnet",
+            "opus",
+            "haiku",
+            "fable"
+          ],
+          "description": "Model for answers: sonnet, opus, haiku, fable or a model id. Empty: Claude Code's default."
         },
         "codeNotes.claude.path": {
           "type": "string",
@@ -1551,17 +1645,29 @@
         "codeNotes.journeys.model": {
           "type": "string",
           "default": "",
-          "description": "Model Claude Code uses to write a journey from the journey picker (\"Ask the agent to write a journey…\"). Empty: Code Notes › Claude: Model, else Claude Code's default."
+          "examples": [
+            "sonnet",
+            "opus",
+            "haiku",
+            "fable"
+          ],
+          "markdownDescription": "Model that writes journeys: sonnet, opus, haiku, fable or an id. Empty: `#codeNotes.claude.model#`."
         },
         "codeNotes.understanding.background": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Write a branch's understanding-check questions in the background when it is pushed without a check; the status bar says when they are ready."
+          "markdownDescription": "Writes the questions with Claude when a branch is pushed, in repositories that use the check."
         },
         "codeNotes.understanding.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "The model that writes and grades the understanding-check questions (`sonnet`, `opus`, a `claude-*` id). Empty: **Code Notes › Claude: Model**, else Claude Code's default."
+          "examples": [
+            "sonnet",
+            "opus",
+            "haiku",
+            "fable"
+          ],
+          "markdownDescription": "Model for the check: sonnet, opus, haiku, fable or an id. Empty: `#codeNotes.claude.model#`."
         }
       }
     },
@@ -1584,15 +1690,6 @@
           "light": "#00a39033",
           "highContrast": "#2bb3a280",
           "highContrastLight": "#00a39040"
-        }
-      },
-      {
-        "id": "codeNotes.noteBackground",
-        "description": "Background of lines with an open note.",
-        "defaults": {
-          "dark": "#a371f726",
-          "light": "#8250df12",
-          "highContrast": "#a371f726"
         }
       },
       {
@@ -1643,7 +1740,6 @@
     ],
     "configurationDefaults": {
       "comments.openView": "never",
-      "comments.maxHeight": false,
       "editor.smoothScrolling": true
     }
   },

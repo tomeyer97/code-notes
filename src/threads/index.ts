@@ -49,11 +49,11 @@ export function activateThreads(context: vscode.ExtensionContext, ports: Threads
       const call = linkCall(key)
       return call ? vscode.commands.executeCommand(call.command, ...call.args) : undefined
     },
-    [HiddenCmd.concernFix]: concern('fix'),
-    [HiddenCmd.concernTodo]: concern('todo'),
-    [HiddenCmd.concernFlag]: concern('flag'),
+    [Cmd.concernFix]: concern('fix'),
+    [Cmd.concernTodo]: concern('todo'),
+    [Cmd.concernFlag]: concern('flag'),
     [HiddenCmd.concernFixed]: concern('fixed'),
-    [HiddenCmd.concernDismiss]: concern('dismiss'),
+    [Cmd.concernDismiss]: concern('dismiss'),
   })
   return {
     has: (id) => view.has(id),
