@@ -31,7 +31,7 @@ export const playbackTests = [
     // Nothing listened to: no Listen view (nor its focus command), no transport in the palette, a plain row.
     assert.ok(!pod().listening && !pod().hostAlive, 'no Listen view before a journey is listened to')
     const idle = ctx.api.journeyRow('podauto')!
-    assert.match(idle.description ?? '', /^♪ 0:40( · |$)/, `the row: its length: ${idle.description}`)
+    assert.match(idle.description ?? '', /^1 step · ♪ 0:40( · |$)/, `the row: its steps, then its podcast's length: ${idle.description}`)
     assert.match(idle.contextValue!, /;podcast$/, 'its ▶ Listen')
     assert.doesNotMatch(String(idle.tooltip), /podcast|Listen/i, 'no podcast line in the tooltip')
     await shots('listen-idle', true)
@@ -49,7 +49,7 @@ export const playbackTests = [
     await audioMoves(pf, 'played in the panel')
     assert.equal(await pf.evaluate(() => { const e = (globalThis as any).document.querySelector('.pod-err'); return e.hidden ? '' : e.textContent }), '', 'no hint or error line')
     assert.ok(pod().unlocked.panel && !pod().unlocked.listen, `the panel unlocked, the Listen view not: ${JSON.stringify(pod().unlocked)}`)
-    await podUntil('the panel has the audio: the Listen view is not there (codeNotes.listening off)', () => pod().panelHosts && !pod().hostAlive && !pod().hostVisible, QUICK_MS)
+    await podUntil('the panel has the audio: the Listen view is not there (codeNotes.listening off)', () => pod().panelHosts && !pod().listenAlive && !pod().hostVisible, QUICK_MS)
 
     // 2. Closing the panel: the audio goes to the Listen view, which may not play yet: it waits there, paused, where
     // it was (the one start that still needs a click: the status item or ▶ opens the panel again).
@@ -72,7 +72,7 @@ export const playbackTests = [
     const pf2 = await frameOf('journey', { quiet: true })
     await realClick(pf2, '.pod-b.play')
     await podUntil('the click on the panel\'s ▶: playing in the panel', () => pod().playing && pod().hostIn === 'panel', MOVE_MS)
-    await podUntil('the Listen view went: the panel\'s player is the one', () => !pod().hostAlive && !pod().hostVisible, QUICK_MS)
+    await podUntil('the Listen view went: the panel\'s player is the one', () => pod().panelHosts && !pod().listenAlive && !pod().hostVisible, QUICK_MS)
     await audioMoves(pf2, 'the panel\'s ▶')
     assert.ok(Math.abs(pod().t - tClose) < 4, `on from where it was: ${tClose} → ${pod().t}`)
 
@@ -88,7 +88,8 @@ export const playbackTests = [
     await pause()
     await closePanel()
     await podUntil('the audio back in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive && pod().hostVisible, MOVE_MS)
-    const lf = await frameOf('listen', { quiet: true })
+    // Found by its player (not `quiet`): the side bar has other webviews (the Check view).
+    const lf = await frameOf('listen')
     await realClick(lf, '.pod-b.play')
     await podUntil('the Listen view\'s ▶ plays there; the Listen view unlocked', () => pod().playing && pod().hostIn === 'listen' && pod().unlocked.listen, MOVE_MS)
     assert.equal(await lf.evaluate(() => (globalThis as any).document.querySelector('.ls-title')?.textContent), 'Pod auto', 'the view names the journey')
@@ -336,6 +337,8 @@ export const playbackTests = [
   podTest('podcast › the speed is remembered', async () => {
     await listenTo('podbeat', writeBeatJourney)
     const f = await frameOf('journey')
+    // The speed button is at the panel's bottom right, under VS Code's own toasts ("extensions are disabled").
+    await vscode.commands.executeCommand('notifications.clearAll')
     const speedTo = async (r: number) => {
       for (let i = 0; i < 5 && pod().rate !== r; i++) {
         await f.click('.pod-rate')

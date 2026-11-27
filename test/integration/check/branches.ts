@@ -1,4 +1,4 @@
-// Drift and branches: uncommitted lines asking for a top-up, another branch hiding the check's threads, a branch switch
+// Drift and branches: uncommitted lines asking for one more question, another branch hiding the check's threads, a branch switch
 // while questions are written, another git user. Each test puts the branch, the files and the git config back in
 // `finally`, so a failure here doesn't leave the next tests on another branch.
 import * as vscode from 'vscode'
@@ -25,15 +25,16 @@ function backTo(branch: string): void {
 }
 
 export const branchesTests = [
-  test('drift from uncommitted lines: amber "Needs top-up: +46 lines" in the status bar and the view (Commit… first)', async () => {
+  test('drift from uncommitted lines: "Understanding: +1 question" in the status bar (amber), the line count in the view (Commit… first)', async () => {
     const saved = fs.readFileSync(limitsPath, 'utf8')
     try {
-      // 45 new lines (uncommitted) → amber "Needs top-up" before any push.
+      // 45 new lines (uncommitted) → one more question asked for before any push; how much it grew is in the view.
       fs.appendFileSync(limitsPath, Array.from({ length: 45 }, (_, i) => `export const MORE_${i} = ${i}`).join('\n') + '\n')
       await vscode.commands.executeCommand('workbench.action.files.revert').then(undefined, () => undefined)
       void api.checkRefresh()
-      await until('needs top-up', () => /^\$\(warning\) Needs top-up: \+4\d lines$/.test(chk().item))
-      await untilEqual('the warning in the status bar and the view', () => [chk().itemWarn, view().tone, view().action?.id], [true, 'warn', 'scm'], CHECK_WAIT_MS)
+      await until('one more question asked for', () => chk().item === '$(checklist) Understanding: +1 question')
+      await untilEqual('amber in the status bar; the view says how much it grew and offers Commit… first', () => [chk().itemWarn, view().tone, /^Your change grew by 4\d code lines$/.test(view().title ?? ''), view().line, view().action?.id],
+        [true, 'todo', true, 'Commit, then add 1 question about the new lines.', 'scm'], CHECK_WAIT_MS)
       await pageShot('check-4-drift')
     } finally {
       fs.writeFileSync(limitsPath, saved)

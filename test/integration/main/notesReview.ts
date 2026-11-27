@@ -267,6 +267,10 @@ export const notesReviewTests = [
     await vscode.commands.executeCommand('type', { text: 'Typed into the box' })
     await vscode.commands.executeCommand('editor.action.submitComment')
     await until('Add Note saved a note', () => snap().notes.length === notesBefore + 1 && snap().notes.some((x: any) => x.messages[0].body === 'Typed into the box'), 8000)
-    assert.equal(vscode.workspace.getConfiguration('comments').get('maxHeight'), false, 'More grows the card: no nested scroll')
+    // Of VS Code's comment defaults the extension changes only openView (no Comments panel on every note);
+    // comments.maxHeight stays VS Code's own, for every comment extension.
+    const comments = vscode.workspace.getConfiguration('comments')
+    assert.equal(comments.inspect('maxHeight')?.defaultValue, true, 'comments.maxHeight left at VS Code\'s default')
+    assert.equal(comments.get('openView'), 'never', 'no Comments panel popping up on every note')
   }),
 ]

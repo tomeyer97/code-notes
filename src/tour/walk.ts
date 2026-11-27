@@ -404,8 +404,11 @@ export class Walk {
     const editor = await this.openStepFile(lj, n, uri, opts, token)
     if (!editor) return
     await this.revealStep(lj, n, editor, uri)
-    // Beside an open panel the code keeps its 80 columns (the panel narrower, or the step card alone).
-    if (mapPanel().journey && this.tour.isAt(lj, n)) await panelLayout().keepCodeRoom()
+    // Beside an open panel the code keeps its 80 columns (the panel narrower, or the step card alone). The trade-off,
+    // on purpose: one waited layout read per step (a round trip to the window, counted apart in the round-trip test).
+    // Not waited for, it races the layout a journey sets as it opens and can close the panel it just opened.
+    const shown = () => this.tour.isAt(lj, n) && mapPanel().journey?.key === lj.key
+    if (shown()) await panelLayout().keepCodeRoom(shown)
   }
 
   /** The tour is on step n now (another journey's walk ended first), stored, its map and lists follow. False: superseded. */

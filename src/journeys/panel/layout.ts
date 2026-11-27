@@ -137,13 +137,15 @@ export class PanelLayout {
   /**
    * A step opened with the panel beside it: the code keeps its 80 columns. Squeezed under them (a panel opened by
    * Ctrl+' V or left open while the window narrowed), the panel shrinks to leave them, or closes: the step card alone.
-   * The map's room asked for while the panel is open stays, and so does the listening width.
+   * The map's room asked for while the panel is open stays, and so does the listening width. Nothing is changed once
+   * `current` says the step is no longer the one shown.
    */
-  async keepCodeRoom(): Promise<void> {
+  async keepCodeRoom(current: () => boolean = () => true): Promise<void> {
     if (!this.d.isOpen()) { this.readerChose = false; return }
     if (this.d.episodeOn()) return
     const s = await this.sideBySide()
-    if (!s) return
+    // `current`: the step is still the one shown (the layout read is a round trip; another journey may be open now).
+    if (!s || !current()) return
     const look = this.editorLook()
     const move = codeRoomMove({
       codePx: s.layout.groups[1 - s.panel].size ?? 0,

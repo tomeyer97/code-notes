@@ -7,9 +7,9 @@ import { ClaudeRun, runProgress } from '../core/agentRun'
 import { clock } from '../core/format/podcast/model'
 import type { PodcastStatus } from '../tour/api'
 
-/** The groups under which a journey's row lists its step questions: All and its areas, and a row of no group (the
- *  Code Notes view's). A row is listed once there. */
-export const nestsQuestions = (group: string | undefined) => !group || group === 'all' || group.startsWith('area:')
+/** The groups under which a journey's row lists its step questions: Continue, All and its areas, and a row of no group
+ *  (the Code Notes view's). A journey is listed once there (a walked one only in Continue); "In this file" repeats it. */
+export const nestsQuestions = (group: string | undefined) => !group || group === 'all' || group === 'continue' || group.startsWith('area:')
 
 /** What a journey's row says, worked out once: its description, tooltip, screen-reader label, icon and menus are all
  *  made from it. */

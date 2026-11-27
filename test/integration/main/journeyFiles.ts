@@ -146,7 +146,7 @@ export const journeyFilesTests = withAfter([
     await vscode.commands.executeCommand('codeNotes.refreshJourney', vscode.Uri.file(diskPath).toString())
     await until('refreshed: the file rewritten, the step fresh', () => JSON.parse(fs.readFileSync(diskPath, 'utf8')).steps[0].anchor?.v === 3 && !diskStep().stale, 20000)
     assert.equal(snap().notes.length, notesBeforeRefresh, 'Refresh writes no note in the reader\'s name')
-    assert.ok(!fs.readdirSync(path.join(ctx.notesDir, '.writing')).length, 'the staging folder is cleaned up')
+    assert.ok(!fs.existsSync(path.join(ctx.notesDir, '.writing')), 'the staging folder is cleaned up, no empty .writing left')
     fs.unlinkSync(diskPath)
     await until('disk gone', () => !snap().journeys.some((x: any) => x.id === 'disk'))
   }),

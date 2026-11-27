@@ -42,6 +42,8 @@ function snapshot(p: Podcasts, ports: Pick<PodcastPorts, 'journeys' | 'mapPanel'
     hostIn: host.in,
     unlocked: host.unlocks,
     hostAlive: host.alive(),
+    /** The Listen view's page (hostAlive is the player that has the audio, which may be the panel). */
+    listenAlive: host.listen.alive,
     hostVisible: host.listen.visible,
     panelHosts: host.panelHosts,
     rate: p.store.rate,
