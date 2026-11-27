@@ -16,7 +16,7 @@ import { locOf, range1Of } from './model/lines'
 import { notesChanged, notesModel } from './model'
 import type { Note } from './store'
 
-/** Writes a note (the store's save). */
+/** Writes where a note's code is now (the store's saveFollowing: never over a deleted note file). */
 type Save = (n: Note) => Promise<boolean>
 
 export function followEdits(events: WorkspaceEvents, save: Save): vscode.Disposable {

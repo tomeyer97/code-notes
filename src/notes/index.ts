@@ -154,7 +154,7 @@ export async function activateNotes(context: vscode.ExtensionContext, ports: Not
     followFiles: () => vscode.Disposable.from(
       store.onDidDeleteOnDisk(offerRestore),
       followNotesOnDisk(),
-      followEdits(events, (n) => store.save(n)),
+      followEdits(events, (n) => store.saveFollowing(n)),
       followNoteFiles(events),
       events.onDidChangeFolders(() => fireAndForget(store.load(), 'notes: read again for the folders')),
     ),

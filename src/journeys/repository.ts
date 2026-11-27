@@ -66,16 +66,26 @@ export class JourneyRepository implements vscode.Disposable {
     return true
   }
 
-  /** Reads every journey file again (all at once), and watches their folders. */
+  /**
+   * Reads every journey file again (all at once), and watches their folders. Each file is read as if for the first
+   * time, but the list keeps what it had until then: a journey is never missing from it (or from Open Journey) while
+   * the files are read, only the files no longer found leave it before.
+   */
   async load(): Promise<void> {
-    this.files.clear()
-    this.broken.clear()
     this.watchAll()
     const found = (await Promise.all(this.journeyFiles())).flatMap(({ folder, uris }) => uris.map((uri) => ({ folder, uri })))
-    const oldFormat = await Promise.all(found.map(({ folder, uri }) => this.read(folder, uri)))
+    this.forgetAllBut(new Set(found.map(({ uri }) => uri.toString())))
+    const oldFormat = await Promise.all(found.map(({ folder, uri }) => this.read(folder, uri, { fresh: true })))
     this.keepOrder(found.map(({ uri }) => uri.toString()))
     this.logOldFormat(oldFormat.filter((name): name is string => !!name))
     this.ports.changed()
+  }
+
+  /** Forgets the listed and the unreadable journey files whose URI is not in `keys` (not found any more). */
+  private forgetAllBut(keys: ReadonlySet<string>): void {
+    for (const map of [this.files, this.broken]) {
+      for (const k of [...map.keys()]) if (!keys.has(k)) map.delete(k)
+    }
   }
 
   /** The listed journeys in the order of `keys` (as found, not as their reads ended); any others after them. */
@@ -184,8 +194,9 @@ export class JourneyRepository implements vscode.Disposable {
     return this.files.get(uri.toString())
   }
 
-  /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). */
-  private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri): Promise<string | undefined> {
+  /** Reads one journey file; returns its name when it is in the old format (logged by the caller, once). `fresh`: as
+   *  if it was never read (a load): what was listed for it is replaced, not carried over or kept as its last good. */
+  private async read(folder: vscode.WorkspaceFolder, uri: vscode.Uri, o: { fresh?: boolean } = {}): Promise<string | undefined> {
     // A journey's podcast (src/podcast/) is next to it, not a journey; a change to it still fires onDidChange.
     if (isPodcastFile(uri.path)) return undefined
     const key = uri.toString()
@@ -197,12 +208,15 @@ export class JourneyRepository implements vscode.Disposable {
     }
     const name = jsonName(uri)
     const parsed = parseJourney(raw, name)
-    if (!parsed.ok) return this.unreadable(folder, uri, name, parsed.why)
+    if (!parsed.ok) {
+      if (o.fresh) this.files.delete(key)
+      return this.unreadable(folder, uri, name, parsed.why)
+    }
     const j = parsed.value
     this.broken.delete(key)
     this.deletedText.delete(key)
     if (this.hiddenByTwin(folder, uri, j.id)) return undefined
-    const prev = this.files.get(key)
+    const prev = o.fresh ? undefined : this.files.get(key)
     const lj: LoadedJourney = { key, folder, uri, j, at: writtenAt(j) }
     if (prev) carryPositions(prev, lj)
     this.textOf.set(lj, raw)

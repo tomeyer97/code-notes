@@ -6,7 +6,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import assert from 'assert'
 import { appendMessage, now, quiet, readJson, settle, sleep, test } from '../helpers'
-import { agentNote, writeNote } from '../fixtures'
+import { agentNote, writeLines, writeNote } from '../fixtures'
 import { at, bodyOf, commandLinksIn, tour, closeAllEditors, ctx, journeysTree, noteById, notePath, notesTree, snap, until, wsPath } from './context'
 import { UNREAD_FINDING } from './shared'
 
@@ -147,6 +147,32 @@ export const notesReviewTests = [
     assert.ok(at >= 0 && rows[at].description.startsWith('1 note · 1 new') && rows[at + 1]?.label === 'Lone note' && rows[at + 1].description === '1 new · L2', `a one-note file is a file row of one:\n${all}`)
     fs.unlinkSync(lone)
     await until('lone note gone', () => !notesRows().some((r) => r.label === 'Lone note'))
+  }),
+
+  test('a note file deleted on disk is not written back when its code is saved before the delete is seen', async () => {
+    const code = wsPath('src', 'gone.ts')
+    writeLines(code, ['export const a = 1', 'export const b = 2', 'export const c = 3'])
+    const id = noteId('200710', 'gon1')
+    const anchor = { text: 'export const b = 2', before: 'export const a = 1', after: 'export const c = 3' }
+    const file = writeNote(ctx.notesDir, id, agentNote('src/gone.ts', 2, 'Deleted note', { anchor }))
+    try {
+      await until('listed', () => noteById(id))
+      // Edited as a document, not through an editor: one opened over the journey panel is replaced as it moves.
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(code))
+      const edit = new vscode.WorkspaceEdit()
+      edit.insert(doc.uri, new vscode.Position(0, 0), '// moved down\n')
+      await vscode.workspace.applyEdit(edit)
+      await until('the note follows its code in memory', () => noteById(id)?.range.start === 3)
+      // The save's re-anchor runs at once; the file watcher reports the delete later.
+      fs.unlinkSync(file)
+      await doc.save()
+      await until('the deleted note gone', () => !noteById(id))
+      assert.ok(!fs.existsSync(file), 'its file not written back')
+    } finally {
+      await closeAllEditors()
+      fs.rmSync(code, { force: true })
+      fs.rmSync(file, { force: true })
+    }
   }),
 
   test('an agent\'s resolve on disk is recorded and unread; resolve/reopen lines in the thread', async () => {
