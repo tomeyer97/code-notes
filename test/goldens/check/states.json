@@ -353,21 +353,21 @@
         "phase": "drift",
         "commitFirst": true
       },
-      "next": "Commit, then add 1–2 questions about the new lines."
+      "next": "Commit, then add 1 question about the new lines."
     },
     "words": {
-      "tone": "warn",
-      "bar": "Needs top-up: +60 lines",
-      "title": "Needs top-up: +60 lines",
-      "line": "Commit, then add 1–2 questions about the new lines.",
+      "tone": "todo",
+      "bar": "Understanding: +1 question",
+      "title": "Your change grew by 60 code lines",
+      "line": "Commit, then add 1 question about the new lines.",
       "rule": "Answer all 3 · 2 must pass"
     },
     "view": {
       "branch": "feat/x",
       "file": "understanding/feat-x.json",
-      "tone": "warn",
-      "title": "Needs top-up: +60 lines",
-      "line": "Commit, then add 1–2 questions about the new lines.",
+      "tone": "todo",
+      "title": "Your change grew by 60 code lines",
+      "line": "Commit, then add 1 question about the new lines.",
       "rows": [
         {
           "id": "q1",
@@ -406,8 +406,8 @@
       }
     },
     "bar": {
-      "text": "$(warning) Needs top-up: +60 lines",
-      "tip": "Needs top-up: +60 lines · Commit, then add 1–2 questions about the new lines.",
+      "text": "$(checklist) Understanding: +1 question",
+      "tip": "Your change grew by 60 code lines · Commit, then add 1 question about the new lines.",
       "warn": true
     },
     "run": "scm"
@@ -558,21 +558,21 @@
         "phase": "drift",
         "commitFirst": false
       },
-      "next": "Add 1–2 questions about the new lines."
+      "next": "Add 1 question about the new lines."
     },
     "words": {
-      "tone": "warn",
-      "bar": "Needs top-up: +60 lines",
-      "title": "Needs top-up: +60 lines",
-      "line": "Add 1–2 questions about the new lines.",
+      "tone": "todo",
+      "bar": "Understanding: +1 question",
+      "title": "Your change grew by 60 code lines",
+      "line": "Add 1 question about the new lines.",
       "rule": "Answer all 3 · 2 must pass"
     },
     "view": {
       "branch": "feat/x",
       "file": "understanding/feat-x.json",
-      "tone": "warn",
-      "title": "Needs top-up: +60 lines",
-      "line": "Add 1–2 questions about the new lines.",
+      "tone": "todo",
+      "title": "Your change grew by 60 code lines",
+      "line": "Add 1 question about the new lines.",
       "rows": [
         {
           "id": "q1",
@@ -611,8 +611,8 @@
       }
     },
     "bar": {
-      "text": "$(warning) Needs top-up: +60 lines",
-      "tip": "Needs top-up: +60 lines · Add 1–2 questions about the new lines.",
+      "text": "$(checklist) Understanding: +1 question",
+      "tip": "Your change grew by 60 code lines · Add 1 question about the new lines.",
       "warn": true
     },
     "run": "topUp"

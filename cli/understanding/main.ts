@@ -135,13 +135,12 @@ function initCommand({ repo, print }: CommandArgs): number {
   const changed = initRepo(repo)
   const skill = installSkill(repo)
   const files = [...new Set(changed.map((l) => l.split(':')[0]))]
-  const skillLine = skill?.length ? [`the skill (${SKILL_DIR}: ${skill.map((f) => path.basename(f)).join(', ')})`] : []
-  print(changed.length || skill?.length ? `Added: ${[...changed, ...skillLine].join('; ')}.` : 'Already set up.')
-  if (files.length || skill?.length) {
-    print(`Commit them: git add ${[...files, ...(skill?.length ? [SKILL_DIR] : [])].join(' ')} && git commit -m "Add understanding check setup"`)
+  const skillLine = skill.length ? [`the skill (${SKILL_DIR}: ${skill.map((f) => path.basename(f)).join(', ')})`] : []
+  print(changed.length || skill.length ? `Added: ${[...changed, ...skillLine].join('; ')}.` : 'Already set up.')
+  if (files.length || skill.length) {
+    print(`Commit them: git add ${[...files, ...(skill.length ? [SKILL_DIR] : [])].join(' ')} && git commit -m "Add understanding check setup"`)
   }
-  if (skill?.length || (skill && hasSkill(repo))) print('Without VS Code: type /understanding-check in Claude Code.')
-  else if (!skill) print(withoutVsCode(hasSkill(repo)))
+  print(withoutVsCode(hasSkill(repo)))
   // The CI job goes in the last stage with needs: [] (in .pre, a missing check would skip lint and tests).
   print(`CI recipe: ${CI_URL}`)
   return 0
@@ -229,7 +228,7 @@ function nextCommand({ repo, env, print }: CommandArgs): number {
   if (!branch) return 1
   const c = branch.check
   const q = nextQuestion(c)
-  if (!q) { print(progressLine(c, loadConfig(repo), repo, env)); return 0 }
+  if (!q) { print(grownLine(repo, env) ?? progressLine(c, loadConfig(repo), repo, env)); return 0 }
   const i = c.questions.indexOf(q)
   const tries = (q.attempts ?? []).filter((a: Attempt) => a.verdict).length
   const where = q.target === 'file' ? q.file : `${q.file}:${q.start}-${q.end}`
@@ -277,6 +276,14 @@ function branchCheck(repo: string, env: NodeJS.ProcessEnv, print: Print): { file
     print(`No check yet: ${path.relative(repo, file)} doesn't exist.`)
     return undefined
   }
+}
+
+/** Every question done but the change grew past the check (status's drift): its words, the same as `status`. */
+function grownLine(repo: string, env: NodeJS.ProcessEnv): string | undefined {
+  const s = localStatus(repo, { env })
+  if (s.state.phase !== 'drift') return undefined
+  const w = stateWords(s.state, s)
+  return `${w.title} · ${w.line}`
 }
 
 /** One grade in a line: "✓ q1 pass: Right: …", with the hint and a concern when there are. */

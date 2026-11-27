@@ -24,6 +24,8 @@ export interface StateFacts {
   stashed?: string
   /** The caller judged the change too small to check (no check needed). */
   small?: boolean
+  /** On the default branch: an edit there is no change to check (no nudge to commit, no background run). */
+  onBase?: boolean
   changed?: number
   change?: CodeStat
   errors?: string[]
@@ -167,7 +169,7 @@ function readOrExplain(repo: string, rel: string): ReadResult {
 
 /**
  * Where the check stands, in one word: what the status bar, the Check view, `status` and CI all show.
- *   nothing   no check needed (`exemptOnly`: only exempt files changed)
+ *   nothing   no check needed (`exemptOnly`: only exempt files changed; the default branch without a check file)
  *   none      no check yet (`changed` lines)
  *   invalid   the file can't be read or is not valid (`why`)
  *   drift     the change grew past maxDrift by `grew` lines (`commitFirst`: only uncommitted lines put it over)
@@ -189,11 +191,14 @@ export function checkState(st: StateFacts | undefined, cfg: Config = DEFAULTS): 
   return { ...base, phase: s.done < s.total ? 'answering' : s.met ? 'done' : 'short' }
 }
 
-/** No check file in the tree: in a stash, no check needed (nothing changed), or none yet (with its size). */
+/**
+ * No check file in the tree: in a stash, no check needed (nothing changed, or the default branch: a scratch edit
+ * there is not a change to check), or none yet (with its size).
+ */
 function noFileState(st: StateFacts, cfg: Config): CheckPosition {
   if (st.stashed) return { phase: 'stashed', stash: st.stashed }
   const renamed = !!st.change?.renamed?.length
-  if (st.small || (!st.changed && !renamed)) return { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly }
+  if (st.small || st.onBase || (!st.changed && !renamed)) return { phase: 'nothing', changed: st.changed ?? 0, exemptOnly: !!st.change?.exemptOnly }
   const kind = changeKind(st.change)
   return {
     phase: 'none',
