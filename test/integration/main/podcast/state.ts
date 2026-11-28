@@ -17,6 +17,14 @@ export const codeFile = () => path.basename(codeEditor()?.document.uri.fsPath ??
 export const litLine = () => { const b = tour().beat; return b ? b.line + 1 : 0 }
 /** Is `line` (1-based) on screen in the walk's code editor? */
 export const onScreen = (line: number) => !!codeEditor()?.visibleRanges.some((r) => r.contains(new vscode.Position(line - 1, 0)))
+/** How far below the top VS Code may leave a line revealed at the top, once its scroll has settled (it settles over a
+ *  few events; seen: 6 lines). */
+const REVEAL_SETTLE_LINES = 8
+/** Line `line` (0-based, as `revealRange` takes it) near the top of the code editor: where a reveal at the top lands. */
+export const nearTop = (line: number) => {
+  const top = codeEditor()?.visibleRanges[0]?.start.line
+  return top !== undefined && top <= line && line - top <= REVEAL_SETTLE_LINES
+}
 
 /**
  * The podcast tests' wait: main/context.ts's `until` with the podcast's state in the dump (named apart so `until`

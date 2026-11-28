@@ -299,8 +299,8 @@ async function restoreDraft(key: string): Promise<void> {
     if (text === undefined || openBox !== key || input.document.getText()) return
     if (await input.edit((b) => b.insert(new vscode.Position(0, 0), text))) drafts.delete(key)
   }
-  const now = boxInput()
-  if (now) return put(now)
+  const input = boxInput()
+  if (input) return put(input)
   const waiting = vscode.window.onDidChangeActiveTextEditor((e) => {
     if (!e) return
     waiting.dispose()

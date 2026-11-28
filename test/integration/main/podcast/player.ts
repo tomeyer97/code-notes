@@ -62,11 +62,15 @@ export async function startPlaying(id: string, { ownMs = 3000 } = {}): Promise<v
   await podUntil('the panel shows it', () => tour().map === id && pod().mapVisible, LOAD_MS)
   const playing = () => pod().playing && pod().session === id
   if (!(await podUntil('playing on its own', playing, ownMs).catch(() => false))) {
-    if (await podUntil('the audio moved to the panel', () => pod().hostIn === 'panel', QUICK_MS).catch(() => false)) {
+    // A Listen view with no click yet refuses, and the audio goes to the panel showing the journey
+    // (src/podcast/audioHost.ts notAllowed): wait for that move however long it takes.
+    if (!pod().unlocked.listen) {
+      await podUntil('the audio moved to the panel', () => pod().hostIn === 'panel', LOAD_MS)
       const tab = () => vscode.window.tabGroups.activeTabGroup.activeTab?.input
       await podUntil('the panel is the active editor', () => tab() instanceof vscode.TabInputWebview && /codeNotes\.journey/.test((tab() as vscode.TabInputWebview).viewType), QUICK_MS)
       await sleep(500) // the focus inside the panel settles on its ▶ (no event for it)
-      await (await ui()).keyboard.press('Space')
+      // Space toggles: not when the panel's audio (already unlocked) started on its own meanwhile.
+      if (!playing()) await (await ui()).keyboard.press('Space')
     } else {
       const f = await frameOf('listen')
       await podUntil('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', QUICK_MS)

@@ -5,7 +5,7 @@ import assert from 'assert'
 import { tour } from '../context'
 import { END_LINE, markAt, writeMarksJourney } from './fixtures'
 import { AFTER_OWN_MOVE_MS, closeAllButPanel, listenTo, noChangeFor, outlast, pause, play, podTest, seek, seekTo, startPlaying } from './player'
-import { codeEditor, codeFile, LOAD_MS, litLine, onScreen, pod, podUntil, QUICK_MS } from './state'
+import { codeEditor, codeFile, LOAD_MS, litLine, nearTop, onScreen, pod, podUntil, QUICK_MS } from './state'
 import { listenAudio } from './webview'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -85,8 +85,7 @@ export const marksTests = [
     // Where the reader went: their line near the top. (VS Code settles a reveal over a few events, so the first
     // visible line read just after it may still move by a few lines.)
     const now = codeEditor()!.visibleRanges[0]
-    const atReader = now.start.line <= READER_LINE && READER_LINE - now.start.line <= 8
-    assert.ok(atReader && !onScreen(END_LINE), `the editor stayed where the reader is (line ${READER_LINE}: ${now.start.line}-${now.end.line})`)
+    assert.ok(nearTop(READER_LINE) && !onScreen(END_LINE), `the editor stayed where the reader is (line ${READER_LINE}: ${now.start.line}-${now.end.line})`)
     await pause()
     await vscode.commands.executeCommand('codeNotes.podcastFollow')
   }),
