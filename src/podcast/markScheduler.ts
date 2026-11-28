@@ -150,10 +150,14 @@ export class MarkScheduler implements vscode.Disposable {
     const where = (from && cueText(from, uri, r.start.line)?.text) ?? `→ ${p.file.split('/').pop()}`
     const key = this.session.key
     const onMap = !!key && this.library.get(key)?.episode.segments[this.seg]?.step === 0
+    // The walk moved or the reader sought meanwhile (the read time, or VS Code slow to draw): this move is stale, and
+    // finishing it would take the editor away from the code the walk just showed.
+    const turn = this.follow.turn
+    const wanted = () => lock.locked && this.follow.turn === turn
     await this.camera.move(() => lock.asOurs(async () => {
-      if (!lock.locked) return
+      if (!wanted()) return
       const e = shown() ?? await showInCodeGroup(doc, this.ports.tour().codeColumn, { keepFocus: true })
-      await revealKeepingIndent(e, r, () => lock.locked)
+      await revealKeepingIndent(e, r, wanted)
     }), where, !onMap && !this.follow.justSought())
   }
 
