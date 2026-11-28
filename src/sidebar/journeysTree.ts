@@ -128,12 +128,8 @@ export async function sortJourneys(): Promise<void> {
 
 /** The Journeys view; its "In this file" follows the editor (capped again), ranked by the cursor's function, and in view. */
 export function createJourneysView(context: vscode.ExtensionContext): void {
-  // The provider's changes: the whole tree's (ViewSync's redraws), or only the writing rows' clocks (followWriting).
-  const changed = new vscode.EventEmitter<Node | Node[] | undefined>()
-  const synced = journeysTree.sync.provider(journeysTree)
-  const redraws = synced.onDidChangeTreeData!((e) => changed.fire(e as Node | Node[] | undefined))
-  const provider: vscode.TreeDataProvider<Node> = { ...synced, onDidChangeTreeData: changed.event }
-  const view = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: provider, showCollapseAll: true })
+  // The provider's changes: the whole tree's, or only the writing rows' clocks (followWriting), both through ViewSync.
+  const view = vscode.window.createTreeView('codeNotes.journeys', { treeDataProvider: journeysTree.sync.provider(journeysTree), showCollapseAll: true })
   journeysTree.attach(view)
   const editorChanged = vscode.window.onDidChangeActiveTextEditor(() => {
     capHere()
@@ -147,8 +143,8 @@ export function createJourneysView(context: vscode.ExtensionContext): void {
     journeysTree.refresh()
     if (e.editorChanged) revealHereGroup()
   })
-  context.subscriptions.push(view, editorChanged, selectionChanged, listChanged, ...journeysTree.sync.watch(view), changed, redraws,
-    followWriting(view, (rows) => changed.fire(rows)))
+  context.subscriptions.push(view, editorChanged, selectionChanged, listChanged, ...journeysTree.sync.watch(view),
+    followWriting(view, (rows) => journeysTree.sync.redrawRows(rows)))
 }
 
 /** The journeys Claude is writing: their rows come and go with the runs (the whole tree drawn again), and their clocks

@@ -25,7 +25,7 @@ const RETRIES = 8
 const TOP = Symbol('top')
 
 export class ViewSync<T extends object> {
-  private readonly changed = new vscode.EventEmitter<undefined>()
+  private readonly changed = new vscode.EventEmitter<T | T[] | undefined>()
   readonly onDidChangeTreeData = this.changed.event
   /** The rows VS Code was given since the last redraw, and the rows whose children it was given. */
   private readonly held = new Set<T>()
@@ -84,6 +84,17 @@ export class ViewSync<T extends object> {
     this.opened.add(parent ?? TOP)
     for (const c of children) this.held.add(c)
     return children
+  }
+
+  /** Some rows drawn again (a clock on them), not while a reveal is under way or a redraw is due (the caller draws
+   *  them again soon). VS Code may ask for other rows again meanwhile: it holds nothing for sure until it asks for the
+   *  top rows. */
+  redrawRows(rows: T[]): void {
+    if (!rows.length || this.revealing || this.redrawTimer) return
+    this.held.clear()
+    this.opened.clear()
+    this.applied = false
+    this.changed.fire(rows)
   }
 
   /** A redraw, once the burst of changes is over and no reveal is under way. */
