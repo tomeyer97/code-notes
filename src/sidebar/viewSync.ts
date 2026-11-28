@@ -7,7 +7,8 @@
 // only when VS Code holds the row, or holds its parents and won't ask for the parent's children itself (they were not
 // given yet and the parent is folded); and a redraw waits for a reveal under way. VS Code applies a redraw that comes
 // within 200 ms of the one before only when that time is up (rows given meanwhile are then dropped): redraws are spaced
-// further apart than that, so each is applied as it is fired.
+// further apart than that. Even so it applies a redraw a little after it is fired (seconds on a busy machine): rows it
+// asks for before it asks for the top rows again are of the drawing it is about to drop, so they don't count as held.
 
 import * as vscode from 'vscode'
 
@@ -29,6 +30,9 @@ export class ViewSync<T extends object> {
   /** The rows VS Code was given since the last redraw, and the rows whose children it was given. */
   private readonly held = new Set<T>()
   private readonly opened = new Set<T | typeof TOP>()
+  /** VS Code has applied the last redraw: it asked for the top rows since. It applies one up to 200 ms after it is
+   *  fired (longer on a busy machine), and rows it asks for before that are of the drawing it is about to drop. */
+  private applied = true
   /** What the person expanded (true) or folded (false), by row id: rows are made again, their ids stay. */
   private readonly expanded = new Map<string, boolean>()
   /** The rows' provider (set by `provider`). */
@@ -75,6 +79,8 @@ export class ViewSync<T extends object> {
   }
 
   private given(parent: T | undefined, children: T[]): T[] {
+    if (parent === undefined) this.applied = true
+    else if (!this.applied) return children
     this.opened.add(parent ?? TOP)
     for (const c of children) this.held.add(c)
     return children
@@ -93,6 +99,7 @@ export class ViewSync<T extends object> {
     this.lastRedraw = Date.now()
     this.held.clear()
     this.opened.clear()
+    this.applied = false
     this.changed.fire(undefined)
   }
 
