@@ -69,7 +69,7 @@ export function onlyLocalPlacementChanged(n: Note): boolean {
 export async function saveIfClean(n: Note): Promise<void> {
   if (openDoc(docUri(n))?.isDirty) return
   if (onlyLocalPlacementChanged(n)) return
-  await store().save(n)
+  await store().saveFollowing(n)
 }
 
 /** The lines of a selection: one ending at column 0 or inside the indentation of a line does not include that line. */

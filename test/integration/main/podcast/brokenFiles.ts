@@ -9,7 +9,7 @@ import { windowShot } from '../../helpers'
 import { ui } from '../../devtools'
 import { ctx, journeysDir } from '../context'
 import { podcastFile, writePodJourney } from './fixtures'
-import { diagnostics, lineOf, noChangeFor, pause, podTest, shots, startPlaying, toggle } from './player'
+import { diagnostics, lineOf, listenViewUnlocked, noChangeFor, pause, podTest, shots, startPlaying, toggle } from './player'
 import { LOAD_MS, MOVE_MS, pod, podUntil, QUICK_MS } from './state'
 import { frameOf, panelText, panelVisible } from './webview'
 
@@ -91,6 +91,7 @@ export const brokenFileTests = [
     assert.equal(problems()[0]?.range.start.character, fs.readFileSync(podFile(), 'utf8').indexOf('"audio"'), 'the error on "audio"')
     fs.renameSync(`${mp3}.away`, mp3)
     await podUntil('back: the podcast plays again', () => pod().journeys.includes('pod') && !pod().broken.pod, MOVE_MS)
+    await listenViewUnlocked('pod')
   }, { consoleClean: true }),
 
   // What is wrong with a podcast that plays is said in the player, the row and the Problems view: another

@@ -48,4 +48,54 @@ export const repoJourneysTests = [
     await reload()
     await until('back, fresh', () => saving() && saving().at.every((a: any) => !a.stale))
   }),
+
+  test('reading the journeys again (a setting changed, Refresh): every journey stays listed while the files are read', async () => {
+    await until('listed', () => saving())
+    const reading = reload()
+    // Open Journey asked meanwhile finds it: the list is never empty half-way through a reload.
+    assert.ok(saving(), `listed while the files are read again: ${snap().journeys.map((x: any) => x.id).join(', ')}`)
+    await reading
+    assert.ok(saving(), 'listed once read')
+  }),
+
+  // A file the watcher reads while the folders are listed may be missing from that listing: the reload must not
+  // drop it (an Open Journey right after writing a journey found nothing).
+  test('a journey written while the journeys are read again stays listed', async () => {
+    const files: string[] = []
+    try {
+      for (let i = 0; i < 12; i++) {
+        const reading = reload()
+        files.push(writeJourney(journeysDir(), { ...savingJourney, id: `during-${i}` }))
+        await reading
+        await until(`during-${i} listed`, () => journeyById(`during-${i}`))
+      }
+      await reload()
+      assert.equal(snap().journeys.filter((x: any) => /^during-/.test(x.id)).length, 12, 'all listed')
+    } finally {
+      for (const f of files) fs.rmSync(f, { force: true })
+    }
+    // Read again: a delete right after a create may come with no event at all (the watcher merges the two).
+    await reload()
+    await until('the written journeys gone', () => !snap().journeys.some((x: any) => /^during-/.test(x.id)))
+  }),
+
+  test('a reload while a personal copy is listed and the repo now has the same id: only the repo\'s stays listed', async () => {
+    const copy = path.join(journeysDir(), 'twin-copy.json')
+    fs.writeFileSync(copy, JSON.stringify({ ...savingJourney, id: 'twin', title: 'Twin copy' }))
+    await until('the copy listed', () => journeyById('twin'))
+    // Read again before the watcher reports the repo's file: the copy is still listed when the reload starts.
+    const inRepo = { ...savingJourney, id: 'twin', title: 'Twin in the repo' }
+    const repo = writeJourney(repoJourneysDir(), inRepo)
+    await reload()
+    try {
+      assert.equal(snap().journeys.filter((x: any) => x.id === 'twin').length, 1, 'one twin journey')
+      const rows = journeysTree()
+      assert.ok(rows.some((l) => /journey:.*Twin in the repo/.test(l)) && !rows.some((l) => /Twin copy/.test(l)), `the repo's wins: ${rows.join(' / ')}`)
+    } finally {
+      fs.rmSync(copy, { force: true })
+      fs.rmSync(repo, { force: true })
+    }
+    await reload()
+    await until('the twin gone', () => !journeyById('twin'))
+  }),
 ]

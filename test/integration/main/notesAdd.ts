@@ -59,6 +59,17 @@ async function typeLater(editor: vscode.TextEditor, text: string, ms: number): P
   assert.ok(!editor.document.isDirty, 'nothing typed into the code')
 }
 
+/** Add Code Note…'s input box on screen, empty, with the keyboard in it. */
+async function pathBoxReady(): Promise<boolean> {
+  return (await ui()).evaluate(() => {
+    const doc = (globalThis as any).document
+    const box = doc.querySelector('.quick-input-widget')
+    const shown = !!box && box.style.display !== 'none' && /Note on (file|folder) /.test(box.querySelector('.quick-input-title')?.textContent ?? '')
+    const el = doc.activeElement
+    return shown && el?.tagName === 'INPUT' && !!el.closest('.quick-input-widget') && el.value === ''
+  })
+}
+
 const noteWith = (body: string) => snap().notes.find((n: any) => n.messages[0].body === body)
 
 export const notesAddTests = [
@@ -121,16 +132,18 @@ export const notesAddTests = [
     // What VS Code passes from an editor tab's menu, then from the Explorer's (the selected uris).
     for (const [uri, arg] of [[file, { groupId: 0, editorIndex: 1 }], [folder, [folder]]] as const) {
       const done = vscode.commands.executeCommand('codeNotes.addPathNote', uri, arg)
-      await settle(500, 'the input box opens')
-      if (cdp) assert.ok(await (await ui()).locator('.quick-input-widget').isVisible(), 'the input box is shown')
+      if (cdp) await until('the input box is shown, with the keyboard', pathBoxReady)
+      else await settle(500, 'the input box opens')
       await vscode.commands.executeCommand('workbench.action.closeQuickOpen')
       assert.equal(await done, undefined, 'no note')
     }
     assert.equal(noteFiles(), before, 'no note file written')
     if (!cdp) return
     const done = vscode.commands.executeCommand<any>('codeNotes.addPathNote', file, { groupId: 0, editorIndex: 1 })
-    await until('the input box', () => ui().then((p) => p.locator('.quick-input-widget').isVisible()))
+    // The box just closed can still be on screen: wait for the new one to have the keyboard, and the text to be in it.
+    await until('the input box, with the keyboard', pathBoxReady)
     await (await ui()).keyboard.type('Is this file needed?')
+    await until('the text in the box', async () => (await (await ui()).locator('.quick-input-widget input').first().inputValue()) === 'Is this file needed?')
     await (await ui()).keyboard.press('Enter')
     const n = await done
     assert.equal(n?.data.messages[0].body, 'Is this file needed?', 'the typed text is the note')

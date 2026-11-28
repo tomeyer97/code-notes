@@ -33,7 +33,7 @@ import { writeJourney } from './write/writeJourney'
 import { writingRows } from './write/journeyJobs'
 import type { FromMap as MapMessage, ToMap } from './protocol/map'
 import type { ToCheck } from './protocol/check'
-import type { ToListen } from './protocol/listen'
+import type { ToPlayer } from './protocol/podcast'
 import { stepDraftKey } from './platform/keys'
 
 /** What `activate` returns outside Production (src/extension.ts): the integration tests import this type, not `any`. */
@@ -125,8 +125,8 @@ export function testApi(f: TestedFeatures) {
     mementos: () => f.host.stored.mementos(),
     /** Sends a message into the map webview (tests drive its real click/key handlers this way). */
     mapSend: (m: ToMap) => mapPanel.send(m),
-    /** A message for the Listen view (where the audio plays): a podcastCmd as the extension sends it. */
-    listenSend: (m: ToListen) => podcast.listenSend(m),
+    /** A podcastCmd for the player that has the audio (the Listen view, or the panel), as the extension sends it. */
+    hostSend: (m: ToPlayer) => podcast.hostSend(m),
     /** The Listen view ignores the extension's pauses (a camera wait that can't pause the audio). */
     listenIgnorePauses: (on: boolean) => podcast.listenIgnorePauses(on),
     /** A message as if the journey panel posted it (a beat the reader picked in the animation, …). */

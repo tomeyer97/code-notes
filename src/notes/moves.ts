@@ -54,7 +54,7 @@ export async function followMovedFiles(events: WorkspaceEvents): Promise<void> {
         (lines) => { const r = findAnchor(lines, n.data.anchor, locOf(n.data.range)); return r.stale ? undefined : r.loc },
       )
       if (moved) await moveNoteTo(n, moved.uri, moved.found)
-      else if (reanchor(n, undefined)) await store().save(n)
+      else if (reanchor(n, undefined)) await store().saveFollowing(n)
     }
     notesChanged({ kind: 'placed', ids: changed })
   })
@@ -69,7 +69,7 @@ async function moveNoteTo(n: Note, uri: vscode.Uri, loc: Loc): Promise<void> {
   n.data.stale = false
   // A past-the-end state stays as it is: reanchorAll, which runs first, left none for a file that is gone.
   placement.found(n.data.id, true)
-  await store().save(n)
+  await store().saveFollowing(n)
 }
 
 /** Files or folders renamed in the editor: notes on them, or inside them, follow. */
@@ -87,6 +87,6 @@ export async function followRename(oldUri: vscode.Uri, newUri: vscode.Uri): Prom
     if (!folder) continue
     n.data.file = relPath(folder, vscode.Uri.joinPath(newUri, old.slice(oldUri.path.length)))
     placement.found(n.data.id, true)
-    await store().save(n)
+    await store().saveFollowing(n)
   }
 }

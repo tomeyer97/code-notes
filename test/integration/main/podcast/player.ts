@@ -9,11 +9,12 @@ import { ui } from '../../devtools'
 import { ctx, tour } from '../context'
 import { podcastFile } from './fixtures'
 import { codeFile, litLine, LOAD_MS, MOVE_MS, pod, podUntil, QUICK_MS } from './state'
-import { frameOf, watchConsole } from './webview'
+import { frameOf, realClick, watchConsole } from './webview'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** A command to the player, as the Listen view's buttons send it. */
-export const send = (m: { action: string; [k: string]: unknown }) => ctx.api.listenSend({ type: 'podcastCmd', ...m })
+/** A command to the player that has the audio (the Listen view, or the panel when only it may play), as the
+ *  extension passes on a button's. */
+export const send = (m: { action: string; [k: string]: unknown }) => ctx.api.hostSend({ type: 'podcastCmd', ...m })
 export const seek = (to: number) => send({ action: 'seek', to })
 /** Ctrl+' Space: play or pause. */
 export const toggle = () => vscode.commands.executeCommand('codeNotes.podcastToggle')
@@ -61,11 +62,15 @@ export async function startPlaying(id: string, { ownMs = 3000 } = {}): Promise<v
   await podUntil('the panel shows it', () => tour().map === id && pod().mapVisible, LOAD_MS)
   const playing = () => pod().playing && pod().session === id
   if (!(await podUntil('playing on its own', playing, ownMs).catch(() => false))) {
-    if (await podUntil('the audio moved to the panel', () => pod().hostIn === 'panel', QUICK_MS).catch(() => false)) {
+    // A Listen view with no click yet refuses, and the audio goes to the panel showing the journey
+    // (src/podcast/audioHost.ts notAllowed): wait for that move however long it takes.
+    if (!pod().unlocked.listen) {
+      await podUntil('the audio moved to the panel', () => pod().hostIn === 'panel', LOAD_MS)
       const tab = () => vscode.window.tabGroups.activeTabGroup.activeTab?.input
       await podUntil('the panel is the active editor', () => tab() instanceof vscode.TabInputWebview && /codeNotes\.journey/.test((tab() as vscode.TabInputWebview).viewType), QUICK_MS)
       await sleep(500) // the focus inside the panel settles on its ▶ (no event for it)
-      await (await ui()).keyboard.press('Space')
+      // Space toggles: not when the panel's audio (already unlocked) started on its own meanwhile.
+      if (!playing()) await (await ui()).keyboard.press('Space')
     } else {
       const f = await frameOf('listen')
       await podUntil('▶ has the keyboard', async () => (await f.evaluate(() => (globalThis as any).document.activeElement?.className)) === 'pod-b play', QUICK_MS)
@@ -85,6 +90,25 @@ export async function listenTo(id: string, write: () => void, { panel = true } =
   await podUntil('its podcast is found', () => pod().journeys.includes(id), LOAD_MS)
   if (pod().session !== id || (panel && !pod().mapVisible)) await startPlaying(id)
   if (pod().playing) await pause()
+}
+
+/**
+ * The Listen view there and unlocked, as the first playback test leaves it, with journey `id` paused in it. The
+ * view goes 3 s after nothing is listened to (src/podcast/statusItem.ts LISTENING_OFF_MS), and a new one is locked
+ * until a click in it: a test that leaves nothing listened to, or its podcast unavailable for longer, puts it back
+ * with this (a journey listened to keeps it).
+ */
+export async function listenViewUnlocked(id: string): Promise<void> {
+  const ready = () => pod().listening && pod().hostIn === 'listen' && pod().unlocked.listen && pod().listenAlive
+  if (ready()) return
+  await startPlaying(id)
+  if (pod().playing) await pause()
+  if (ready()) return
+  if (pod().mapVisible) await closePanel()
+  await podUntil('the audio in the Listen view', () => pod().hostIn === 'listen' && pod().hostAlive && pod().hostVisible, MOVE_MS)
+  await realClick(await frameOf('listen'), '.pod-b.play')
+  await podUntil('the Listen view\'s ▶ plays there; the view unlocked', () => pod().playing && pod().hostIn === 'listen' && pod().unlocked.listen, MOVE_MS)
+  await pause()
 }
 
 /** Every editor closed but the journey panel. */

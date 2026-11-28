@@ -4,17 +4,23 @@
 import * as vscode from 'vscode'
 import { controller } from './ports'
 import { inNotesFolder } from './notesFolder'
-import { Poll, sleep, waitUntil } from './timing'
+import { sleep } from './timing'
 
 /** The file (uri) whose lines are commentable while Add Note's box is open there; undefined: none. */
 let addingIn: string | undefined
 
 /** When VS Code last asked for a file's commenting ranges: an editor that has just opened asks before it draws its threads. */
 export const rangesAskedAt = new Map<string, number>()
+/** Each runs the next time VS Code asks for a file's commenting ranges (by uri). */
+const askedWaiters = new Map<string, Set<() => void>>()
 
 export const rangeProvider: vscode.CommentingRangeProvider = {
   provideCommentingRanges: (doc) => {
-    rangesAskedAt.set(doc.uri.toString(), Date.now())
+    const key = doc.uri.toString()
+    rangesAskedAt.set(key, Date.now())
+    const waiting = askedWaiters.get(key)
+    askedWaiters.delete(key)
+    for (const w of waiting ?? []) w()
     const adding = doc.uri.toString() === addingIn && vscode.workspace.getWorkspaceFolder(doc.uri) && doc.lineCount && !inNotesFolder(doc.uri)
     return adding ? [new vscode.Range(0, 0, doc.lineCount - 1, 0)] : []
   },
@@ -22,9 +28,18 @@ export const rangeProvider: vscode.CommentingRangeProvider = {
 
 /** At least this long before the box is asked for: the comment widgets settle. */
 const SETTLE_MS = 120
-/** The window asks for the file's ranges again within a round trip: looked for often (it is usually quick), for at
- *  most a second (a slow remote link). */
-const RANGES_ASKED: Poll = { tries: 100, everyMs: 10 }
+/** The window asks for the file's ranges again within a round trip (seconds on a busy machine or a slow remote link);
+ *  at most this long, for a window that never asks (the editor gone meanwhile). */
+const RANGES_ASKED_MS = 10_000
+
+/** Resolves when VS Code next asks for `uri`'s commenting ranges, or after `ms`. */
+function nextAsk(uri: string, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => { clearTimeout(timer); askedWaiters.get(uri)?.delete(done); resolve() }
+    const timer = setTimeout(done, ms)
+    askedWaiters.set(uri, (askedWaiters.get(uri) ?? new Set()).add(done))
+  })
+}
 
 /** The scheme of a comment box's input editor. */
 export const COMMENT_INPUT = 'comment'
@@ -40,11 +55,11 @@ export async function allowComments(): Promise<void> {
   watching?.dispose()
   watching = undefined
   addingIn = u
+  const asked = u ? nextAsk(u, RANGES_ASKED_MS) : Promise.resolve()
   controller().commentingRangeProvider = rangeProvider
   const t0 = Date.now()
-  // At least SETTLE_MS, and until the window has asked for the file's ranges again: over a slow link that round trip
-  // takes longer, and the box would not open.
-  if (u) await waitUntil(() => (rangesAskedAt.get(u) ?? 0) >= t0, RANGES_ASKED)
+  // At least SETTLE_MS, and until the window has asked for the file's ranges again: before that the box would not open.
+  await asked
   const left = SETTLE_MS - (Date.now() - t0)
   if (left > 0) await sleep(left)
 }

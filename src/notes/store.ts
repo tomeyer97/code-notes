@@ -229,17 +229,30 @@ export class Store implements vscode.Disposable {
 
   /**
    * Writes a note. If its file changed since we read it (an agent appended a reply a moment ago), the change is
-   * merged in rather than overwritten. False when it could not be written (the failure is said).
+   * merged in rather than overwritten; if it was deleted, ours is written again (a reply or a resolve on it). False
+   * when it could not be written (the failure is said).
    */
-  async save(n: Note): Promise<boolean> {
+  save(n: Note): Promise<boolean> { return this.write(n, { ifOnDisk: false }) }
+
+  /**
+   * Writes where a note's code is now (its lines, stale, its anchor), as `save`, but never over a file deleted since we
+   * read it: that is no reason to bring a note back, and the watcher's delete, on its way, takes it out of the list.
+   * False when not written.
+   */
+  saveFollowing(n: Note): Promise<boolean> { return this.write(n, { ifOnDisk: true }) }
+
+  private async write(n: Note, o: { ifOnDisk: boolean }): Promise<boolean> {
     if (serialize(n.data) === n.raw) return true
     const before = n.base
     let merged = false
     if (n.raw !== undefined) {
-      // Undefined: deleted, write ours.
       const theirs = await this.changedOnDisk(n)
       if (theirs === false) return false
-      if (theirs) {
+      if (theirs === 'gone' && o.ifOnDisk) {
+        this.log.appendLine(`${n.uri.fsPath}: deleted on disk; its new place is not written back`)
+        return false
+      }
+      if (theirs && theirs !== 'gone') {
         n.data = merge(n.base ?? theirs, n.data, theirs)
         this.log.appendLine(`${n.uri.fsPath}: merged a change made on disk`)
         merged = true
@@ -264,15 +277,16 @@ export class Store implements vscode.Disposable {
   }
 
   /**
-   * The note as its file has it now, when that changed since we read it (undefined: unchanged or gone). A file that
-   * can't be read is waited for (an agent writing it in two steps); false when it stays so: our change can't be
-   * merged, and overwriting would lose theirs. Said, not only logged: the caller's change is not saved.
+   * The note as its file has it now, when that changed since we read it (undefined: unchanged; 'gone': deleted). A
+   * file that can't be read is waited for (an agent writing it in two steps); false when it stays so: our change can't
+   * be merged, and overwriting would lose theirs. Said, not only logged: the caller's change is not saved.
    */
-  private async changedOnDisk(n: Note): Promise<NoteData | undefined | false> {
+  private async changedOnDisk(n: Note): Promise<NoteData | undefined | false | 'gone'> {
     const until = Date.now() + this.writingWaitMs
     for (;;) {
       const disk = await readText(n.uri)
-      if (disk === undefined || disk === n.raw) return undefined
+      if (disk === undefined) return 'gone'
+      if (disk === n.raw) return undefined
       const read = parseNote(disk, n.data.id)
       if (read.ok) return read.value
       if (Date.now() >= until) {

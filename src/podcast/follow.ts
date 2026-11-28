@@ -145,6 +145,8 @@ export class Follow implements vscode.Disposable {
   private lastSeekT = -Infinity
   /** Moves being made now (the walk's changes meanwhile are the podcast's own). */
   private moving = 0
+  /** Counts the walk's moves and the seeks: a mark's move under way stops when this changes (markScheduler.ts). */
+  private turns = 0
   private readonly mover = new LatestWins<Move>((m, current) => this.move(m, current))
   /** The views a playing episode shows, per segment, by journey as loaded. */
   private calm = new WeakMap<LoadedJourney, { sig: string; views: View[] }>()
@@ -167,6 +169,8 @@ export class Follow implements vscode.Disposable {
   get applying(): number { return this.moving }
   /** A seek's move is on its way. */
   get seeking(): boolean { return !!this.seekTimer }
+  /** Changes with every move of the walk and every seek. */
+  get turn(): number { return this.turns }
 
   /** The podcast is playing and the walk on its journey follows it. */
   drives(): boolean {
@@ -224,6 +228,7 @@ export class Follow implements vscode.Disposable {
 
   /** A seek reported at `t`: the view at exactly that time; of seeks in quick succession only the last moves the walk. */
   followSeek(lj: LoadedJourney, pod: Loaded, t: number): void {
+    this.turns++
     const v = viewAt(pod.episode, t)
     const view = viewOf(v)
     this.lastSeg = v.seg
@@ -353,6 +358,7 @@ export class Follow implements vscode.Disposable {
   private async move(m: Move, current: () => boolean): Promise<void> {
     const { lj } = m
     const view = this.live(lj, m.view)
+    this.turns++
     this.moved.fire()
     this.moving++
     let onTheMap = false

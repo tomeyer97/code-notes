@@ -7,14 +7,16 @@
 // only when VS Code holds the row, or holds its parents and won't ask for the parent's children itself (they were not
 // given yet and the parent is folded); and a redraw waits for a reveal under way. VS Code applies a redraw that comes
 // within 200 ms of the one before only when that time is up (rows given meanwhile are then dropped): redraws are spaced
-// further apart than that, so each is applied as it is fired.
+// further apart than that. Even so it applies a redraw a little after it is fired (seconds on a busy machine): rows it
+// asks for before it asks for the top rows again are of the drawing it is about to drop, so they don't count as held.
 
 import * as vscode from 'vscode'
 
 /** Redraws at least this far apart (VS Code's extension host debounces them by 200 ms). */
 const REDRAW_GAP_MS = 250
-/** A reveal under way holds a redraw back at most this long. */
-const REVEAL_HOLDS_MS = 1000
+/** A reveal under way holds a redraw back until VS Code answers it (seconds on a busy machine: a redraw before that
+ *  drops the row it is resolving); at most this long, for an answer that never comes (the window closing). */
+const REVEAL_HOLDS_MS = 10000
 /** A reveal that can't go ahead yet (a redraw due, its rows not drawn yet) is tried again this often, so many times. */
 const RETRY_MS = 150
 const RETRIES = 8
@@ -23,11 +25,14 @@ const RETRIES = 8
 const TOP = Symbol('top')
 
 export class ViewSync<T extends object> {
-  private readonly changed = new vscode.EventEmitter<undefined>()
+  private readonly changed = new vscode.EventEmitter<T | T[] | undefined>()
   readonly onDidChangeTreeData = this.changed.event
   /** The rows VS Code was given since the last redraw, and the rows whose children it was given. */
   private readonly held = new Set<T>()
   private readonly opened = new Set<T | typeof TOP>()
+  /** VS Code has applied the last redraw: it asked for the top rows since. It applies one up to 200 ms after it is
+   *  fired (longer on a busy machine), and rows it asks for before that are of the drawing it is about to drop. */
+  private applied = true
   /** What the person expanded (true) or folded (false), by row id: rows are made again, their ids stay. */
   private readonly expanded = new Map<string, boolean>()
   /** The rows' provider (set by `provider`). */
@@ -74,9 +79,22 @@ export class ViewSync<T extends object> {
   }
 
   private given(parent: T | undefined, children: T[]): T[] {
+    if (parent === undefined) this.applied = true
+    else if (!this.applied) return children
     this.opened.add(parent ?? TOP)
     for (const c of children) this.held.add(c)
     return children
+  }
+
+  /** Some rows drawn again (a clock on them), not while a reveal is under way or a redraw is due (the caller draws
+   *  them again soon). VS Code may ask for other rows again meanwhile: it holds nothing for sure until it asks for the
+   *  top rows. */
+  redrawRows(rows: T[]): void {
+    if (!rows.length || this.revealing || this.redrawTimer) return
+    this.held.clear()
+    this.opened.clear()
+    this.applied = false
+    this.changed.fire(rows)
   }
 
   /** A redraw, once the burst of changes is over and no reveal is under way. */
@@ -92,6 +110,7 @@ export class ViewSync<T extends object> {
     this.lastRedraw = Date.now()
     this.held.clear()
     this.opened.clear()
+    this.applied = false
     this.changed.fire(undefined)
   }
 
@@ -124,7 +143,7 @@ export class ViewSync<T extends object> {
     return item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded
   }
 
-  /** A reveal under way: a redraw meanwhile waits for it (not longer than REVEAL_HOLDS_MS). */
+  /** A reveal under way: a redraw meanwhile waits for VS Code's answer (not longer than REVEAL_HOLDS_MS). */
   private start(reveal: Thenable<void>): void {
     const holds = new Promise<void>((resolve) => setTimeout(resolve, REVEAL_HOLDS_MS))
     const done = Promise.race([Promise.resolve(reveal).then(undefined, () => undefined), holds])
