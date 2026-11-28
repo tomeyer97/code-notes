@@ -13,8 +13,9 @@ import * as vscode from 'vscode'
 
 /** Redraws at least this far apart (VS Code's extension host debounces them by 200 ms). */
 const REDRAW_GAP_MS = 250
-/** A reveal under way holds a redraw back at most this long. */
-const REVEAL_HOLDS_MS = 1000
+/** A reveal under way holds a redraw back until VS Code answers it (seconds on a busy machine: a redraw before that
+ *  drops the row it is resolving); at most this long, for an answer that never comes (the window closing). */
+const REVEAL_HOLDS_MS = 10000
 /** A reveal that can't go ahead yet (a redraw due, its rows not drawn yet) is tried again this often, so many times. */
 const RETRY_MS = 150
 const RETRIES = 8
@@ -124,7 +125,7 @@ export class ViewSync<T extends object> {
     return item.collapsibleState === vscode.TreeItemCollapsibleState.Expanded
   }
 
-  /** A reveal under way: a redraw meanwhile waits for it (not longer than REVEAL_HOLDS_MS). */
+  /** A reveal under way: a redraw meanwhile waits for VS Code's answer (not longer than REVEAL_HOLDS_MS). */
   private start(reveal: Thenable<void>): void {
     const holds = new Promise<void>((resolve) => setTimeout(resolve, REVEAL_HOLDS_MS))
     const done = Promise.race([Promise.resolve(reveal).then(undefined, () => undefined), holds])
