@@ -111,7 +111,9 @@ export class ListenView implements vscode.WebviewViewProvider, vscode.Disposable
   async ensure(): Promise<boolean> {
     if (this.alive) return true
     const ready = this.nextReady(READY_TIMEOUT_MS)
-    if (!this.view && !(await this.show())) { ready.cancel(); return false }
+    // Shown also when a view is held but its page isn't there: VS Code may have just taken the view out (its
+    // `when` turned false) without the dispose having arrived; waiting on that view's page would wait for nothing.
+    if (!(await this.show())) { ready.cancel(); return false }
     return ready.done
   }
 
